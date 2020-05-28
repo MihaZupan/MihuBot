@@ -23,7 +23,7 @@ namespace MihuBot
         private static readonly HttpClient HttpClient = new HttpClient();
 
         private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
-        private static readonly StreamWriter LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
+        private static StreamWriter LogWriter;
 
         private static async Task LogAsync(string content)
         {
@@ -99,6 +99,8 @@ namespace MihuBot
         {
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
+
+            LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
             Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 8 });
 
