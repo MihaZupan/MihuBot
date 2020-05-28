@@ -16,11 +16,14 @@ namespace MihuBot
 {
     class Program
     {
+        private static readonly string LogsRoot = "logs/";
+        private static readonly string FilesRoot = (Environment.OSVersion.Platform == PlatformID.Unix ? "/logs-drive/" : "logs/") + "/files/";
+
         private static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
 
         private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
-        private static readonly StreamWriter LogWriter = new StreamWriter(@"C:\Users\Miha\Documents\Discord\" + DateTime.UtcNow.Ticks + ".txt");
+        private static readonly StreamWriter LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
         private static async Task LogAsync(string content)
         {
@@ -94,6 +97,9 @@ namespace MihuBot
 
         static async Task Main()
         {
+            Directory.CreateDirectory(LogsRoot);
+            Directory.CreateDirectory(FilesRoot);
+
             Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 8 });
 
             Client.MessageReceived += Client_MessageReceived;
@@ -104,7 +110,7 @@ namespace MihuBot
             await Client.LoginAsync(TokenType.Bot, "***REMOVED***");
             await Client.StartAsync();
 
-            await Client.SetGameAsync("Beeping and booping", streamUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", type: ActivityType.Listening);
+            await Client.SetGameAsync("Beeping and booping", type: ActivityType.Listening);
 
             await Task.Delay(-1);
         }
@@ -195,7 +201,7 @@ namespace MihuBot
                         {
                             var response = await HttpClient.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
 
-                            using FileStream fs = File.OpenWrite(@"C:\Users\Miha\Documents\Discord\" + a.Id + "_" + a.Filename);
+                            using FileStream fs = File.OpenWrite(FilesRoot + a.Id + "_" + a.Filename);
                             using Stream stream = await response.Content.ReadAsStreamAsync();
                             await stream.CopyToAsync(fs);
                         }
