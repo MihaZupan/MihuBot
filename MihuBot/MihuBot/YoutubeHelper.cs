@@ -189,7 +189,7 @@ namespace MihuBot
         {
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
-            ffmpeg.StartInfo.Arguments = $"-i \"{sourcePath}\" -b:a 192k -vn \"{targetPath}\"";
+            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a 192k -vn \"{targetPath}\"";
             ffmpeg.Start();
             ffmpeg.WaitForExit();
         }
