@@ -161,7 +161,7 @@ namespace MihuBot
 
                 Console.WriteLine("Processing playlist with " + videos.Count + " items");
 
-                Task[] tasks = new Task[Math.Min(videos.Count, 2)];
+                Task[] tasks = new Task[Math.Min(videos.Count, 4)];
                 int index = -1;
                 for (int i = 0; i < tasks.Length; i++)
                 {
