@@ -6,7 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace YeswBot
+namespace MihuBot
 {
     static class EmbedHelper
     {

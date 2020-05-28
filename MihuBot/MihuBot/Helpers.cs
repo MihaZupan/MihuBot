@@ -2,7 +2,7 @@
 using Discord.WebSocket;
 using System.Threading.Tasks;
 
-namespace YeswBot
+namespace MihuBot
 {
     public static class Helpers
     {
