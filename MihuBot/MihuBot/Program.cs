@@ -196,7 +196,7 @@ namespace MihuBot
                     await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + content);
                 }
 
-                if (message.Attachments.Any())
+                if (message.Author.Id != MihuBotID && message.Attachments.Any())
                 {
                     await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
                         try
