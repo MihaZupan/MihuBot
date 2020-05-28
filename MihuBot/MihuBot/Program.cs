@@ -35,17 +35,17 @@ namespace MihuBot
 
         private static readonly Emote YesW          = Emote.Parse("<:yesW:569000155513225220>");
         private static readonly Emote PudeesJammies = Emote.Parse("<:pudeesJammies:686340394866573338>");
-        private static readonly Emote DarlBoop      = Emote.Parse("<:darlBoop:580683729081597952>");
-        private static readonly Emote DarlLove      = Emote.Parse("<:darlLove:705711735444865104>");
+        private static readonly Emote DarlBoop      = Emote.Parse("<:darlBoop:712494064087597106>");
+        private static readonly Emote DarlHearts    = Emote.Parse("<a:darlHearts:712496083334463528>");
         private static readonly Emote DarlHug       = Emote.Parse("<:darlHug:712494106466844723>");
         private static readonly Emote DarlKiss      = Emote.Parse("<:darlKiss:712494206308057248>");
-        private static readonly Emote DarlGasm      = Emote.Parse("<:darlGasm:705711738473152532>");
-        private static readonly Emote DarlHmph      = Emote.Parse("<:darlHmph:705711737613320262>");
+        private static readonly Emote DarlBASS      = Emote.Parse("<a:darlBASS:560235665040867328>");
         private static readonly Emote CreepyFace    = Emote.Parse("<:creepyface:708818227446284369>");
         private static readonly Emote MonkaHmm      = Emote.Parse("<:monkaHmm:712494625390198856>");
-        private static readonly Emote Monkers       = Emote.Parse("<:monkaHmm:659892218991083520>");
+        private static readonly Emote Monkers       = Emote.Parse("<:MONKERS:715472497499176981>");
         private static readonly Emote DarlSip       = Emote.Parse("<:darlSip:705711728146776094>");
-        private static readonly Emote JaegerKnife   = Emote.Parse("<:jaeger18Knife:579703269526601728>");
+        private static readonly Emote DarlPoke      = Emote.Parse("<:darlPoke:591174254372978689>");
+        private static readonly Emote DarlZoom      = Emote.Parse("<a:darlZoom:574377475115581440>");
 
         private static readonly Emote[] JamesEmotes = new Emote[]
         {
@@ -346,7 +346,7 @@ namespace MihuBot
                         }
                     }
                     else if (command == "butt" || command == "slap" || command == "kick"
-                        || command == "love" || command == "hug" || command == "kiss"
+                        || command == "love" || command == "hug" || command == "kiss" || command == "boop"
                         || (Admins.Contains(message.Author.Id) && (command == "fist" || command == "stab")))
                     {
                         bool at = parts.Length > 1 && parts[^1].Equals("at", StringComparison.OrdinalIgnoreCase) && Admins.Contains(message.Author.Id);
@@ -377,15 +377,15 @@ namespace MihuBot
 
                         if (command == "butt")
                         {
-                            reply = $"{message.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {DarlGasm}";
+                            reply = $"{message.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {DarlBASS}";
                         }
                         else if (command == "slap")
                         {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {DarlHmph}";
+                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {MonkaHmm}";
                         }
                         else if (command == "kick")
                         {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {MonkaHmm}";
+                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {DarlZoom}";
                         }
                         else if (command == "fist")
                         {
@@ -400,7 +400,7 @@ namespace MihuBot
                         }
                         else if (command == "love")
                         {
-                            reply = $"{message.Author.Username} wants {target} to know they are loved! {DarlLove}";
+                            reply = $"{message.Author.Username} wants {target} to know they are loved! {DarlHearts}";
                         }
                         else if (command == "hug")
                         {
@@ -412,7 +412,11 @@ namespace MihuBot
                         }
                         else if (command == "stab")
                         {
-                            reply = $"{message.Author.Username} just stabbed {target}! {JaegerKnife}";
+                            reply = $"{message.Author.Username} just stabbed {target}! {DarlPoke}";
+                        }
+                        else if (command == "boop")
+                        {
+                            reply = $"{target} {DarlBoop}";
                         }
                         else throw new InvalidOperationException("Unknown commmand");
 
