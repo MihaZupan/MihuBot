@@ -194,6 +194,8 @@ namespace MihuBot
                 if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
+                SocketGuild guild = guildChannel.Guild;
+
                 bool isAdmin = Admins.Contains(message.Author.Id);
                 string content = message.Content.Trim();
 
@@ -336,6 +338,10 @@ namespace MihuBot
                         {
                             await message.ReplyAsync(RngBool() ? "Heads" : "Tails", mention: true);
                         }
+                    }
+                    else if (command == "admins")
+                    {
+                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => Admins.Contains(u.Id)).Select(a => a.Username)));
                     }
                     else if (command == "butt" || command == "slap" || command == "kick"
                         || command == "love" || command == "hug" || command == "kiss" || command == "boop"
