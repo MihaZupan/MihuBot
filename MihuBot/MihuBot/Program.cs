@@ -43,7 +43,7 @@ namespace MihuBot
         private static readonly Emote CreepyFace    = Emote.Parse("<:creepyface:708818227446284369>");
         private static readonly Emote MonkaHmm      = Emote.Parse("<:monkaHmm:712494625390198856>");
         private static readonly Emote Monkers       = Emote.Parse("<:MONKERS:715472497499176981>");
-        private static readonly Emote DarlSip       = Emote.Parse("<:darlSip:705711728146776094>");
+        private static readonly Emote MonkaEZ       = Emote.Parse("<:EZ:712494500731158549>");
         private static readonly Emote DarlPoke      = Emote.Parse("<:darlPoke:591174254372978689>");
         private static readonly Emote DarlZoom      = Emote.Parse("<a:darlZoom:574377475115581440>");
 
@@ -65,7 +65,7 @@ namespace MihuBot
             "banana", "ba na na", "b a n a n a"
         };
 
-        private static readonly HashSet<ulong> ServerIDs = new HashSet<ulong>()
+        private static readonly HashSet<ulong> GuildIDs = new HashSet<ulong>()
         {
             350658308878630914ul, // DD
             566925785563136020ul, // Mihu
@@ -124,7 +124,7 @@ namespace MihuBot
 
             try
             {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !ServerIDs.Contains(guildChannel.Guild.Id))
+                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 if (!string.IsNullOrWhiteSpace(message.Content))
@@ -142,7 +142,7 @@ namespace MihuBot
         {
             try
             {
-                if (!(reaction.Channel is SocketGuildChannel guildChannel) || !ServerIDs.Contains(guildChannel.Guild.Id))
+                if (!(reaction.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
@@ -186,7 +186,7 @@ namespace MihuBot
 
             try
             {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !ServerIDs.Contains(guildChannel.Guild.Id))
+                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 bool isAdmin = Admins.Contains(message.Author.Id);
@@ -272,25 +272,9 @@ namespace MihuBot
                             _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, message.Channel));
                         }
                     }
-                    else if (content.Contains('{'))
+                    else if (isAdmin && content.Contains('\n') && content.AsSpan(0, 40).Contains("msg ", StringComparison.OrdinalIgnoreCase))
                     {
-                        int first = content.IndexOf('{');
-                        int last = content.LastIndexOf('}');
-
-                        if (first != -1 && last != -1 && last > first)
-                        {
-                            if (!isAdmin)
-                            {
-                                await message.ReplyAsync("you have no power over me", mention: true);
-                                return;
-                            }
-
-                            if (message.Author.Id == MihuBotID)
-                                await message.Channel.DeleteMessageAsync(message.Id);
-
-                            string json = content.Substring(first, last - first + 1);
-                            await EmbedHelper.SendEmbedAsync(json, message.Channel);
-                        }
+                        await SendCustomMessage(content, message);
                     }
                 }
                 
@@ -427,13 +411,74 @@ namespace MihuBot
                     }
                     else if (!isAdmin && (command == "fist" || command == "stab"))
                     {
-                        await message.ReplyAsync($"No {DarlSip}", mention: true);
+                        await message.ReplyAsync($"No {MonkaEZ}", mention: true);
                     }
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
+            }
+        }
+
+        private static async Task SendCustomMessage(string commandMessage, SocketMessage message)
+        {
+            string[] lines = commandMessage.Split('\n');
+            string[] headers = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (headers.Length < 4)
+            {
+                await message.ReplyAsync("Missing command arguments");
+                return;
+            }
+
+            if (!headers[1].Equals("msg", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (!ulong.TryParse(headers[2], out ulong guildId) || !GuildIDs.Contains(guildId))
+            {
+                string guilds = string.Join('\n', GuildIDs.Select(id => id + ": " + Client.GetGuild(id).Name));
+                await message.ReplyAsync("Invalid Guild ID. Try:\n```\n" + guilds + "\n```");
+                return;
+            }
+
+            if (!ulong.TryParse(headers[3], out ulong channelId))
+            {
+                await message.ReplyAsync("Invalid channel ID format");
+                return;
+            }
+
+            SocketGuild guild = Client.GetGuild(guildId);
+
+            if (!(guild.TextChannels.FirstOrDefault(c => c.Id == channelId) is SocketTextChannel channel))
+            {
+                string channels = string.Join('\n', guild.Channels.Select(c => c.Id + ":\t" + c.Name));
+                if (channels.Length > 500)
+                {
+                    channels = string.Concat(channels.AsSpan(0, channels.AsSpan(0, 496).LastIndexOf('\n')), " ...");
+                }
+
+                await message.ReplyAsync("Unknown channel. Try:\n```\n" + channels + "\n```");
+                return;
+            }
+
+            try
+            {
+                if (lines[1].AsSpan().TrimStart().StartsWith('{') && lines[^1].AsSpan().TrimEnd().EndsWith('}'))
+                {
+                    int first = commandMessage.IndexOf('{');
+                    int last = commandMessage.LastIndexOf('}');
+                    await EmbedHelper.SendEmbedAsync(commandMessage.Substring(first, last - first + 1), channel);
+                }
+                else
+                {
+                    await channel.SendMessageAsync(commandMessage.AsSpan(lines[0].Length + 1).Trim(stackalloc char[] { ' ', '\t', '\r', '\n' }).ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                await message.ReplyAsync(ex.Message, mention: true);
+                throw;
             }
         }
 
