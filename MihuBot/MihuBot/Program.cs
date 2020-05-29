@@ -65,6 +65,11 @@ namespace MihuBot
             "banana", "ba na na", "b a n a n a"
         };
 
+        private static readonly string[] TypingResponseWords = new string[]
+        {
+            "cock", "penis"
+        };
+
         private static readonly HashSet<ulong> GuildIDs = new HashSet<ulong>()
         {
             350658308878630914ul, // DD
@@ -413,6 +418,25 @@ namespace MihuBot
                     {
                         await message.ReplyAsync($"No {MonkaEZ}", mention: true);
                     }
+                }
+                else
+                {
+                    int space = -1;
+                    do
+                    {
+                        int next = content.IndexOf(' ', space + 1);
+                        if (next == -1)
+                            next = content.Length;
+
+                        if (TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
+                        {
+                            await message.Channel.TriggerTypingAsync();
+                            break;
+                        }
+
+                        space = next;
+                    }
+                    while (space + 1 < content.Length);
                 }
             }
             catch (Exception ex)

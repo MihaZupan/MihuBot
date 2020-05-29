@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace MihuBot
@@ -20,6 +21,18 @@ namespace MihuBot
         public static bool EndsWith(this ReadOnlySpan<char> span, char c)
         {
             return 0 < (uint)span.Length && span[^1] == c;
+        }
+
+        public static bool Contains(this string[] matches, ReadOnlySpan<char> text, StringComparison stringComparison)
+        {
+            foreach (var match in matches)
+            {
+                if (text.Equals(match, stringComparison))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }
