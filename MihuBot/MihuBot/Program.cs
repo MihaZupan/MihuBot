@@ -189,6 +189,7 @@ namespace MihuBot
                 if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !ServerIDs.Contains(guildChannel.Guild.Id))
                     return;
 
+                bool isAdmin = Admins.Contains(message.Author.Id);
                 string content = message.Content.Trim();
 
                 if (!string.IsNullOrWhiteSpace(content))
@@ -278,7 +279,7 @@ namespace MihuBot
 
                         if (first != -1 && last != -1 && last > first)
                         {
-                            if (!Admins.Contains(message.Author.Id))
+                            if (!isAdmin)
                             {
                                 await message.ReplyAsync("you have no power over me", mention: true);
                                 return;
@@ -349,9 +350,9 @@ namespace MihuBot
                     }
                     else if (command == "butt" || command == "slap" || command == "kick"
                         || command == "love" || command == "hug" || command == "kiss" || command == "boop"
-                        || (Admins.Contains(message.Author.Id) && (command == "fist" || command == "stab")))
+                        || (isAdmin && (command == "fist" || command == "stab")))
                     {
-                        bool at = parts.Length > 1 && parts[^1].Equals("at", StringComparison.OrdinalIgnoreCase) && Admins.Contains(message.Author.Id);
+                        bool at = isAdmin && parts.Length > 1 && parts[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
 
                         IUser rngUser = null;
 
@@ -360,7 +361,7 @@ namespace MihuBot
                             if (message.MentionedUsers.SingleOrDefault() != null && parts[1].StartsWith("<@") && parts[1].EndsWith('>'))
                             {
                                 rngUser = message.MentionedUsers.Single();
-                                at |= Admins.Contains(message.Author.Id);
+                                at |= isAdmin;
                             }
                             else if (ulong.TryParse(parts[1], out ulong userId))
                             {
@@ -424,7 +425,7 @@ namespace MihuBot
 
                         await message.ReplyAsync(reply);
                     }
-                    else if (!Admins.Contains(message.Author.Id) && (command == "fist" || command == "stab"))
+                    else if (!isAdmin && (command == "fist" || command == "stab"))
                     {
                         await message.ReplyAsync($"No {DarlSip}", mention: true);
                     }
