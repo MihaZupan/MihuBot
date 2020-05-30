@@ -17,11 +17,12 @@ namespace MihuBot
     class Program
     {
         private static readonly string LogsRoot = "logs/";
-        private static readonly string FilesRoot = (Environment.OSVersion.Platform == PlatformID.Unix ? "/logs-drive/" : "logs/") + "/files/";
+        private static readonly string FilesRoot = LogsRoot + "files/";
 
         private static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
 
+        private static int _fileCounter = 0;
         private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
         private static StreamWriter LogWriter;
 
@@ -214,6 +215,16 @@ namespace MihuBot
                             using FileStream fs = File.OpenWrite(FilesRoot + a.Id + "_" + a.Filename);
                             using Stream stream = await response.Content.ReadAsStreamAsync();
                             await stream.CopyToAsync(fs);
+
+                            if (Interlocked.Increment(ref _fileCounter) % 10 == 0)
+                            {
+                                var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
+                                if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
+                                {
+                                    var channel = Client.GetGuild(566925785563136020ul).GetTextChannel(715997637978882110ul);
+                                    await channel.SendMessageAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {
