@@ -350,6 +350,18 @@ namespace MihuBot
                             await message.ReplyAsync(RngBool() ? "Heads" : "Tails", mention: true);
                         }
                     }
+                    else if (command == "dl")
+                    {
+                        SocketMessage msg = message.Channel
+                            .GetCachedMessages(10)
+                            .OrderByDescending(m => m.Timestamp)
+                            .FirstOrDefault(m => m.Content.Contains("youtu") && YoutubeHelper.TryParseVideoId(m.Content, out _));
+
+                        if (msg != null && YoutubeHelper.TryParseVideoId(msg.Content, out string videoId))
+                        {
+                            _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, message.Channel));
+                        }
+                    }
                     else if (command == "admins")
                     {
                         await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => Admins.Contains(u.Id)).Select(a => a.Username)));
