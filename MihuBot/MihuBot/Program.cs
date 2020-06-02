@@ -355,7 +355,7 @@ namespace MihuBot
                         SocketMessage msg = message.Channel
                             .GetCachedMessages(10)
                             .OrderByDescending(m => m.Timestamp)
-                            .FirstOrDefault(m => m.Content.Contains("youtu") && YoutubeHelper.TryParseVideoId(m.Content, out _));
+                            .FirstOrDefault(m => m.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase) && YoutubeHelper.TryParseVideoId(m.Content, out _));
 
                         if (msg != null && YoutubeHelper.TryParseVideoId(msg.Content, out string videoId))
                         {
