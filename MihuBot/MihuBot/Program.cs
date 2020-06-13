@@ -120,6 +120,9 @@ namespace MihuBot
 
             Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 8 });
 
+            TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Client.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
+
             Client.MessageReceived += Client_MessageReceived;
             Client.ReactionAdded += Client_ReactionAdded;
             Client.MessageUpdated += Client_MessageUpdated;
@@ -127,6 +130,8 @@ namespace MihuBot
             //await Client.LoginAsync(0, "***REMOVED***");
             await Client.LoginAsync(TokenType.Bot, "***REMOVED***");
             await Client.StartAsync();
+
+            await onConnectedTcs.Task;
 
             await Client.SetGameAsync("Beeping and booping", type: ActivityType.Listening);
 
@@ -140,7 +145,8 @@ namespace MihuBot
                 {
                     try
                     {
-                        var channel = Client.GetGuild(guildId).GetTextChannel(channelId);
+                        var guild = Client.GetGuild(guildId);
+                        var channel = guild.GetTextChannel(channelId);
                         await channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)} I am back {DarlBoop}");
                     }
                     catch (Exception ex)
@@ -152,7 +158,11 @@ namespace MihuBot
 
             await BotStopTCS.Task;
 
-            Environment.Exit(1);
+            try
+            {
+                await Client.StopAsync();
+            }
+            catch { }
         }
 
         private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
