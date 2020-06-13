@@ -16,11 +16,11 @@ namespace MihuBot
 {
     class Program
     {
-        private static readonly string LogsRoot = "logs/";
-        private static readonly string FilesRoot = LogsRoot + "files/";
-
         private static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
+
+        private static readonly string LogsRoot = "logs/";
+        private static readonly string FilesRoot = LogsRoot + "files/";
 
         private static int _fileCounter = 0;
         private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
@@ -98,6 +98,7 @@ namespace MihuBot
         private const ulong JamesID = 91680709588045824ul;
         private const ulong ChristianID = 397254656025427968ul;
         private const ulong CurtIsID = 237788815626862593ul;
+        private const ulong JordanID = 236455327535464458ul;
 
         private const ulong MihuBotID = 710370560596770856ul;
 
@@ -198,6 +199,7 @@ namespace MihuBot
                 SocketGuild guild = guildChannel.Guild;
 
                 bool isAdmin = Admins.Contains(message.Author.Id);
+                bool isMentioned = message.MentionedUsers.Any(u => u.Id == MihuBotID);
                 string content = message.Content.Trim();
 
                 if (!string.IsNullOrWhiteSpace(content))
@@ -277,7 +279,8 @@ namespace MihuBot
                 {
                     await userMessage.AddReactionAsync(PudeesJammies);
                 }
-                else if (message.MentionedUsers.Any(u => u.Id == MihuBotID))
+
+                if (isMentioned)
                 {
                     if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                     {
@@ -450,28 +453,34 @@ namespace MihuBot
                 }
                 else
                 {
-                    int space = -1;
-                    do
-                    {
-                        int next = content.IndexOf(' ', space + 1);
-                        if (next == -1)
-                            next = content.Length;
-
-                        if (TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
-                        {
-                            await message.Channel.TriggerTypingAsync();
-                            break;
-                        }
-
-                        space = next;
-                    }
-                    while (space + 1 < content.Length);
+                    await ParseWords(content, message);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
             }
+        }
+
+        private static Task ParseWords(string content, SocketMessage message)
+        {
+            int space = -1;
+            do
+            {
+                int next = content.IndexOf(' ', space + 1);
+                if (next == -1)
+                    next = content.Length;
+
+                if (TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
+                {
+                    return message.Channel.TriggerTypingAsync();
+                }
+
+                space = next;
+            }
+            while (space + 1 < content.Length);
+
+            return Task.CompletedTask;
         }
 
         private static async Task SendCustomMessage(string commandMessage, SocketMessage message)
@@ -544,7 +553,7 @@ namespace MihuBot
 
         private static int Rng(int mod)
         {
-            Span<byte> buffer = stackalloc byte[32];
+            Span<byte> buffer = stackalloc byte[16];
             System.Security.Cryptography.RandomNumberGenerator.Fill(buffer);
             var number = new BigInteger(buffer, isUnsigned: true);
 

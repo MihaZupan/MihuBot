@@ -34,5 +34,10 @@ namespace MihuBot
             }
             return false;
         }
+
+        public static SocketGuild Guild(this SocketMessage message)
+        {
+            return (message.Channel as SocketGuildChannel).Guild;
+        }
     }
 }
