@@ -140,7 +140,7 @@ namespace MihuBot
                 {
                     try
                     {
-                        var channel = Client.GetGuild(guildId).GetChannel(channelId) as ISocketMessageChannel;
+                        var channel = Client.GetGuild(guildId).GetTextChannel(channelId);
                         await channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)} I am back {DarlBoop}");
                     }
                     catch (Exception ex)
