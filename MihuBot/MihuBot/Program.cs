@@ -107,6 +107,12 @@ namespace MihuBot
 
         static async Task Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "start")
+            {
+                await StartUpdateAsync(null);
+                return;
+            }
+
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
 
@@ -657,18 +663,22 @@ namespace MihuBot
 
         private static async Task StartUpdateAsync(SocketMessage message)
         {
-            Debug.Assert(Admins.Contains(message.Author.Id));
-            Debug.Assert(message.Content.Contains("update", StringComparison.OrdinalIgnoreCase));
+            if (message != null)
+            {
+                Debug.Assert(Admins.Contains(message.Author.Id));
+                Debug.Assert(message.Content.Contains("update", StringComparison.OrdinalIgnoreCase));
 
-            if (Interlocked.Exchange(ref _updating, 1) != 0)
-                return;
+                if (Interlocked.Exchange(ref _updating, 1) != 0)
+                    return;
 
-            await message.ReplyAsync("Updating ...");
-            await Client.StopAsync();
+                await message.ReplyAsync("Updating ...");
+                await Client.StopAsync();
+            }
 
             using Process updateProcess = new Process();
             updateProcess.StartInfo.FileName = "/bin/bash";
-            updateProcess.StartInfo.Arguments = $"/home/miha/MihuBot/MihuBot/update.sh \"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"";
+            updateProcess.StartInfo.Arguments = "/home/miha/MihuBot/MihuBot/update.sh" +
+                (message is null ? null : $" \"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"");
             updateProcess.StartInfo.UseShellExecute = false;
             updateProcess.StartInfo.WorkingDirectory = $"\"{Environment.CurrentDirectory}\"";
             updateProcess.Start();
