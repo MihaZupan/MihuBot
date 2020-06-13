@@ -137,7 +137,10 @@ namespace MihuBot
                         var channel = Client.GetGuild(guildId).GetChannel(channelId) as ISocketMessageChannel;
                         await channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)} I am back {DarlBoop}");
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex);
+                    }
                 }
             }
 
@@ -657,8 +660,10 @@ namespace MihuBot
             await Client.StopAsync();
 
             using Process updateProcess = new Process();
-            updateProcess.StartInfo.FileName = "/home/miha/MihuBot/MihuBot/update.sh";
-            updateProcess.StartInfo.Arguments = $"\"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"";
+            updateProcess.StartInfo.FileName = "/bin/bash";
+            updateProcess.StartInfo.Arguments = $"/home/miha/MihuBot/MihuBot/update.sh \"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"";
+            updateProcess.StartInfo.UseShellExecute = false;
+            updateProcess.StartInfo.WorkingDirectory = $"\"{Environment.CurrentDirectory}\"";
             updateProcess.Start();
 
             BotStopTCS.TrySetResult(null);
