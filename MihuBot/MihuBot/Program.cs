@@ -680,7 +680,7 @@ namespace MihuBot
             updateProcess.StartInfo.Arguments = "/home/miha/MihuBot/MihuBot/update.sh" +
                 (message is null ? null : $" \"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"");
             updateProcess.StartInfo.UseShellExecute = false;
-            updateProcess.StartInfo.WorkingDirectory = $"\"{Environment.CurrentDirectory}\"";
+            updateProcess.StartInfo.WorkingDirectory = Environment.CurrentDirectory;
             updateProcess.Start();
 
             BotStopTCS.TrySetResult(null);
