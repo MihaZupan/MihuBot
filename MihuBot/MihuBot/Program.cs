@@ -135,27 +135,6 @@ namespace MihuBot
 
             await Client.SetGameAsync("Beeping and booping", type: ActivityType.Listening);
 
-            if (args.Length > 0 && args[0].StartsWith("Update-"))
-            {
-                string[] parts = args[0].Split('-');
-                if (parts.Length == 4 &&
-                    ulong.TryParse(parts[1], out ulong guildId) &&
-                    ulong.TryParse(parts[2], out ulong channelId) &&
-                    ulong.TryParse(parts[3], out ulong userId))
-                {
-                    try
-                    {
-                        var guild = Client.GetGuild(guildId);
-                        var channel = guild.GetTextChannel(channelId);
-                        await channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)} I am back {DarlBoop}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                }
-            }
-
             await BotStopTCS.Task;
 
             try
@@ -687,8 +666,7 @@ namespace MihuBot
 
             using Process updateProcess = new Process();
             updateProcess.StartInfo.FileName = "/bin/bash";
-            updateProcess.StartInfo.Arguments = "/home/miha/MihuBot/MihuBot/update.sh" +
-                (message is null ? null : $" \"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"");
+            updateProcess.StartInfo.Arguments = "/home/miha/MihuBot/MihuBot/update.sh";
             updateProcess.StartInfo.UseShellExecute = false;
             updateProcess.StartInfo.WorkingDirectory = Environment.CurrentDirectory;
             updateProcess.Start();
