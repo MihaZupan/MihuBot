@@ -484,6 +484,11 @@ namespace MihuBot
                     {
                         _ = Task.Run(async () => await StartUpdateAsync(message));
                     }
+                    else if (message.Author.Id == MihaID && isMentioned && command == "stop")
+                    {
+                        await message.ReplyAsync("Stopping ...");
+                        BotStopTCS.TrySetResult(null);
+                    }
                 }
                 else
                 {
