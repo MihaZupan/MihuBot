@@ -47,6 +47,7 @@ namespace MihuBot
         private static readonly Emote MonkaEZ       = Emote.Parse("<:EZ:712494500731158549>");
         private static readonly Emote DarlPoke      = Emote.Parse("<:darlPoke:591174254372978689>");
         private static readonly Emote DarlZoom      = Emote.Parse("<a:darlZoom:574377475115581440>");
+        private static readonly Emote DarlF         = Emote.Parse("<:darlF:629944838866993153>");
 
         private static readonly Emote[] JamesEmotes = new Emote[]
         {
@@ -290,10 +291,25 @@ namespace MihuBot
                     }
                 }
 
-                if (isAdmin && content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
-                    (content.Length == 8 || (content.Length == 9 && (content[8] | 0x20) == 'o')) && message.Author.Id != JordanID)
+                if (content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
+                    (content.Length == 8 || (content.Length == 9 && (content[8] | 0x20) == 'o')))
                 {
-                    await message.ReplyAsync(MentionUtils.MentionUser(JordanID));
+                    ulong husbandId = message.Author.Id switch
+                    {
+                        MihaID => JordanID,
+                        JordanID => MihaID,
+
+                        _ => 0
+                    };
+
+                    if (husbandId == 0)
+                    {
+                        await message.ReplyAsync($"{DarlF}");
+                    }
+                    else
+                    {
+                        await message.ReplyAsync(MentionUtils.MentionUser(husbandId));
+                    }
                 }
 
                 if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != MihuBotID)
