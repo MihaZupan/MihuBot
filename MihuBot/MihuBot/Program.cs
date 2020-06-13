@@ -270,6 +270,12 @@ namespace MihuBot
                     }
                 }
 
+                if (isAdmin && content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
+                    (content.Length == 8 || (content.Length == 9 && (content[8] | 0x20) == 'o')) && message.Author.Id != JordanID)
+                {
+                    await message.ReplyAsync(MentionUtils.MentionUser(JordanID));
+                }
+
                 if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != MihuBotID)
                 {
                     await userMessage.AddReactionAsync(YesW);
