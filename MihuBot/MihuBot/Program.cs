@@ -102,7 +102,10 @@ namespace MihuBot
 
         private const ulong MihuBotID = 710370560596770856ul;
 
-        static async Task Main()
+        private static readonly TaskCompletionSource<object> BotStopTCS =
+            new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        static async Task Main(string[] args)
         {
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
@@ -121,7 +124,24 @@ namespace MihuBot
 
             await Client.SetGameAsync("Beeping and booping", type: ActivityType.Listening);
 
-            await Task.Delay(-1);
+            if (args.Length > 0 && args[0].StartsWith("Update-"))
+            {
+                string[] parts = args[0].Split('-');
+                if (parts.Length == 4 &&
+                    ulong.TryParse(parts[1], out ulong guildId) &&
+                    ulong.TryParse(parts[2], out ulong channelId) &&
+                    ulong.TryParse(parts[3], out ulong userId))
+                {
+                    try
+                    {
+                        var channel = Client.GetGuild(guildId).GetChannel(channelId) as ISocketMessageChannel;
+                        await channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)} I am back {DarlBoop}");
+                    }
+                    catch { }
+                }
+            }
+
+            await BotStopTCS.Task;
         }
 
         private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
@@ -456,6 +476,10 @@ namespace MihuBot
                     {
                         await message.ReplyAsync($"No {MonkaEZ}", mention: true);
                     }
+                    else if (isAdmin && isMentioned && command == "update")
+                    {
+                        _ = Task.Run(async () => await StartUpdateAsync(message));
+                    }
                 }
                 else
                 {
@@ -615,6 +639,29 @@ namespace MihuBot
                 heads += b & 1;
 
             return heads;
+        }
+
+
+
+        private static int _updating = 0;
+
+        private static async Task StartUpdateAsync(SocketMessage message)
+        {
+            Debug.Assert(Admins.Contains(message.Author.Id));
+            Debug.Assert(message.Content.Contains("update", StringComparison.OrdinalIgnoreCase));
+
+            if (Interlocked.Exchange(ref _updating, 1) != 0)
+                return;
+
+            await message.ReplyAsync("Updating ...");
+            await Client.StopAsync();
+
+            using Process updateProcess = new Process();
+            updateProcess.StartInfo.FileName = "/home/miha/MihuBot/MihuBot/update.sh";
+            updateProcess.StartInfo.Arguments = $"\"Update-{message.Guild().Id}-{message.Channel.Id}-{message.Author.Id}\"";
+            updateProcess.Start();
+
+            BotStopTCS.TrySetResult(null);
         }
     }
 }
