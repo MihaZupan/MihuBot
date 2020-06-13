@@ -145,7 +145,8 @@ namespace MihuBot
             }
 
             await BotStopTCS.Task;
-            Environment.ExitCode = 1;
+
+            Environment.Exit(1);
         }
 
         private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
