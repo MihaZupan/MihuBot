@@ -345,6 +345,7 @@ namespace MihuBot
                 {
                     string[] parts = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     string command = parts[0].Substring(1).ToLowerInvariant();
+                    string arguments = content.Substring(parts[0].Length).Trim();
 
                     if (command == "roll")
                     {
@@ -500,6 +501,25 @@ namespace MihuBot
                     {
                         await message.ReplyAsync("Stopping ...");
                         BotStopTCS.TrySetResult(null);
+                    }
+                    else if (isAdmin && command == "setplaying")
+                    {
+                        await Client.SetGameAsync(arguments, type: ActivityType.Playing);
+                    }
+                    else if (isAdmin && command == "setlistening")
+                    {
+                        await Client.SetGameAsync(arguments, type: ActivityType.Listening);
+                    }
+                    else if (isAdmin && command == "setwatching")
+                    {
+                        await Client.SetGameAsync(arguments, type: ActivityType.Watching);
+                    }
+                    else if (isAdmin && command == "setstreaming")
+                    {
+                        var split = arguments.Split(';');
+                        string name = split[0];
+                        string streamUrl = split.Length > 1 ? split[1] : null;
+                        await Client.SetGameAsync(name, streamUrl, type: ActivityType.Streaming);
                     }
                 }
                 else
