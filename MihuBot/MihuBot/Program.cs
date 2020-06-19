@@ -106,6 +106,8 @@ namespace MihuBot
         private static readonly TaskCompletionSource<object> BotStopTCS =
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private static SocketTextChannel DebugTextChannel => Client.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul);
+
         static async Task Main(string[] args)
         {
             if (args.Length > 0 && args[0] == "start")
@@ -119,7 +121,7 @@ namespace MihuBot
 
             LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
-            Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 8 });
+            Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 16 });
 
             TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             Client.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
@@ -128,13 +130,15 @@ namespace MihuBot
             Client.ReactionAdded += Client_ReactionAdded;
             Client.MessageUpdated += Client_MessageUpdated;
 
+            Client.JoinedGuild += Client_JoinedGuild;
+
             //await Client.LoginAsync(0, "***REMOVED***");
             await Client.LoginAsync(TokenType.Bot, "***REMOVED***");
             await Client.StartAsync();
 
             await onConnectedTcs.Task;
 
-            await Client.SetGameAsync("Beeping and booping", type: ActivityType.Listening);
+            await Client.SetGameAsync("Quality content", type: ActivityType.Streaming);
 
             await BotStopTCS.Task;
 
@@ -143,6 +147,11 @@ namespace MihuBot
                 await Client.StopAsync();
             }
             catch { }
+        }
+
+        private static async Task Client_JoinedGuild(SocketGuild guild)
+        {
+            await DebugTextChannel.SendMessageAsync($"Added to {guild.Name} ({guild.Id})");
         }
 
         private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
@@ -244,8 +253,7 @@ namespace MihuBot
                                 var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
                                 if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
                                 {
-                                    var channel = Client.GetGuild(566925785563136020ul).GetTextChannel(715997637978882110ul);
-                                    await channel.SendMessageAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
+                                    await DebugTextChannel.SendMessageAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
                                 }
                             }
                         }
@@ -696,7 +704,10 @@ namespace MihuBot
                 if (Interlocked.Exchange(ref _updating, 1) != 0)
                     return;
 
-                await message.ReplyAsync("Updating ...");
+                await Task.WhenAll(
+                    message.ReplyAsync("Updating ..."),
+                    DebugTextChannel.SendMessageAsync("Updating ..."));
+
                 await Client.StopAsync();
             }
 
