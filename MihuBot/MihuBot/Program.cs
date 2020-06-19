@@ -126,6 +126,9 @@ namespace MihuBot
             TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             Client.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
 
+            TaskCompletionSource<object> onReadyTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Client.Ready += () => { onReadyTcs.TrySetResult(null); return Task.CompletedTask; };
+
             Client.MessageReceived += Client_MessageReceived;
             Client.ReactionAdded += Client_ReactionAdded;
             Client.MessageUpdated += Client_MessageUpdated;
@@ -137,6 +140,8 @@ namespace MihuBot
             await Client.StartAsync();
 
             await onConnectedTcs.Task;
+            await onReadyTcs.Task;
+
             await DebugTextChannel.SendMessageAsync("Beep boop. I'm back!");
 
             await Client.SetGameAsync("Quality content", type: ActivityType.Streaming);
