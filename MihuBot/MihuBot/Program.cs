@@ -137,6 +137,7 @@ namespace MihuBot
             await Client.StartAsync();
 
             await onConnectedTcs.Task;
+            await DebugTextChannel.SendMessageAsync("Beep boop. I'm back!");
 
             await Client.SetGameAsync("Quality content", type: ActivityType.Streaming);
 
