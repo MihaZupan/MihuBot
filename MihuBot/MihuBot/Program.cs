@@ -34,75 +34,6 @@ namespace MihuBot
             LogSemaphore.Release();
         }
 
-        private static readonly Emote YesW          = Emote.Parse("<:yesW:569000155513225220>");
-        private static readonly Emote PudeesJammies = Emote.Parse("<:pudeesJammies:686340394866573338>");
-        private static readonly Emote DarlBoop      = Emote.Parse("<:darlBoop:712494064087597106>");
-        private static readonly Emote DarlHearts    = Emote.Parse("<a:darlHearts:712496083334463528>");
-        private static readonly Emote DarlHug       = Emote.Parse("<:darlHug:712494106466844723>");
-        private static readonly Emote DarlKiss      = Emote.Parse("<:darlKiss:712494206308057248>");
-        private static readonly Emote DarlBASS      = Emote.Parse("<a:darlBASS:560235665040867328>");
-        private static readonly Emote CreepyFace    = Emote.Parse("<:creepyface:708818227446284369>");
-        private static readonly Emote MonkaHmm      = Emote.Parse("<:monkaHmm:712494625390198856>");
-        private static readonly Emote Monkers       = Emote.Parse("<:MONKERS:715472497499176981>");
-        private static readonly Emote MonkaEZ       = Emote.Parse("<:EZ:712494500731158549>");
-        private static readonly Emote DarlPoke      = Emote.Parse("<:darlPoke:591174254372978689>");
-        private static readonly Emote DarlZoom      = Emote.Parse("<a:darlZoom:574377475115581440>");
-        private static readonly Emote DarlF         = Emote.Parse("<:darlF:629944838866993153>");
-
-        private static readonly Emote[] JamesEmotes = new Emote[]
-        {
-            Emote.Parse("<:james:685588058757791744>"),
-            Emote.Parse("<:james:685588122939031569>"),
-            Emote.Parse("<:james:694013377655209984>"),
-            Emote.Parse("<:james:694013479622803476>"),
-            Emote.Parse("<:james:694013490058362921>"),
-            Emote.Parse("<:james:694013499377975356>"),
-            Emote.Parse("<:james:694013521033297981>"),
-            Emote.Parse("<:james:694013527660167229>"),
-            Emote.Parse("<:james:694013534878826526>")
-        };
-
-        private static readonly string[] BananaMessages = new string[]
-        {
-            "banana", "ba na na", "b a n a n a"
-        };
-
-        private static readonly string[] TypingResponseWords = new string[]
-        {
-            "cock", "penis"
-        };
-
-        private static readonly HashSet<ulong> GuildIDs = new HashSet<ulong>()
-        {
-            350658308878630914ul, // DD
-            566925785563136020ul, // Mihu
-            715374946846769202ul, // Paul's Peepo People
-            //572822995102597120ul, // Ramen House
-        };
-        private static readonly HashSet<ulong> Admins = new HashSet<ulong>()
-        {
-            162569877087977480ul, // Mihu
-            340562834658295821ul, // Caroline
-            91680709588045824ul,  // James
-            145719024544645120ul, // Jaeger
-            236455327535464458ul, // Jordan
-            238754130233917440ul, // Doomi
-            237788815626862593ul, // Curt
-            397254656025427968ul, // Christian
-            244637014547234816ul, // Liv
-            267771172962304000ul, // PaulK
-            399032007138476032ul, // Maric
-        };
-
-        private const ulong MihaID = 162569877087977480ul;
-        private const ulong GradravinID = 235218831247671297ul;
-        private const ulong JamesID = 91680709588045824ul;
-        private const ulong ChristianID = 397254656025427968ul;
-        private const ulong CurtIsID = 237788815626862593ul;
-        private const ulong JordanID = 236455327535464458ul;
-
-        private const ulong MihuBotID = 710370560596770856ul;
-
         private static readonly TaskCompletionSource<object> BotStopTCS =
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -135,8 +66,7 @@ namespace MihuBot
 
             Client.JoinedGuild += Client_JoinedGuild;
 
-            //await Client.LoginAsync(0, "***REMOVED***");
-            await Client.LoginAsync(TokenType.Bot, "***REMOVED***");
+            await Client.LoginAsync(TokenType.Bot, Secrets.AuthToken);
             await Client.StartAsync();
 
             await onConnectedTcs.Task;
@@ -167,7 +97,7 @@ namespace MihuBot
 
             try
             {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
+                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 if (!string.IsNullOrWhiteSpace(message.Content))
@@ -185,19 +115,19 @@ namespace MihuBot
         {
             try
             {
-                if (!(reaction.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
+                if (!(reaction.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (reaction.User.IsSpecified && reaction.User.Value.Id == MihuBotID)
+                    if (reaction.User.IsSpecified && reaction.User.Value.Id == KnownUsers.MihuBot)
                         return;
 
                     var userMessage = reaction.Message;
 
                     if (userMessage.IsSpecified)
                     {
-                        await userMessage.Value.AddReactionAsync(YesW);
+                        await userMessage.Value.AddReactionAsync(Emotes.YesW);
                     }
                 }
                 else if (reaction.Emote is Emote reactionEmote)
@@ -208,7 +138,7 @@ namespace MihuBot
 
                         if (userMessage.IsSpecified)
                         {
-                            foreach (var emote in JamesEmotes)
+                            foreach (var emote in Emotes.JamesEmotes)
                             {
                                 await userMessage.Value.AddReactionAsync(emote);
                             }
@@ -229,13 +159,13 @@ namespace MihuBot
 
             try
             {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !GuildIDs.Contains(guildChannel.Guild.Id))
+                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 SocketGuild guild = guildChannel.Guild;
 
-                bool isAdmin = Admins.Contains(message.Author.Id);
-                bool isMentioned = message.MentionedUsers.Any(u => u.Id == MihuBotID);
+                bool isAdmin = Constants.Admins.Contains(message.Author.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(message.Author.Id));
+                bool isMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot);
                 string content = message.Content.Trim();
 
                 if (!string.IsNullOrWhiteSpace(content))
@@ -243,7 +173,7 @@ namespace MihuBot
                     await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + content);
                 }
 
-                if (message.Author.Id != MihuBotID && message.Attachments.Any())
+                if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
                 {
                     await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
                         try
@@ -270,22 +200,22 @@ namespace MihuBot
                     })).ToArray());
                 }
 
-                if (message.Author.Id == GradravinID && RngChance(1000))
+                if (message.Author.Id == KnownUsers.Gradravin && RngChance(1000))
                 {
-                    await userMessage.AddReactionAsync(DarlBoop);
+                    await userMessage.AddReactionAsync(Emotes.DarlBoop);
                 }
 
-                if (message.Author.Id == JamesID && RngChance(50))
+                if (message.Author.Id == KnownUsers.James && RngChance(50))
                 {
-                    await userMessage.AddReactionAsync(CreepyFace);
+                    await userMessage.AddReactionAsync(Emotes.CreepyFace);
                     _ = Task.Run(async () =>
                     {
                         await Task.Delay(750);
-                        await userMessage.RemoveReactionAsync(CreepyFace, MihuBotID);
+                        await userMessage.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
                     });
                 }
 
-                if (message.Author.Id != MihuBotID)
+                if (message.Author.Id != KnownUsers.MihuBot)
                 {
                     if (message.Content.Equals("uwu", StringComparison.OrdinalIgnoreCase))
                     {
@@ -310,15 +240,15 @@ namespace MihuBot
                 {
                     ulong husbandId = message.Author.Id switch
                     {
-                        MihaID => JordanID,
-                        JordanID => MihaID,
+                        KnownUsers.Miha     => KnownUsers.Jordan,
+                        KnownUsers.Jordan   => KnownUsers.Miha,
 
                         _ => 0
                     };
 
                     if (husbandId == 0)
                     {
-                        await message.ReplyAsync($"{DarlF}");
+                        await message.ReplyAsync($"{Emotes.DarlF}");
                     }
                     else
                     {
@@ -326,14 +256,14 @@ namespace MihuBot
                     }
                 }
 
-                if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != MihuBotID)
+                if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != KnownUsers.MihuBot)
                 {
-                    await userMessage.AddReactionAsync(YesW);
+                    await userMessage.AddReactionAsync(Emotes.YesW);
                 }
                 
-                if (BananaMessages.Any(b => content.Contains(b, StringComparison.OrdinalIgnoreCase)))
+                if (Constants.BananaMessages.Any(b => content.Contains(b, StringComparison.OrdinalIgnoreCase)))
                 {
-                    await userMessage.AddReactionAsync(PudeesJammies);
+                    await userMessage.AddReactionAsync(Emotes.PudeesJammies);
                 }
 
                 if (isMentioned)
@@ -424,7 +354,7 @@ namespace MihuBot
                     }
                     else if (command == "admins")
                     {
-                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => Admins.Contains(u.Id)).Select(a => a.Username)));
+                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => Constants.Admins.Contains(u.Id)).Select(a => a.Username)));
                     }
                     else if (command == "butt" || command == "slap" || command == "kick"
                         || command == "love" || command == "hug" || command == "kiss" || command == "boop"
@@ -458,46 +388,46 @@ namespace MihuBot
 
                         if (command == "butt")
                         {
-                            reply = $"{message.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {DarlBASS}";
+                            reply = $"{message.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {Emotes.DarlBASS}";
                         }
                         else if (command == "slap")
                         {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {MonkaHmm}";
+                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {Emotes.MonkaHmm}";
                         }
                         else if (command == "kick")
                         {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {DarlZoom}";
+                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {Emotes.DarlZoom}";
                         }
                         else if (command == "fist")
                         {
-                            if (message.Author.Id == CurtIsID && rngUser.Id == MihaID)
+                            if (message.Author.Id == KnownUsers.CurtIs && rngUser.Id == KnownUsers.Miha)
                             {
-                                reply = $"{Monkers}";
+                                reply = $"{Emotes.Monkers}";
                             }
                             else
                             {
-                                reply = $"{message.Author.Username} just ||{(targetIsAuthor ? "did unimaginable things" : $"fis.. punched {target}")}!|| {Monkers}";
+                                reply = $"{message.Author.Username} just ||{(targetIsAuthor ? "did unimaginable things" : $"fis.. punched {target}")}!|| {Emotes.Monkers}";
                             }
                         }
                         else if (command == "love")
                         {
-                            reply = $"{message.Author.Username} wants {target} to know they are loved! {DarlHearts}";
+                            reply = $"{message.Author.Username} wants {target} to know they are loved! {Emotes.DarlHearts}";
                         }
                         else if (command == "hug")
                         {
-                            reply = $"{message.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {DarlHug}";
+                            reply = $"{message.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.DarlHug}";
                         }
                         else if (command == "kiss")
                         {
-                            reply = $"{message.Author.Username} just kissed {target}! {DarlKiss}";
+                            reply = $"{message.Author.Username} just kissed {target}! {Emotes.DarlKiss}";
                         }
                         else if (command == "stab")
                         {
-                            reply = $"{message.Author.Username} just stabbed {target}! {DarlPoke}";
+                            reply = $"{message.Author.Username} just stabbed {target}! Emotes.{Emotes.DarlPoke}";
                         }
                         else if (command == "boop")
                         {
-                            reply = $"{target} {DarlBoop}";
+                            reply = $"{target} {Emotes.DarlBoop}";
                         }
                         else throw new InvalidOperationException("Unknown commmand");
 
@@ -505,13 +435,13 @@ namespace MihuBot
                     }
                     else if (!isAdmin && (command == "fist" || command == "stab"))
                     {
-                        await message.ReplyAsync($"No {MonkaEZ}", mention: true);
+                        await message.ReplyAsync($"No {Emotes.MonkaEZ}", mention: true);
                     }
                     else if (isAdmin && isMentioned && command == "update")
                     {
                         _ = Task.Run(async () => await StartUpdateAsync(message));
                     }
-                    else if (message.Author.Id == MihaID && isMentioned && command == "stop")
+                    else if (message.Author.Id == KnownUsers.Miha && isMentioned && command == "stop")
                     {
                         await message.ReplyAsync("Stopping ...");
                         BotStopTCS.TrySetResult(null);
@@ -556,7 +486,7 @@ namespace MihuBot
                 if (next == -1)
                     next = content.Length;
 
-                if (TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
+                if (Constants.TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
                 {
                     return message.Channel.TriggerTypingAsync();
                 }
@@ -582,9 +512,9 @@ namespace MihuBot
             if (!headers[1].Equals("msg", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            if (!ulong.TryParse(headers[2], out ulong guildId) || !GuildIDs.Contains(guildId))
+            if (!ulong.TryParse(headers[2], out ulong guildId) || !Constants.GuildIDs.Contains(guildId))
             {
-                string guilds = string.Join('\n', GuildIDs.Select(id => id + ": " + Client.GetGuild(id).Name));
+                string guilds = string.Join('\n', Constants.GuildIDs.Select(id => id + ": " + Client.GetGuild(id).Name));
                 await message.ReplyAsync("Invalid Guild ID. Try:\n```\n" + guilds + "\n```");
                 return;
             }
@@ -704,7 +634,7 @@ namespace MihuBot
         {
             if (message != null)
             {
-                Debug.Assert(Admins.Contains(message.Author.Id));
+                Debug.Assert(Constants.Admins.Contains(message.Author.Id));
                 Debug.Assert(message.Content.Contains("update", StringComparison.OrdinalIgnoreCase));
 
                 if (Interlocked.Exchange(ref _updating, 1) != 0)
