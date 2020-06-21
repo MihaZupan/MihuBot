@@ -648,7 +648,7 @@ namespace MihuBot
 
             using Process updateProcess = new Process();
             updateProcess.StartInfo.FileName = "/bin/bash";
-            updateProcess.StartInfo.Arguments = "/home/miha/MihuBot/MihuBot/update.sh";
+            updateProcess.StartInfo.Arguments = "update.sh";
             updateProcess.StartInfo.UseShellExecute = false;
             updateProcess.StartInfo.WorkingDirectory = Environment.CurrentDirectory;
             updateProcess.Start();
