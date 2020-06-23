@@ -29,7 +29,7 @@ namespace MihuBot
         {
             _guild = guild;
             _voiceChannel = voiceChannel;
-            _audioStream = guild.AudioClient.CreatePCMStream(AudioApplication.Music);
+            _audioStream = guild.AudioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate);
             _sourcesQueue = new Queue<AudioSource>();
         }
 
@@ -61,6 +61,14 @@ namespace MihuBot
             }
         }
 
+        private static readonly string[] ValidExtensions = new string[]
+        {
+            ".mp3",
+            ".wav",
+            ".opus",
+            ".flac"
+        };
+
         public async Task TryQueueContentAsync(SocketMessage message)
         {
             Uri uri = null;
@@ -74,19 +82,15 @@ namespace MihuBot
                 return;
             }
 
-            if (!uri.AbsolutePath.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
-            {
-                await message.ReplyAsync("Only mp3 rn");
-                return;
-            }
+            string extension = Path.GetExtension(uri.AbsolutePath);
 
-            if (uri.IdnHost.EndsWith("dropbox.com", StringComparison.OrdinalIgnoreCase))
+            if (ValidExtensions.Contains(extension, StringComparison.OrdinalIgnoreCase))
             {
-                AddAudioSource(new DropboxAudioSource(uri));
+                AddAudioSource(new DirectAudioUrlSource(uri));
             }
             else
             {
-                await message.ReplyAsync("Only dropbox rn");
+                await message.ReplyAsync($"Source must be: {string.Join(", ", ValidExtensions.Select(ext => "`" + ext + "`"))}");
             }
         }
 
@@ -152,14 +156,14 @@ namespace MihuBot
 
 
 
-        public sealed class DropboxAudioSource : AudioSource
+        public sealed class DirectAudioUrlSource : AudioSource
         {
             private readonly Uri _uri;
             private string _tempFilePath;
 
             private Stream _tempFileReadStream;
 
-            public DropboxAudioSource(Uri uri)
+            public DirectAudioUrlSource(Uri uri)
             {
                 _uri = uri;
             }
@@ -168,7 +172,7 @@ namespace MihuBot
 
             public override async Task InitAsync()
             {
-                _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".mp3");
+                _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + Path.GetExtension(_uri.AbsolutePath).ToLowerInvariant());
 
                 var response = await HttpClient.GetAsync(_uri, HttpCompletionOption.ResponseHeadersRead);
                 var stream = await response.Content.ReadAsStreamAsync();
@@ -202,7 +206,7 @@ namespace MihuBot
             {
                 using Process ffmpeg = new Process();
                 ffmpeg.StartInfo.FileName = @"ffmpeg";
-                ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
+                ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.75\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
                 ffmpeg.Start();
                 ffmpeg.WaitForExit();
             }
