@@ -80,7 +80,7 @@ namespace MihuBot
                 return;
             }
 
-            if (uri.IdnHost.Equals("dropbox.com", StringComparison.OrdinalIgnoreCase))
+            if (uri.IdnHost.EndsWith("dropbox.com", StringComparison.OrdinalIgnoreCase))
             {
                 AddAudioSource(new DropboxAudioSource(uri));
             }
