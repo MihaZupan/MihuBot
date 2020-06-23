@@ -29,7 +29,7 @@ namespace MihuBot
         {
             _guild = guild;
             _voiceChannel = voiceChannel;
-            _audioStream = guild.AudioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate, packetLoss: 3);
+            _audioStream = guild.AudioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate, packetLoss: 1);
             _sourcesQueue = new Queue<AudioSource>();
         }
 
