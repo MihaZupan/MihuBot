@@ -37,6 +37,17 @@ namespace MihuBot
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private static SocketTextChannel DebugTextChannel => Client.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul);
+        internal static async Task DebugAsync(string message)
+        {
+            lock (Console.Out)
+                Console.WriteLine("DEBUG: " + message);
+
+            try
+            {
+                await DebugTextChannel.SendMessageAsync(message);
+            }
+            catch { }
+        }
 
         static async Task Main(string[] args)
         {
@@ -71,7 +82,7 @@ namespace MihuBot
             await onConnectedTcs.Task;
             await onReadyTcs.Task;
 
-            await DebugTextChannel.SendMessageAsync("Beep boop. I'm back!");
+            await DebugAsync("Beep boop. I'm back!");
 
             await Client.SetGameAsync("Quality content", type: ActivityType.Streaming);
 
@@ -86,7 +97,7 @@ namespace MihuBot
 
         private static async Task Client_JoinedGuild(SocketGuild guild)
         {
-            await DebugTextChannel.SendMessageAsync($"Added to {guild.Name} ({guild.Id})");
+            await DebugAsync($"Added to {guild.Name} ({guild.Id})");
         }
 
         private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
@@ -188,7 +199,7 @@ namespace MihuBot
                                 var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
                                 if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
                                 {
-                                    await DebugTextChannel.SendMessageAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
+                                    await DebugAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
                                 }
                             }
                         }
@@ -267,7 +278,15 @@ namespace MihuBot
 
                 if (isMentioned)
                 {
-                    if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
+                    if (isAdmin && content.Contains('\n') && content.AsSpan(0, 40).Contains("msg ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await SendCustomMessage(content, message);
+                    }
+                    else if (content.Contains(" play ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await OnPlayCommand(message);
+                    }
+                    else if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                     {
                         if (YoutubeHelper.TryParseVideoId(content, out string videoId))
                         {
@@ -277,10 +296,6 @@ namespace MihuBot
                         {
                             _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, message.Channel));
                         }
-                    }
-                    else if (isAdmin && content.Contains('\n') && content.AsSpan(0, 40).Contains("msg ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await SendCustomMessage(content, message);
                     }
                 }
                 
@@ -625,6 +640,38 @@ namespace MihuBot
             return heads;
         }
 
+        private static async Task OnPlayCommand(SocketMessage message)
+        {
+            var guild = message.Guild();
+            var vc = guild.VoiceChannels.FirstOrDefault(vc => vc.Users.Any(u => u.Id == message.Author.Id));
+
+            AudioClient audioClient = null;
+
+            try
+            {
+                audioClient = await AudioClient.TryGetOrJoinAsync(guild, vc);
+            }
+            catch (Exception ex)
+            {
+                await DebugAsync(ex.ToString());
+            }
+
+            if (audioClient is null)
+            {
+                if (vc is null)
+                {
+                    await message.ReplyAsync("Join a VC first", mention: true);
+                }
+                else
+                {
+                    await message.ReplyAsync("Could not join channel", mention: true);
+                }
+
+                return;
+            }
+
+            await audioClient.TryQueueContentAsync(message);
+        }
 
 
         private static int _updating = 0;
@@ -641,7 +688,7 @@ namespace MihuBot
 
                 await Task.WhenAll(
                     message.ReplyAsync("Updating ..."),
-                    DebugTextChannel.SendMessageAsync("Updating ..."));
+                    DebugAsync("Updating ..."));
 
                 await Client.StopAsync();
             }
