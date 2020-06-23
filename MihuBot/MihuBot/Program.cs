@@ -62,7 +62,11 @@ namespace MihuBot
 
             LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
-            Client = new DiscordSocketClient(new DiscordSocketConfig() { MessageCacheSize = 1024 * 16 });
+            Client = new DiscordSocketClient(
+                new DiscordSocketConfig() {
+                    MessageCacheSize = 1024 * 16,
+                    ConnectionTimeout = 30_000
+            });
 
             TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             Client.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
