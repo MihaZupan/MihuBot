@@ -176,7 +176,7 @@ namespace MihuBot
 
                 buffer.Position = 0;
 
-                _mp3Stream = new Mp3FileReader(stream);
+                _mp3Stream = new Mp3FileReader(buffer);
             }
 
             public override Task CleanupAsync()
