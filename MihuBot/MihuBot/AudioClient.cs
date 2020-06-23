@@ -23,10 +23,12 @@ namespace MihuBot
 
         private readonly Queue<AudioSource> _sourcesQueue;
         private AudioSource _activeStream;
+        private IVoiceChannel _voiceChannel;
 
-        private AudioClient(SocketGuild guild)
+        private AudioClient(SocketGuild guild, IVoiceChannel voiceChannel)
         {
             _guild = guild;
+            _voiceChannel = voiceChannel;
             _audioStream = guild.AudioClient.CreatePCMStream(AudioApplication.Music);
             _sourcesQueue = new Queue<AudioSource>();
         }
@@ -53,7 +55,7 @@ namespace MihuBot
                     return audioClient;
                 }
 
-                audioClient = new AudioClient(guild);
+                audioClient = new AudioClient(guild, channelToJoin);
                 _audioClients.Add(guild.Id, audioClient);
                 return audioClient;
             }
@@ -62,7 +64,10 @@ namespace MihuBot
         public async Task TryQueueContentAsync(SocketMessage message)
         {
             Uri uri = null;
-            string url = message.Content.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(p => Uri.TryCreate(p, UriKind.Absolute, out uri));
+            string url = message.Content
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault(p => p.Contains("://") && Uri.TryCreate(p, UriKind.Absolute, out uri));
+
             if (url is null)
             {
                 await message.ReplyAsync("Please supply a valid url", mention: true);
@@ -75,7 +80,7 @@ namespace MihuBot
                 return;
             }
 
-            if (uri.Host.Equals("dropbox.com", StringComparison.OrdinalIgnoreCase))
+            if (uri.IdnHost.Equals("dropbox.com", StringComparison.OrdinalIgnoreCase))
             {
                 AddAudioSource(new DropboxAudioSource(uri));
             }
