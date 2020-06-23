@@ -190,7 +190,7 @@ namespace MihuBot
         {
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
-            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.75\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
+            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.5\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
             ffmpeg.Start();
             ffmpeg.WaitForExit();
         }
