@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.Audio;
 using Discord.WebSocket;
+using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -155,39 +156,32 @@ namespace MihuBot
         public sealed class DropboxAudioSource : AudioSource
         {
             private readonly Uri _uri;
-            private string _tempFilePath;
 
-            private Stream _tempFileReadStream;
+            private Mp3FileReader _mp3Stream;
 
             public DropboxAudioSource(Uri uri)
             {
                 _uri = uri;
             }
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _tempFileReadStream.ReadAsync(buffer);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _mp3Stream.ReadAsync(buffer);
 
             public override async Task InitAsync()
             {
-                _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".mp3");
-
                 var response = await HttpClient.GetAsync(_uri, HttpCompletionOption.ResponseHeadersRead);
                 var stream = await response.Content.ReadAsStreamAsync();
 
-                using var fs = File.OpenWrite(_tempFilePath);
-                await stream.CopyToAsync(fs);
-
-                _tempFileReadStream = File.OpenRead(_tempFilePath);
+                _mp3Stream = new Mp3FileReader(stream);
             }
 
             public override Task CleanupAsync()
             {
                 try
                 {
-                    _tempFileReadStream.Dispose();
+                    _mp3Stream.Dispose();
                 }
                 catch { }
 
-                File.Delete(_tempFilePath);
                 return Task.CompletedTask;
             }
         }
