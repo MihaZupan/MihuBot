@@ -108,7 +108,7 @@ namespace MihuBot
         }
 
 
-        private static readonly YoutubeClient Youtube = new YoutubeClient();
+        public static readonly YoutubeClient Youtube = new YoutubeClient();
 
         public static async Task SendVideoAsync(string id, ISocketMessageChannel channel)
         {
@@ -185,7 +185,7 @@ namespace MihuBot
             }
         }
 
-        private static void ConvertToMp3(string sourcePath, string targetPath)
+        public static void ConvertToMp3(string sourcePath, string targetPath)
         {
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
@@ -194,7 +194,7 @@ namespace MihuBot
             ffmpeg.WaitForExit();
         }
 
-        private static string GetFileName(string title)
+        public static string GetFileName(string title)
         {
             foreach (var c in Path.GetInvalidFileNameChars())
                 title = title.Replace(c, ' ');
@@ -210,7 +210,7 @@ namespace MihuBot
             return title + ".mp3";
         }
 
-        private static IStreamInfo GetBestAudio(StreamManifest manifest, out string extension)
+        public static IStreamInfo GetBestAudio(StreamManifest manifest, out string extension)
         {
             var audioOnly = manifest.GetAudioOnly().WithHighestBitrate();
 

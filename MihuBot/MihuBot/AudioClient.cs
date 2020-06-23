@@ -82,16 +82,46 @@ namespace MihuBot
                 return;
             }
 
-            string extension = Path.GetExtension(uri.AbsolutePath);
+            AudioSource source = null;
 
-            if (ValidExtensions.Contains(extension, StringComparison.OrdinalIgnoreCase))
+            if (YoutubeHelper.TryParseVideoId(url, out string videoId))
             {
-                AddAudioSource(new DirectAudioUrlSource(uri));
+                source = new YoutubeSource(videoId);
             }
             else
             {
-                await message.ReplyAsync($"Source must be: {string.Join(", ", ValidExtensions.Select(ext => "`" + ext + "`"))}");
+                string extension = Path.GetExtension(uri.AbsolutePath);
+
+                if (ValidExtensions.Contains(extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    source = new DirectAudioUrlSource(uri);
+                }
+                else
+                {
+                    await message.ReplyAsync($"Source must be: {string.Join(", ", ValidExtensions.Select(ext => "`" + ext + "`"))}");
+                }
             }
+
+            if (source is null)
+                return;
+
+            try
+            {
+                string error = await source.PreInitAsync();
+
+                if (error != null)
+                {
+                    await message.ReplyAsync(error, mention: true);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                await Program.DebugAsync(ex.ToString());
+                return;
+            }
+
+            AddAudioSource(source);
         }
 
         private void AddAudioSource(AudioSource source)
@@ -156,11 +186,20 @@ namespace MihuBot
 
 
 
+        public static void ConvertToPcm(string sourcePath, string outputPath)
+        {
+            using Process ffmpeg = new Process();
+            ffmpeg.StartInfo.FileName = @"ffmpeg";
+            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.75\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
+            ffmpeg.Start();
+            ffmpeg.WaitForExit();
+        }
+
         public sealed class DirectAudioUrlSource : AudioSource
         {
             private readonly Uri _uri;
-            private string _tempFilePath;
 
+            private string _tempFilePath;
             private Stream _tempFileReadStream;
 
             public DirectAudioUrlSource(Uri uri)
@@ -202,20 +241,11 @@ namespace MihuBot
                 _tempFileReadStream = File.OpenRead(_tempFilePath);
             }
 
-            public static void ConvertToPcm(string sourcePath, string outputPath)
-            {
-                using Process ffmpeg = new Process();
-                ffmpeg.StartInfo.FileName = @"ffmpeg";
-                ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.75\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
-                ffmpeg.Start();
-                ffmpeg.WaitForExit();
-            }
-
             public override Task CleanupAsync()
             {
                 try
                 {
-                    _tempFileReadStream.Dispose();
+                    _tempFileReadStream?.Dispose();
                 }
                 catch { }
 
@@ -224,8 +254,84 @@ namespace MihuBot
             }
         }
 
+        public sealed class YoutubeSource : AudioSource
+        {
+            private readonly string _id;
+
+            private string _tempFilePath;
+            private Stream _tempFileReadStream;
+
+            public YoutubeSource(string id)
+            {
+                _id = id;
+            }
+
+            public override async Task<string> PreInitAsync()
+            {
+                try
+                {
+                    var video = await YoutubeHelper.Youtube.Videos.GetAsync(_id);
+
+                    if (video.Duration > TimeSpan.FromHours(2))
+                    {
+                        return "Too long";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await Program.DebugAsync(ex.ToString());
+                    return "Something went wrong";
+                }
+
+                return null;
+            }
+
+            public override async Task InitAsync()
+            {
+                var bestAudio = YoutubeHelper.GetBestAudio(await YoutubeHelper.Youtube.Videos.Streams.GetManifestAsync(_id), out string extension);
+
+                _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + extension);
+                string pcmFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".pcm");
+
+                try
+                {
+                    await YoutubeHelper.Youtube.Videos.Streams.DownloadAsync(bestAudio, _tempFilePath);
+                    ConvertToPcm(_tempFilePath, pcmFilePath);
+                }
+                catch
+                {
+                    File.Delete(pcmFilePath);
+                    throw;
+                }
+                finally
+                {
+                    File.Delete(_tempFilePath);
+                }
+
+                _tempFilePath = pcmFilePath;
+                _tempFileReadStream = File.OpenRead(_tempFilePath);
+            }
+
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _tempFileReadStream.ReadAsync(buffer);
+
+            public override Task CleanupAsync()
+            {
+                try
+                {
+                    _tempFileReadStream?.Dispose();
+                }
+                catch { }
+
+                if (_tempFilePath != null)
+                    File.Delete(_tempFilePath);
+
+                return Task.CompletedTask;
+            }
+        }
+
         public abstract class AudioSource
         {
+            public virtual Task<string> PreInitAsync() => Task.FromResult<string>(null);
             public abstract Task InitAsync();
             public abstract ValueTask<int> ReadAsync(Memory<byte> buffer);
             public virtual Task CleanupAsync() => Task.CompletedTask;
