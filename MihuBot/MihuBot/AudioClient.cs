@@ -188,6 +188,8 @@ namespace MihuBot
 
         public static void ConvertToPcm(string sourcePath, string outputPath)
         {
+            Console.WriteLine($"Converting {sourcePath} to {outputPath}");
+
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
             ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.5\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
