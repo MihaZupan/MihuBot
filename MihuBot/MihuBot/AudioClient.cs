@@ -1,7 +1,6 @@
 ﻿using Discord;
 using Discord.Audio;
 using Discord.WebSocket;
-using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -156,37 +155,67 @@ namespace MihuBot
         public sealed class DropboxAudioSource : AudioSource
         {
             private readonly Uri _uri;
+            private string _tempFilePath;
 
-            private Mp3FileReader _mp3Stream;
+            private Stream _tempFileReadStream;
 
             public DropboxAudioSource(Uri uri)
             {
                 _uri = uri;
             }
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _mp3Stream.ReadAsync(buffer);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _tempFileReadStream.ReadAsync(buffer);
 
             public override async Task InitAsync()
             {
+                _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".mp3");
+
                 var response = await HttpClient.GetAsync(_uri, HttpCompletionOption.ResponseHeadersRead);
                 var stream = await response.Content.ReadAsStreamAsync();
 
-                MemoryStream buffer = new MemoryStream((int)response.Content.Headers.ContentLength.GetValueOrDefault(8 * 1024 * 1024));
-                await stream.CopyToAsync(buffer);
+                using var fs = File.OpenWrite(_tempFilePath);
+                await stream.CopyToAsync(fs);
+                await fs.FlushAsync();
 
-                buffer.Position = 0;
+                string outputPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pcm");
 
-                _mp3Stream = new Mp3FileReader(buffer);
+                try
+                {
+                    ConvertToPcm(_tempFilePath, outputPath);
+                }
+                finally
+                {
+                    File.Delete(_tempFilePath);
+                    _tempFilePath = outputPath;
+                }
+
+                if (!File.Exists(_tempFilePath))
+                    throw new FileNotFoundException(null, outputPath);
+
+                if (new FileInfo(_tempFilePath).Length < 4097)
+                    throw new Exception("Too short");
+
+                _tempFileReadStream = File.OpenRead(_tempFilePath);
+            }
+
+            public static void ConvertToPcm(string sourcePath, string outputPath)
+            {
+                using Process ffmpeg = new Process();
+                ffmpeg.StartInfo.FileName = @"ffmpeg";
+                ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
+                ffmpeg.Start();
+                ffmpeg.WaitForExit();
             }
 
             public override Task CleanupAsync()
             {
                 try
                 {
-                    _mp3Stream.Dispose();
+                    _tempFileReadStream.Dispose();
                 }
                 catch { }
 
+                File.Delete(_tempFilePath);
                 return Task.CompletedTask;
             }
         }
