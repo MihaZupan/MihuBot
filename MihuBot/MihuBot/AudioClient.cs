@@ -171,6 +171,11 @@ namespace MihuBot
                 var response = await HttpClient.GetAsync(_uri, HttpCompletionOption.ResponseHeadersRead);
                 var stream = await response.Content.ReadAsStreamAsync();
 
+                MemoryStream buffer = new MemoryStream((int)response.Content.Headers.ContentLength.GetValueOrDefault(8 * 1024 * 1024));
+                await stream.CopyToAsync(buffer);
+
+                buffer.Position = 0;
+
                 _mp3Stream = new Mp3FileReader(stream);
             }
 
