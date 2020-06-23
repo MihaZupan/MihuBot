@@ -288,7 +288,7 @@ namespace MihuBot
                     }
                     else if (content.Contains(" play ", StringComparison.OrdinalIgnoreCase))
                     {
-                        await OnPlayCommand(message);
+                        _ = Task.Run(async () => await OnPlayCommand(message));
                     }
                     else if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                     {
