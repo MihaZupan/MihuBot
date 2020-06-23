@@ -687,7 +687,7 @@ namespace MihuBot
                     return;
 
                 await Task.WhenAll(
-                    message.ReplyAsync("Updating ..."),
+                    message.Guild().Id == Guilds.Mihu ? Task.CompletedTask : message.ReplyAsync("Updating ..."),
                     DebugAsync("Updating ..."));
 
                 await Client.StopAsync();
