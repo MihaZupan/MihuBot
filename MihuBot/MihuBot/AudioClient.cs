@@ -184,17 +184,18 @@ namespace MihuBot
         }
 
 
-
-
-        public static void ConvertToPcm(string sourcePath, string outputPath)
+        public static Stream ReadAsPCM(string sourcePath)
         {
-            Console.WriteLine($"Converting {sourcePath} to {outputPath}");
+            Console.WriteLine($"Reading {sourcePath} as PCM");
 
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
-            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.35\" -ac 2 -f s16le -acodec pcm_s16le -vn \"{outputPath}\"";
+            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -filter:a \"volume=0.35\" -ac 2 -f s16le -acodec pcm_s16le -vn -";
+            ffmpeg.StartInfo.UseShellExecute = false;
+            ffmpeg.StartInfo.RedirectStandardOutput = true;
             ffmpeg.Start();
-            ffmpeg.WaitForExit();
+
+            return ffmpeg.StandardOutput.BaseStream;
         }
 
         public sealed class DirectAudioUrlSource : AudioSource
@@ -202,14 +203,14 @@ namespace MihuBot
             private readonly Uri _uri;
 
             private string _tempFilePath;
-            private Stream _tempFileReadStream;
+            private Stream _ffmpegPcmStream;
 
             public DirectAudioUrlSource(Uri uri)
             {
                 _uri = uri;
             }
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _tempFileReadStream.ReadAsync(buffer);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _ffmpegPcmStream.ReadAsync(buffer);
 
             public override async Task InitAsync()
             {
@@ -222,32 +223,20 @@ namespace MihuBot
                 await stream.CopyToAsync(fs);
                 await fs.FlushAsync();
 
-                string outputPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".pcm");
-
-                try
-                {
-                    ConvertToPcm(_tempFilePath, outputPath);
-                }
-                finally
-                {
-                    File.Delete(_tempFilePath);
-                    _tempFilePath = outputPath;
-                }
-
                 if (!File.Exists(_tempFilePath))
-                    throw new FileNotFoundException(null, outputPath);
+                    throw new FileNotFoundException(null, _tempFilePath);
 
                 if (new FileInfo(_tempFilePath).Length < 4097)
                     throw new Exception("Too short");
 
-                _tempFileReadStream = File.OpenRead(_tempFilePath);
+                _ffmpegPcmStream = ReadAsPCM(_tempFilePath);
             }
 
             public override Task CleanupAsync()
             {
                 try
                 {
-                    _tempFileReadStream?.Dispose();
+                    _ffmpegPcmStream?.Dispose();
                 }
                 catch { }
 
@@ -261,7 +250,7 @@ namespace MihuBot
             private readonly string _id;
 
             private string _tempFilePath;
-            private Stream _tempFileReadStream;
+            private Stream _ffmpegPcmStream;
 
             public YoutubeSource(string id)
             {
@@ -293,34 +282,18 @@ namespace MihuBot
                 var bestAudio = YoutubeHelper.GetBestAudio(await YoutubeHelper.Youtube.Videos.Streams.GetManifestAsync(_id), out string extension);
 
                 _tempFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + extension);
-                string pcmFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".pcm");
+                await YoutubeHelper.Youtube.Videos.Streams.DownloadAsync(bestAudio, _tempFilePath);
 
-                try
-                {
-                    await YoutubeHelper.Youtube.Videos.Streams.DownloadAsync(bestAudio, _tempFilePath);
-                    ConvertToPcm(_tempFilePath, pcmFilePath);
-                }
-                catch
-                {
-                    File.Delete(pcmFilePath);
-                    throw;
-                }
-                finally
-                {
-                    File.Delete(_tempFilePath);
-                }
-
-                _tempFilePath = pcmFilePath;
-                _tempFileReadStream = File.OpenRead(_tempFilePath);
+                _ffmpegPcmStream = ReadAsPCM(_tempFilePath);
             }
 
-            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _tempFileReadStream.ReadAsync(buffer);
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer) => _ffmpegPcmStream.ReadAsync(buffer);
 
             public override Task CleanupAsync()
             {
                 try
                 {
-                    _tempFileReadStream?.Dispose();
+                    _ffmpegPcmStream?.Dispose();
                 }
                 catch { }
 
