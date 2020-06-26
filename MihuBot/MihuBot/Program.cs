@@ -13,6 +13,14 @@ using System.Threading.Tasks;
 
 namespace MihuBot
 {
+    public static class Counters
+    {
+        private static int _yogadesuCounter = 0;
+        public static int YogadesuCounter => Interlocked.Increment(ref _yogadesuCounter);
+
+
+    }
+
     class Program
     {
         private static DiscordSocketClient Client;
@@ -88,7 +96,7 @@ namespace MihuBot
 
             await DebugAsync("Beep boop. I'm back!");
 
-            await Client.SetGameAsync("Quality content", type: ActivityType.Streaming);
+            await Client.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
 
             await BotStopTCS.Task;
 
@@ -268,6 +276,10 @@ namespace MihuBot
                     {
                         await message.ReplyAsync(MentionUtils.MentionUser(husbandId));
                     }
+                }
+                else if (content.StartsWith("@yogadesu", StringComparison.OrdinalIgnoreCase))
+                {
+                    await message.ReplyAsync($"Y{new string('o', Counters.YogadesuCounter)}gades");
                 }
 
                 if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != KnownUsers.MihuBot)
