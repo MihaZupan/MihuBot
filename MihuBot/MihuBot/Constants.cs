@@ -78,7 +78,7 @@ namespace MihuBot
 
     public static class Emotes
     {
-        public static readonly Emote YesW           = Emote.Parse("<:yesW:569000155513225220>");
+        public static readonly Emote YesW           = Emote.Parse("<:yesW:726548253059055759>");
         public static readonly Emote PudeesJammies  = Emote.Parse("<:pudeesJammies:686340394866573338>");
         public static readonly Emote DarlBoop       = Emote.Parse("<:darlBoop:712494064087597106>");
         public static readonly Emote DarlHearts     = Emote.Parse("<a:darlHearts:712496083334463528>");
