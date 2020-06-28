@@ -45,6 +45,8 @@ namespace MihuBot
         {
             "cock", "penis"
         };
+
+        public const string VCDefaultVolume = "0.25";
     }
 
     public static class Guilds
