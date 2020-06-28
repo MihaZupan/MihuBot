@@ -370,11 +370,11 @@ namespace MihuBot
                             var options = arguments.Split('/', StringSplitOptions.RemoveEmptyEntries);
 
                             string choice;
-                            if (options[0].EndsWith('*')) choice = options[0];
-                            else if (options[1].EndsWith('*')) choice = options[1];
+                            if (options[0].EndsWith('​')) choice = options[0];
+                            else if (options[1].EndsWith('​')) choice = options[1];
                             else choice = RngBool() ? options[0] : options[1];
 
-                            choice = choice.Trim().Trim('*').Trim();
+                            choice = choice.Trim().Trim('​').Trim();
 
                             await message.ReplyAsync(choice, mention: true);
                         }
