@@ -365,10 +365,10 @@ namespace MihuBot
                             int heads = FlipCoins(count);
                             await message.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
                         }
-                        else if (arguments.Split(';', StringSplitOptions.RemoveEmptyEntries).Length == 2)
+                        else if (arguments.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2)
                         {
-                            var options = arguments.Split(';', StringSplitOptions.RemoveEmptyEntries);
-                            await message.ReplyAsync(RngBool() ? options[0] : options[1], mention: true);
+                            var options = arguments.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                            await message.ReplyAsync((RngBool() ? options[0] : options[1]).Trim(), mention: true);
                         }
                         else
                         {
