@@ -368,7 +368,15 @@ namespace MihuBot
                         else if (arguments.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2)
                         {
                             var options = arguments.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                            await message.ReplyAsync((RngBool() ? options[0] : options[1]).Trim(), mention: true);
+
+                            string choice;
+                            if (options[0].EndsWith('*')) choice = options[0];
+                            else if (options[1].EndsWith('*')) choice = options[1];
+                            else choice = RngBool() ? options[0] : options[1];
+
+                            choice = choice.Trim().Trim('*').Trim();
+
+                            await message.ReplyAsync(choice, mention: true);
                         }
                         else
                         {
