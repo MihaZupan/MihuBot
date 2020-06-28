@@ -367,14 +367,17 @@ namespace MihuBot
                         }
                         else if (arguments.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2)
                         {
-                            var options = arguments.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                            var options = arguments
+                                .Split('/', StringSplitOptions.RemoveEmptyEntries)
+                                .Select(o => o.Trim())
+                                .ToArray();
 
                             string choice;
                             if (options[0].EndsWith('​')) choice = options[0];
                             else if (options[1].EndsWith('​')) choice = options[1];
                             else choice = RngBool() ? options[0] : options[1];
 
-                            choice = choice.Trim().Trim('​').Trim();
+                            choice = choice.Trim('​').Trim();
 
                             await message.ReplyAsync(choice, mention: true);
                         }
