@@ -96,7 +96,7 @@ namespace MihuBot
 
             await DebugAsync("Beep boop. I'm back!");
 
-            await Client.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
+            await Client.SetGameAsync("Quality content", streamUrl: "https://bit.ly/2BlzIoG", type: ActivityType.Streaming);
 
             await BotStopTCS.Task;
 
