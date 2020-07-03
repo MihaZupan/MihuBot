@@ -167,6 +167,10 @@ namespace MihuBot
                             }
                         }
                     }
+                    else if (reaction.UserId == KnownUsers.Miha)
+                    {
+                        Console.WriteLine($"Reaction: {reaction.Emote.Name} - {reaction.Emote}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -714,11 +718,13 @@ namespace MihuBot
 
         private static async Task PollCommandAsync(SocketMessage message, string arguments)
         {
-            string[] parts = arguments
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Select(p => p.Trim(Constants.SpaceAndQuotes))
-                .Where(p => p.Length > 0)
-                .ToArray();
+            string[] parts = Helpers.TrySplitQuotedArgumentString(arguments, out string error);
+
+            if (error != null)
+            {
+                await message.ReplyAsync("Invalid arguments format: " + error, mention: true);
+                return;
+            }
 
             if (parts.Length < 3)
             {
