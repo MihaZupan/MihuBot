@@ -141,10 +141,10 @@ namespace MihuBot
                 if (!(reaction.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
-                if (reaction.UserId == KnownUsers.Miha)
-                {
-                    Console.WriteLine($"Reaction: {reaction.Emote.GetType().Name} - {reaction.Emote.Name} - {reaction.Emote}");
-                }
+                //if (reaction.UserId == KnownUsers.Miha)
+                //{
+                //    Console.WriteLine($"Reaction: {reaction.Emote.GetType().Name} - {reaction.Emote.Name} - {reaction.Emote}");
+                //}
 
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
                 {
@@ -759,7 +759,7 @@ namespace MihuBot
             var pollMessage = await message.Channel.SendMessageAsync(embed: pollEmbed.Build());
 
             await pollMessage.AddReactionsAsync(
-                Enumerable.Range(1, parts.Length - 1).Select(i => new Emoji(Constants.NumberEmojis[i])).ToArray());
+                Enumerable.Range(1, parts.Length - 1).Select(i => Constants.NumberEmotes[i]).ToArray());
         }
 
 

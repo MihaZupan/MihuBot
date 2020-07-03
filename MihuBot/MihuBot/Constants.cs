@@ -54,6 +54,14 @@ namespace MihuBot
         {
             ":zero:", ":one:", ":two:", ":three:", ":four:", ":five:", ":six:", ":seven:", ":eight:", ":nine:"
         };
+
+        private const char CombiningEnclosingKeycap = '⃣';
+
+        public static readonly IEmote[] NumberEmotes = Enumerable
+            .Range(0, 9)
+            .Select(i => i.ToString() + CombiningEnclosingKeycap)
+            .Select(e => new Emoji(e))
+            .ToArray();
     }
 
     public static class Guilds
