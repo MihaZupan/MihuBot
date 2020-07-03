@@ -47,6 +47,15 @@ namespace MihuBot
         };
 
         public const string VCDefaultVolume = "0.25";
+
+        public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
+
+        public static readonly string[] NumberEmojis = new[]
+        {
+            ":zero:", ":one:", ":two:", ":three:", ":four:", ":five:", ":six:", ":seven:", ":eight:", ":nine:"
+        };
+
+        public static readonly Emote[] NumberEmotes = NumberEmojis.Select(e => Emote.Parse(e)).ToArray();
     }
 
     public static class Guilds

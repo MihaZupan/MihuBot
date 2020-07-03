@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -321,7 +322,11 @@ namespace MihuBot
                     string command = parts[0].Substring(1).ToLowerInvariant();
                     string arguments = content.Substring(parts[0].Length).Trim();
 
-                    if (command == "roll")
+                    if (isAdmin && command == "poll")
+                    {
+                        await PollCommandAsync(message, arguments);
+                    }
+                    else if (command == "roll")
                     {
                         BigInteger sides = 6;
 
@@ -705,6 +710,49 @@ namespace MihuBot
             }
 
             await audioClient.TryQueueContentAsync(message);
+        }
+
+        private static async Task PollCommandAsync(SocketMessage message, string arguments)
+        {
+            string[] parts = arguments
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim(Constants.SpaceAndQuotes))
+                .Where(p => p.Length > 0)
+                .ToArray();
+
+            if (parts.Length < 3)
+            {
+                await message.ReplyAsync("Need at least a title and 2 options", mention: true);
+                return;
+            }
+
+            if (parts.Length > 10)
+            {
+                await message.ReplyAsync("I support at most 9 options", mention: true);
+                return;
+            }
+
+            EmbedBuilder pollEmbed = new EmbedBuilder()
+                .WithColor(r: 0, g: 255, b: 0)
+                .WithAuthor(message.Author.Username, message.Author.GetAvatarUrl());
+
+            StringBuilder embedValue = new StringBuilder();
+
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (i != 1) embedValue.Append('\n');
+
+                embedValue.Append(Constants.NumberEmojis[i]);
+                embedValue.Append(' ');
+                embedValue.Append(parts[i]);
+            }
+
+            pollEmbed.AddField(parts[0], embedValue.ToString());
+
+            var pollMessage = await message.Channel.SendMessageAsync(embed: pollEmbed.Build());
+
+            await pollMessage.AddReactionsAsync(
+                Enumerable.Range(1, parts.Length - 1).Select(i => Constants.NumberEmotes[i]).ToArray());
         }
 
 
