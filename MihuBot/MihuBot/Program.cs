@@ -141,6 +141,11 @@ namespace MihuBot
                 if (!(reaction.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
+                if (reaction.UserId == KnownUsers.Miha)
+                {
+                    Console.WriteLine($"Reaction: {reaction.Emote.GetType().Name} - {reaction.Emote.Name} - {reaction.Emote}");
+                }
+
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
                 {
                     if (reaction.User.IsSpecified && reaction.User.Value.Id == KnownUsers.MihuBot)
@@ -166,10 +171,6 @@ namespace MihuBot
                                 await userMessage.Value.AddReactionAsync(emote);
                             }
                         }
-                    }
-                    else if (reaction.UserId == KnownUsers.Miha)
-                    {
-                        Console.WriteLine($"Reaction: {reaction.Emote.Name} - {reaction.Emote}");
                     }
                 }
             }
