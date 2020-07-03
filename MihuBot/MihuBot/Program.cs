@@ -752,7 +752,7 @@ namespace MihuBot
             var pollMessage = await message.Channel.SendMessageAsync(embed: pollEmbed.Build());
 
             await pollMessage.AddReactionsAsync(
-                Enumerable.Range(1, parts.Length - 1).Select(i => Constants.NumberEmotes[i]).ToArray());
+                Enumerable.Range(1, parts.Length - 1).Select(i => new Emoji(Constants.NumberEmojis[i])).ToArray());
         }
 
 
