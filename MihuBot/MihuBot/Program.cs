@@ -101,7 +101,18 @@ namespace MihuBot
             TaskCompletionSource<object> onReadyTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             Client.Ready += () => { onReadyTcs.TrySetResult(null); return Task.CompletedTask; };
 
-            Client.MessageReceived += Client_MessageReceived;
+            Client.MessageReceived += async message =>
+            {
+                try
+                {
+                    await Client_MessageReceived(message);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex);
+                }
+            };
+
             Client.ReactionAdded += Client_ReactionAdded;
             Client.MessageUpdated += Client_MessageUpdated;
 
@@ -552,7 +563,15 @@ namespace MihuBot
                     }
                     else if (isAdmin && command == "mc")
                     {
-                        await message.ReplyAsync($"`{await RunMinecraftCommandAsync(arguments)}`");
+                        try
+                        {
+                            await message.ReplyAsync($"`{await RunMinecraftCommandAsync(arguments)}`");
+                        }
+                        catch (Exception ex)
+                        {
+                            await message.ReplyAsync("Something went wrong :/");
+                            await DebugAsync(ex.ToString());
+                        }
                     }
                     else if (command == "whitelist")
                     {
