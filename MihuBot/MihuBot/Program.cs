@@ -26,8 +26,6 @@ namespace MihuBot
 
     public static class Whitelist
     {
-        private static readonly object _lock = new object();
-
         public static Dictionary<ulong, string> Entries =
             File.Exists(WhitelistJsonPath)
                 ? JsonConvert.DeserializeObject<Dictionary<ulong, string>>(File.ReadAllText(WhitelistJsonPath))
