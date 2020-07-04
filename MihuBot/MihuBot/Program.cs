@@ -35,21 +35,9 @@ namespace MihuBot
 
         private const string WhitelistJsonPath = "whitelist.json";
 
-        public static bool TryGetValue(ulong userId, out string username)
+        public static void Save()
         {
-            lock (_lock)
-            {
-                return Entries.TryGetValue(userId, out username);
-            }
-        }
-
-        public static void Set(ulong userId, string username)
-        {
-            lock (_lock)
-            {
-                Entries.Add(userId, username);
-                File.WriteAllText(WhitelistJsonPath, JsonConvert.SerializeObject(Entries, Formatting.Indented));
-            }
+            File.WriteAllText(WhitelistJsonPath, JsonConvert.SerializeObject(Entries, Formatting.Indented));
         }
     }
 
@@ -560,7 +548,15 @@ namespace MihuBot
                     }
                     else if (command == "whitelist")
                     {
-                        await WhitelistCommandAsync(message, arguments);
+                        try
+                        {
+                            await WhitelistCommandAsync(message, arguments);
+                        }
+                        catch (Exception ex)
+                        {
+                            await message.ReplyAsync("Something went wrong :/");
+                            await DebugAsync(ex.ToString());
+                        }
                     }
                 }
                 else
@@ -602,7 +598,7 @@ namespace MihuBot
                 }
             }
 
-            if (Whitelist.TryGetValue(message.Author.Id, out string existing))
+            if (Whitelist.Entries.TryGetValue(message.Author.Id, out string existing))
             {
                 if (existing.Equals(arguments, StringComparison.OrdinalIgnoreCase))
                 {
@@ -610,11 +606,22 @@ namespace MihuBot
                     return;
                 }
 
+                Whitelist.Entries.Remove(message.Author.Id);
+                Whitelist.Save();
                 await RunMinecraftCommandAsync("whitelist remove " + existing);
+            }
+            else if (Whitelist.Entries.Values.Any(v => v.Equals(arguments, StringComparison.OrdinalIgnoreCase)))
+            {
+                ulong takenBy = Whitelist.Entries.First(pair => pair.Value.Equals(arguments, StringComparison.OrdinalIgnoreCase)).Key;
+                await message.ReplyAsync("That username is already taken by " + MentionUtils.MentionUser(takenBy), mention: true);
+                return;
             }
             else existing = null;
 
             await RunMinecraftCommandAsync("whitelist add " + arguments);
+
+            Whitelist.Entries[message.Author.Id] = arguments;
+            Whitelist.Save();
 
             await message.ReplyAsync($"Added {arguments} to the whitelist" + (existing is null ? "" : $" and removed {existing}"), mention: true);
         }
