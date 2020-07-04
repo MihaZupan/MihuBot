@@ -99,7 +99,7 @@ namespace MihuBot
         public static readonly Emote PudeesJammies  = Emote.Parse("<:pudeesJammies:686340394866573338>");
         public static readonly Emote DarlBoop       = Emote.Parse("<:darlBoop:712494064087597106>");
         public static readonly Emote DarlHearts     = Emote.Parse("<a:darlHearts:712496083334463528>");
-        public static readonly Emote DarlHug        = Emote.Parse("<:darlHug:712494106466844723>");
+        public static readonly Emote DarlHuggers    = Emote.Parse("<:darlHUGERS:725199118619902006>");
         public static readonly Emote DarlKiss       = Emote.Parse("<:darlKiss:712494206308057248>");
         public static readonly Emote DarlBASS       = Emote.Parse("<a:darlBASS:560235665040867328>");
         public static readonly Emote CreepyFace     = Emote.Parse("<:creepyface:708818227446284369>");

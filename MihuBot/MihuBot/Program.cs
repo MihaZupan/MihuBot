@@ -493,7 +493,7 @@ namespace MihuBot
                         }
                         else if (command == "hug")
                         {
-                            reply = $"{message.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.DarlHug}";
+                            reply = $"{message.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.DarlHuggers}";
                         }
                         else if (command == "kiss")
                         {
