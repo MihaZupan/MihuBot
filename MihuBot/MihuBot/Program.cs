@@ -1,6 +1,8 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -20,6 +22,35 @@ namespace MihuBot
         public static int YogadesuCounter => Interlocked.Increment(ref _yogadesuCounter);
 
 
+    }
+
+    public static class Whitelist
+    {
+        private static readonly object _lock = new object();
+
+        public static Dictionary<ulong, string> Entries =
+            File.Exists(WhitelistJsonPath)
+                ? JsonConvert.DeserializeObject<Dictionary<ulong, string>>(File.ReadAllText(WhitelistJsonPath))
+                : new Dictionary<ulong, string>();
+
+        private const string WhitelistJsonPath = "whitelist.json";
+
+        public static bool TryGetValue(ulong userId, out string username)
+        {
+            lock (_lock)
+            {
+                return Entries.TryGetValue(userId, out username);
+            }
+        }
+
+        public static void Set(ulong userId, string username)
+        {
+            lock (_lock)
+            {
+                Entries.Add(userId, username);
+                File.WriteAllText(WhitelistJsonPath, JsonConvert.SerializeObject(Entries, Formatting.Indented));
+            }
+        }
     }
 
     class Program
@@ -525,7 +556,11 @@ namespace MihuBot
                     }
                     else if (isAdmin && command == "mc")
                     {
-                        await message.ReplyAsync($"`{await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(arguments))}`");
+                        await message.ReplyAsync($"`{await RunMinecraftCommandAsync(arguments)}`");
+                    }
+                    else if (command == "whitelist")
+                    {
+                        await WhitelistCommandAsync(message, arguments);
                     }
                 }
                 else
@@ -537,6 +572,56 @@ namespace MihuBot
             {
                 Console.WriteLine(ex);
             }
+        }
+
+        private static async Task WhitelistCommandAsync(SocketMessage message, string arguments)
+        {
+            const string ValidCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+
+            if (arguments.Length < 3 || arguments.Length > 16 || arguments.Any(c => !ValidCharacters.Contains(c)))
+            {
+                await message.ReplyAsync("Enter a valid username: `!whitelist username`", mention: true);
+                return;
+            }
+
+            if (Constants.Admins.Contains(message.Author.Id) && arguments.Equals("list", StringComparison.OrdinalIgnoreCase))
+            {
+                string entries = string.Join('\n', Whitelist.Entries.Select(pair => FormatLine(pair.Key, pair.Value)));
+
+                await message.ReplyAsync($"```\n{entries}\n```");
+                return;
+
+                static string FormatLine(ulong userId, string username)
+                {
+                    string discordUsername = Client.GetUser(userId).Username;
+
+                    if (discordUsername.Length > 20)
+                        discordUsername = discordUsername.Substring(0, 20);
+
+                    return (discordUsername + ":").PadRight(22) + username;
+                }
+            }
+
+            if (Whitelist.TryGetValue(message.Author.Id, out string existing))
+            {
+                if (existing.Equals(arguments, StringComparison.OrdinalIgnoreCase))
+                {
+                    await message.ReplyAsync("You're already on the whitelist", mention: true);
+                    return;
+                }
+
+                await RunMinecraftCommandAsync("whitelist remove " + existing);
+            }
+            else existing = null;
+
+            await RunMinecraftCommandAsync("whitelist add " + arguments);
+
+            await message.ReplyAsync($"Added {arguments} to the whitelist" + (existing is null ? "" : $" and removed {existing}"), mention: true);
+        }
+
+        private static async Task<string> RunMinecraftCommandAsync(string command)
+        {
+            return await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(command));
         }
 
         private static Task ParseWords(string content, SocketMessage message)
