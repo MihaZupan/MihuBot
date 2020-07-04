@@ -43,6 +43,7 @@ namespace MihuBot
     {
         private static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
+        private static MinecraftRCON McRCON;
 
         private static readonly string LogsRoot = "logs/";
         private static readonly string FilesRoot = LogsRoot + "files/";
@@ -105,6 +106,8 @@ namespace MihuBot
             Client.MessageUpdated += Client_MessageUpdated;
 
             Client.JoinedGuild += Client_JoinedGuild;
+
+            McRCON = await MinecraftRCON.ConnectAsync("darlings.me", Secrets.MinecraftRconPassword);
 
             await Client.LoginAsync(TokenType.Bot, Secrets.AuthToken);
             await Client.StartAsync();
@@ -626,7 +629,9 @@ namespace MihuBot
 
         private static async Task<string> RunMinecraftCommandAsync(string command)
         {
-            return await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(command));
+            string mcResponse = await McRCON.SendCommandAsync(command);
+            Console.WriteLine("MC: " + mcResponse);
+            return mcResponse;
         }
 
         private static Task ParseWords(string content, SocketMessage message)
