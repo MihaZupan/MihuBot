@@ -336,7 +336,7 @@ namespace MihuBot
                     else if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                     {
                         string videoId = null, playlistId = null;
-                        var parts = content.Split(' ');
+                        var parts = content.Split(' ').Where(p => p.Contains("youtu", StringComparison.OrdinalIgnoreCase));
                         if (parts.Any(p => YoutubeHelper.TryParseVideoId(p, out videoId)))
                         {
                             _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, message.Channel));
