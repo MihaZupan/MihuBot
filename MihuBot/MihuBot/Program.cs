@@ -335,11 +335,13 @@ namespace MihuBot
                     }
                     else if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (YoutubeHelper.TryParseVideoId(content, out string videoId))
+                        string videoId = null, playlistId = null;
+                        var parts = content.Split(' ');
+                        if (parts.Any(p => YoutubeHelper.TryParseVideoId(p, out videoId)))
                         {
                             _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, message.Channel));
                         }
-                        else if (YoutubeHelper.TryParsePlaylistId(content, out string playlistId))
+                        else if (parts.Any(p => YoutubeHelper.TryParsePlaylistId(p, out playlistId)))
                         {
                             _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, message.Channel));
                         }
