@@ -41,7 +41,7 @@ namespace MihuBot
 
     class Program
     {
-        private static DiscordSocketClient Client;
+        internal static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
         private static MinecraftRCON McRCON;
 
@@ -622,7 +622,7 @@ namespace MihuBot
                 return;
             }
 
-            if (Constants.Admins.Contains(message.Author.Id) && arguments.Equals("list", StringComparison.OrdinalIgnoreCase))
+            if (message.AuthorIsAdmin() && arguments.Equals("list", StringComparison.OrdinalIgnoreCase))
             {
                 string entries = string.Join('\n', Whitelist.Entries.Select(pair => FormatLine(pair.Key, pair.Value)));
 
@@ -640,6 +640,12 @@ namespace MihuBot
                 }
             }
 
+            if (!message.Author.IsDreamlingsSubscriber())
+            {
+                await message.ReplyAsync("fhweifwfuiwhfwuifheuiwhfewuifhiuh", mention: true);
+                return;
+            }
+
             if (Whitelist.Entries.TryGetValue(message.Author.Id, out string existing))
             {
                 if (existing.Equals(arguments, StringComparison.OrdinalIgnoreCase))
@@ -651,6 +657,7 @@ namespace MihuBot
                 Whitelist.Entries.Remove(message.Author.Id);
                 Whitelist.Save();
                 await RunMinecraftCommandAsync("whitelist remove " + existing);
+                await RunMinecraftCommandAsync("kick " + existing);
             }
             else if (Whitelist.Entries.Values.Any(v => v.Equals(arguments, StringComparison.OrdinalIgnoreCase)))
             {
@@ -927,7 +934,7 @@ namespace MihuBot
         {
             if (message != null)
             {
-                Debug.Assert(Constants.Admins.Contains(message.Author.Id));
+                Debug.Assert(message.AuthorIsAdmin());
                 Debug.Assert(message.Content.Contains("update", StringComparison.OrdinalIgnoreCase));
 
                 if (Interlocked.Exchange(ref _updating, 1) != 0)

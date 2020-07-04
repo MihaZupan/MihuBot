@@ -71,6 +71,7 @@ namespace MihuBot
         public const ulong Mihu         = 566925785563136020ul;
         public const ulong Paul         = 715374946846769202ul;
         public const ulong LiverGang    = 244642778024378368ul;
+        public const ulong DresDreamers = 495391858009309184ul;
     }
 
     public static class KnownUsers

@@ -92,6 +92,11 @@ namespace MihuBot
             return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(user.Id));
         }
 
+        public static bool AuthorIsAdmin(this SocketMessage message)
+        {
+            return message.Author.IsAdminFor(message.Guild());
+        }
+
         public static bool AuthorHasSafePermissions(this SocketMessage message)
         {
             var guild = message.Guild();
@@ -104,6 +109,40 @@ namespace MihuBot
             return user.Id == KnownUsers.Conor
                 || user.Id == KnownUsers.Sticky
                 || user.Id == KnownUsers.Sfae;
+        }
+
+        public static bool IsDreamlingsSubscriber(this SocketUser user)
+        {
+            var client = Program.Client;
+
+            var guildUser = client.GetGuild(Guilds.Mihu).GetUser(user.Id);
+
+            Console.WriteLine(guildUser is null ? "Null" : "Not null");
+
+            if (guildUser != null && guildUser.Roles.Any(r => r.Id == 707858261034008668ul)) // Dreamers
+                return true;
+
+            //var guildUser = client.GetGuild(Guilds.DresDreamers).GetUser(user.Id);
+
+            //if (guildUser != null && guildUser.Roles.Any(r => r.Id == 516892706467741707ul)) // Dreamers
+            //    return true;
+
+            //guildUser = client.GetGuild(Guilds.LiverGang).GetUser(user.Id);
+
+            //if (guildUser != null && guildUser.Roles.Any(r => r.Id == 492006735582593026ul)) // Livers
+            //    return true;
+
+            //guildUser = client.GetGuild(Guilds.DDs).GetUser(user.Id);
+
+            //if (guildUser != null && guildUser.Roles.Any(r => r.Id == 705711705342345246ul)) // Dreamlings
+            //    return true;
+
+            //guildUser = client.GetGuild(Guilds.DDs).GetUser(user.Id);
+
+            //if (guildUser != null && guildUser.Roles.Any(r => r.Id == 705711705342345246ul))
+            //    return true;
+
+            return false;
         }
     }
 }
