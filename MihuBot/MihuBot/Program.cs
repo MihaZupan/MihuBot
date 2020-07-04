@@ -221,6 +221,11 @@ namespace MihuBot
                     await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + content);
                 }
 
+                if (message.MentionedRoles.Count > 0)
+                {
+                    Console.WriteLine("Mentioned roles: " + string.Join(", ", message.MentionedRoles.Select(r => r.Name)));
+                }
+
                 if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
                 {
                     await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
