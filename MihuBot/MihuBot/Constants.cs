@@ -18,6 +18,7 @@ namespace MihuBot
             KnownUsers.CurtIs,
             KnownUsers.Christian,
             KnownUsers.Liv,
+            KnownUsers.DreisBlue,
         };
 
         public static readonly Dictionary<ulong, HashSet<ulong>> GuildMods = new Dictionary<ulong, HashSet<ulong>>
@@ -86,6 +87,7 @@ namespace MihuBot
         public const ulong CurtIs       = 237788815626862593ul;
         public const ulong Christian    = 397254656025427968ul;
         public const ulong Liv          = 244637014547234816ul;
+        public const ulong DreisBlue    = 134162712191172608ul;
 
         public const ulong Angelo       = 326082313257484288ul;
         public const ulong Gradravin    = 235218831247671297ul;
@@ -112,6 +114,8 @@ namespace MihuBot
         public static readonly Emote DarlPoke       = Emote.Parse("<:darlPoke:591174254372978689>");
         public static readonly Emote DarlZoom       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static readonly Emote DarlF          = Emote.Parse("<:darlF:629944838866993153>");
+
+        public static readonly IEmote ThumbsUp      = new Emoji("👍");
 
         public static readonly Emote[] JamesEmotes = new Emote[]
         {

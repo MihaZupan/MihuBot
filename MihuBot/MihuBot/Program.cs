@@ -565,7 +565,22 @@ namespace MihuBot
                     {
                         try
                         {
-                            await message.ReplyAsync($"`{await RunMinecraftCommandAsync(arguments)}`");
+                            if (command.Length > 2000 || command.Any(c => c > 127))
+                            {
+                                await message.ReplyAsync("Invalid command format", mention: true);
+                            }
+                            else
+                            {
+                                string commandResponse = await RunMinecraftCommandAsync(arguments);
+                                if (string.IsNullOrEmpty(commandResponse))
+                                {
+                                    await message.AddReactionAsync(Emotes.ThumbsUp);
+                                }
+                                else
+                                {
+                                    await message.ReplyAsync($"`{commandResponse}`");
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {
