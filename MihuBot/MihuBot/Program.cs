@@ -213,7 +213,7 @@ namespace MihuBot
                 SocketGuild guild = guildChannel.Guild;
 
                 bool isAdmin = Constants.Admins.Contains(message.Author.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(message.Author.Id));
-                bool isMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot);
+                bool isMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
                 string content = message.Content.Trim();
 
                 if (!string.IsNullOrWhiteSpace(content))
