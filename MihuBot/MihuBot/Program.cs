@@ -118,7 +118,7 @@ namespace MihuBot
 
             Client.JoinedGuild += Client_JoinedGuild;
 
-            McRCON = await MinecraftRCON.ConnectAsync("darlings.me", Secrets.MinecraftRconPassword);
+            McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, Secrets.MinecraftRconPassword);
 
             await Client.LoginAsync(TokenType.Bot, Secrets.AuthToken);
             await Client.StartAsync();
@@ -653,11 +653,29 @@ namespace MihuBot
             await message.ReplyAsync($"Added {arguments} to the whitelist" + (existing is null ? "" : $" and removed {existing}"), mention: true);
         }
 
-        private static async Task<string> RunMinecraftCommandAsync(string command)
+        private static async Task<string> RunMinecraftCommandAsync(string command, bool isRetry = false)
         {
-            string mcResponse = await McRCON.SendCommandAsync(command);
-            Console.WriteLine("MC: " + mcResponse);
-            return mcResponse;
+            try
+            {
+                string mcResponse = await McRCON.SendCommandAsync(command);
+                Console.WriteLine("MC: " + mcResponse);
+                return mcResponse;
+            }
+            catch (Exception ex)
+            {
+                if (isRetry)
+                    throw;
+
+                try
+                {
+                    McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);
+                    return await RunMinecraftCommandAsync(command, isRetry: true);
+                }
+                catch
+                {
+                    throw ex;
+                }
+            }
         }
 
         private static Task ParseWords(string content, SocketMessage message)
