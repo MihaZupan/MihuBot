@@ -642,7 +642,7 @@ namespace MihuBot
 
             if (!message.Author.IsDreamlingsSubscriber())
             {
-                await message.ReplyAsync("fhweifwfuiwhfwuifheuiwhfewuifhiuh", mention: true);
+                await message.ReplyAsync("Not a sub to the Dreamlings gang", mention: true);
                 return;
             }
 
