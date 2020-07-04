@@ -523,6 +523,10 @@ namespace MihuBot
                         string streamUrl = split.Length > 1 ? split[1] : null;
                         await Client.SetGameAsync(name, streamUrl, type: ActivityType.Streaming);
                     }
+                    else if (isAdmin && command == "mc")
+                    {
+                        await message.ReplyAsync(await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(arguments)));
+                    }
                 }
                 else
                 {
