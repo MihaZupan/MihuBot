@@ -212,7 +212,7 @@ namespace MihuBot
 
                 SocketGuild guild = guildChannel.Guild;
 
-                bool isAdmin = Constants.Admins.Contains(message.Author.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(message.Author.Id));
+                bool isAdmin = message.Author.IsAdminFor(guild);
                 bool isMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
                 string content = message.Content.Trim();
 
@@ -432,7 +432,7 @@ namespace MihuBot
                     }
                     else if (command == "admins")
                     {
-                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => Constants.Admins.Contains(u.Id)).Select(a => a.Username)));
+                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => u.IsAdminFor(guild)).Select(a => a.Username)));
                     }
                     else if (command == "butt" || command == "slap" || command == "kick"
                         || command == "love" || command == "hug" || command == "kiss" || command == "boop"

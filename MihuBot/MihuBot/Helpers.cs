@@ -87,6 +87,11 @@ namespace MihuBot
             return (message.Channel as SocketGuildChannel).Guild;
         }
 
+        public static bool IsAdminFor(this SocketUser user, SocketGuild guild)
+        {
+            return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(user.Id));
+        }
+
         public static bool AuthorHasSafePermissions(this SocketMessage message)
         {
             var guild = message.Guild();
