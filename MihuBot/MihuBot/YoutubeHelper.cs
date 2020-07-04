@@ -207,6 +207,8 @@ namespace MihuBot
             while (title.Contains("  "))
                 title = title.Replace("  ", " ");
 
+            title = title.Replace('"', '\'');
+
             return title + ".mp3";
         }
 
