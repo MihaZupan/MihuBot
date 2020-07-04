@@ -86,5 +86,19 @@ namespace MihuBot
         {
             return (message.Channel as SocketGuildChannel).Guild;
         }
+
+        public static bool AuthorHasSafePermissions(this SocketMessage message)
+        {
+            var guild = message.Guild();
+
+            if (guild.Id != Guilds.DDs)
+                return false;
+
+            var user = message.Author;
+
+            return user.Id == KnownUsers.Conor
+                || user.Id == KnownUsers.Sticky
+                || user.Id == KnownUsers.Sfae;
+        }
     }
 }

@@ -347,7 +347,7 @@ namespace MihuBot
                     string command = parts[0].Substring(1).ToLowerInvariant();
                     string arguments = content.Substring(parts[0].Length).Trim();
 
-                    if (isAdmin && command == "poll")
+                    if (command == "poll" && (isAdmin || message.AuthorHasSafePermissions()))
                     {
                         await PollCommandAsync(message, arguments);
                     }

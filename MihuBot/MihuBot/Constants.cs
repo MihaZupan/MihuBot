@@ -91,6 +91,9 @@ namespace MihuBot
         public const ulong Gradravin    = 235218831247671297ul;
         public const ulong PaulK        = 267771172962304000ul;
         public const ulong Maric        = 399032007138476032ul;
+        public const ulong Conor        = 533609249394130947ul;
+        public const ulong Sticky       = 162050931326713857ul;
+        public const ulong Sfae         = 224015634206425088ul;
     }
 
     public static class Emotes
