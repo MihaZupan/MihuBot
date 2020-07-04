@@ -501,7 +501,7 @@ namespace MihuBot
                         }
                         else if (command == "stab")
                         {
-                            reply = $"{message.Author.Username} just stabbed {target}! Emotes.{Emotes.DarlPoke}";
+                            reply = $"{message.Author.Username} just stabbed {target}! {Emotes.DarlPoke}";
                         }
                         else if (command == "boop")
                         {
