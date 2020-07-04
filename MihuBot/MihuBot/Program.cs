@@ -525,7 +525,7 @@ namespace MihuBot
                     }
                     else if (isAdmin && command == "mc")
                     {
-                        await message.ReplyAsync(await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(arguments)));
+                        await message.ReplyAsync($"`{await HttpClient.GetStringAsync("http://localhost:3000/execute/" + Uri.EscapeDataString(arguments))}`");
                     }
                 }
                 else
