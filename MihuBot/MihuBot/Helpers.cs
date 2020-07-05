@@ -117,7 +117,7 @@ namespace MihuBot
 
             var guildUser = client.GetGuild(Guilds.DDs).GetUser(user.Id);
 
-            if (guildUser != null && guildUser.Roles.Any(r => r.Id == 705711705342345246ul)) // Dreamlings
+            if (guildUser != null && guildUser.Roles.Any(r => r.Id == 705711705342345246ul)) // Darlings
                 return true;
 
             guildUser = client.GetGuild(Guilds.DresDreamers).GetUser(user.Id);
