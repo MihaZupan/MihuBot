@@ -84,6 +84,11 @@ namespace MihuBot
                 return;
             }
 
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                Console.WriteLine(e.ExceptionObject);
+            };
+
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
 
@@ -683,11 +688,8 @@ namespace MihuBot
                 Console.WriteLine("MC: " + mcResponse);
                 return mcResponse;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!isRetry)
             {
-                if (isRetry)
-                    throw;
-
                 try
                 {
                     McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);

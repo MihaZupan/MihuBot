@@ -93,6 +93,9 @@ namespace MihuBot
         {
             TcpClient tcp = new TcpClient();
 
+            tcp.SendTimeout = Math.Min(tcp.SendTimeout, 10_000);
+            tcp.ReceiveTimeout = Math.Min(tcp.ReceiveTimeout, 10_000);
+
             await tcp.ConnectAsync(hostname, port);
 
             var rcon = new MinecraftRCON(tcp);
