@@ -10,5 +10,6 @@ namespace MihuBot
         public abstract Task ExecuteAsync(CommandContext ctx);
 
         public virtual string[] Aliases { get; } = Array.Empty<string>();
+        public virtual Task InitAsync() => Task.CompletedTask;
     }
 }

@@ -17,7 +17,7 @@ namespace MihuBot
     class Program
     {
         internal static DiscordSocketClient Client;
-        private static readonly HttpClient HttpClient = new HttpClient();
+        internal static readonly HttpClient HttpClient = new HttpClient();
 
         private static readonly string LogsRoot = "logs/";
         private static readonly string FilesRoot = LogsRoot + "files/";
@@ -85,6 +85,7 @@ namespace MihuBot
                 if (typeof(CommandBase).IsAssignableFrom(type))
                 {
                     var instance = Activator.CreateInstance(type) as CommandBase;
+                    await instance.InitAsync();
                     _commands.Add(instance.Command, instance);
                     foreach (string alias in instance.Aliases)
                     {
