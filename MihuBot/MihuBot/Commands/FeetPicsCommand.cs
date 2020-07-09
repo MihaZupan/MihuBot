@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {
-    public sealed class FeetPicksCommand : CommandBase
+    public sealed class FeetPicsCommand : CommandBase
     {
         public override string Command => "feetpicks";
 
