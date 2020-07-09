@@ -11,7 +11,7 @@ using YoutubeExplode;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
-namespace MihuBot
+namespace MihuBot.Helpers
 {
     static class YoutubeHelper
     {

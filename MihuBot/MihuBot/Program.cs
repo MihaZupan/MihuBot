@@ -1,49 +1,23 @@
 ﻿using Discord;
 using Discord.WebSocket;
-using Newtonsoft.Json;
+using MihuBot.Helpers;
+using SharpCollections.Generic;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot
 {
-    public static class Counters
-    {
-        private static int _yogadesuCounter = 0;
-        public static int YogadesuCounter => Interlocked.Increment(ref _yogadesuCounter);
-
-
-    }
-
-    public static class Whitelist
-    {
-        public static Dictionary<ulong, string> Entries =
-            File.Exists(WhitelistJsonPath)
-                ? JsonConvert.DeserializeObject<Dictionary<ulong, string>>(File.ReadAllText(WhitelistJsonPath))
-                : new Dictionary<ulong, string>();
-
-        private const string WhitelistJsonPath = "whitelist.json";
-
-        public static void Save()
-        {
-            File.WriteAllText(WhitelistJsonPath, JsonConvert.SerializeObject(Entries, Formatting.Indented));
-        }
-    }
-
     class Program
     {
         internal static DiscordSocketClient Client;
         private static readonly HttpClient HttpClient = new HttpClient();
-        private static MinecraftRCON McRCON;
 
         private static readonly string LogsRoot = "logs/";
         private static readonly string FilesRoot = LogsRoot + "files/";
@@ -51,6 +25,9 @@ namespace MihuBot
         private static int _fileCounter = 0;
         private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
         private static StreamWriter LogWriter;
+
+        private static CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
+        private static List<NonCommandHandler> _nonCommandHandlers = new List<NonCommandHandler>();
 
         private static async Task LogAsync(string content)
         {
@@ -60,7 +37,7 @@ namespace MihuBot
             LogSemaphore.Release();
         }
 
-        private static readonly TaskCompletionSource<object> BotStopTCS =
+        internal static readonly TaskCompletionSource<object> BotStopTCS =
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private static SocketTextChannel DebugTextChannel => Client.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul);
@@ -100,6 +77,27 @@ namespace MihuBot
                     ConnectionTimeout = 30_000
             });
 
+            foreach (var type in Assembly
+                .GetExecutingAssembly()
+                .GetTypes()
+                .Where(t => t.IsPublic && !t.IsAbstract))
+            {
+                if (typeof(CommandBase).IsAssignableFrom(type))
+                {
+                    var instance = Activator.CreateInstance(type) as CommandBase;
+                    _commands.Add(instance.Command, instance);
+                    foreach (string alias in instance.Aliases)
+                    {
+                        _commands.Add(alias, instance);
+                    }
+                }
+                else if (typeof(NonCommandHandler).IsAssignableFrom(type))
+                {
+                    var instance = Activator.CreateInstance(type) as NonCommandHandler;
+                    _nonCommandHandlers.Add(instance);
+                }
+            }
+
             TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             Client.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
 
@@ -122,8 +120,6 @@ namespace MihuBot
             Client.MessageUpdated += Client_MessageUpdated;
 
             Client.JoinedGuild += Client_JoinedGuild;
-
-            McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, Secrets.MinecraftRconPassword);
 
             await Client.LoginAsync(TokenType.Bot, Secrets.AuthToken);
             await Client.StartAsync();
@@ -221,718 +217,78 @@ namespace MihuBot
             if (!(message is SocketUserMessage userMessage))
                 return;
 
-            try
+            if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
+                return;
+
+            if (!string.IsNullOrWhiteSpace(message.Content))
             {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
-                    return;
+                await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + message.Content);
+            }
 
-                SocketGuild guild = guildChannel.Guild;
+            if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
+            {
+                await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
+                    try
+                    {
+                        var response = await HttpClient.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
 
-                bool isAdmin = message.Author.IsAdminFor(guild);
-                bool isMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
-                string content = message.Content.Trim();
+                        using FileStream fs = File.OpenWrite(FilesRoot + a.Id + "_" + a.Filename);
+                        using Stream stream = await response.Content.ReadAsStreamAsync();
+                        await stream.CopyToAsync(fs);
 
-                if (!string.IsNullOrWhiteSpace(content))
-                {
-                    await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + content);
-                }
-
-                if (message.MentionedRoles.Count > 0)
-                {
-                    Console.WriteLine("Mentioned roles: " + string.Join(", ", message.MentionedRoles.Select(r => r.Name)));
-                }
-
-                if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
-                {
-                    await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
-                        try
+                        if (Interlocked.Increment(ref _fileCounter) % 10 == 0)
                         {
-                            var response = await HttpClient.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
-
-                            using FileStream fs = File.OpenWrite(FilesRoot + a.Id + "_" + a.Filename);
-                            using Stream stream = await response.Content.ReadAsStreamAsync();
-                            await stream.CopyToAsync(fs);
-
-                            if (Interlocked.Increment(ref _fileCounter) % 10 == 0)
+                            var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
+                            if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
                             {
-                                var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
-                                if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
-                                {
-                                    await DebugAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
-                                }
+                                await DebugAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex);
-                        }
-                    })).ToArray());
-                }
-
-                if (message.Author.Id == KnownUsers.Gradravin && RngChance(1000))
-                {
-                    await userMessage.AddReactionAsync(Emotes.DarlBoop);
-                }
-
-                if (message.Author.Id == KnownUsers.James && RngChance(50))
-                {
-                    await userMessage.AddReactionAsync(Emotes.CreepyFace);
-                    _ = Task.Run(async () =>
-                    {
-                        await Task.Delay(750);
-                        await userMessage.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
-                    });
-                }
-
-                if (message.Author.Id != KnownUsers.MihuBot)
-                {
-                    if (message.Content.Equals("uwu", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await message.ReplyAsync("OwO");
                     }
-                    else if (message.Content.Equals("owo", StringComparison.OrdinalIgnoreCase))
+                    catch (Exception ex)
                     {
-                        await message.ReplyAsync("UwU");
+                        Console.WriteLine(ex);
                     }
-                    else if (message.Content.Equals("beep", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await message.ReplyAsync("Boop");
-                    }
-                    else if (message.Content.Equals("boop", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await message.ReplyAsync("Beep");
-                    }
-                }
-
-                if (content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
-                    (content.Length == 8 || (content.Length == 9 && (content[8] | 0x20) == 'o')))
-                {
-                    ulong husbandId = message.Author.Id switch
-                    {
-                        KnownUsers.Miha     => KnownUsers.Jordan,
-                        KnownUsers.Jordan   => KnownUsers.Miha,
-
-                        _ => 0
-                    };
-
-                    if (husbandId == 0)
-                    {
-                        await message.ReplyAsync($"{Emotes.DarlF}");
-                    }
-                    else
-                    {
-                        await message.ReplyAsync(MentionUtils.MentionUser(husbandId));
-                    }
-                }
-                else if (content.StartsWith("@yogadesu", StringComparison.OrdinalIgnoreCase))
-                {
-                    await message.ReplyAsync($"Y{new string('o', Counters.YogadesuCounter)}gades");
-                }
-
-                if (content.Contains("yesw", StringComparison.OrdinalIgnoreCase) && message.Author.Id != KnownUsers.MihuBot)
-                {
-                    await userMessage.AddReactionAsync(Emotes.YesW);
-                }
-                
-                if (Constants.BananaMessages.Any(b => content.Contains(b, StringComparison.OrdinalIgnoreCase)))
-                {
-                    await userMessage.AddReactionAsync(Emotes.PudeesJammies);
-                }
-
-                if (isMentioned)
-                {
-                    if (isAdmin && content.Contains('\n') && content.AsSpan(0, 40).Contains("msg ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await SendCustomMessage(content, message);
-                    }
-                    else if (content.Contains(" play ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _ = Task.Run(async () => await OnPlayCommand(message));
-                    }
-                    else if (content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string videoId = null, playlistId = null;
-                        var parts = content.Split(' ').Where(p => p.Contains("youtu", StringComparison.OrdinalIgnoreCase));
-                        if (parts.Any(p => YoutubeHelper.TryParseVideoId(p, out videoId)))
-                        {
-                            _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, message.Channel));
-                        }
-                        else if (parts.Any(p => YoutubeHelper.TryParsePlaylistId(p, out playlistId)))
-                        {
-                            _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, message.Channel));
-                        }
-                    }
-                }
-                
-                if (content.StartsWith('/') || content.StartsWith('!'))
-                {
-                    string[] parts = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    string command = parts[0].Substring(1).ToLowerInvariant();
-                    string arguments = content.Substring(parts[0].Length).Trim();
-
-                    if (command == "poll" && (isAdmin || message.AuthorHasSafePermissions()))
-                    {
-                        await PollCommandAsync(message, arguments);
-                    }
-                    else if (command == "roll")
-                    {
-                        BigInteger sides = 6;
-
-                        if (parts.Length > 1 && BigInteger.TryParse(parts[1].Trim('d', 'D'), out BigInteger customSides))
-                            sides = customSides;
-
-                        string response;
-
-                        if (sides <= 0)
-                        {
-                            response = "No";
-                        }
-                        else if (sides <= 1_000_000_000)
-                        {
-                            response = (Rng((int)sides) + 1).ToString();
-                        }
-                        else
-                        {
-                            double log10 = BigInteger.Log10(sides);
-                            if (log10 >= 64 * 1024)
-                            {
-                                response = "42";
-                            }
-                            else
-                            {
-                                byte[] bytes = new byte[(int)(log10 * 4)];
-                                new Random().NextBytes(bytes);
-                                BigInteger number = new BigInteger(bytes, true);
-
-                                response = (number % sides).ToString();
-                            }
-                        }
-
-                        await message.ReplyAsync(response, mention: true);
-                    }
-                    else if (command == "flip")
-                    {
-                        if (parts.Length > 1 && int.TryParse(parts[1], out int count) && count > 0)
-                        {
-                            count = Math.Min(1_000_000, count);
-                            int heads = FlipCoins(count);
-                            await message.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
-                        }
-                        else if (arguments.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2)
-                        {
-                            var options = arguments
-                                .Split('/', StringSplitOptions.RemoveEmptyEntries)
-                                .Select(o => o.Trim())
-                                .ToArray();
-
-                            const string ZeroWidthSpace = "​";
-
-                            string choice;
-                            if (options[0].Contains(ZeroWidthSpace)) choice = options[0];
-                            else if (options[1].Contains(ZeroWidthSpace)) choice = options[1];
-                            else choice = RngBool() ? options[0] : options[1];
-
-                            choice = choice.Replace(ZeroWidthSpace, "").Trim();
-
-                            await message.ReplyAsync(choice, mention: true);
-                        }
-                        else
-                        {
-                            await message.ReplyAsync(RngBool() ? "Heads" : "Tails", mention: true);
-                        }
-                    }
-                    else if (command == "dl")
-                    {
-                        SocketMessage msg = message.Channel
-                            .GetCachedMessages(10)
-                            .OrderByDescending(m => m.Timestamp)
-                            .FirstOrDefault(m => m.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase) && YoutubeHelper.TryParseVideoId(m.Content, out _));
-
-                        if (msg != null && YoutubeHelper.TryParseVideoId(msg.Content, out string videoId))
-                        {
-                            _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, message.Channel));
-                        }
-                    }
-                    else if (command == "admins")
-                    {
-                        await message.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => u.IsAdminFor(guild)).Select(a => a.Username)));
-                    }
-                    else if (command == "butt" || command == "slap" || command == "kick"
-                        || command == "love" || command == "hug" || command == "kiss" || command == "boop"
-                        || (isAdmin && (command == "fist" || command == "stab")))
-                    {
-                        bool at = isAdmin && parts.Length > 1 && parts[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
-
-                        IUser rngUser = null;
-
-                        if (parts.Length > 1)
-                        {
-                            if (message.MentionedUsers.SingleOrDefault() != null && parts[1].StartsWith("<@") && parts[1].EndsWith('>'))
-                            {
-                                rngUser = message.MentionedUsers.Single();
-                                at |= isAdmin;
-                            }
-                            else if (ulong.TryParse(parts[1], out ulong userId))
-                            {
-                                rngUser = await message.Channel.GetUserAsync(userId);
-                            }
-                        }
-
-                        if (rngUser is null)
-                            rngUser = await GetRandomChannelUserAsync(message.Channel);
-
-                        string target = at ? MentionUtils.MentionUser(rngUser.Id) : rngUser.Username;
-
-                        bool targetIsAuthor = rngUser.Id == message.Author.Id;
-
-                        string reply;
-
-                        if (command == "butt")
-                        {
-                            reply = $"{message.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {Emotes.DarlBASS}";
-                        }
-                        else if (command == "slap")
-                        {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {Emotes.MonkaHmm}";
-                        }
-                        else if (command == "kick")
-                        {
-                            reply = $"{message.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {Emotes.DarlZoom}";
-                        }
-                        else if (command == "fist")
-                        {
-                            if (message.Author.Id == KnownUsers.CurtIs && rngUser.Id == KnownUsers.Miha)
-                            {
-                                reply = $"{Emotes.Monkers}";
-                            }
-                            else
-                            {
-                                reply = $"{message.Author.Username} just ||{(targetIsAuthor ? "did unimaginable things" : $"fis.. punched {target}")}!|| {Emotes.Monkers}";
-                            }
-                        }
-                        else if (command == "love")
-                        {
-                            reply = $"{message.Author.Username} wants {target} to know they are loved! {Emotes.DarlHearts}";
-                        }
-                        else if (command == "hug")
-                        {
-                            reply = $"{message.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.DarlHuggers}";
-                        }
-                        else if (command == "kiss")
-                        {
-                            reply = $"{message.Author.Username} just kissed {target}! {Emotes.DarlKiss}";
-                        }
-                        else if (command == "stab")
-                        {
-                            reply = $"{message.Author.Username} just stabbed {target}! {Emotes.DarlPoke}";
-                        }
-                        else if (command == "boop")
-                        {
-                            reply = $"{target} {Emotes.DarlBoop}";
-                        }
-                        else throw new InvalidOperationException("Unknown commmand");
-
-                        await message.ReplyAsync(reply);
-                    }
-                    else if (!isAdmin && (command == "fist" || command == "stab"))
-                    {
-                        await message.ReplyAsync($"No {Emotes.MonkaEZ}", mention: true);
-                    }
-                    else if (isAdmin && isMentioned && command == "update")
-                    {
-                        _ = Task.Run(async () => await StartUpdateAsync(message));
-                    }
-                    else if (message.Author.Id == KnownUsers.Miha && isMentioned && command == "stop")
-                    {
-                        await message.ReplyAsync("Stopping ...");
-                        BotStopTCS.TrySetResult(null);
-                    }
-                    else if (isAdmin && command == "setplaying")
-                    {
-                        await Client.SetGameAsync(arguments, type: ActivityType.Playing);
-                    }
-                    else if (isAdmin && command == "setlistening")
-                    {
-                        await Client.SetGameAsync(arguments, type: ActivityType.Listening);
-                    }
-                    else if (isAdmin && command == "setwatching")
-                    {
-                        await Client.SetGameAsync(arguments, type: ActivityType.Watching);
-                    }
-                    else if (isAdmin && command == "setstreaming")
-                    {
-                        var split = arguments.Split(';');
-                        string name = split[0];
-                        string streamUrl = split.Length > 1 ? split[1] : null;
-                        await Client.SetGameAsync(name, streamUrl, type: ActivityType.Streaming);
-                    }
-                    else if (isAdmin && command == "mc")
-                    {
-                        try
-                        {
-                            if (command.Length > 2000 || command.Any(c => c > 127))
-                            {
-                                await message.ReplyAsync("Invalid command format", mention: true);
-                            }
-                            else
-                            {
-                                string commandResponse = await RunMinecraftCommandAsync(arguments);
-                                if (string.IsNullOrEmpty(commandResponse))
-                                {
-                                    await message.AddReactionAsync(Emotes.ThumbsUp);
-                                }
-                                else
-                                {
-                                    await message.ReplyAsync($"`{commandResponse}`");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            await message.ReplyAsync("Something went wrong :/");
-                            await DebugAsync(ex.ToString());
-                        }
-                    }
-                    else if (command == "whitelist")
-                    {
-                        try
-                        {
-                            await WhitelistCommandAsync(message, arguments);
-                        }
-                        catch (Exception ex)
-                        {
-                            await message.ReplyAsync("Something went wrong :/");
-                            await DebugAsync(ex.ToString());
-                        }
-                    }
-                }
-                else
-                {
-                    await ParseWords(content, message);
-                }
+                })).ToArray());
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }
+
+            await HandleMessageAsync(message);
         }
 
-        private static async Task WhitelistCommandAsync(SocketMessage message, string arguments)
+        private static async Task HandleMessageAsync(SocketMessage message)
         {
-            const string ValidCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+            if (message.Content.Contains('\0'))
+                throw new InvalidOperationException("Null in text");
 
-            if (arguments.Length < 3 || arguments.Length > 16 || arguments.Any(c => !ValidCharacters.Contains(c)))
-            {
-                await message.ReplyAsync("Enter a valid username: `!whitelist username`", mention: true);
-                return;
-            }
-
-            if (message.AuthorIsAdmin() && arguments.Equals("list", StringComparison.OrdinalIgnoreCase))
-            {
-                string entries = string.Join('\n', Whitelist.Entries.Select(pair => FormatLine(pair.Key, pair.Value)));
-
-                await message.ReplyAsync($"```\n{entries}\n```");
+            if (message.Author.Id == KnownUsers.MihuBot)
                 return;
 
-                static string FormatLine(ulong userId, string username)
+            var content = message.Content.TrimStart();
+
+            if (content.StartsWith('!') || content.StartsWith('/'))
+            {
+                int spaceIndex = content.IndexOf(' ');
+
+                if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
-                    string discordUsername = Client.GetUser(userId).Username;
-
-                    if (discordUsername.Length > 20)
-                        discordUsername = discordUsername.Substring(0, 20);
-
-                    return (discordUsername + ":").PadRight(22) + username;
+                    var command = match.Value;
+                    await command.ExecuteAsync(new CommandContext(Client, message));
                 }
             }
-
-            if (!message.Author.IsDreamlingsSubscriber())
+            else
             {
-                await message.ReplyAsync("Not a sub to the Dreamlings gang", mention: true);
-                return;
-            }
-
-            if (Whitelist.Entries.TryGetValue(message.Author.Id, out string existing))
-            {
-                if (existing.Equals(arguments, StringComparison.OrdinalIgnoreCase))
+                var messageContext = new MessageContext(Client, message);
+                foreach (var handler in _nonCommandHandlers)
                 {
-                    await message.ReplyAsync("You're already on the whitelist", mention: true);
-                    return;
-                }
-
-                Whitelist.Entries.Remove(message.Author.Id);
-                Whitelist.Save();
-                await RunMinecraftCommandAsync("whitelist remove " + existing);
-                await RunMinecraftCommandAsync("kick " + existing);
-            }
-            else if (Whitelist.Entries.Values.Any(v => v.Equals(arguments, StringComparison.OrdinalIgnoreCase)))
-            {
-                ulong takenBy = Whitelist.Entries.First(pair => pair.Value.Equals(arguments, StringComparison.OrdinalIgnoreCase)).Key;
-                await message.ReplyAsync("That username is already taken by " + MentionUtils.MentionUser(takenBy), mention: true);
-                return;
-            }
-            else existing = null;
-
-            await RunMinecraftCommandAsync("whitelist add " + arguments);
-
-            Whitelist.Entries[message.Author.Id] = arguments;
-            Whitelist.Save();
-
-            await message.ReplyAsync($"Added {arguments} to the whitelist" + (existing is null ? "" : $" and removed {existing}"), mention: true);
-        }
-
-        private static async Task<string> RunMinecraftCommandAsync(string command, bool isRetry = false)
-        {
-            try
-            {
-                string mcResponse = await McRCON.SendCommandAsync(command);
-                Console.WriteLine("MC: " + mcResponse);
-                return mcResponse;
-            }
-            catch (Exception ex) when (!isRetry)
-            {
-                try
-                {
-                    McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);
-                    return await RunMinecraftCommandAsync(command, isRetry: true);
-                }
-                catch
-                {
-                    throw ex;
+                    await handler.HandleAsync(messageContext);
                 }
             }
-        }
-
-        private static Task ParseWords(string content, SocketMessage message)
-        {
-            int space = -1;
-            do
-            {
-                int next = content.IndexOf(' ', space + 1);
-                if (next == -1)
-                    next = content.Length;
-
-                if (Constants.TypingResponseWords.Contains(content.AsSpan(space + 1, next - space - 1), StringComparison.OrdinalIgnoreCase))
-                {
-                    return message.Channel.TriggerTypingAsync();
-                }
-
-                space = next;
-            }
-            while (space + 1 < content.Length);
-
-            return Task.CompletedTask;
-        }
-
-        private static async Task SendCustomMessage(string commandMessage, SocketMessage message)
-        {
-            string[] lines = commandMessage.Split('\n');
-            string[] headers = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            if (headers.Length < 4)
-            {
-                await message.ReplyAsync("Missing command arguments");
-                return;
-            }
-
-            if (!headers[1].Equals("msg", StringComparison.OrdinalIgnoreCase))
-                return;
-
-            if (!ulong.TryParse(headers[2], out ulong guildId) || !Constants.GuildIDs.Contains(guildId))
-            {
-                string guilds = string.Join('\n', Constants.GuildIDs.Select(id => id + ": " + Client.GetGuild(id).Name));
-                await message.ReplyAsync("Invalid Guild ID. Try:\n```\n" + guilds + "\n```");
-                return;
-            }
-
-            if (!ulong.TryParse(headers[3], out ulong channelId))
-            {
-                await message.ReplyAsync("Invalid channel ID format");
-                return;
-            }
-
-            SocketGuild guild = Client.GetGuild(guildId);
-
-            if (!(guild.TextChannels.FirstOrDefault(c => c.Id == channelId) is SocketTextChannel channel))
-            {
-                string channels = string.Join('\n', guild.Channels.Select(c => c.Id + ":\t" + c.Name));
-                if (channels.Length > 500)
-                {
-                    channels = string.Concat(channels.AsSpan(0, channels.AsSpan(0, 496).LastIndexOf('\n')), " ...");
-                }
-
-                await message.ReplyAsync("Unknown channel. Try:\n```\n" + channels + "\n```");
-                return;
-            }
-
-            try
-            {
-                if (lines[1].AsSpan().TrimStart().StartsWith('{') && lines[^1].AsSpan().TrimEnd().EndsWith('}'))
-                {
-                    int first = commandMessage.IndexOf('{');
-                    int last = commandMessage.LastIndexOf('}');
-                    await EmbedHelper.SendEmbedAsync(commandMessage.Substring(first, last - first + 1), channel);
-                }
-                else
-                {
-                    await channel.SendMessageAsync(commandMessage.AsSpan(lines[0].Length + 1).Trim(stackalloc char[] { ' ', '\t', '\r', '\n' }).ToString());
-                }
-            }
-            catch (Exception ex)
-            {
-                await message.ReplyAsync(ex.Message, mention: true);
-                throw;
-            }
-        }
-
-        private static readonly Random _rng = new Random();
-
-        private static bool RngChance(int oneInX)
-        {
-            return Rng(oneInX) == 0;
-        }
-
-        private static int Rng(int mod)
-        {
-            Span<byte> buffer = stackalloc byte[16];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(buffer);
-            var number = new BigInteger(buffer, isUnsigned: true);
-
-            return (int)(number % mod);
-        }
-
-        private static bool RngBool()
-        {
-            Span<byte> buffer = stackalloc byte[1];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(buffer);
-            return (buffer[0] & 1) == 0;
-        }
-
-        private static async Task<IUser> GetRandomChannelUserAsync(ISocketMessageChannel channel)
-        {
-            Stopwatch timer = Stopwatch.StartNew();
-            var userLists = await channel.GetUsersAsync(CacheMode.AllowDownload).ToArrayAsync();
-            var users = userLists.SelectMany(i => i).ToArray();
-            var rngUser = users[Rng(users.Length)];
-            timer.Stop();
-
-            Console.WriteLine($"Fetching users took {timer.ElapsedMilliseconds} ms");
-
-            return rngUser;
-        }
-
-        private static int FlipCoins(int count)
-        {
-            const int StackallocSize = 4096;
-            const int SizeAsUlong = StackallocSize / 8;
-
-            int remaining = count;
-            int heads = 0;
-
-            Span<byte> memory = stackalloc byte[StackallocSize];
-
-            while (remaining >= 64)
-            {
-                System.Security.Cryptography.RandomNumberGenerator.Fill(memory);
-
-                Span<ulong> memoryAsLongs = MemoryMarshal.CreateSpan(
-                    ref Unsafe.As<byte, ulong>(ref MemoryMarshal.GetReference(memory)),
-                    Math.Min(SizeAsUlong, remaining >> 6));
-
-                foreach (ulong e in memoryAsLongs)
-                    heads += BitOperations.PopCount(e);
-
-                remaining -= memoryAsLongs.Length << 6;
-            }
-
-            System.Security.Cryptography.RandomNumberGenerator.Fill(memory.Slice(0, remaining));
-            foreach (byte b in memory.Slice(0, remaining))
-                heads += b & 1;
-
-            return heads;
-        }
-
-        private static async Task OnPlayCommand(SocketMessage message)
-        {
-            var guild = message.Guild();
-            var vc = guild.VoiceChannels.FirstOrDefault(vc => vc.Users.Any(u => u.Id == message.Author.Id));
-
-            AudioClient audioClient = null;
-
-            try
-            {
-                audioClient = await AudioClient.TryGetOrJoinAsync(guild, vc);
-            }
-            catch (Exception ex)
-            {
-                await DebugAsync(ex.ToString());
-            }
-
-            if (audioClient is null)
-            {
-                if (vc is null)
-                {
-                    await message.ReplyAsync("Join a VC first", mention: true);
-                }
-                else
-                {
-                    await message.ReplyAsync("Could not join channel", mention: true);
-                }
-
-                return;
-            }
-
-            await audioClient.TryQueueContentAsync(message);
-        }
-
-        private static async Task PollCommandAsync(SocketMessage message, string arguments)
-        {
-            string[] parts = Helpers.TrySplitQuotedArgumentString(arguments, out string error);
-
-            if (error != null)
-            {
-                await message.ReplyAsync("Invalid arguments format: " + error, mention: true);
-                return;
-            }
-
-            if (parts.Length < 3)
-            {
-                await message.ReplyAsync("Need at least a title and 2 options", mention: true);
-                return;
-            }
-
-            if (parts.Length > 10)
-            {
-                await message.ReplyAsync("I support at most 9 options", mention: true);
-                return;
-            }
-
-            EmbedBuilder pollEmbed = new EmbedBuilder()
-                .WithColor(r: 0, g: 255, b: 0)
-                .WithAuthor(message.Author.Username, message.Author.GetAvatarUrl());
-
-            StringBuilder embedValue = new StringBuilder();
-
-            for (int i = 1; i < parts.Length; i++)
-            {
-                if (i != 1) embedValue.Append('\n');
-
-                embedValue.Append(Constants.NumberEmojis[i]);
-                embedValue.Append(' ');
-                embedValue.Append(parts[i]);
-            }
-
-            pollEmbed.AddField(parts[0], embedValue.ToString());
-
-            var pollMessage = await message.Channel.SendMessageAsync(embed: pollEmbed.Build());
-
-            await pollMessage.AddReactionsAsync(
-                Enumerable.Range(1, parts.Length - 1).Select(i => Constants.NumberEmotes[i]).ToArray());
         }
 
 
         private static int _updating = 0;
 
-        private static async Task StartUpdateAsync(SocketMessage message)
+        internal static async Task StartUpdateAsync(SocketMessage message)
         {
             if (message != null)
             {

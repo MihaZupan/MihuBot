@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace MihuBot
+namespace MihuBot.Helpers
 {
     public static class Constants
     {
@@ -35,16 +35,6 @@ namespace MihuBot
                 Guilds.LiverGang,
                 new HashSet<ulong> { KnownUsers.Angelo, }
             },
-        };
-
-        public static readonly string[] BananaMessages = new string[]
-        {
-            "banana", "ba na na", "b a n a n a"
-        };
-
-        public static readonly string[] TypingResponseWords = new string[]
-        {
-            "cock", "penis"
         };
 
         public const string VCDefaultVolume = "0.25";
