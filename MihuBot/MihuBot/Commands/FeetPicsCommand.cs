@@ -10,7 +10,7 @@ namespace MihuBot.Commands
 {
     public sealed class FeetPicsCommand : CommandBase
     {
-        public override string Command => "feetpicks";
+        public override string Command => "feetpics";
 
         private Image<Rgba32> SourceImage;
         private int _counter = -1;
