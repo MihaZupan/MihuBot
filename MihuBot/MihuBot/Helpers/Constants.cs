@@ -19,6 +19,7 @@ namespace MihuBot.Helpers
             KnownUsers.Christian,
             KnownUsers.Liv,
             KnownUsers.DreisBlue,
+            KnownUsers.Arisa,
         };
 
         public static readonly Dictionary<ulong, HashSet<ulong>> GuildMods = new Dictionary<ulong, HashSet<ulong>>
@@ -62,6 +63,7 @@ namespace MihuBot.Helpers
         public const ulong Paul         = 715374946846769202ul;
         public const ulong LiverGang    = 244642778024378368ul;
         public const ulong DresDreamers = 495391858009309184ul;
+        public const ulong Arisas       = 417794764029820939ul;
     }
 
     public static class KnownUsers
@@ -79,6 +81,7 @@ namespace MihuBot.Helpers
         public const ulong Christian    = 397254656025427968ul;
         public const ulong Liv          = 244637014547234816ul;
         public const ulong DreisBlue    = 134162712191172608ul;
+        public const ulong Arisa        = 417794401721384960ul;
 
         public const ulong Angelo       = 326082313257484288ul;
         public const ulong Gradravin    = 235218831247671297ul;
