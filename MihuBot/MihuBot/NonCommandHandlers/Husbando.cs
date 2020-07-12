@@ -17,7 +17,7 @@ namespace MihuBot.NonCommandHandlers
                 ulong husbandId = ctx.AuthorId switch
                 {
                     KnownUsers.Miha => KnownUsers.Jordan,
-                    KnownUsers.Jordan => KnownUsers.Miha,
+                    KnownUsers.Jordan => KnownUsers.Ai,
 
                     _ => 0
                 };

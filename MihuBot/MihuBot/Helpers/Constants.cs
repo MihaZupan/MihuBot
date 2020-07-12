@@ -90,6 +90,7 @@ namespace MihuBot.Helpers
         public const ulong Conor        = 533609249394130947ul;
         public const ulong Sticky       = 162050931326713857ul;
         public const ulong Sfae         = 224015634206425088ul;
+        public const ulong Ai           = 359549469680730114ul;
     }
 
     public static class Emotes
