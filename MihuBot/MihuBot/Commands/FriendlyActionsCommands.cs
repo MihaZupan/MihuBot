@@ -13,6 +13,11 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
+            if (ctx.Guild.Id == Guilds.LiverGang && !(ctx.Command == "hug"))
+            {
+                return;
+            }
+
             bool at = ctx.IsFromAdmin && ctx.Arguments.Length > 0 && ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
 
             IUser rngUser = null;
