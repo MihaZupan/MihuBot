@@ -41,7 +41,7 @@ namespace MihuBot.Commands
                         var part = entryList.Slice(0, Math.Min(entryList.Length, 30));
                         entryList = entryList.Slice(part.Length);
 
-                        await ctx.ReplyAsync($"```\n{string.Join('\n', part)}\n```");
+                        await ctx.ReplyAsync($"```\n{string.Join('\n', part.ToArray())}\n```");
                     }
                     return;
 
