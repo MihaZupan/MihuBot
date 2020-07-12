@@ -26,12 +26,6 @@ namespace MihuBot.Commands
 
                 string args = ctx.ArgumentString;
 
-                if (args.Length < 3 || args.Length > 16 || args.Any(c => !ValidCharacters.Contains(c)))
-                {
-                    await ctx.ReplyAsync("Enter a valid username: `!whitelist username`", mention: true);
-                    return;
-                }
-
                 if (ctx.IsFromAdmin && args.Equals("list", StringComparison.OrdinalIgnoreCase))
                 {
                     Memory<string> entryList = entries.Select(pair => FormatLine(pair.Key, pair.Value)).ToArray();
@@ -53,6 +47,12 @@ namespace MihuBot.Commands
                     }
                 }
 
+                if (args.Length < 3 || args.Length > 16 || args.Any(c => !ValidCharacters.Contains(c)))
+                {
+                    await ctx.ReplyAsync("Enter a valid username: `!whitelist username`", mention: true);
+                    return;
+                }
+
                 if (!ctx.Author.IsDreamlingsSubscriber())
                 {
                     await ctx.ReplyAsync("Sorry, it looks like you're not a sub to the Dreamlings gang", mention: true);
@@ -60,23 +60,26 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                if (entries.TryGetValue(ctx.AuthorId, out string existing))
+                string existing = null;
+
+                if (entries.Values.Any(v => v.Equals(args, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (existing.Equals(args, StringComparison.OrdinalIgnoreCase))
+                    ulong takenBy = entries.First(pair => pair.Value.Equals(args, StringComparison.OrdinalIgnoreCase)).Key;
+                    if (takenBy == ctx.AuthorId)
                     {
                         await ctx.ReplyAsync("You're already on the whitelist", mention: true);
-                        return;
                     }
-
+                    else
+                    {
+                        await ctx.ReplyAsync("That username is already taken by " + MentionUtils.MentionUser(takenBy), mention: true);
+                    }
+                    return;
+                }
+                else if (entries.TryGetValue(ctx.AuthorId, out existing))
+                {
                     entries.Remove(ctx.AuthorId);
                     await McCommand.RunMinecraftCommandAsync("whitelist remove " + existing);
                     await McCommand.RunMinecraftCommandAsync("kick " + existing);
-                }
-                else if (entries.Values.Any(v => v.Equals(args, StringComparison.OrdinalIgnoreCase)))
-                {
-                    ulong takenBy = entries.First(pair => pair.Value.Equals(args, StringComparison.OrdinalIgnoreCase)).Key;
-                    await ctx.ReplyAsync("That username is already taken by " + MentionUtils.MentionUser(takenBy), mention: true);
-                    return;
                 }
                 else existing = null;
 
