@@ -34,25 +34,29 @@ namespace MihuBot.Commands
 
                 if (ctx.IsFromAdmin && args.Equals("list", StringComparison.OrdinalIgnoreCase))
                 {
-                    string entryList = string.Join('\n', entries.Select(pair => FormatLine(pair.Key, pair.Value)));
+                    Memory<string> entryList = entries.Select(pair => FormatLine(pair.Key, pair.Value)).ToArray();
 
-                    await ctx.ReplyAsync($"```\n{entryList}\n```");
+                    while (!entryList.IsEmpty)
+                    {
+                        var part = entryList.Slice(0, Math.Min(entryList.Length, 30));
+                        entryList = entryList.Slice(part.Length);
+
+                        await ctx.ReplyAsync($"```\n{string.Join('\n', part)}\n```");
+                    }
                     return;
 
                     string FormatLine(ulong userId, string username)
                     {
                         string discordUsername = ctx.Client.GetUser(userId).Username;
 
-                        if (discordUsername.Length > 20)
-                            discordUsername = discordUsername.Substring(0, 20);
-
-                        return (discordUsername + ":").PadRight(22) + username;
+                        return username.PadRight(17, ' ') + discordUsername.Substring(0, Math.Min(discordUsername.Length, 20));
                     }
                 }
 
                 if (!ctx.Author.IsDreamlingsSubscriber())
                 {
-                    await ctx.ReplyAsync("Not a sub to the Dreamlings gang", mention: true);
+                    await ctx.ReplyAsync("Sorry, it looks like you're not a sub to the Dreamlings gang", mention: true);
+                    await ctx.DebugAsync($"{ctx.Author.Username} tried to add `{args}` to the whitelist but appears not to be a subscriber");
                     return;
                 }
 
