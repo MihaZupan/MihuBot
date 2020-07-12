@@ -9,7 +9,7 @@ namespace MihuBot.Commands
     public sealed class FriendlyActionsCommands : CommandBase
     {
         public override string Command => "hug";
-        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "fist", "stab", "dropkickofftheturnbuckle" };
+        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "dropkickofftheturnbuckle" };
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -75,21 +75,6 @@ namespace MihuBot.Commands
             else if (ctx.Command == "boop")
             {
                 reply = $"{target} {Emotes.DarlBoop}";
-            }
-            else if (ctx.Command == "fist")
-            {
-                if (ctx.AuthorId == KnownUsers.CurtIs && rngUser.Id == KnownUsers.Miha)
-                {
-                    reply = $"{Emotes.Monkers}";
-                }
-                else
-                {
-                    reply = $"{ctx.Author.Username} just ||{(targetIsAuthor ? "did unimaginable things" : $"fis.. punched {target}")}!|| {Emotes.Monkers}";
-                }
-            }
-            else if (ctx.Command == "stab")
-            {
-                reply = $"{ctx.Author.Username} just stabbed {target}! {Emotes.DarlPoke}";
             }
             else return;
 
