@@ -110,6 +110,8 @@ namespace MihuBot.Helpers
         public static readonly Emote DarlZoom       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static readonly Emote DarlF          = Emote.Parse("<:darlF:629944838866993153>");
         public static readonly Emote SenpaiComfy    = Emote.Parse("<:senpai39Comfy:680172305728405545>");
+        public static readonly Emote PauseChamp     = Emote.Parse("<:PauseChamp:724041635821781002>");
+
 
         public static readonly IEmote ThumbsUp      = new Emoji("👍");
 

@@ -46,7 +46,7 @@ namespace MihuBot.Commands
 
             if (ctx.Command == "dropkickofftheturnbuckle")
             {
-                reply = $" {ctx.Author.Username} drop kicked {target} off the turn turn buckle";
+                reply = $" {ctx.Author.Username} drop kicked {target} off the turn buckle";
             }
             else if (ctx.Command == "butt")
             {
