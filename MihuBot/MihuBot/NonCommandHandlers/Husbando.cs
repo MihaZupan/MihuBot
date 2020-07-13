@@ -18,6 +18,8 @@ namespace MihuBot.NonCommandHandlers
                 {
                     KnownUsers.Miha => KnownUsers.Jordan,
                     KnownUsers.Jordan => KnownUsers.Ai,
+                    KnownUsers.Conor => KnownUsers.James,
+                    KnownUsers.James => KnownUsers.Jordan,
 
                     _ => 0
                 };
