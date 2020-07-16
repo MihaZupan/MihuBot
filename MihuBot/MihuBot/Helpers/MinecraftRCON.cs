@@ -13,13 +13,27 @@ namespace MihuBot.Helpers
         private readonly Stream _stream;
         private readonly SemaphoreSlim _asyncLock;
         private int _idCounter = new Random().Next(1_000_000, 10_000_000);
-        private bool _invalid = false;
+        private DateTime _lastCommandTime;
+        private readonly Timer _cleanupTimer;
+
+        public bool Invalid { get; private set; } = false;
 
         private MinecraftRCON(TcpClient tcp)
         {
             _tcp = tcp;
             _stream = _tcp.GetStream();
             _asyncLock = new SemaphoreSlim(1, 1);
+            _lastCommandTime = DateTime.UtcNow;
+
+            _cleanupTimer = new Timer(s =>
+            {
+                _asyncLock.Wait();
+                if (DateTime.UtcNow.Subtract(_lastCommandTime) > TimeSpan.FromMinutes(2))
+                {
+                    Cleanup();
+                }
+                _asyncLock.Release();
+            }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
         }
 
         public async Task<string> SendCommandAsync(string command)
@@ -40,8 +54,10 @@ namespace MihuBot.Helpers
 
             try
             {
-                if (_invalid)
+                if (Invalid)
                     throw new Exception("Invalid RCON");
+
+                _lastCommandTime = DateTime.UtcNow;
 
                 await _stream.WriteAsync(packet);
 
@@ -80,13 +96,28 @@ namespace MihuBot.Helpers
             }
             catch
             {
-                _invalid = true;
+                Cleanup();
                 throw;
             }
             finally
             {
                 _asyncLock.Release();
             }
+        }
+
+        private void Cleanup()
+        {
+            Invalid = true;
+            try
+            {
+                _tcp.Close();
+            }
+            catch { }
+            try
+            {
+                _cleanupTimer.Dispose();
+            }
+            catch { }
         }
 
         public static async Task<MinecraftRCON> ConnectAsync(string hostname, string password, int port = 25575)

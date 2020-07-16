@@ -47,6 +47,11 @@ namespace MihuBot.Commands
         {
             try
             {
+                if (McRCON is null || McRCON.Invalid)
+                {
+                    await ReCreateMinecraftRCONAsync();
+                }
+
                 string mcResponse = await McRCON.SendCommandAsync(command);
                 Console.WriteLine("MC: " + mcResponse);
                 return mcResponse;
@@ -55,13 +60,18 @@ namespace MihuBot.Commands
             {
                 try
                 {
-                    McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);
+                    await ReCreateMinecraftRCONAsync();
                     return await RunMinecraftCommandAsync(command, isRetry: true);
                 }
                 catch (Exception ex2)
                 {
                     throw new AggregateException(ex, ex2);
                 }
+            }
+
+            static async Task ReCreateMinecraftRCONAsync()
+            {
+                McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);
             }
         }
     }
