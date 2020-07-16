@@ -50,14 +50,14 @@ namespace MihuBot.Helpers
             if (guildUser != null && guildUser.Roles.Any(r => r.Id == 705711705342345246ul)) // Darlings
                 return true;
 
-            guildUser = client.GetGuild(Guilds.DresDreamers).GetUser(user.Id);
-
-            if (guildUser != null && guildUser.Roles.Any(r => r.Id == 516892706467741707ul)) // Dreamers
-                return true;
-
             guildUser = client.GetGuild(Guilds.LiverGang).GetUser(user.Id);
 
             if (guildUser != null && guildUser.Roles.Any(r => r.Id == 492006735582593026ul)) // Livers
+                return true;
+
+            guildUser = client.GetGuild(Guilds.DresDreamers).GetUser(user.Id);
+
+            if (guildUser != null && guildUser.Roles.Any(r => r.Id == 516892706467741707ul)) // Dreamers
                 return true;
 
             //guildUser = client.GetGuild(Guilds.DDs).GetUser(user.Id);
