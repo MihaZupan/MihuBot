@@ -55,8 +55,14 @@ namespace MihuBot.Commands
 
                 if (!ctx.Author.IsDreamlingsSubscriber())
                 {
-                    await ctx.ReplyAsync("Sorry, it looks like you're not a sub to the Dreamlings gang", mention: true);
-                    await ctx.DebugAsync($"{ctx.Author.Username} tried to add `{args}` to the whitelist but appears not to be a subscriber");
+                    ulong guild = ctx.Guild.Id;
+                    string info = guild == Guilds.DDs ? MentionUtils.MentionChannel(733694462189895693ul)
+                        //: guild == Guilds.LiverGang ? MentionUtils.MentionChannel(733694462189895693ul)
+                        //: guild == Guilds.DresDreamers ? MentionUtils.MentionChannel(733694462189895693ul)
+                        : $"{Emotes.PauseChamp}";
+
+                    await ctx.ReplyAsync($"Sorry, it looks like you're not subscribed to at least one of the Dreamling Gang owners. You can find more information here: {info}", mention: true);
+                    await ctx.DebugAsync($"{ctx.Author.Username} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to be a subscriber");
                     return;
                 }
 
