@@ -15,26 +15,27 @@ namespace MihuBot.Helpers
             KnownUsers.Jaeger,
             KnownUsers.Jordan,
             KnownUsers.Doomi,
-            KnownUsers.CurtIs,
-            KnownUsers.Christian,
             KnownUsers.Liv,
             KnownUsers.DreisBlue,
-            KnownUsers.Arisa,
         };
 
         public static readonly Dictionary<ulong, HashSet<ulong>> GuildMods = new Dictionary<ulong, HashSet<ulong>>
         {
             {
                 Guilds.DDs,
-                new HashSet<ulong> { KnownUsers.Angelo, KnownUsers.Maric, }
+                new HashSet<ulong> { KnownUsers.Angelo, }
             },
             {
                 Guilds.Paul,
-                new HashSet<ulong> { KnownUsers.PaulK, KnownUsers.Maric, }
+                new HashSet<ulong> { KnownUsers.PaulK, }
             },
             {
                 Guilds.LiverGang,
                 new HashSet<ulong> { KnownUsers.Angelo, }
+            },
+            {
+                Guilds.Arisas,
+                new HashSet<ulong> { KnownUsers.Arisa, }
             },
         };
 
@@ -77,12 +78,12 @@ namespace MihuBot.Helpers
         public const ulong Jaeger       = 145719024544645120ul;
         public const ulong Jordan       = 236455327535464458ul;
         public const ulong Doomi        = 238754130233917440ul;
-        public const ulong CurtIs       = 237788815626862593ul;
-        public const ulong Christian    = 397254656025427968ul;
         public const ulong Liv          = 244637014547234816ul;
         public const ulong DreisBlue    = 134162712191172608ul;
-        public const ulong Arisa        = 417794401721384960ul;
 
+        public const ulong CurtIs       = 237788815626862593ul;
+        public const ulong Christian    = 397254656025427968ul;
+        public const ulong Arisa        = 417794401721384960ul;
         public const ulong Angelo       = 326082313257484288ul;
         public const ulong Gradravin    = 235218831247671297ul;
         public const ulong PaulK        = 267771172962304000ul;

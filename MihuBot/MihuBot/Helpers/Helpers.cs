@@ -38,7 +38,10 @@ namespace MihuBot.Helpers
 
             return user.Id == KnownUsers.Conor
                 || user.Id == KnownUsers.Sticky
-                || user.Id == KnownUsers.Sfae;
+                || user.Id == KnownUsers.Sfae
+                || user.Id == KnownUsers.CurtIs
+                || user.Id == KnownUsers.Christian
+                || user.Id == KnownUsers.Maric;
         }
 
         public static bool IsDreamlingsSubscriber(this SocketUser user)
