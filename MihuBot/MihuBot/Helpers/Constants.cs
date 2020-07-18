@@ -110,7 +110,7 @@ namespace MihuBot.Helpers
         public static readonly Emote DarlPoke       = Emote.Parse("<:darlPoke:591174254372978689>");
         public static readonly Emote DarlZoom       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static readonly Emote DarlF          = Emote.Parse("<:darlF:629944838866993153>");
-        public static readonly Emote SenpaiComfy    = Emote.Parse("<:senpai39Comfy:680172305728405545>");
+        public static readonly Emote SenpaiLove     = Emote.Parse("<:senpaiLove:681560481214889999>");
         public static readonly Emote PauseChamp     = Emote.Parse("<:PauseChamp:724041635821781002>");
         public static readonly Emote PepePoint      = Emote.Parse("<:pepePoint:701207439273361408>");
 

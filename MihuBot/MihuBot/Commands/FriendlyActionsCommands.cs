@@ -66,7 +66,7 @@ namespace MihuBot.Commands
             }
             else if (ctx.Command == "hug")
             {
-                reply = $"{ctx.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiComfy}";
+                reply = $"{ctx.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiLove}";
             }
             else if (ctx.Command == "kiss")
             {
