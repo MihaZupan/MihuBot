@@ -42,43 +42,23 @@ namespace MihuBot.Commands
 
             bool targetIsAuthor = rngUser.Id == ctx.AuthorId;
 
-            string reply;
+            string reply = ctx.Command switch
+            {
+                "dropkickofftheturnbuckle" => $"drop kicked {target} off the turn buckle",
+                "butt" => $"thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {Emotes.DarlBASS}",
+                "slap" => $"just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {Emotes.MonkaHmm}",
+                "kick" => $"just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {Emotes.DarlZoom}",
+                "love" => $"wants {target} to know they are loved! {Emotes.DarlHearts}",
+                "hug" => $"is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiLove}",
+                "kiss" => $"just kissed {target}! {Emotes.DarlKiss}",
+                "boop" => $"{Emotes.DarlBoop}",
+                _ => null
+            };
 
-            if (ctx.Command == "dropkickofftheturnbuckle")
+            if (reply != null)
             {
-                reply = $" {ctx.Author.Username} drop kicked {target} off the turn buckle";
+                await ctx.ReplyAsync($"{ctx.Author.Username} {reply}");
             }
-            else if (ctx.Command == "butt")
-            {
-                reply = $"{ctx.Author.Username} thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {Emotes.DarlBASS}";
-            }
-            else if (ctx.Command == "slap")
-            {
-                reply = $"{ctx.Author.Username} just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {Emotes.MonkaHmm}";
-            }
-            else if (ctx.Command == "kick")
-            {
-                reply = $"{ctx.Author.Username} just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {Emotes.DarlZoom}";
-            }
-            else if (ctx.Command == "love")
-            {
-                reply = $"{ctx.Author.Username} wants {target} to know they are loved! {Emotes.DarlHearts}";
-            }
-            else if (ctx.Command == "hug")
-            {
-                reply = $"{ctx.Author.Username} is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiLove}";
-            }
-            else if (ctx.Command == "kiss")
-            {
-                reply = $"{ctx.Author.Username} just kissed {target}! {Emotes.DarlKiss}";
-            }
-            else if (ctx.Command == "boop")
-            {
-                reply = $"{target} {Emotes.DarlBoop}";
-            }
-            else return;
-
-            await ctx.ReplyAsync(reply);
         }
     }
 }
