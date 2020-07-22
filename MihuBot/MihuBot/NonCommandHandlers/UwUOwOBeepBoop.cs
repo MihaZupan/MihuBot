@@ -24,6 +24,14 @@ namespace MihuBot.NonCommandHandlers
             {
                 await ctx.ReplyAsync("Beep");
             }
+            else if (ctx.Content == ("┬─┬ ノ( ゜-゜ノ)"))
+            {
+                await ctx.ReplyAsync("(╯°□°）╯︵ ┻━┻");
+            }
+            else if (ctx.Content == ("(╯°□°）╯︵ ┻━┻"))
+            {
+                await ctx.ReplyAsync("┬─┬ ノ( ゜-゜ノ)");
+            }
         }
     }
 }
