@@ -9,7 +9,8 @@
     <PackageReference Include="Discord.Net" Version="2.2.0" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="1.0.0-rc0003" />
-    <PackageReference Include="YoutubeExplode" Version="5.1.1" />
+    <PackageReference Include="StackExchange.Redis" Version="2.1.58" />
+    <PackageReference Include="YoutubeExplode" Version="5.1.2" />
   </ItemGroup>
 
 </Project>
