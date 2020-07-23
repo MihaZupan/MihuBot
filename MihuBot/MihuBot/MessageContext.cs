@@ -29,7 +29,7 @@ namespace MihuBot
         }
 
         public DiscordSocketClient Discord => Services.Discord;
-        public ConnectionMultiplexer Redis => Services.Redis;
+        public IDatabase Redis => Services.Redis.GetDatabase();
 
         public ISocketMessageChannel Channel => Message.Channel;
         public SocketGuild Guild => Message.Guild();

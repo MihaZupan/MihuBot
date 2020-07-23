@@ -108,6 +108,7 @@ namespace MihuBot
                 else if (typeof(NonCommandHandler).IsAssignableFrom(type))
                 {
                     var instance = Activator.CreateInstance(type) as NonCommandHandler;
+                    await instance.InitAsync(ServiceCollection);
                     _nonCommandHandlers.Add(instance);
                 }
             }
