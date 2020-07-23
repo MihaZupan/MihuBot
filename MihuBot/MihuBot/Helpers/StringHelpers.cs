@@ -27,6 +27,8 @@ namespace MihuBot.Helpers
             return false;
         }
 
+        private static ReadOnlySpan<char> QuoteCharacters => new char[] { '"', '\'', '‘', '’', '“', '”' };
+
         public static string[] TrySplitQuotedArgumentString(ReadOnlySpan<char> arguments, out string error)
         {
             List<string> parts = new List<string>();
@@ -35,7 +37,7 @@ namespace MihuBot.Helpers
 
             while (!arguments.IsEmpty)
             {
-                int nextQuote = arguments.IndexOfAny('"', '\'');
+                int nextQuote = arguments.IndexOfAny(QuoteCharacters);
 
                 var before = nextQuote == -1 ? arguments : arguments.Slice(0, nextQuote);
                 parts.AddRange(before.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
@@ -46,9 +48,12 @@ namespace MihuBot.Helpers
                 }
 
                 char quoteType = arguments[nextQuote];
+
                 arguments = arguments.Slice(nextQuote + 1);
 
-                int end = arguments.IndexOf(quoteType);
+                int end = (quoteType == '‘' || quoteType == '’') ? arguments.IndexOfAny('‘', '’')
+                    : (quoteType == '“' || quoteType == '“') ? arguments.IndexOfAny('“', '“')
+                    : arguments.IndexOf(quoteType);
 
                 if (end == -1)
                 {
