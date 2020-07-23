@@ -2,6 +2,7 @@
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using SharpCollections.Generic;
+using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,8 +17,11 @@ namespace MihuBot
 {
     class Program
     {
-        internal static DiscordSocketClient Client;
-        internal static readonly HttpClient HttpClient = new HttpClient();
+        private static DiscordSocketClient Client;
+        private static HttpClient HttpClient;
+        private static ConnectionMultiplexer RedisClient;
+
+        private static ServiceCollection ServiceCollection;
 
         private static readonly string LogsRoot = "logs/";
         private static readonly string FilesRoot = LogsRoot + "files/";
@@ -71,11 +75,20 @@ namespace MihuBot
 
             LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
+
             Client = new DiscordSocketClient(
-                new DiscordSocketConfig() {
+                new DiscordSocketConfig()
+                {
                     MessageCacheSize = 1024 * 16,
                     ConnectionTimeout = 30_000
-            });
+                });
+
+            HttpClient = new HttpClient();
+
+            RedisClient = await ConnectionMultiplexer.ConnectAsync($"{Secrets.RedisDatabaseAddress},password={Secrets.RedisDatabasePassword}");
+
+            ServiceCollection = new ServiceCollection(Client, HttpClient, RedisClient);
+
 
             foreach (var type in Assembly
                 .GetExecutingAssembly()
@@ -85,7 +98,7 @@ namespace MihuBot
                 if (typeof(CommandBase).IsAssignableFrom(type))
                 {
                     var instance = Activator.CreateInstance(type) as CommandBase;
-                    await instance.InitAsync();
+                    await instance.InitAsync(ServiceCollection);
                     _commands.Add(instance.Command, instance);
                     foreach (string alias in instance.Aliases)
                     {
@@ -273,12 +286,12 @@ namespace MihuBot
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
                     var command = match.Value;
-                    await command.ExecuteAsync(new CommandContext(Client, message));
+                    await command.ExecuteAsync(new CommandContext(ServiceCollection, message));
                 }
             }
             else
             {
-                var messageContext = new MessageContext(Client, message);
+                var messageContext = new MessageContext(ServiceCollection, message);
                 foreach (var handler in _nonCommandHandlers)
                 {
                     await handler.HandleAsync(messageContext);

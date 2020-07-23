@@ -27,7 +27,7 @@ namespace MihuBot.Commands
 
             if (!ulong.TryParse(headers[1], out ulong guildId) || !Constants.GuildIDs.Contains(guildId))
             {
-                string guilds = string.Join('\n', Constants.GuildIDs.Select(id => id + ": " + ctx.Client.GetGuild(id).Name));
+                string guilds = string.Join('\n', Constants.GuildIDs.Select(id => id + ": " + ctx.Discord.GetGuild(id).Name));
                 await ctx.ReplyAsync("Invalid Guild ID. Try:\n```\n" + guilds + "\n```");
                 return;
             }
@@ -38,7 +38,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            SocketGuild guild = ctx.Client.GetGuild(guildId);
+            SocketGuild guild = ctx.Discord.GetGuild(guildId);
 
             if (!(guild.TextChannels.FirstOrDefault(c => c.Id == channelId) is SocketTextChannel channel))
             {

@@ -10,8 +10,8 @@ namespace MihuBot
         public readonly string[] Arguments;
         public readonly string ArgumentString;
 
-        public CommandContext(DiscordSocketClient client, SocketMessage message)
-            : base(client, message)
+        public CommandContext(ServiceCollection services, SocketMessage message)
+            : base(services, message)
         {
             Parts = Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 

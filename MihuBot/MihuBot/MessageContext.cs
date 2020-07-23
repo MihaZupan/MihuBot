@@ -2,6 +2,7 @@
 using Discord.Rest;
 using Discord.WebSocket;
 using MihuBot.Helpers;
+using StackExchange.Redis;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,7 +11,7 @@ namespace MihuBot
 {
     public class MessageContext
     {
-        public readonly DiscordSocketClient Client;
+        public readonly ServiceCollection Services;
 
         public readonly SocketMessage Message;
         public readonly string Content;
@@ -18,14 +19,17 @@ namespace MihuBot
         public readonly bool IsMentioned;
         public readonly bool IsFromAdmin;
 
-        public MessageContext(DiscordSocketClient client, SocketMessage message)
+        public MessageContext(ServiceCollection services, SocketMessage message)
         {
-            Client = client;
+            Services = services;
             Message = message;
             Content = message.Content.Trim();
             IsMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
             IsFromAdmin = message.AuthorIsAdmin();
         }
+
+        public DiscordSocketClient Discord => Services.Discord;
+        public ConnectionMultiplexer Redis => Services.Redis;
 
         public ISocketMessageChannel Channel => Message.Channel;
         public SocketGuild Guild => Message.Guild();
@@ -48,7 +52,7 @@ namespace MihuBot
 
             try
             {
-                await Client.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul).SendMessageAsync(message);
+                await Discord.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul).SendMessageAsync(message);
             }
             catch { }
         }

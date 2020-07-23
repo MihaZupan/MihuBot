@@ -16,9 +16,9 @@ namespace MihuBot.Commands
         private int _counter = -1;
         private List<int> _coords = new List<int>();
 
-        public override async Task InitAsync()
+        public override async Task InitAsync(ServiceCollection services)
         {
-            var response = await Program.HttpClient.GetAsync("https://cdn.discordapp.com/attachments/731612070843383871/731675070107353108/paul.png");
+            var response = await services.Http.GetAsync("https://cdn.discordapp.com/attachments/731612070843383871/731675070107353108/paul.png");
             var bytes = await response.Content.ReadAsByteArrayAsync();
             SourceImage = Image.Load(bytes).CloneAs<Rgba32>();
         }

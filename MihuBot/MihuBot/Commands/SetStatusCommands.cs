@@ -42,7 +42,7 @@ namespace MihuBot.Commands
             }
             else throw new InvalidOperationException(ctx.Command);
 
-            await ctx.Client.SetGameAsync(name, streamUrl, type);
+            await ctx.Discord.SetGameAsync(name, streamUrl, type);
         }
     }
 }

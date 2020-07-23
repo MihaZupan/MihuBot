@@ -41,7 +41,7 @@ namespace MihuBot.Commands
 
                     string FormatLine(ulong userId, string username)
                     {
-                        string discordUsername = ctx.Client.GetUser(userId).Username;
+                        string discordUsername = ctx.Discord.GetUser(userId).Username;
 
                         return username.PadRight(17, ' ') + discordUsername.Substring(0, Math.Min(discordUsername.Length, 20));
                     }
@@ -53,7 +53,7 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                if (!ctx.Author.IsDreamlingsSubscriber())
+                if (!ctx.Author.IsDreamlingsSubscriber(ctx.Discord))
                 {
                     ulong guild = ctx.Guild.Id;
                     string info = guild == Guilds.DDs ? MentionUtils.MentionChannel(733694462189895693ul)
