@@ -281,7 +281,7 @@ namespace MihuBot
                             .Where(f => f.Trim().Length > 0)
                             .ToArray();
 
-                        await message.ReplyAsync($"Running {functions.Length}");
+                        await message.ReplyAsync($"Running {functions.Length} commands");
 
                         _ = Task.Run(async () =>
                         {
