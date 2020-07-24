@@ -1,5 +1,6 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using MihuBot.Commands;
 using MihuBot.Helpers;
 using SharpCollections.Generic;
 using StackExchange.Redis;
@@ -10,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -265,6 +267,35 @@ namespace MihuBot
                         Console.WriteLine(ex);
                     }
                 })).ToArray());
+
+                if (message.Author.Id == KnownUsers.Miha)
+                {
+                    Attachment mcFunction = message.Attachments.FirstOrDefault(a => a.Filename.EndsWith(".mcfunction", StringComparison.OrdinalIgnoreCase));
+
+                    if (mcFunction != null)
+                    {
+                        string functionsFile = await HttpClient.GetStringAsync(mcFunction.Url);
+                        string[] functions = functionsFile
+                            .Replace('\r', '\n')
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                            .Where(f => f.Trim().Length > 0)
+                            .ToArray();
+
+                        await message.ReplyAsync($"Running {functions.Length}");
+
+                        _ = Task.Run(async () =>
+                        {
+                            StringBuilder responses = new StringBuilder();
+                            foreach (var function in functions)
+                            {
+                                responses.AppendLine(await McCommand.RunMinecraftCommandAsync("execute as TuboGaming run " + function));
+                            }
+
+                            var ms = new MemoryStream(Encoding.UTF8.GetBytes(responses.ToString()));
+                            await message.Channel.SendFileAsync(ms, "responses.txt");
+                        });
+                    }
+                }
             }
 
             await HandleMessageAsync(message);
