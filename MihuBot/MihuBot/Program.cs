@@ -288,7 +288,8 @@ namespace MihuBot
                             StringBuilder responses = new StringBuilder();
                             foreach (var function in functions)
                             {
-                                responses.AppendLine(await McCommand.RunMinecraftCommandAsync("execute as TuboGaming run " + function));
+                                string response = await McCommand.RunMinecraftCommandAsync("execute positioned as TuboGaming run " + function);
+                                responses.AppendLine(response);
                             }
 
                             var ms = new MemoryStream(Encoding.UTF8.GetBytes(responses.ToString()));
