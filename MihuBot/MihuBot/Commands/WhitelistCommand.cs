@@ -76,8 +76,8 @@ namespace MihuBot.Commands
                 {
                     ulong guild = ctx.Guild.Id;
                     string info = guild == Guilds.DDs ? MentionUtils.MentionChannel(733694462189895693ul)
-                        //: guild == Guilds.LiverGang ? MentionUtils.MentionChannel(733694462189895693ul)
-                        //: guild == Guilds.DresDreamers ? MentionUtils.MentionChannel(733694462189895693ul)
+                        : guild == Guilds.LiverGang ? MentionUtils.MentionChannel(736348370880299068ul)
+                        : guild == Guilds.DresDreamers ? MentionUtils.MentionChannel(733787275313283133ul)
                         : $"{Emotes.PauseChamp}";
 
                     await ctx.ReplyAsync($"Sorry, it looks like you're not subscribed to at least one of the Dreamling Gang owners. You can find more information here: {info}", mention: true);
