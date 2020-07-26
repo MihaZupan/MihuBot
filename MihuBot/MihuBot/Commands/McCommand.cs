@@ -53,7 +53,7 @@ namespace MihuBot.Commands
                 }
 
                 string mcResponse = await McRCON.SendCommandAsync(command);
-                Console.WriteLine("MC: " + mcResponse);
+                // Console.WriteLine("MC: " + mcResponse);
                 return mcResponse;
             }
             catch (Exception ex) when (!isRetry)
