@@ -285,15 +285,19 @@ namespace MihuBot
 
                         _ = Task.Run(async () =>
                         {
-                            StringBuilder responses = new StringBuilder();
-                            foreach (var function in functions)
+                            try
                             {
-                                string response = await McCommand.RunMinecraftCommandAsync("execute positioned as TuboGaming run " + function);
-                                responses.AppendLine(response);
-                            }
+                                Task<string>[] tasks = functions
+                                    .Select(f => "execute positioned as TuboGaming run " + f)
+                                    .Select(f => McCommand.RunMinecraftCommandAsync(f))
+                                    .ToArray();
 
-                            var ms = new MemoryStream(Encoding.UTF8.GetBytes(responses.ToString()));
-                            await message.Channel.SendFileAsync(ms, "responses.txt");
+                                await Task.WhenAll(tasks);
+
+                                var ms = new MemoryStream(Encoding.UTF8.GetBytes(string.Join('\n', tasks.Select(t => t.Result))));
+                                await message.Channel.SendFileAsync(ms, "responses.txt");
+                            }
+                            catch { }
                         });
                     }
                 }

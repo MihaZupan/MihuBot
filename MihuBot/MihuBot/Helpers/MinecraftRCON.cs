@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -14,7 +15,9 @@ namespace MihuBot.Helpers
         private readonly SemaphoreSlim _asyncLock;
         private int _idCounter = new Random().Next(1_000_000, 10_000_000);
         private DateTime _lastCommandTime;
+        private bool _consumerThreadActive = false;
         private readonly Timer _cleanupTimer;
+        private readonly ConcurrentDictionary<int, TaskCompletionSource<string>> _pendingRequests;
 
         public bool Invalid { get; private set; } = false;
 
@@ -24,6 +27,8 @@ namespace MihuBot.Helpers
             _stream = _tcp.GetStream();
             _asyncLock = new SemaphoreSlim(1, 1);
             _lastCommandTime = DateTime.UtcNow;
+
+            _pendingRequests = new ConcurrentDictionary<int, TaskCompletionSource<object>>();
 
             _cleanupTimer = new Timer(s =>
             {
@@ -50,6 +55,9 @@ namespace MihuBot.Helpers
             BitConverter.TryWriteBytes(packet.AsSpan(8), packetType);
             Encoding.ASCII.GetBytes(command, packet.AsSpan(12));
 
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingRequests.TryAdd(id, tcs);
+
             await _asyncLock.WaitAsync();
 
             try
@@ -59,53 +67,95 @@ namespace MihuBot.Helpers
 
                 _lastCommandTime = DateTime.UtcNow;
 
+                EnsureConsumerIsActive();
+
                 await _stream.WriteAsync(packet);
-
-                byte[] header = new byte[12];
-                int read = 0;
-                while (read < header.Length)
-                {
-                    int newRead = await _stream.ReadAsync(header.AsMemory(read));
-                    if (newRead == 0)
-                        throw new Exception("Connection closed");
-
-                    read += newRead;
-                }
-
-                int length = BitConverter.ToInt32(header) - 8;
-
-                if (length < 2 || length > 16 * 1024)
-                    throw new Exception("Invalid reponse length");
-
-                byte[] response = new byte[length];
-                read = 0;
-                while (read < response.Length)
-                {
-                    int newRead = await _stream.ReadAsync(response.AsMemory(read));
-                    if (newRead == 0)
-                        throw new Exception("Connection closed");
-
-                    read += newRead;
-                }
-
-                if (BitConverter.ToInt32(header.AsSpan(4)) != id)
-                    throw new Exception("Invalid response ID");
-
-                string responseString = Encoding.ASCII.GetString(response.AsSpan(0, response.Length - 2));
-                return responseString;
             }
-            catch
+            catch (Exception ex)
             {
-                Cleanup();
+                Cleanup(ex);
                 throw;
             }
             finally
             {
                 _asyncLock.Release();
             }
+
+            return await tcs.Task;
         }
 
-        private void Cleanup()
+        private void EnsureConsumerIsActive()
+        {
+            if (!_consumerThreadActive)
+            {
+                _consumerThreadActive = true;
+                Task.Run(async () =>
+                {
+                    while (true)
+                    {
+                        if (_pendingRequests.IsEmpty)
+                        {
+                            await _asyncLock.WaitAsync();
+                            bool shouldContinue = !_pendingRequests.IsEmpty;
+                            if (!shouldContinue)
+                            {
+                                _consumerThreadActive = false;
+                            }
+                            _asyncLock.Release();
+
+                            if (!shouldContinue)
+                                return;
+                        }
+
+                        byte[] header = new byte[12];
+                        int read = 0;
+                        while (read < header.Length)
+                        {
+                            int newRead = await _stream.ReadAsync(header.AsMemory(read));
+                            if (newRead == 0)
+                            {
+                                Cleanup(new Exception("Connection closed"));
+                                return;
+                            }
+
+                            read += newRead;
+                        }
+
+                        int length = BitConverter.ToInt32(header) - 8;
+
+                        if (length < 2 || length > 16 * 1024)
+                        {
+                            Cleanup(new Exception("Invalid reponse length"));
+                            return;
+                        }
+
+                        byte[] response = new byte[length];
+                        read = 0;
+                        while (read < response.Length)
+                        {
+                            int newRead = await _stream.ReadAsync(response.AsMemory(read));
+                            if (newRead == 0)
+                            {
+                                Cleanup(new Exception("Connection closed"));
+                                return;
+                            }
+
+                            read += newRead;
+                        }
+
+                        if (!_pendingRequests.TryRemove(BitConverter.ToInt32(header.AsSpan(4)), out var tcs))
+                        {
+                            Cleanup(new Exception("Invalid response ID"));
+                            return;
+                        }
+
+                        tcs.TrySetResult(Encoding.ASCII.GetString(response.AsSpan(0, response.Length - 2)));
+                    }
+                });
+            }
+        }
+
+        private void Cleanup(Exception ex = null)
         {
             Invalid = true;
             try
@@ -116,6 +166,14 @@ namespace MihuBot.Helpers
             try
             {
                 _cleanupTimer.Dispose();
+            }
+            catch { }
+            try
+            {
+                ex ??= new Exception("RCON failure");
+
+                foreach (var tcs in _pendingRequests.Values)
+                    tcs.TrySetException(ex);
             }
             catch { }
         }
