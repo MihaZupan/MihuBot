@@ -28,7 +28,7 @@ namespace MihuBot.Helpers
             _asyncLock = new SemaphoreSlim(1, 1);
             _lastCommandTime = DateTime.UtcNow;
 
-            _pendingRequests = new ConcurrentDictionary<int, TaskCompletionSource<object>>();
+            _pendingRequests = new ConcurrentDictionary<int, TaskCompletionSource<string>>();
 
             _cleanupTimer = new Timer(s =>
             {
