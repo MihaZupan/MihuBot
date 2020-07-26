@@ -1,6 +1,8 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Helpers
@@ -74,6 +76,40 @@ namespace MihuBot.Helpers
             var userLists = await channel.GetUsersAsync(CacheMode.AllowDownload).ToArrayAsync();
             var users = userLists.SelectMany(i => i).ToArray();
             return users[Rng.Next(users.Length)];
+        }
+
+        public static Task<T> CancelAfter<T>(this Task<T> task, TimeSpan timeSpan)
+        {
+            if (task.IsCompleted)
+                return task;
+
+            var tcs = new TaskCompletionSource<T>();
+
+            var timer = new Timer(s =>
+            {
+                ((TaskCompletionSource<T>)s).TrySetException(new TimeoutException());
+            }, tcs, timeSpan, Timeout.InfiniteTimeSpan);
+
+            task.ContinueWith((t, s) =>
+                {
+                    var state = (Tuple<TaskCompletionSource<T>, Timer>)s;
+                    state.Item2.Dispose();
+
+                    if (t.IsCompletedSuccessfully)
+                    {
+                        state.Item1.TrySetResult(t.Result);
+                    }
+                    else
+                    {
+                        state.Item1.TrySetException(t.Exception);
+                    }
+                },
+                Tuple.Create(tcs, timer),
+                cancellationToken: default,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Current);
+
+            return tcs.Task;
         }
     }
 }

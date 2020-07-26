@@ -15,7 +15,6 @@ namespace MihuBot.Helpers
         private readonly SemaphoreSlim _asyncLock;
         private int _idCounter = new Random().Next(1_000_000, 10_000_000);
         private DateTime _lastCommandTime;
-        private bool _consumerThreadActive = false;
         private readonly Timer _cleanupTimer;
         private readonly ConcurrentDictionary<int, TaskCompletionSource<string>> _pendingRequests;
 
@@ -39,6 +38,26 @@ namespace MihuBot.Helpers
                 }
                 _asyncLock.Release();
             }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+
+            Task.Run(async () =>
+            {
+                while (!Invalid)
+                {
+                    try
+                    {
+                        (int id, string response) = await ReceiveResponseAsync();
+
+                        if (!_pendingRequests.TryRemove(id, out var tcs))
+                            throw new Exception("Invalid response ID");
+
+                        tcs.TrySetResult(response);
+                    }
+                    catch (Exception ex)
+                    {
+                        Cleanup(ex);
+                    }
+                }
+            });
         }
 
         public async Task<string> SendCommandAsync(string command)
@@ -67,8 +86,6 @@ namespace MihuBot.Helpers
 
                 _lastCommandTime = DateTime.UtcNow;
 
-                EnsureConsumerIsActive();
-
                 await _stream.WriteAsync(packet);
             }
             catch (Exception ex)
@@ -84,75 +101,36 @@ namespace MihuBot.Helpers
             return await tcs.Task;
         }
 
-        private void EnsureConsumerIsActive()
+        private async Task<(int, string)> ReceiveResponseAsync()
         {
-            if (!_consumerThreadActive)
+            byte[] header = new byte[12];
+            int read = 0;
+            while (read < header.Length)
             {
-                _consumerThreadActive = true;
-                Task.Run(async () =>
-                {
-                    while (true)
-                    {
-                        if (_pendingRequests.IsEmpty)
-                        {
-                            await _asyncLock.WaitAsync();
-                            bool shouldContinue = !_pendingRequests.IsEmpty;
-                            if (!shouldContinue)
-                            {
-                                _consumerThreadActive = false;
-                            }
-                            _asyncLock.Release();
+                int newRead = await _stream.ReadAsync(header.AsMemory(read));
+                if (newRead == 0)
+                    throw new Exception("Connection closed");
 
-                            if (!shouldContinue)
-                                return;
-                        }
-
-                        byte[] header = new byte[12];
-                        int read = 0;
-                        while (read < header.Length)
-                        {
-                            int newRead = await _stream.ReadAsync(header.AsMemory(read));
-                            if (newRead == 0)
-                            {
-                                Cleanup(new Exception("Connection closed"));
-                                return;
-                            }
-
-                            read += newRead;
-                        }
-
-                        int length = BitConverter.ToInt32(header) - 8;
-
-                        if (length < 2 || length > 16 * 1024)
-                        {
-                            Cleanup(new Exception("Invalid reponse length"));
-                            return;
-                        }
-
-                        byte[] response = new byte[length];
-                        read = 0;
-                        while (read < response.Length)
-                        {
-                            int newRead = await _stream.ReadAsync(response.AsMemory(read));
-                            if (newRead == 0)
-                            {
-                                Cleanup(new Exception("Connection closed"));
-                                return;
-                            }
-
-                            read += newRead;
-                        }
-
-                        if (!_pendingRequests.TryRemove(BitConverter.ToInt32(header.AsSpan(4)), out var tcs))
-                        {
-                            Cleanup(new Exception("Invalid response ID"));
-                            return;
-                        }
-
-                        tcs.TrySetResult(Encoding.ASCII.GetString(response.AsSpan(0, response.Length - 2)));
-                    }
-                });
+                read += newRead;
             }
+
+            int length = BitConverter.ToInt32(header) - 8;
+
+            if (length < 2 || length > 16 * 1024)
+                throw new Exception("Invalid reponse length");
+
+            byte[] response = new byte[length];
+            read = 0;
+            while (read < response.Length)
+            {
+                int newRead = await _stream.ReadAsync(response.AsMemory(read));
+                if (newRead == 0)
+                    throw new Exception("Connection closed");
+
+                read += newRead;
+            }
+
+            return (BitConverter.ToInt32(header.AsSpan(4)), Encoding.ASCII.GetString(response.AsSpan(0, response.Length - 2)));
         }
 
         private void Cleanup(Exception ex = null)
