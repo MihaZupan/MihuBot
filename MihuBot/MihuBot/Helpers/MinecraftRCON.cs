@@ -32,7 +32,7 @@ namespace MihuBot.Helpers
             _cleanupTimer = new Timer(s =>
             {
                 _asyncLock.Wait();
-                if (DateTime.UtcNow.Subtract(_lastCommandTime) > TimeSpan.FromMinutes(2))
+                if (DateTime.UtcNow.Subtract(_lastCommandTime) > TimeSpan.FromSeconds(20))
                 {
                     Cleanup();
                 }
