@@ -37,7 +37,7 @@ namespace MihuBot.Helpers
                     Cleanup();
                 }
                 _asyncLock.Release();
-            }, null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2));
+            }, null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
 
             Task.Run(async () =>
             {
