@@ -279,6 +279,7 @@ namespace MihuBot
                             .Replace('\r', '\n')
                             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                             .Where(f => f.Trim().Length > 0)
+                            .Select(f => "execute positioned as TuboGaming run " + f)
                             .ToArray();
 
                         await message.ReplyAsync($"Running {functions.Length} commands");
@@ -287,14 +288,23 @@ namespace MihuBot
                         {
                             try
                             {
-                                Task<string>[] tasks = functions
-                                    .Select(f => "execute positioned as TuboGaming run " + f)
-                                    .Select(f => McCommand.RunMinecraftCommandAsync(f))
-                                    .ToArray();
+                                StringBuilder sb = new StringBuilder();
 
-                                await Task.WhenAll(tasks);
+                                for (int i = 0; i < functions.Length; i += 100)
+                                {
+                                    Task<string>[] tasks = functions
+                                        .AsMemory(i, Math.Min(100, functions.Length - i))
+                                        .ToArray()
+                                        .Select(f => McCommand.RunMinecraftCommandAsync(f))
+                                        .ToArray();
 
-                                var ms = new MemoryStream(Encoding.UTF8.GetBytes(string.Join('\n', tasks.Select(t => t.Result))));
+                                    await Task.WhenAll(tasks);
+
+                                    foreach (var task in tasks)
+                                        sb.AppendLine(task.Result);
+                                }
+
+                                var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
                                 await message.Channel.SendFileAsync(ms, "responses.txt");
                             }
                             catch { }
