@@ -290,6 +290,8 @@ namespace MihuBot
                             {
                                 StringBuilder sb = new StringBuilder();
 
+                                await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false");
+
                                 for (int i = 0; i < functions.Length; i += 100)
                                 {
                                     Task<string>[] tasks = functions
@@ -303,6 +305,8 @@ namespace MihuBot
                                     foreach (var task in tasks)
                                         sb.AppendLine(task.Result);
                                 }
+
+                                await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true");
 
                                 var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
                                 await message.Channel.SendFileAsync(ms, "responses.txt");
