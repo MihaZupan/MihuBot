@@ -337,7 +337,17 @@ namespace MihuBot
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
                     var command = match.Value;
-                    await command.ExecuteAsync(new CommandContext(ServiceCollection, message));
+                    var context = new CommandContext(ServiceCollection, message);
+
+                    if (command.TryEnter(context, out TimeSpan cooldown, out bool warned))
+                    {
+                        await command.ExecuteAsync(context);
+                    }
+                    else if (!warned)
+                    {
+                        int seconds = (int)Math.Ceiling(cooldown.TotalSeconds);
+                        await context.ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
+                    }
                 }
             }
             else
@@ -345,7 +355,10 @@ namespace MihuBot
                 var messageContext = new MessageContext(ServiceCollection, message);
                 foreach (var handler in _nonCommandHandlers)
                 {
-                    await handler.HandleAsync(messageContext);
+                    if (handler.TryEnter(messageContext, out _, out _))
+                    {
+                        await handler.HandleAsync(messageContext);
+                    }
                 }
             }
         }

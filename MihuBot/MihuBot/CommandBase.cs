@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace MihuBot
 {
-    public abstract class CommandBase
+    public abstract class CommandBase : CooldownTrackable
     {
         public abstract string Command { get; }
 
