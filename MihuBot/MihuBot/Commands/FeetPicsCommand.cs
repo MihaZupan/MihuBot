@@ -12,6 +12,9 @@ namespace MihuBot.Commands
     {
         public override string Command => "feetpics";
 
+        protected override int CooldownToleranceCount => 0;
+        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
+
         private Image<Rgba32> SourceImage;
         private int _counter = -1;
         private List<int> _coords = new List<int>();

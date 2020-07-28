@@ -5,31 +5,40 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class UwUOwOBeepBoop : NonCommandHandler
     {
+        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(15);
+
         public override async ValueTask HandleAsync(MessageContext ctx)
         {
+            string response = null;
+
             if (ctx.Content.Equals("uwu", StringComparison.OrdinalIgnoreCase))
             {
-                await ctx.ReplyAsync("OwO");
+                response = "OwO";
             }
             else if (ctx.Content.Equals("owo", StringComparison.OrdinalIgnoreCase))
             {
-                await ctx.ReplyAsync("UwU");
+                response = "UwU";
             }
             else if (ctx.Content.Equals("beep", StringComparison.OrdinalIgnoreCase))
             {
-                await ctx.ReplyAsync("Boop");
+                response = "Boop";
             }
             else if (ctx.Content.Equals("boop", StringComparison.OrdinalIgnoreCase))
             {
-                await ctx.ReplyAsync("Beep");
+                response = "Beep";
             }
             else if (ctx.Content.Contains("┬─┬ ノ( ゜-゜ノ)"))
             {
-                await ctx.ReplyAsync("(╯°□°）╯︵ ┻━┻");
+                response = "(╯°□°）╯︵ ┻━┻";
             }
             else if (ctx.Content.Contains("(╯°□°）╯︵ ┻━┻"))
             {
-                await ctx.ReplyAsync("┬─┬ ノ( ゜-゜ノ)");
+                response = "┬─┬ ノ( ゜-゜ノ)";
+            }
+
+            if (response != null && TryEnter(ctx, out _, out _))
+            {
+                await ctx.ReplyAsync(response);
             }
         }
     }

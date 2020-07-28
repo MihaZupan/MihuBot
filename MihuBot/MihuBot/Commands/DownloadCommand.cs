@@ -11,6 +11,9 @@ namespace MihuBot.Commands
         public override string Command => "download";
         public override string[] Aliases => new[] { "dl" };
 
+        protected override int CooldownToleranceCount => 10;
+        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(15);
+
         public override Task ExecuteAsync(CommandContext ctx)
         {
             SocketMessage msg = ctx.Channel

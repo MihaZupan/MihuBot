@@ -55,14 +55,16 @@ namespace MihuBot.Helpers
         }
 
         private readonly long _cooldown;
+        private readonly int _cooldownTolerance;
         private readonly bool _adminOverride;
         private readonly ConcurrentDictionary<ulong, UserTimings> _timings;
 
-        public CooldownTracker(TimeSpan cooldown, bool adminOverride)
+        public CooldownTracker(TimeSpan cooldown, int cooldownTolerance, bool adminOverride = true)
         {
             if (cooldown > TimeSpan.Zero)
             {
                 _cooldown = cooldown.Ticks;
+                _cooldownTolerance = cooldownTolerance;
                 _adminOverride = adminOverride;
                 _timings = new ConcurrentDictionary<ulong, UserTimings>();
             }
@@ -83,7 +85,7 @@ namespace MihuBot.Helpers
                 ctx.AuthorId,
                 (_, state) => new UserTimings(state.Current, state.InitialTolerance, state.InitialTolerance),
                 (_, previous, state) => previous.TryGetNext(state.Cooldown, state.Current),
-                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (byte)(ctx.IsFromAdmin ? 5 : 1)));
+                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (byte)((ctx.IsFromAdmin ? 5 : 1) * _cooldownTolerance)));
 
             if (newValue.Ticks == currentTicks)
             {

@@ -14,6 +14,8 @@ namespace MihuBot.Commands
     {
         public override string Command => "whitelist";
 
+        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(3);
+
         private readonly Whitelist _whitelist = new Whitelist("whitelist.json");
 
         public override async Task ExecuteAsync(CommandContext ctx)

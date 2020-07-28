@@ -345,8 +345,7 @@ namespace MihuBot
                     }
                     else if (!warned)
                     {
-                        int seconds = (int)Math.Ceiling(cooldown.TotalSeconds);
-                        await context.ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
+                        await context.WarnCooldownAsync(cooldown);
                     }
                 }
             }
@@ -355,10 +354,7 @@ namespace MihuBot
                 var messageContext = new MessageContext(ServiceCollection, message);
                 foreach (var handler in _nonCommandHandlers)
                 {
-                    if (handler.TryEnter(messageContext, out _, out _))
-                    {
-                        await handler.HandleAsync(messageContext);
-                    }
+                    await handler.HandleAsync(messageContext);
                 }
             }
         }

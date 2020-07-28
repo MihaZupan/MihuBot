@@ -45,6 +45,12 @@ namespace MihuBot
             return await Channel.SendMessageAsync(text);
         }
 
+        public async Task WarnCooldownAsync(TimeSpan cooldown)
+        {
+            int seconds = (int)Math.Ceiling(cooldown.TotalSeconds);
+            await ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
+        }
+
         internal async Task DebugAsync(string message)
         {
             lock (Console.Out)
