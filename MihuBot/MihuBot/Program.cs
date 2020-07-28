@@ -279,7 +279,7 @@ namespace MihuBot
                             .Replace('\r', '\n')
                             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                             .Where(f => f.Trim().Length > 0)
-                            .Select(f => "execute positioned as TuboGaming run " + f)
+                            .Select(f => "execute positioned as MihuBot run " + f)
                             .ToArray();
 
                         await message.ReplyAsync($"Running {functions.Length} commands");
