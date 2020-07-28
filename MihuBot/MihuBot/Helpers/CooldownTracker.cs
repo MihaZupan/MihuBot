@@ -6,7 +6,7 @@ namespace MihuBot.Helpers
 {
     public class CooldownTracker
     {
-        public static readonly CooldownTracker NoCooldownTracker = new CooldownTracker(TimeSpan.Zero, false);
+        public static readonly CooldownTracker NoCooldownTracker = new CooldownTracker(TimeSpan.Zero, 0, false);
 
         private readonly struct UserTimings
         {
