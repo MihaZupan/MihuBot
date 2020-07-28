@@ -9,8 +9,8 @@ namespace MihuBot.Commands
     {
         public override string Command => "flip";
 
-        protected override int CooldownToleranceCount => 5;
-        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(5);
+        protected override int CooldownToleranceCount => 3;
+        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(10);
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {

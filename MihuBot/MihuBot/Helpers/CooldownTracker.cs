@@ -11,16 +11,14 @@ namespace MihuBot.Helpers
         private readonly struct UserTimings
         {
             public readonly long Ticks;
-            public readonly byte Tolerance;
-            public readonly byte MaxTolerance;
-            public readonly bool Warned;
+            public readonly short Tolerance;
+            public readonly short MaxTolerance;
 
-            public UserTimings(long ticks, byte tolerance, byte maxTolerance, bool warned = false)
+            public UserTimings(long ticks, short tolerance, short maxTolerance)
             {
                 Ticks = ticks;
                 Tolerance = tolerance;
                 MaxTolerance = maxTolerance;
-                Warned = warned;
             }
 
             public UserTimings TryGetNext(long cooldown, long currentTime)
@@ -29,15 +27,8 @@ namespace MihuBot.Helpers
 
                 if (earliestValidTime > currentTime)
                 {
-                    if (Tolerance > 0)
-                    {
-                        return new UserTimings(currentTime, (byte)(Tolerance - 1), MaxTolerance);
-                    }
-                    else
-                    {
-                        // Cooldown
-                        return new UserTimings(Ticks, Tolerance, MaxTolerance, warned: true);
-                    }
+                    short newTolerance = (short)(Math.Max(-1000, Tolerance - 1));
+                    return new UserTimings(Tolerance > 0 ? currentTime : Ticks, newTolerance, MaxTolerance);
                 }
                 else
                 {
@@ -47,9 +38,10 @@ namespace MihuBot.Helpers
                     {
                         newTolerance += (int)((currentTime - earliestValidTime) / (cooldown * 2));
                         newTolerance = Math.Min(newTolerance, MaxTolerance);
+                        newTolerance = Math.Max(newTolerance, 0);
                     }
 
-                    return new UserTimings(currentTime, (byte)newTolerance, MaxTolerance);
+                    return new UserTimings(currentTime, (short)newTolerance, MaxTolerance);
                 }
             }
         }
@@ -70,10 +62,10 @@ namespace MihuBot.Helpers
             }
         }
 
-        public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool warned)
+        public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn)
         {
             cooldown = TimeSpan.Zero;
-            warned = false;
+            shouldWarn = false;
 
             if (_timings is null || (_adminOverride && ctx.IsFromAdmin))
                 return true;
@@ -85,7 +77,7 @@ namespace MihuBot.Helpers
                 ctx.AuthorId,
                 (_, state) => new UserTimings(state.Current, state.InitialTolerance, state.InitialTolerance),
                 (_, previous, state) => previous.TryGetNext(state.Cooldown, state.Current),
-                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (byte)((ctx.IsFromAdmin ? 5 : 1) * _cooldownTolerance)));
+                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (short)((ctx.IsFromAdmin ? 5 : 1) * _cooldownTolerance)));
 
             if (newValue.Ticks == currentTicks)
             {
@@ -94,7 +86,7 @@ namespace MihuBot.Helpers
 
             cooldown = new TimeSpan(cooldownTicks - (currentTicks - newValue.Ticks));
             Debug.Assert(cooldown.Ticks > 0);
-            warned = newValue.Warned;
+            shouldWarn = newValue.Tolerance == -1;
             return false;
         }
     }

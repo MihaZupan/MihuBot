@@ -339,11 +339,11 @@ namespace MihuBot
                     var command = match.Value;
                     var context = new CommandContext(ServiceCollection, message);
 
-                    if (command.TryEnter(context, out TimeSpan cooldown, out bool warned))
+                    if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                     {
                         await command.ExecuteAsync(context);
                     }
-                    else if (!warned)
+                    else if (!shouldWarn)
                     {
                         await context.WarnCooldownAsync(cooldown);
                     }

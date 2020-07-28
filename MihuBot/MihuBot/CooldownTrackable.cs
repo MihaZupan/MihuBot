@@ -21,15 +21,15 @@ namespace MihuBot
                 : CooldownTracker.NoCooldownTracker;
         }
 
-        public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool warned) =>
-            _cooldownTracker.TryEnter(ctx, out cooldown, out warned);
+        public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn) =>
+            _cooldownTracker.TryEnter(ctx, out cooldown, out shouldWarn);
 
         public async Task<bool> TryEnterOrWarnAsync(MessageContext ctx)
         {
-            if (TryEnter(ctx, out var cooldown, out bool warned))
+            if (TryEnter(ctx, out var cooldown, out bool shouldWarn))
                 return true;
 
-            if (!warned)
+            if (shouldWarn)
             {
                 await ctx.WarnCooldownAsync(cooldown);
             }
