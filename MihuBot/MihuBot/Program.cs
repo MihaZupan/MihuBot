@@ -343,7 +343,7 @@ namespace MihuBot
                     {
                         await command.ExecuteAsync(context);
                     }
-                    else if (!shouldWarn)
+                    else if (shouldWarn)
                     {
                         await context.WarnCooldownAsync(cooldown);
                     }
