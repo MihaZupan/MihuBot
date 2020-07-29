@@ -71,7 +71,7 @@ namespace MihuBot.Helpers
                 return true;
 
             long cooldownTicks = _cooldown;
-            long currentTicks = Environment.TickCount64;
+            long currentTicks = DateTime.UtcNow.Ticks;
 
             UserTimings newValue = _timings.AddOrUpdate(
                 ctx.AuthorId,
