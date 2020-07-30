@@ -317,6 +317,12 @@ namespace MihuBot
                 }
             }
 
+            if (guildChannel.Guild.Id == Guilds.DDs && guildChannel.Id == 353640904185085953ul)
+            {
+                // Ignore DDs General chat
+                return;
+            }
+
             await HandleMessageAsync(message);
         }
 
