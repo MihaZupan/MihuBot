@@ -66,6 +66,7 @@ namespace MihuBot.Helpers
         public const ulong DresDreamers = 495391858009309184ul;
         public const ulong Arisas       = 417794764029820939ul;
         public const ulong Brandons     = 478637384347549713ul;
+        public const ulong Dreamlings   = 612032458258644992ul;
     }
 
     public static class KnownUsers
