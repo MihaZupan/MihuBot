@@ -64,5 +64,10 @@ namespace MihuBot.Helpers
 
             return heads;
         }
+
+        public static T Random<T>(this T[] array)
+        {
+            return array[Next(array.Length)];
+        }
     }
 }
