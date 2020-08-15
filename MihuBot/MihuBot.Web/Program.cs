@@ -14,6 +14,7 @@ namespace MihuBot.Web
             Host.CreateDefaultBuilder(args)
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
+                    webBuilder.UseUrls("http://*:80", "https://*:443");
                     webBuilder.UseStartup<Startup>();
                 });
     }
