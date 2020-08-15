@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		update.sh = update.sh
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MihuBot.Web", "MihuBot.Web\MihuBot.Web.csproj", "{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{ACAF8714-2416-441A-A175-964D5FE15172}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ACAF8714-2416-441A-A175-964D5FE15172}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{ACAF8714-2416-441A-A175-964D5FE15172}.Release|Any CPU.Build.0 = Release|Any CPU
+		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
