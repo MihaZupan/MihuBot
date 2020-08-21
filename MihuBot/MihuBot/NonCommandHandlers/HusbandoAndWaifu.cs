@@ -53,7 +53,7 @@ namespace MihuBot.NonCommandHandlers
                                 break;
 
                             case "list":
-                                ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
+                                ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + argId1).ToArrayAsync())
                                     .Select(p => ulong.Parse(p))
                                     .ToArray();
                                 await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).Username))}\n```");
