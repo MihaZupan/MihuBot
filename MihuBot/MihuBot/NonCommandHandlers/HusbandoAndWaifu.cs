@@ -2,6 +2,7 @@
 using MihuBot.Helpers;
 using StackExchange.Redis;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
@@ -30,12 +31,32 @@ namespace MihuBot.NonCommandHandlers
                 if (ctx.IsFromAdmin)
                 {
                     string[] parts = content.Split(' ');
-                    if (parts.Length == 4 && ulong.TryParse(parts[2], out ulong argId1) && ulong.TryParse(parts[3], out ulong argId2))
+                    if (parts.Length > 2 && ulong.TryParse(parts[2], out ulong argId1))
                     {
+                        ulong argId2;
                         switch (parts[1].ToLowerInvariant())
                         {
                             case "add":
-                                await ctx.Redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
+                                if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
+                                {
+                                    await ctx.Redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
+                                    return;
+                                }
+                                break;
+
+                            case "remove":
+                                if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
+                                {
+                                    await ctx.Redis.SetRemoveAsync(redisPrefix + argId1, argId2.ToString());
+                                    return;
+                                }
+                                break;
+
+                            case "list":
+                                ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
+                                    .Select(p => ulong.Parse(p))
+                                    .ToArray();
+                                await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).Username))}\n```");
                                 return;
                         }
                     }
