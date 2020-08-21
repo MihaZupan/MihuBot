@@ -1,5 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
+using StackExchange.Redis;
 using System;
 using System.Threading.Tasks;
 
@@ -13,30 +14,36 @@ namespace MihuBot.NonCommandHandlers
         {
             var content = ctx.Content;
 
-            bool waifu = content.Equals("@waifu", StringComparison.OrdinalIgnoreCase);
+            bool waifu = content.StartsWith("@waifu", StringComparison.OrdinalIgnoreCase);
 
             bool husbando = !waifu &&
                 (content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
-                (content.Length == 8 || (content.Length == 9 && (content[8] | 0x20) == 'o')));
+                (content.Length == 8 || (content[8] | 0x20) == 'o'));
 
             if (waifu || husbando)
             {
+                string redisPrefix = waifu ? "waifu-" : "husbando-";
+
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
-                ulong partnerId = ctx.AuthorId switch
+                if (ctx.IsFromAdmin)
                 {
-                    KnownUsers.Miha => new[] { KnownUsers.Jordan, KnownUsers.James, KnownUsers.Sticky }.Random(),
-                    KnownUsers.Jordan => waifu ? KnownUsers.Ai : KnownUsers.James,
-                    KnownUsers.James => waifu ? KnownUsers.Maric : KnownUsers.Jordan,
-                    KnownUsers.Maric => KnownUsers.James,
-                    KnownUsers.Christian => KnownUsers.James,
-                    KnownUsers.Conor => KnownUsers.James,
+                    string[] parts = content.Split(' ');
+                    if (parts.Length == 4 && ulong.TryParse(parts[2], out ulong argId1) && ulong.TryParse(parts[3], out ulong argId2))
+                    {
+                        switch (parts[1].ToLowerInvariant())
+                        {
+                            case "add":
+                                await ctx.Redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
+                                return;
+                        }
+                    }
+                }
 
-                    _ => 0
-                };
+                RedisValue partner = await ctx.Redis.SetRandomMemberAsync(redisPrefix + ctx.AuthorId);
 
-                if (partnerId == 0)
+                if (partner.IsNullOrEmpty || !ulong.TryParse(partner, out ulong partnerId))
                 {
                     await ctx.ReplyAsync($"{Emotes.PepePoint}");
                 }
