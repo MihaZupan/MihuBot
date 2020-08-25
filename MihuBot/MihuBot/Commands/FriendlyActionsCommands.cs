@@ -1,6 +1,7 @@
 ﻿using Discord;
 using MihuBot.Helpers;
 using System;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -11,6 +12,8 @@ namespace MihuBot.Commands
         public override string Command => "hug";
         public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "dropkickofftheturnbuckle" };
 
+        private readonly ConcurrentDictionary<ulong, IUser> _riggedRng = new ConcurrentDictionary<ulong, IUser>();
+
         public override async Task ExecuteAsync(CommandContext ctx)
         {
             if (ctx.Guild.Id == Guilds.LiverGang && !(ctx.Command == "hug"))
@@ -18,7 +21,13 @@ namespace MihuBot.Commands
                 return;
             }
 
-            bool at = ctx.IsFromAdmin && ctx.Arguments.Length > 0 && ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
+            bool at = false, rig = false;
+
+            if (ctx.IsFromAdmin && ctx.Arguments.Length > 0)
+            {
+                at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
+                rig = ctx.Arguments[^1].Equals("rig", StringComparison.OrdinalIgnoreCase);
+            }
 
             IUser rngUser = null;
 
@@ -36,7 +45,17 @@ namespace MihuBot.Commands
             }
 
             if (rngUser is null)
-                rngUser = await ctx.Channel.GetRandomChannelUserAsync();
+            {
+                if (!_riggedRng.TryRemove(ctx.AuthorId, out rngUser))
+                {
+                    rngUser = await ctx.Channel.GetRandomChannelUserAsync();
+                }
+            }
+            else if (rig)
+            {
+                _riggedRng.TryAdd(ctx.AuthorId, rngUser);
+                return;
+            }
 
             string target = at ? MentionUtils.MentionUser(rngUser.Id) : rngUser.Username;
 
