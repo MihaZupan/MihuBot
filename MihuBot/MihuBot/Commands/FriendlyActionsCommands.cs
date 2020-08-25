@@ -12,7 +12,7 @@ namespace MihuBot.Commands
         public override string Command => "hug";
         public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "dropkickofftheturnbuckle" };
 
-        private readonly ConcurrentDictionary<ulong, IUser> _riggedRng = new ConcurrentDictionary<ulong, IUser>();
+        private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -40,20 +40,24 @@ namespace MihuBot.Commands
                 }
                 else if (ulong.TryParse(ctx.Arguments[0], out ulong userId))
                 {
-                    rngUser = await ctx.Channel.GetUserAsync(userId);
+                    rngUser = ctx.Discord.GetUser(userId);
                 }
             }
 
             if (rngUser is null)
             {
-                if (!_riggedRng.TryRemove(ctx.AuthorId, out rngUser))
+                if (_riggedRng.TryRemove(ctx.AuthorId, out ulong userId))
+                {
+                    rngUser = ctx.Discord.GetUser(userId);
+                }
+                else
                 {
                     rngUser = await ctx.Channel.GetRandomChannelUserAsync();
                 }
             }
             else if (rig)
             {
-                _riggedRng.TryAdd(ctx.AuthorId, rngUser);
+                _riggedRng.TryAdd(ctx.AuthorId, rngUser.Id);
                 return;
             }
 
