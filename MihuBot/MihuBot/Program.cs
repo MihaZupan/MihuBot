@@ -253,13 +253,13 @@ namespace MihuBot
                         using Stream stream = await response.Content.ReadAsStreamAsync();
                         await stream.CopyToAsync(fs);
 
-                        if (Interlocked.Increment(ref _fileCounter) % 10 == 0)
+                        if (Interlocked.Increment(ref _fileCounter) % 25 == 0)
                         {
-                            var drive = DriveInfo.GetDrives().Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */).Single();
-                            if (drive.AvailableFreeSpace < 16 * 1024 * 1024 * 1024L)
-                            {
-                                await DebugAsync($"Space available: {(int)(drive.AvailableFreeSpace / 1024 / 1024)} MB");
-                            }
+                            var sizes = DriveInfo.GetDrives()
+                                .Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */)
+                                .Select(d => (int)(d.AvailableFreeSpace / 1024 / 1024));
+
+                            await DebugAsync($"Space available:\n{string.Join('\n', sizes.Select(s => s + " MB"))}");
                         }
                     }
                     catch (Exception ex)
