@@ -193,7 +193,7 @@ namespace MihuBot.Commands
 
             static string GetName(SocketGuildUser user)
             {
-                string name = user.Nickname;
+                string name = user.Nickname ?? user.Username;
 
                 if (name.Contains('|'))
                     name = name.Substring(name.IndexOf('|') + 1).Trim();
