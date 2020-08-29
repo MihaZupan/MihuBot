@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -68,6 +70,56 @@ namespace MihuBot.Helpers
         public static T Random<T>(this T[] array)
         {
             return array[Next(array.Length)];
+        }
+
+        public static T RandomExcludingSelf<T>(this T[] choices, T self) where T : class
+        {
+            for (int i = 0; i < choices.Length; i++)
+            {
+                T random = choices.Random();
+
+                if (!ReferenceEquals(random, self))
+                    return random;
+            }
+
+            T[] elementsWithoutSelf = choices.Where(e => !ReferenceEquals(e, self)).ToArray();
+
+            if (elementsWithoutSelf.Length == 0)
+                throw new ArgumentException("Choices must contain at least 1 element other than self", nameof(choices));
+
+            return elementsWithoutSelf.Random();
+        }
+
+        public static (T First, T Second)[] GeneratePairs<T>(T[] values)
+        {
+            if (values.Length % 2 != 0)
+                throw new ArgumentException("Must have an even number of values", nameof(values));
+
+            T[] valuesCopy = new T[values.Length];
+            Array.Copy(values, valuesCopy, values.Length);
+
+            FisherYatesShuffle(valuesCopy);
+
+            var pairs = new (T First, T Second)[values.Length / 2];
+
+            for (int i = 0; i < valuesCopy.Length / 2; i += 2)
+            {
+                pairs[i] = (valuesCopy[i * 2], valuesCopy[i * 2 + 1]);
+            }
+
+            return pairs;
+        }
+        
+        private static void FisherYatesShuffle<T>(T[] array)
+        {
+            int n = array.Length;
+            while (n > 1)
+            {
+                int k = Next(n--);
+                T temp = array[n];
+                array[n] = array[k];
+                array[k] = temp;
+            }
         }
     }
 }
