@@ -25,7 +25,7 @@ namespace MihuBot.Commands
             }
 
             SocketGuildUser[] players = voiceChannel.Users
-                .Where(u => !u.IsBot && !u.IsMuted && !u.IsDeafened)
+                .Where(u => !u.IsBot && !u.IsMuted && !u.IsSelfMuted && !u.IsDeafened && !u.IsSelfDeafened)
                 .ToArray();
 
             if (players.Length < 2)
