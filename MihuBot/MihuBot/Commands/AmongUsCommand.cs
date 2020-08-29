@@ -37,7 +37,7 @@ namespace MihuBot.Commands
 
             if (players.Length > 10)
             {
-                await ctx.ReplyAsync("Too many people - make sure everyone who isn't playing is muted", mention: true);
+                await ctx.ReplyAsync("Too many people :/", mention: true);
                 return;
             }
 
