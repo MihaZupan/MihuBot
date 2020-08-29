@@ -102,7 +102,7 @@ namespace MihuBot.Helpers
 
             var pairs = new (T First, T Second)[values.Length / 2];
 
-            for (int i = 0; i < valuesCopy.Length / 2; i += 2)
+            for (int i = 0; i < pairs.Length; i++)
             {
                 pairs[i] = (valuesCopy[i * 2], valuesCopy[i * 2 + 1]);
             }
