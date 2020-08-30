@@ -255,11 +255,11 @@ namespace MihuBot
 
                         if (Interlocked.Increment(ref _fileCounter) % 25 == 0)
                         {
-                            var sizes = DriveInfo.GetDrives()
+                            var drives = DriveInfo.GetDrives()
                                 .Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */)
-                                .Select(d => (int)(d.AvailableFreeSpace / 1024 / 1024));
+                                .Select(d => (Available: (int)(d.AvailableFreeSpace / 1024 / 1024), Total: (int)(d.TotalSize / 1024 / 1024)));
 
-                            await DebugAsync($"Space available:\n{string.Join('\n', sizes.Select(s => s + " MB"))}");
+                            await DebugAsync($"Space available:\n{string.Join('\n', drives.Select(d => $"{d.Available} / {d.Total} MB"))}");
                         }
                     }
                     catch (Exception ex)
