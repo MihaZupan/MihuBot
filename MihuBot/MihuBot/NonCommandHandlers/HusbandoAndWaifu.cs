@@ -25,6 +25,10 @@ namespace MihuBot.NonCommandHandlers
             {
                 string redisPrefix = waifu ? "waifu-" : "husbando-";
 
+                bool all = waifu
+                    ? content.StartsWith(@"waifus", StringComparison.OrdinalIgnoreCase)
+                    : (content.StartsWith("@husbands", StringComparison.OrdinalIgnoreCase) || content.StartsWith("@husbandos", StringComparison.OrdinalIgnoreCase));
+
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
@@ -68,9 +72,17 @@ namespace MihuBot.NonCommandHandlers
                 {
                     await ctx.ReplyAsync($"{Emotes.PepePoint}");
                 }
-                else
+                else if (!all)
                 {
                     await ctx.ReplyAsync(MentionUtils.MentionUser(partnerId));
+                }
+                else
+                {
+                    ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
+                        .Select(p => ulong.Parse(p))
+                        .ToArray();
+
+                    await ctx.ReplyAsync(string.Join(' ', partners.Select(p => MentionUtils.MentionUser(p))));
                 }
             }
         }
