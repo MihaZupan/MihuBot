@@ -77,7 +77,6 @@ namespace MihuBot
 
             LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
 
-
             Client = new DiscordSocketClient(
                 new DiscordSocketConfig()
                 {
@@ -189,11 +188,6 @@ namespace MihuBot
             {
                 if (!(reaction.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
-
-                //if (reaction.UserId == KnownUsers.Miha)
-                //{
-                //    Console.WriteLine($"Reaction: {reaction.Emote.GetType().Name} - {reaction.Emote.Name} - {reaction.Emote}");
-                //}
 
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
                 {
