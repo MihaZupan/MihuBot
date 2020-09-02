@@ -29,7 +29,7 @@ namespace MihuBot.Helpers
 
         public static string NormalizeNewLines(this string source)
         {
-            return source.Replace("\r\n", "\n", StringComparison.OrdinalIgnoreCase).Replace('\r', '\n');
+            return source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         }
 
         public static string[] SplitLines(this string source, bool removeEmpty = false)

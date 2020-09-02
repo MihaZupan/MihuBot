@@ -29,6 +29,8 @@ namespace MihuBot.Commands
             }
             else
             {
+                const RegexOptions RegexOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline;
+
                 var predicates = new List<Predicate<Logger.LogEvent>>()
                 {
                     el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated
@@ -37,7 +39,7 @@ namespace MihuBot.Commands
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);
 
-                var afterDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^after:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions.IgnoreCase);
+                var afterDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^after:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions);
                 if (afterDateMatch.Success)
                 {
                     var groups = afterDateMatch.Groups;
@@ -48,7 +50,7 @@ namespace MihuBot.Commands
                     }
                 }
 
-                var beforeDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^before:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions.IgnoreCase);
+                var beforeDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^before:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions);
                 if (beforeDateMatch.Success)
                 {
                     var groups = beforeDateMatch.Groups;
@@ -65,7 +67,7 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?) (\d+?)$", RegexOptions.IgnoreCase);
+                var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?) (\d+?)$", RegexOptions);
                 if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
                 {
                     predicates.Add(el => el.GuildID == guildId);
@@ -75,7 +77,7 @@ namespace MihuBot.Commands
                     }
                 }
 
-                var fromMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^from:? (\d+?)$", RegexOptions.IgnoreCase);
+                var fromMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^from:? (\d+?)$", RegexOptions);
                 if (fromMatch.Success &&
                     ulong.TryParse(fromMatch.Groups[1].Value, out ulong userId))
                 {
