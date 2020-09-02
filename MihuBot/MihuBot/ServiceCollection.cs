@@ -10,6 +10,8 @@ namespace MihuBot
         public readonly HttpClient Http;
         public readonly ConnectionMultiplexer Redis;
 
+        public Logger Logger;
+
         public ServiceCollection(DiscordSocketClient discord, HttpClient http, ConnectionMultiplexer redis)
         {
             Discord = discord;

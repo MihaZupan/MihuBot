@@ -22,42 +22,17 @@ namespace MihuBot
         private static DiscordSocketClient Client;
         private static HttpClient HttpClient;
         private static ConnectionMultiplexer RedisClient;
+        private static Logger Logger;
 
         private static ServiceCollection ServiceCollection;
-
-        private static readonly string LogsRoot = "logs/";
-        private static readonly string FilesRoot = LogsRoot + "files/";
-
-        private static int _fileCounter = 0;
-        private static readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
-        private static StreamWriter LogWriter;
 
         private static CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
         private static List<NonCommandHandler> _nonCommandHandlers = new List<NonCommandHandler>();
 
-        private static async Task LogAsync(string content)
-        {
-            await LogSemaphore.WaitAsync();
-            await LogWriter.WriteLineAsync(DateTime.UtcNow.Ticks + "_" + content);
-            await LogWriter.FlushAsync();
-            LogSemaphore.Release();
-        }
-
         internal static readonly TaskCompletionSource<object> BotStopTCS =
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        private static SocketTextChannel DebugTextChannel => Client.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul);
-        internal static async Task DebugAsync(string message)
-        {
-            lock (Console.Out)
-                Console.WriteLine("DEBUG: " + message);
-
-            try
-            {
-                await DebugTextChannel.SendMessageAsync(message);
-            }
-            catch { }
-        }
+        internal static Task DebugAsync(string message) => Logger.DebugAsync(message);
 
         static async Task Main(string[] args)
         {
@@ -72,11 +47,6 @@ namespace MihuBot
                 Console.WriteLine(e.ExceptionObject);
             };
 
-            Directory.CreateDirectory(LogsRoot);
-            Directory.CreateDirectory(FilesRoot);
-
-            LogWriter = new StreamWriter(LogsRoot + DateTime.UtcNow.Ticks + ".txt");
-
             Client = new DiscordSocketClient(
                 new DiscordSocketConfig()
                 {
@@ -90,6 +60,7 @@ namespace MihuBot
 
             ServiceCollection = new ServiceCollection(Client, HttpClient, RedisClient);
 
+            Logger = new Logger(ServiceCollection);
 
             foreach (var type in Assembly
                 .GetExecutingAssembly()
@@ -133,9 +104,6 @@ namespace MihuBot
             };
 
             Client.ReactionAdded += Client_ReactionAdded;
-            Client.MessageUpdated += Client_MessageUpdated;
-
-            Client.JoinedGuild += Client_JoinedGuild;
 
             await Client.LoginAsync(TokenType.Bot, Secrets.AuthToken);
             await Client.StartAsync();
@@ -154,32 +122,6 @@ namespace MihuBot
                 await Client.StopAsync();
             }
             catch { }
-        }
-
-        private static async Task Client_JoinedGuild(SocketGuild guild)
-        {
-            await DebugAsync($"Added to {guild.Name} ({guild.Id})");
-        }
-
-        private static async Task Client_MessageUpdated(Cacheable<IMessage, ulong> _, SocketMessage message, ISocketMessageChannel channel)
-        {
-            if (!(message is SocketUserMessage userMessage))
-                return;
-
-            try
-            {
-                if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
-                    return;
-
-                if (!string.IsNullOrWhiteSpace(message.Content))
-                {
-                    await LogAsync(message.Channel.Name + "_Updated_" + message.Author.Username + ": " + message.Content);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }
         }
 
         private static async Task Client_ReactionAdded(Cacheable<IUserMessage, ulong> message, ISocketMessageChannel channel, SocketReaction reaction)
@@ -231,83 +173,51 @@ namespace MihuBot
             if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                 return;
 
-            if (!string.IsNullOrWhiteSpace(message.Content))
+            if (message.Author.Id == KnownUsers.Miha && message.Attachments.Any())
             {
-                await LogAsync(message.Channel.Name + "_" + message.Author.Username + ": " + message.Content);
-            }
+                Attachment mcFunction = message.Attachments.FirstOrDefault(a => a.Filename.EndsWith(".mcfunction", StringComparison.OrdinalIgnoreCase));
 
-            if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
-            {
-                await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () => {
-                    try
-                    {
-                        var response = await HttpClient.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
-
-                        using FileStream fs = File.OpenWrite(FilesRoot + a.Id + "_" + a.Filename);
-                        using Stream stream = await response.Content.ReadAsStreamAsync();
-                        await stream.CopyToAsync(fs);
-
-                        if (Interlocked.Increment(ref _fileCounter) % 25 == 0)
-                        {
-                            var drives = DriveInfo.GetDrives()
-                                .Where(d => d.TotalSize > 16 * 1024 * 1024 * 1024L /* 16 GB */)
-                                .Select(d => (Available: (int)(d.AvailableFreeSpace / 1024 / 1024), Total: (int)(d.TotalSize / 1024 / 1024)));
-
-                            await DebugAsync($"Space available:\n{string.Join('\n', drives.Select(d => $"{d.Available} / {d.Total} MB"))}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                })).ToArray());
-
-                if (message.Author.Id == KnownUsers.Miha)
+                if (mcFunction != null)
                 {
-                    Attachment mcFunction = message.Attachments.FirstOrDefault(a => a.Filename.EndsWith(".mcfunction", StringComparison.OrdinalIgnoreCase));
+                    string functionsFile = await HttpClient.GetStringAsync(mcFunction.Url);
+                    string[] functions = functionsFile
+                        .Replace('\r', '\n')
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Where(f => f.Trim().Length > 0)
+                        .Select(f => "execute positioned as MihuBot run " + f)
+                        .ToArray();
 
-                    if (mcFunction != null)
+                    await message.ReplyAsync($"Running {functions.Length} commands");
+
+                    _ = Task.Run(async () =>
                     {
-                        string functionsFile = await HttpClient.GetStringAsync(mcFunction.Url);
-                        string[] functions = functionsFile
-                            .Replace('\r', '\n')
-                            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                            .Where(f => f.Trim().Length > 0)
-                            .Select(f => "execute positioned as MihuBot run " + f)
-                            .ToArray();
-
-                        await message.ReplyAsync($"Running {functions.Length} commands");
-
-                        _ = Task.Run(async () =>
+                        try
                         {
-                            try
+                            StringBuilder sb = new StringBuilder();
+
+                            await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false");
+
+                            for (int i = 0; i < functions.Length; i += 100)
                             {
-                                StringBuilder sb = new StringBuilder();
+                                Task<string>[] tasks = functions
+                                    .AsMemory(i, Math.Min(100, functions.Length - i))
+                                    .ToArray()
+                                    .Select(f => McCommand.RunMinecraftCommandAsync(f))
+                                    .ToArray();
 
-                                await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false");
+                                await Task.WhenAll(tasks);
 
-                                for (int i = 0; i < functions.Length; i += 100)
-                                {
-                                    Task<string>[] tasks = functions
-                                        .AsMemory(i, Math.Min(100, functions.Length - i))
-                                        .ToArray()
-                                        .Select(f => McCommand.RunMinecraftCommandAsync(f))
-                                        .ToArray();
-
-                                    await Task.WhenAll(tasks);
-
-                                    foreach (var task in tasks)
-                                        sb.AppendLine(task.Result);
-                                }
-
-                                await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true");
-
-                                var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
-                                await message.Channel.SendFileAsync(ms, "responses.txt");
+                                foreach (var task in tasks)
+                                    sb.AppendLine(task.Result);
                             }
-                            catch { }
-                        });
-                    }
+
+                            await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true");
+
+                            var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+                            await message.Channel.SendFileAsync(ms, "responses.txt");
+                        }
+                        catch { }
+                    });
                 }
             }
 
@@ -330,7 +240,7 @@ namespace MihuBot
 
             var content = message.Content.TrimStart();
 
-            if (content.StartsWith('!') || content.StartsWith('/'))
+            if (content.StartsWith('!') || content.StartsWith('/') || content.StartsWith('-'))
             {
                 int spaceIndex = content.IndexOf(' ');
 
