@@ -19,6 +19,11 @@ namespace MihuBot.Helpers
             return (message.Channel as SocketGuildChannel).Guild;
         }
 
+        public static SocketGuild Guild(this ISocketMessageChannel channel)
+        {
+            return (channel as SocketGuildChannel).Guild;
+        }
+
         public static bool IsAdminFor(this SocketUser user, SocketGuild guild)
         {
             return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(user.Id));

@@ -173,6 +173,37 @@ namespace MihuBot
             services.Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
             services.Discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
             services.Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
+            services.Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
+            services.Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
+            services.Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
+        }
+
+        private Task ReactionsClearedAsync(ulong messageId, ISocketMessageChannel channel)
+        {
+            Log(new LogEvent(EventType.ReactionsCleared, channel.Guild().Id, channel.Id, messageId));
+            return Task.CompletedTask;
+        }
+
+        private Task ReactionRemovedAsync(SocketReaction reaction)
+        {
+            Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
+            {
+                AuthorID = reaction.UserId,
+                Emote = reaction.Emote as Emote,
+                Emoji = reaction.Emote as Emoji
+            });
+            return Task.CompletedTask;
+        }
+
+        private Task ReactionAddedAsync(SocketReaction reaction)
+        {
+            Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
+            {
+                AuthorID = reaction.UserId,
+                Emote = reaction.Emote as Emote,
+                Emoji = reaction.Emote as Emoji
+            });
+            return Task.CompletedTask;
         }
 
         private Task MessagesBulkDeletedAsync(IReadOnlyCollection<Cacheable<IMessage, ulong>> cacheables, ISocketMessageChannel channel)
@@ -255,6 +286,9 @@ namespace MihuBot
             MessageDeleted,
             FileReceived,
             DebugMessage,
+            ReactionAdded,
+            ReactionRemoved,
+            ReactionsCleared,
         }
 
         private sealed class LogEvent
@@ -284,7 +318,7 @@ namespace MihuBot
             public LogEvent(EventType type, SocketUserMessage message)
                 : this(type, message.Guild().Id, message.Channel.Id, message.Id)
             {
-                if (type != EventType.FileReceived)
+                if (type == EventType.MessageReceived || type == EventType.MessageUpdated)
                 {
                     Content = message.Content?.Trim(TrimChars);
 
@@ -321,6 +355,8 @@ namespace MihuBot
             public string Content { get; set; }
             public string Embeds { get; set; }
             public Attachment Attachment { get; set; }
+            public Emote Emote { get; set; }
+            public Emoji Emoji { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
             {
@@ -355,18 +391,7 @@ namespace MihuBot
                     Type == EventType.FileReceived)
                 {
                     builder.Append(": ");
-
-                    string channelName = client.GetGuild(GuildID)?.GetTextChannel(ChannelID)?.Name;
-                    if (channelName is null)
-                    {
-                        builder.Append(GuildID);
-                        builder.Append(" - ");
-                        builder.Append(ChannelID);
-                    }
-                    else
-                    {
-                        builder.Append(channelName);
-                    }
+                    AppendChannelName(builder, client, GuildID, ChannelID);
 
                     if (Content != null)
                     {
@@ -416,6 +441,46 @@ namespace MihuBot
                 {
                     builder.Append(": ");
                     builder.Append(Content.Replace("\r\n", "\n").Replace("\n", " <new-line> "));
+                }
+                else if (Type == EventType.ReactionAdded || Type == EventType.ReactionRemoved || Type == EventType.ReactionsCleared)
+                {
+                    builder.Append(": ");
+                    AppendChannelName(builder, client, GuildID, ChannelID);
+
+                    if (AuthorID != default)
+                    {
+                        builder.Append(" - Author ");
+                        builder.Append(AuthorID);
+                    }
+
+                    if (Emoji != null)
+                    {
+                        builder.Append(" - Emoji ");
+                        builder.Append(Emoji.Name);
+                    }
+
+                    if (Emote != null)
+                    {
+                        builder.Append(" - Emote ");
+                        builder.Append(Emote.Name);
+                        builder.Append(' ');
+                        builder.Append(Emote.Url);
+                    }
+                }
+
+                static void AppendChannelName(StringBuilder builder, DiscordSocketClient client, ulong guildId, ulong channelId)
+                {
+                    string channelName = client.GetGuild(guildId)?.GetTextChannel(channelId)?.Name;
+                    if (channelName is null)
+                    {
+                        builder.Append(guildId);
+                        builder.Append(" - ");
+                        builder.Append(channelId);
+                    }
+                    else
+                    {
+                        builder.Append(channelName);
+                    }
                 }
             }
         }
