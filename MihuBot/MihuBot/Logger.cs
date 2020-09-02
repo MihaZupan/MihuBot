@@ -449,7 +449,7 @@ namespace MihuBot
             public EventType Type { get; private set; }
             public DateTime TimeStamp { get; private set; }
 
-            private LogEvent() { }
+            public LogEvent() { }
 
             public LogEvent(EventType type)
             {
