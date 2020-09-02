@@ -181,13 +181,23 @@ namespace MihuBot
             services.Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
             services.Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
             services.Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
+            services.Discord.UserBanned += UserBannedAsync;
+        }
+
+        private Task UserBannedAsync(SocketUser user, SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.UserBanned, guild.Id)
+            {
+                UserID = user.Id
+            });
+            return Task.CompletedTask;
         }
 
         private Task UserVoiceStateUpdatedAsync(SocketUser user, SocketVoiceState before, SocketVoiceState after)
         {
             Log(new LogEvent(EventType.VoiceStatusUpdated, before.VoiceChannel)
             {
-                AuthorID = user.Id,
+                UserID = user.Id,
                 VoiceStatusUpdated = GetVoiceUpdateFlags(before, after)
             });
             return Task.CompletedTask;
@@ -203,7 +213,7 @@ namespace MihuBot
         {
             Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
             {
-                AuthorID = reaction.UserId,
+                UserID = reaction.UserId,
                 Emote = reaction.Emote as Emote,
                 Emoji = reaction.Emote as Emoji
             });
@@ -214,7 +224,7 @@ namespace MihuBot
         {
             Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
             {
-                AuthorID = reaction.UserId,
+                UserID = reaction.UserId,
                 Emote = reaction.Emote as Emote,
                 Emoji = reaction.Emote as Emoji
             });
@@ -339,6 +349,7 @@ namespace MihuBot
             ReactionRemoved,
             ReactionsCleared,
             VoiceStatusUpdated,
+            UserBanned,
         }
 
         private sealed class LogEvent
@@ -378,7 +389,7 @@ namespace MihuBot
                     }
                 }
 
-                AuthorID = message.Author.Id;
+                UserID = message.Author.Id;
             }
 
             public LogEvent(SocketUserMessage message, Attachment attachment)
@@ -409,7 +420,7 @@ namespace MihuBot
             public ulong ChannelID { get; set; }
             public ulong MessageID { get; set; }
             public ulong PreviousMessageID { get; set; }
-            public ulong AuthorID { get; set; }
+            public ulong UserID { get; set; }
             public string Content { get; set; }
             public string Embeds { get; set; }
             public Attachment Attachment { get; set; }
@@ -422,24 +433,19 @@ namespace MihuBot
                 builder.Append(TimeStamp.Year);
                 builder.Append('-');
 
-                if (TimeStamp.Month < 10) builder.Append('0');
-                builder.Append(TimeStamp.Month);
+                AppendTwoDigits(builder, TimeStamp.Month);
                 builder.Append('-');
 
-                if (TimeStamp.Day < 10) builder.Append('0');
-                builder.Append(TimeStamp.Day);
+                AppendTwoDigits(builder, TimeStamp.Day);
                 builder.Append('_');
 
-                if (TimeStamp.Hour < 10) builder.Append('0');
-                builder.Append(TimeStamp.Hour);
+                AppendTwoDigits(builder, TimeStamp.Hour);
                 builder.Append('-');
 
-                if (TimeStamp.Minute < 10) builder.Append('0');
-                builder.Append(TimeStamp.Minute);
+                AppendTwoDigits(builder, TimeStamp.Minute);
                 builder.Append('-');
 
-                if (TimeStamp.Second < 10) builder.Append('0');
-                builder.Append(TimeStamp.Second);
+                AppendTwoDigits(builder, TimeStamp.Second);
                 builder.Append(' ');
 
                 builder.Append(Type.ToString());
@@ -454,10 +460,10 @@ namespace MihuBot
 
                     if (Content != null)
                     {
-                        if (AuthorID != default)
+                        if (UserID != default)
                         {
                             builder.Append(" - ");
-                            builder.Append(client.GetUser(AuthorID).Username);
+                            AppendUsername(builder, client, UserID);
                         }
 
                         builder.Append(" - ");
@@ -472,10 +478,10 @@ namespace MihuBot
                     }
                     else
                     {
-                        if (AuthorID != default)
+                        if (UserID != default)
                         {
                             builder.Append(" - Author ");
-                            builder.Append(AuthorID);
+                            builder.Append(UserID);
                         }
 
                         if (Type == EventType.MessageDeleted && PreviousMessageID != default)
@@ -506,10 +512,10 @@ namespace MihuBot
                     builder.Append(": ");
                     AppendChannelName(builder, client, GuildID, ChannelID);
 
-                    if (AuthorID != default)
+                    if (UserID != default)
                     {
                         builder.Append(" - Author ");
-                        builder.Append(AuthorID);
+                        builder.Append(UserID);
                     }
 
                     if (Emoji != null)
@@ -526,7 +532,19 @@ namespace MihuBot
                         builder.Append(Emote.Url);
                     }
                 }
+                else if (Type == EventType.UserBanned)
+                {
+                    builder.Append(": ");
+                    AppendGuildName(builder, client, GuildID);
+                    builder.Append(" - ");
+                    AppendUsername(builder, client, UserID);
+                }
 
+                static void AppendTwoDigits(StringBuilder builder, int value)
+                {
+                    if (value < 10) builder.Append('0');
+                    builder.Append(value);
+                }
                 static void AppendChannelName(StringBuilder builder, DiscordSocketClient client, ulong guildId, ulong channelId)
                 {
                     string channelName = client.GetGuild(guildId)?.GetTextChannel(channelId)?.Name;
@@ -539,6 +557,30 @@ namespace MihuBot
                     else
                     {
                         builder.Append(channelName);
+                    }
+                }
+                static void AppendGuildName(StringBuilder builder, DiscordSocketClient client, ulong guildId)
+                {
+                    string guildName = client.GetGuild(guildId)?.Name;
+                    if (guildName is null)
+                    {
+                        builder.Append(guildId);
+                    }
+                    else
+                    {
+                        builder.Append(guildName);
+                    }
+                }
+                static void AppendUsername(StringBuilder builder, DiscordSocketClient client, ulong userId)
+                {
+                    string username = client.GetUser(userId)?.Username;
+                    if (username is null)
+                    {
+                        builder.Append(userId);
+                    }
+                    else
+                    {
+                        builder.Append(username);
                     }
                 }
             }
