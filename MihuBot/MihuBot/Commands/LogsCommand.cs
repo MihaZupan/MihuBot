@@ -67,7 +67,7 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?) (\d+?)$", RegexOptions);
+                var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?)(?: (\d+?))?$", RegexOptions);
                 if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
                 {
                     predicates.Add(el => el.GuildID == guildId);

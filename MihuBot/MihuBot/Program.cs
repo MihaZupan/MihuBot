@@ -242,7 +242,7 @@ namespace MihuBot
 
             if (content.StartsWith('!') || content.StartsWith('/') || content.StartsWith('-'))
             {
-                int spaceIndex = content.IndexOf(' ');
+                int spaceIndex = content.AsSpan().IndexOfAny(' ', '\n', '\r');
 
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
