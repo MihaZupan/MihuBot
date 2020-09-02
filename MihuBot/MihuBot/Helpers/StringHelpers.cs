@@ -27,6 +27,16 @@ namespace MihuBot.Helpers
             return false;
         }
 
+        public static string NormalizeNewLines(this string source)
+        {
+            return source.Replace("\r\n", "\n", StringComparison.OrdinalIgnoreCase).Replace('\r', '\n');
+        }
+
+        public static string[] SplitLines(this string source, bool removeEmpty = false)
+        {
+            return source.NormalizeNewLines().Split('\n', removeEmpty ? StringSplitOptions.RemoveEmptyEntries : StringSplitOptions.None);
+        }
+
         private static ReadOnlySpan<char> QuoteCharacters => new char[] { '"', '\'', '‘', '’', '“', '”' };
 
         public static string[] TrySplitQuotedArgumentString(ReadOnlySpan<char> arguments, out string error)

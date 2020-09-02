@@ -112,7 +112,7 @@ namespace MihuBot
                     DateTime utcNow = DateTime.UtcNow;
                     LogDate = utcNow.Date;
 
-                    string timeString = utcNow.ToString("yyyy-MM-dd_HH-mm-ss");
+                    string timeString = DateTimeString(utcNow);
 
                     JsonLogPath = Path.Combine(LogsRoot, timeString + ".json");
                     JsonLogStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
@@ -130,6 +130,56 @@ namespace MihuBot
             {
                 LogSemaphore.Release();
             }
+        }
+
+        public async Task<LogEvent[]> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
+        {
+            string afterString = DateTimeString(after.Date.Subtract(TimeSpan.FromDays(2)));
+            string beforeString = DateTimeString(before.Date.Add(TimeSpan.FromDays(2)));
+
+            string[] files = Directory.GetFiles(LogsRoot)
+                .OrderBy(file => file)
+                .Where(file =>
+                {
+                    if (!file.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                        return false;
+
+                    string name = Path.GetFileNameWithoutExtension(file);
+                    return name.CompareTo(afterString) >= 0 && name.CompareTo(beforeString) <= 0;
+                })
+                .ToArray();
+
+            List<LogEvent> events = new List<LogEvent>();
+
+            await LogSemaphore.WaitAsync();
+            try
+            {
+                foreach (var file in files)
+                {
+                    using var fs = File.OpenRead(file);
+                    using var reader = new StreamReader(fs);
+
+                    string line;
+                    while ((line = await reader.ReadLineAsync()) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line))
+                            continue;
+
+                        LogEvent logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
+
+                        if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
+                        {
+                            events.Add(logEvent);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                LogSemaphore.Release();
+            }
+
+            return events.ToArray();
         }
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
@@ -150,6 +200,8 @@ namespace MihuBot
             }
             catch { }
         }
+
+        private static string DateTimeString(DateTime dateTime) => dateTime.ToString("yyyy-MM-dd_HH-mm-ss");
 
         public SocketTextChannel DebugTextChannel => _services.Discord.GetGuild(Guilds.Mihu).GetTextChannel(719903263297896538ul);
         public SocketTextChannel LogsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Constants.LogTextChannelID);
@@ -335,7 +387,7 @@ namespace MihuBot
 
 
         [Flags]
-        private enum VoiceStatusUpdateFlags : uint
+        public enum VoiceStatusUpdateFlags : uint
         {
             WasMuted = 1 << 0,
             WasDeafened = 1 << 1,
@@ -368,7 +420,7 @@ namespace MihuBot
             }
         }
 
-        private enum EventType
+        public enum EventType
         {
             MessageReceived = 1,
             MessageUpdated,
@@ -385,7 +437,7 @@ namespace MihuBot
             UserIsTyping,
         }
 
-        private sealed class LogEvent
+        public sealed class LogEvent
         {
             public EventType Type { get; private set; }
             public DateTime TimeStamp { get; private set; }
@@ -506,7 +558,7 @@ namespace MihuBot
                         }
                         else
                         {
-                            builder.Append(Content.Replace("\r\n", "\n").Replace("\n", " <new-line> "));
+                            builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
                         }
                     }
                     else
@@ -538,7 +590,7 @@ namespace MihuBot
                 else if (Type == EventType.DebugMessage && Content != null)
                 {
                     builder.Append(": ");
-                    builder.Append(Content.Replace("\r\n", "\n").Replace("\n", " <new-line> "));
+                    builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
                 }
                 else if (Type == EventType.ReactionAdded || Type == EventType.ReactionRemoved || Type == EventType.ReactionsCleared)
                 {
