@@ -113,7 +113,9 @@ namespace MihuBot
                     JsonLogPath = Path.Combine(LogsRoot, timeString + ".json");
                     JsonLogStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
 
-                    CurrentFilesDirectory = FilesRoot + timeString + "/";
+                    var newFilesDirectory = FilesRoot + timeString + "/";
+                    Directory.CreateDirectory(newFilesDirectory);
+                    CurrentFilesDirectory = newFilesDirectory;
                 }
             }
             catch (Exception ex)
@@ -248,7 +250,7 @@ namespace MihuBot
 
         private enum EventType
         {
-            MessageReceived,
+            MessageReceived = 1,
             MessageUpdated,
             MessageDeleted,
             FileReceived,
