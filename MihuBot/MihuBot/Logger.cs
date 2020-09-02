@@ -134,6 +134,9 @@ namespace MihuBot
 
         public async Task<LogEvent[]> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
         {
+            if (after >= before)
+                return Array.Empty<LogEvent>();
+
             string afterString = DateTimeString(after.Date.Subtract(TimeSpan.FromDays(2)));
             string beforeString = DateTimeString(before.Date.Add(TimeSpan.FromDays(2)));
 
@@ -156,7 +159,7 @@ namespace MihuBot
             {
                 foreach (var file in files)
                 {
-                    using var fs = File.OpenRead(file);
+                    using var fs = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     using var reader = new StreamReader(fs);
 
                     string line;
@@ -303,8 +306,8 @@ namespace MihuBot
             Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
             {
                 UserID = reaction.UserId,
-                Emote = reaction.Emote as Emote,
-                Emoji = reaction.Emote as Emoji
+                Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
+                Emoji = (reaction.Emote as Emoji).Name
             });
             return Task.CompletedTask;
         }
@@ -314,8 +317,8 @@ namespace MihuBot
             Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
             {
                 UserID = reaction.UserId,
-                Emote = reaction.Emote as Emote,
-                Emoji = reaction.Emote as Emoji
+                Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
+                Emoji = (reaction.Emote as Emoji).Name
             });
             return Task.CompletedTask;
         }
@@ -427,6 +430,24 @@ namespace MihuBot
             }
         }
 
+        public sealed class LogEmote
+        {
+            public string Name { get; set; }
+            public ulong Id { get; set; }
+            public bool Animated { get; set; }
+            public DateTimeOffset CreatedAt { get; set; }
+            public string Url { get; set; }
+
+            public static LogEmote FromEmote(Emote emote) => new LogEmote()
+            {
+                Name = emote.Name,
+                Id = emote.Id,
+                Animated = emote.Animated,
+                CreatedAt = emote.CreatedAt,
+                Url = emote.Url,
+            };
+        }
+
         public enum EventType
         {
             MessageReceived = 1,
@@ -446,8 +467,8 @@ namespace MihuBot
 
         public sealed class LogEvent
         {
-            public EventType Type { get; private set; }
-            public DateTime TimeStamp { get; private set; }
+            public EventType Type { get; set; }
+            public DateTime TimeStamp { get; set; }
 
             public LogEvent() { }
 
@@ -518,8 +539,8 @@ namespace MihuBot
             public string Content { get; set; }
             public string Embeds { get; set; }
             public Attachment Attachment { get; set; }
-            public Emote Emote { get; set; }
-            public Emoji Emoji { get; set; }
+            public LogEmote Emote { get; set; }
+            public string Emoji { get; set; }
             public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
@@ -615,7 +636,7 @@ namespace MihuBot
                     if (Emoji != null)
                     {
                         builder.Append(" - Emoji ");
-                        builder.Append(Emoji.Name);
+                        builder.Append(Emoji);
                     }
 
                     if (Emote != null)
