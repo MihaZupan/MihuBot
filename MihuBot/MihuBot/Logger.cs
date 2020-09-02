@@ -48,7 +48,7 @@ namespace MihuBot
                     await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
                     await JsonLogStream.WriteAsync(NewLineByte);
 
-                    if (logEvent.Type != EventType.VoiceStatusUpdated)
+                    if (logEvent.Type != EventType.VoiceStatusUpdated && logEvent.Type != EventType.UserIsTyping)
                     {
                         logEvent.ToString(LogBuilder, _services.Discord);
                         LogBuilder.Append('\n');
@@ -184,6 +184,16 @@ namespace MihuBot
             services.Discord.UserBanned += UserBannedAsync;
             services.Discord.UserLeft += UserLeftAsync;
             services.Discord.UserJoined += UserJoinedAsync;
+            services.Discord.UserIsTyping += UserIsTypingAsync;
+        }
+
+        private Task UserIsTypingAsync(SocketUser user, ISocketMessageChannel channel)
+        {
+            Log(new LogEvent(EventType.UserIsTyping, channel)
+            {
+                UserID = user.Id
+            });
+            return Task.CompletedTask;
         }
 
         private Task UserJoinedAsync(SocketGuildUser user)
@@ -372,6 +382,7 @@ namespace MihuBot
             UserBanned,
             UserLeft,
             UserJoined,
+            UserIsTyping,
         }
 
         private sealed class LogEvent
