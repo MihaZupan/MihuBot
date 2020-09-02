@@ -31,7 +31,7 @@ namespace MihuBot.Commands
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);
 
-                var afterDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^after:? (\d\d\d\d)-(\d\d)-(\d\d)(?: (\d\d)-(\d\d)-(\d\d))?$", RegexOptions.IgnoreCase);
+                var afterDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^after:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions.IgnoreCase);
                 if (afterDateMatch.Success)
                 {
                     var groups = afterDateMatch.Groups;
@@ -42,7 +42,7 @@ namespace MihuBot.Commands
                     }
                 }
 
-                var beforeDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^before:? (\d\d\d\d)-(\d\d)-(\d\d)(?: (\d\d)-(\d\d)-(\d\d))?$", RegexOptions.IgnoreCase);
+                var beforeDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^before:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions.IgnoreCase);
                 if (beforeDateMatch.Success)
                 {
                     var groups = beforeDateMatch.Groups;
@@ -62,12 +62,16 @@ namespace MihuBot.Commands
                 Predicate<Logger.LogEvent> predicate = el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated;
 
                 var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?) (\d+?)$", RegexOptions.IgnoreCase);
-                if (inMatch.Success &&
-                    ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId) &&
-                    ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
+                if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
                 {
                     var previous = predicate;
-                    predicate = el => previous(el) && el.GuildID == guildId && el.ChannelID == channelId;
+                    predicate = el => previous(el) && el.GuildID == guildId;
+
+                    if (inMatch.Groups[2].Success && ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
+                    {
+                        var previous2 = predicate;
+                        predicate = el => previous2(el) && el.ChannelID == channelId;
+                    }
                 }
 
                 var fromMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^from:? (\d+?)$", RegexOptions.IgnoreCase);
