@@ -47,8 +47,12 @@ namespace MihuBot
                 {
                     await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
                     await JsonLogStream.WriteAsync(NewLineByte);
-                    logEvent.ToString(LogBuilder, _services.Discord);
-                    LogBuilder.Append('\n');
+
+                    if (logEvent.Type != EventType.VoiceStatusUpdated)
+                    {
+                        logEvent.ToString(LogBuilder, _services.Discord);
+                        LogBuilder.Append('\n');
+                    }
                 }
                 await JsonLogStream.FlushAsync();
                 LogSemaphore.Release();
@@ -176,6 +180,17 @@ namespace MihuBot
             services.Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
             services.Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
             services.Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
+            services.Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
+        }
+
+        private Task UserVoiceStateUpdatedAsync(SocketUser user, SocketVoiceState before, SocketVoiceState after)
+        {
+            Log(new LogEvent(EventType.VoiceStatusUpdated, before.VoiceChannel)
+            {
+                AuthorID = user.Id,
+                VoiceStatusUpdated = GetVoiceUpdateFlags(before, after)
+            });
+            return Task.CompletedTask;
         }
 
         private Task ReactionsClearedAsync(ulong messageId, ISocketMessageChannel channel)
@@ -279,6 +294,40 @@ namespace MihuBot
         }
 
 
+        [Flags]
+        private enum VoiceStatusUpdateFlags : uint
+        {
+            WasMuted = 1 << 0,
+            WasDeafened = 1 << 1,
+            WasSuppressed = 1 << 2,
+            WasSelfMuted = 1 << 3,
+            WasSelfDeafened = 1 << 4,
+            WasStreaming = 1 << 5,
+            IsMuted = 1 << 16,
+            IsDeafened = 1 << 17,
+            IsSuppressed = 1 << 18,
+            IsSelfMuted = 1 << 19,
+            IsSelfDeafened = 1 << 20,
+            IsStreaming = 1 << 21,
+        }
+
+        private static VoiceStatusUpdateFlags GetVoiceUpdateFlags(SocketVoiceState before, SocketVoiceState after)
+        {
+            return (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after);
+
+            static VoiceStatusUpdateFlags GetVoiceStatusUpdateFlags(SocketVoiceState status)
+            {
+                VoiceStatusUpdateFlags flags = default;
+                if (status.IsMuted) flags |= VoiceStatusUpdateFlags.IsMuted;
+                if (status.IsDeafened) flags |= VoiceStatusUpdateFlags.IsDeafened;
+                if (status.IsSuppressed) flags |= VoiceStatusUpdateFlags.IsSuppressed;
+                if (status.IsSelfMuted) flags |= VoiceStatusUpdateFlags.IsSelfMuted;
+                if (status.IsSelfDeafened) flags |= VoiceStatusUpdateFlags.IsSelfDeafened;
+                if (status.IsStreaming) flags |= VoiceStatusUpdateFlags.IsStreaming;
+                return flags;
+            }
+        }
+
         private enum EventType
         {
             MessageReceived = 1,
@@ -289,6 +338,7 @@ namespace MihuBot
             ReactionAdded,
             ReactionRemoved,
             ReactionsCleared,
+            VoiceStatusUpdated,
         }
 
         private sealed class LogEvent
@@ -337,9 +387,17 @@ namespace MihuBot
                 Attachment = attachment;
             }
 
-            public LogEvent(EventType type, ISocketMessageChannel channel, ulong messageId)
-                : this(type, (channel as SocketGuildChannel)?.Guild.Id ?? 0, channel.Id, messageId)
-            { }
+            public LogEvent(EventType type, IChannel channel)
+                : this(type, (channel as SocketGuildChannel)?.Guild.Id ?? 0)
+            {
+                ChannelID = channel.Id;
+            }
+
+            public LogEvent(EventType type, IChannel channel, ulong messageId)
+                : this(type, channel)
+            {
+                MessageID = messageId;
+            }
 
             public LogEvent(string debugMessage)
                 : this(EventType.DebugMessage)
@@ -357,6 +415,7 @@ namespace MihuBot
             public Attachment Attachment { get; set; }
             public Emote Emote { get; set; }
             public Emoji Emoji { get; set; }
+            public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
             {
