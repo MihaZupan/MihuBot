@@ -183,6 +183,16 @@ namespace MihuBot
             services.Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
             services.Discord.UserBanned += UserBannedAsync;
             services.Discord.UserLeft += UserLeftAsync;
+            services.Discord.UserJoined += UserJoinedAsync;
+        }
+
+        private Task UserJoinedAsync(SocketGuildUser user)
+        {
+            Log(new LogEvent(EventType.UserJoined, user.Guild.Id)
+            {
+                UserID = user.Id
+            });
+            return Task.CompletedTask;
         }
 
         private Task UserLeftAsync(SocketGuildUser user)
@@ -361,6 +371,7 @@ namespace MihuBot
             VoiceStatusUpdated,
             UserBanned,
             UserLeft,
+            UserJoined,
         }
 
         private sealed class LogEvent
@@ -543,7 +554,7 @@ namespace MihuBot
                         builder.Append(Emote.Url);
                     }
                 }
-                else if (Type == EventType.UserBanned || Type == EventType.UserLeft)
+                else if (Type == EventType.UserJoined || Type == EventType.UserLeft || Type == EventType.UserBanned)
                 {
                     builder.Append(": ");
                     AppendGuildName(builder, client, GuildID);
