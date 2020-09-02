@@ -257,8 +257,8 @@ namespace MihuBot
 
         private sealed class LogEvent
         {
-            public readonly EventType Type;
-            public readonly DateTime TimeStamp;
+            public EventType Type { get; private set; }
+            public DateTime TimeStamp { get; private set; }
 
             public LogEvent(EventType type)
             {
@@ -311,14 +311,14 @@ namespace MihuBot
                 Content = debugMessage;
             }
 
-            public ulong GuildID;
-            public ulong ChannelID;
-            public ulong MessageID;
-            public ulong PreviousMessageID;
-            public ulong AuthorID;
-            public string Content;
-            public string Embeds;
-            public Attachment Attachment;
+            public ulong GuildID { get; set; }
+            public ulong ChannelID { get; set; }
+            public ulong MessageID { get; set; }
+            public ulong PreviousMessageID { get; set; }
+            public ulong AuthorID { get; set; }
+            public string Content { get; set; }
+            public string Embeds { get; set; }
+            public Attachment Attachment { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
             {
