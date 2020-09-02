@@ -51,6 +51,18 @@ namespace MihuBot.Helpers
                 || user.Id == KnownUsers.Maric;
         }
 
+        public static bool All<T>(this Predicate<T>[] predicates, T value)
+        {
+            foreach (var predicate in predicates)
+            {
+                if (!predicate(value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public static bool IsDreamlingsSubscriber(this SocketUser user, DiscordSocketClient client)
         {
             var guildUser = client.GetGuild(Guilds.DDs).GetUser(user.Id);

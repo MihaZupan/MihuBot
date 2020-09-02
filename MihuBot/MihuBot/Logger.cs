@@ -132,7 +132,7 @@ namespace MihuBot
             }
         }
 
-        public async Task<LogEvent[]> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
+        public async Task<LogEvent[]> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent>[] predicates)
         {
             if (after >= before)
                 return Array.Empty<LogEvent>();
@@ -172,7 +172,7 @@ namespace MihuBot
                         {
                             LogEvent logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
 
-                            if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
+                            if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicates.All(logEvent))
                             {
                                 events.Add(logEvent);
                             }

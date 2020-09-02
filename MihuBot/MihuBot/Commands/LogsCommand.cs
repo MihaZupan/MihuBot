@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
 using MihuBot.Helpers;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -28,6 +29,11 @@ namespace MihuBot.Commands
             }
             else
             {
+                var predicates = new List<Predicate<Logger.LogEvent>>()
+                {
+                    el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated
+                };
+
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);
 
@@ -59,18 +65,13 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                Predicate<Logger.LogEvent> predicate = el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated;
-
                 var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?) (\d+?)$", RegexOptions.IgnoreCase);
                 if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
                 {
-                    var previous = predicate;
-                    predicate = el => previous(el) && el.GuildID == guildId;
-
+                    predicates.Add(el => el.GuildID == guildId);
                     if (inMatch.Groups[2].Success && ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
                     {
-                        var previous2 = predicate;
-                        predicate = el => previous2(el) && el.ChannelID == channelId;
+                        predicates.Add(el => el.ChannelID == channelId);
                     }
                 }
 
@@ -78,11 +79,10 @@ namespace MihuBot.Commands
                 if (fromMatch.Success &&
                     ulong.TryParse(fromMatch.Groups[1].Value, out ulong userId))
                 {
-                    var previous = predicate;
-                    predicate = el => previous(el) && el.UserID == userId;
+                    predicates.Add(el => el.UserID == userId);
                 }
 
-                Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicate);
+                Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray());
 
                 StringBuilder sb = new StringBuilder();
 
