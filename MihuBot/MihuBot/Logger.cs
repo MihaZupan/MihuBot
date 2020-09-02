@@ -304,7 +304,7 @@ namespace MihuBot
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote as Emote,
-                Emoji = (reaction.Emote as Emoji)?.Name
+                Emoji = reaction.Emote as Emoji
             });
             return Task.CompletedTask;
         }
@@ -315,7 +315,7 @@ namespace MihuBot
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote as Emote,
-                Emoji = (reaction.Emote as Emoji)?.Name
+                Emoji = reaction.Emote as Emoji
             });
             return Task.CompletedTask;
         }
@@ -519,7 +519,7 @@ namespace MihuBot
             public string Embeds { get; set; }
             public Attachment Attachment { get; set; }
             public Emote Emote { get; set; }
-            public string Emoji { get; set; }
+            public Emoji Emoji { get; set; }
             public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
@@ -615,7 +615,7 @@ namespace MihuBot
                     if (Emoji != null)
                     {
                         builder.Append(" - Emoji ");
-                        builder.Append(Emoji);
+                        builder.Append(Emoji.Name);
                     }
 
                     if (Emote != null)
