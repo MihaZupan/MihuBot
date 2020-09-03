@@ -31,10 +31,12 @@ namespace MihuBot.Commands
             {
                 const RegexOptions RegexOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline;
 
-                var predicates = new List<Predicate<Logger.LogEvent>>()
+                var predicates = new List<Predicate<Logger.LogEvent>>();
+
+                if (!ctx.ArgumentLines[0].Equals("all", StringComparison.OrdinalIgnoreCase))
                 {
-                    el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated
-                };
+                    predicates.Add(el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated);
+                }
 
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);

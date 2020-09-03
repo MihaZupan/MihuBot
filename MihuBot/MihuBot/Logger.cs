@@ -652,6 +652,22 @@ namespace MihuBot
                     builder.Append(" - ");
                     AppendUsername(builder, client, UserID);
                 }
+                else if (Type == EventType.UserIsTyping)
+                {
+                    builder.Append(": ");
+                    AppendChannelName(builder, client, GuildID, ChannelID);
+                    builder.Append(" - ");
+                    AppendUsername(builder, client, UserID);
+                }
+                else if (Type == EventType.VoiceStatusUpdated)
+                {
+                    builder.Append(": ");
+                    AppendChannelName(builder, client, GuildID, ChannelID);
+                    builder.Append(" - ");
+                    AppendUsername(builder, client, UserID);
+                    builder.Append(" - ");
+                    builder.Append(VoiceStatusUpdated);
+                }
 
                 static void AppendTwoDigits(StringBuilder builder, int value)
                 {
@@ -660,7 +676,7 @@ namespace MihuBot
                 }
                 static void AppendChannelName(StringBuilder builder, DiscordSocketClient client, ulong guildId, ulong channelId)
                 {
-                    string channelName = client.GetGuild(guildId)?.GetTextChannel(channelId)?.Name;
+                    string channelName = client.GetGuild(guildId)?.GetChannel(channelId)?.Name;
                     if (channelName is null)
                     {
                         builder.Append(guildId);
