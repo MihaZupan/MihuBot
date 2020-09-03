@@ -76,7 +76,7 @@ namespace MihuBot
         public CommandContext(ServiceCollection services, SocketMessage message)
             : base(services, message)
         {
-            int index = Content.AsSpan().IndexOfAny(' ', '\n', '\r');
+            int index = Content.AsSpan().IndexOfAny(' ', '\r', '\n');
             Command = Content.Substring(1, (index == -1 ? Content.Length : index) - 1).ToLowerInvariant();
         }
     }
