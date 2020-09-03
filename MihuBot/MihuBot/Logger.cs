@@ -168,18 +168,16 @@ namespace MihuBot
                         if (string.IsNullOrWhiteSpace(line))
                             continue;
 
+                        LogEvent logEvent;
                         try
                         {
-                            LogEvent logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
-
-                            if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicates.All(logEvent))
-                            {
-                                events.Add(logEvent);
-                            }
+                            logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
                         }
-                        catch
+                        catch { continue; }
+
+                        if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicates.All(logEvent))
                         {
-                            Console.WriteLine("Deserialize failure: " + line);
+                            events.Add(logEvent);
                         }
                     }
                 }

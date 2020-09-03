@@ -19,11 +19,11 @@ namespace MihuBot.Commands
             if (!ctx.IsFromAdmin)
                 return;
 
-            bool reset = ctx.Arguments.Length == 1 && ctx.Arguments[0].Equals("reset", StringComparison.OrdinalIgnoreCase);
+            bool reset = ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase);
 
             Logger logger = ctx.Services.Logger;
 
-            if (ctx.Arguments.Length == 0 || reset)
+            if (ctx.ArgumentLines.Length == 0 || reset)
             {
                 await logger.SendLogFilesAsync(logger.LogsReportsTextChannel, resetLogFiles: reset);
             }
@@ -85,6 +85,12 @@ namespace MihuBot.Commands
                 }
 
                 Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray());
+
+                if (logs.Length == 0)
+                {
+                    await ctx.ReplyAsync("No results, consider relaxing the filters", mention: true);
+                    return;
+                }
 
                 StringBuilder sb = new StringBuilder();
 

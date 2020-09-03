@@ -7,8 +7,24 @@ namespace MihuBot
     public sealed class CommandContext : MessageContext
     {
         public readonly string Command;
-        public readonly string[] Parts;
-        public readonly string[] Arguments;
+
+        private string[] _arguments;
+        public string[] Arguments
+        {
+            get
+            {
+                if (_arguments is null)
+                {
+                    var span = Content.AsSpan(Command.Length + 1);
+                    int endOfLine = span.IndexOfAny('\n', '\r');
+                    if (endOfLine != -1) span = span.Slice(0, endOfLine);
+
+                    _arguments = span.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                }
+
+                return _arguments;
+            }
+        }
 
         private string _argumentString;
         public string ArgumentString
@@ -17,7 +33,7 @@ namespace MihuBot
             {
                 if (_argumentString is null)
                 {
-                    _argumentString = Content.AsSpan(Parts[0].Length).Trim().ToString();
+                    _argumentString = Content.AsSpan(Command.Length + 1).Trim().ToString();
                 }
 
                 return _argumentString;
@@ -60,19 +76,8 @@ namespace MihuBot
         public CommandContext(ServiceCollection services, SocketMessage message)
             : base(services, message)
         {
-            Parts = Content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            Command = Parts[0].Substring(1).ToLowerInvariant();
-
-            if (Parts.Length > 1)
-            {
-                Arguments = new string[Parts.Length - 1];
-                Array.Copy(Parts, 1, Arguments, 0, Arguments.Length);
-            }
-            else
-            {
-                Arguments = Array.Empty<string>();
-            }
+            int index = Content.AsSpan().IndexOfAny(' ', '\n', '\r');
+            Command = Content.Substring(1, (index == -1 ? Content.Length : index) - 1).ToLowerInvariant();
         }
     }
 }
