@@ -1,9 +1,6 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
-using MihuBot.Helpers;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -29,8 +26,6 @@ namespace MihuBot.Commands
             }
             else
             {
-                const RegexOptions RegexOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline;
-
                 var predicates = new List<Predicate<Logger.LogEvent>>();
 
                 if (!ctx.ArgumentLines[0].Equals("all", StringComparison.OrdinalIgnoreCase))
@@ -38,28 +33,89 @@ namespace MihuBot.Commands
                     predicates.Add(el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated);
                 }
 
+                bool afterSet = false, beforeSet = false, lastSet = false;
+
+                var fromFilters = new List<ulong>();
+                var inGuildFilters = new List<ulong>();
+                var inChannelFilters = new List<ulong>();
+
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);
 
-                var afterDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^after:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions);
-                if (afterDateMatch.Success)
+                foreach (string line in ctx.ArgumentLines)
                 {
-                    var groups = afterDateMatch.Groups;
-                    after = new DateTime(int.Parse(groups[1].Value), int.Parse(groups[2].Value), int.Parse(groups[3].Value));
-                    if (groups[4].Success)
+                    if (TryParseBeforeAfter(line, out bool isBefore, out DateTime time))
                     {
-                        after = after.AddHours(int.Parse(groups[4].Value)).AddMinutes(int.Parse(groups[5].Value)).AddSeconds(int.Parse(groups[6].Value));
-                    }
-                }
+                        if (afterSet || beforeSet || lastSet)
+                        {
+                            await ctx.ReplyAsync("Only use one 'after', 'before' or 'last' filter");
+                            return;
+                        }
 
-                var beforeDateMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^before:? (\d\d\d\d)-(\d\d?)-(\d\d?)(?: (\d\d?)-(\d\d?)-(\d\d?))?$", RegexOptions);
-                if (beforeDateMatch.Success)
-                {
-                    var groups = beforeDateMatch.Groups;
-                    before = new DateTime(int.Parse(groups[1].Value), int.Parse(groups[2].Value), int.Parse(groups[3].Value));
-                    if (groups[4].Success)
+                        if (isBefore)
+                        {
+                            beforeSet = true;
+                            before = time;
+                        }
+                        else
+                        {
+                            afterSet = true;
+                            after = time;
+                        }
+
+                        continue;
+                    }
+
+                    var lastMatch = Regex.Match(line, @"^last:? (\d*?)? ?(s|sec|seconds?|m|min|minutes|h|hours?|d|days?|w|weeks?)$", RegexOptions.IgnoreCase);
+                    if (lastMatch.Success)
                     {
-                        before = before.AddHours(int.Parse(groups[4].Value)).AddMinutes(int.Parse(groups[5].Value)).AddSeconds(int.Parse(groups[6].Value));
+                        lastSet = true;
+                        var groups = lastMatch.Groups;
+
+                        ulong number = 1;
+                        if (groups[1].Success && (!ulong.TryParse(groups[1].Value, out number) || number > 100_000))
+                        {
+                            await ctx.ReplyAsync("Please use a reasonable number", mention: true);
+                            return;
+                        }
+
+                        TimeSpan length = char.ToLowerInvariant(groups[2].Value[0]) switch
+                        {
+                            's' => TimeSpan.FromSeconds(number),
+                            'm' => TimeSpan.FromMinutes(number),
+                            'h' => TimeSpan.FromHours(number),
+                            'd' => TimeSpan.FromDays(number),
+                            'w' => TimeSpan.FromDays(number * 7),
+                            _ => throw new ArgumentException("Unknown time format")
+                        };
+
+                        after = DateTime.UtcNow.Subtract(length);
+                        continue;
+                    }
+
+
+                    var fromMatch = Regex.Match(line, @"^from:? ((?:\d+? ?)+)$", RegexOptions.IgnoreCase);
+                    if (fromMatch.Success)
+                    {
+                        foreach (string from in fromMatch.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            if (ulong.TryParse(from, out ulong userId))
+                            {
+                                fromFilters.Add(userId);
+                            }
+                        }
+                        continue;
+                    }
+
+                    var inMatch = Regex.Match(line, @"^in:? (\d+?)(?:[^\d](\d+?))?$", RegexOptions.IgnoreCase);
+                    if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
+                    {
+                        inGuildFilters.Add(guildId);
+                        if (inMatch.Groups[2].Success && ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
+                        {
+                            inChannelFilters.Add(channelId);
+                        }
+                        continue;
                     }
                 }
 
@@ -69,21 +125,19 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                var inMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^in:? (\d+?)(?: (\d+?))?$", RegexOptions);
-                if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
+                if (fromFilters.Count != 0)
                 {
-                    predicates.Add(el => el.GuildID == guildId);
-                    if (inMatch.Groups[2].Success && ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
-                    {
-                        predicates.Add(el => el.ChannelID == channelId);
-                    }
+                    predicates.Add(le => fromFilters.Contains(le.UserID));
                 }
 
-                var fromMatch = Regex.Match(ctx.ArgumentStringTrimmed, @"^from:? (\d+?)$", RegexOptions);
-                if (fromMatch.Success &&
-                    ulong.TryParse(fromMatch.Groups[1].Value, out ulong userId))
+                if (inGuildFilters.Count != 0)
                 {
-                    predicates.Add(el => el.UserID == userId);
+                    predicates.Add(le => inGuildFilters.Contains(le.GuildID));
+                }
+
+                if (inChannelFilters.Count != 0)
+                {
+                    predicates.Add(le => inChannelFilters.Contains(le.ChannelID));
                 }
 
                 Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray());
@@ -112,6 +166,28 @@ namespace MihuBot.Commands
 
                 await ctx.Channel.SendFileAsync(ms, "Logs.txt");
             }
+        }
+
+        private static bool TryParseBeforeAfter(string line, out bool isBefore, out DateTime time)
+        {
+            isBefore = default;
+            time = default;
+
+            var match = Regex.Match(line, @"^(before|after):? (\d\d\d\d)[^\d](\d\d?)[^\d](\d\d?)(?:[^\d](\d\d?)[^\d](\d\d?)[^\d](\d\d?))?$", RegexOptions.IgnoreCase);
+
+            if (!match.Success)
+                return false;
+
+            var groups = match.Groups;
+
+            isBefore = groups[1].Value.Equals("before", StringComparison.OrdinalIgnoreCase);
+
+            time = new DateTime(int.Parse(groups[2].Value), int.Parse(groups[3].Value), int.Parse(groups[4].Value));
+            if (groups[4].Success)
+            {
+                time = time.AddHours(int.Parse(groups[5].Value)).AddMinutes(int.Parse(groups[6].Value)).AddSeconds(int.Parse(groups[7].Value));
+            }
+            return true;
         }
     }
 }
