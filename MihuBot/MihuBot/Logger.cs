@@ -285,11 +285,40 @@ namespace MihuBot
 
         private Task UserVoiceStateUpdatedAsync(SocketUser user, SocketVoiceState before, SocketVoiceState after)
         {
-            Log(new LogEvent(EventType.VoiceStatusUpdated, before.VoiceChannel)
+            if (before.VoiceChannel == after.VoiceChannel)
             {
-                UserID = user.Id,
-                VoiceStatusUpdated = GetVoiceUpdateFlags(before, after)
-            });
+                Log(new LogEvent(EventType.VoiceStatusUpdated, before.VoiceChannel)
+                {
+                    UserID = user.Id,
+                    VoiceStatusUpdated = (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after)
+                });
+                return Task.CompletedTask;
+            }
+
+            bool left = after.VoiceChannel is null;
+            bool joined = before.VoiceChannel is null;
+
+            if (!left && !joined)
+                left = joined = true; // Switched calls
+
+            if (left)
+            {
+                Log(new LogEvent(EventType.UserLeftVoice, before.VoiceChannel)
+                {
+                    UserID = user.Id,
+                    VoiceStatusUpdated = GetVoiceStatusUpdateFlags(before)
+                });
+            }
+
+            if (joined)
+            {
+                Log(new LogEvent(EventType.UserJoinedVoice, after.VoiceChannel)
+                {
+                    UserID = user.Id,
+                    VoiceStatusUpdated = GetVoiceStatusUpdateFlags(after)
+                });
+            }
+
             return Task.CompletedTask;
         }
 
@@ -411,21 +440,21 @@ namespace MihuBot
             IsStreaming = 1 << 21,
         }
 
+        private static VoiceStatusUpdateFlags GetVoiceStatusUpdateFlags(SocketVoiceState status)
+        {
+            VoiceStatusUpdateFlags flags = default;
+            if (status.IsMuted) flags |= VoiceStatusUpdateFlags.IsMuted;
+            if (status.IsDeafened) flags |= VoiceStatusUpdateFlags.IsDeafened;
+            if (status.IsSuppressed) flags |= VoiceStatusUpdateFlags.IsSuppressed;
+            if (status.IsSelfMuted) flags |= VoiceStatusUpdateFlags.IsSelfMuted;
+            if (status.IsSelfDeafened) flags |= VoiceStatusUpdateFlags.IsSelfDeafened;
+            if (status.IsStreaming) flags |= VoiceStatusUpdateFlags.IsStreaming;
+            return flags;
+        }
+
         private static VoiceStatusUpdateFlags GetVoiceUpdateFlags(SocketVoiceState before, SocketVoiceState after)
         {
             return (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after);
-
-            static VoiceStatusUpdateFlags GetVoiceStatusUpdateFlags(SocketVoiceState status)
-            {
-                VoiceStatusUpdateFlags flags = default;
-                if (status.IsMuted) flags |= VoiceStatusUpdateFlags.IsMuted;
-                if (status.IsDeafened) flags |= VoiceStatusUpdateFlags.IsDeafened;
-                if (status.IsSuppressed) flags |= VoiceStatusUpdateFlags.IsSuppressed;
-                if (status.IsSelfMuted) flags |= VoiceStatusUpdateFlags.IsSelfMuted;
-                if (status.IsSelfDeafened) flags |= VoiceStatusUpdateFlags.IsSelfDeafened;
-                if (status.IsStreaming) flags |= VoiceStatusUpdateFlags.IsStreaming;
-                return flags;
-            }
         }
 
         public sealed class LogEmote
@@ -461,6 +490,8 @@ namespace MihuBot
             UserLeft,
             UserJoined,
             UserIsTyping,
+            UserJoinedVoice,
+            UserLeftVoice,
         }
 
         public sealed class LogEvent
@@ -659,7 +690,7 @@ namespace MihuBot
                     builder.Append(" - ");
                     AppendUsername(builder, client, UserID);
                 }
-                else if (Type == EventType.VoiceStatusUpdated)
+                else if (Type == EventType.VoiceStatusUpdated || Type == EventType.UserJoinedVoice || Type == EventType.UserLeftVoice)
                 {
                     builder.Append(": ");
                     AppendChannelName(builder, client, GuildID, ChannelID);
