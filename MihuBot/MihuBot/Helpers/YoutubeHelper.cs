@@ -110,7 +110,7 @@ namespace MihuBot.Helpers
 
         public static readonly YoutubeClient Youtube = new YoutubeClient();
 
-        public static async Task SendVideoAsync(string id, ISocketMessageChannel channel)
+        public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus)
         {
             try
             {
@@ -129,18 +129,19 @@ namespace MihuBot.Helpers
 
                 await Youtube.Videos.Streams.DownloadAsync(bestAudio, filePath);
 
-                string mp3FilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".mp3");
+                string outputExtension = useOpus ? ".opus" : ".mp3";
+                string outFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + outputExtension);
 
                 try
                 {
-                    ConvertToMp3(filePath, mp3FilePath);
-                    using FileStream fs = File.OpenRead(mp3FilePath);
-                    await channel.SendFileAsync(fs, GetFileName(video.Title));
+                    ConvertToOutput(filePath, outFilePath);
+                    using FileStream fs = File.OpenRead(outFilePath);
+                    await channel.SendFileAsync(fs, GetFileName(video.Title, outputExtension));
                 }
                 finally
                 {
                     File.Delete(filePath);
-                    File.Delete(mp3FilePath);
+                    File.Delete(outFilePath);
                 }
             }
             catch (Exception ex)
@@ -149,7 +150,7 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel)
+        public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus)
         {
             try
             {
@@ -173,7 +174,7 @@ namespace MihuBot.Helpers
                             if (local >= videos.Count)
                                 return;
 
-                            await SendVideoAsync(videos[local].Id, channel);
+                            await SendVideoAsync(videos[local].Id, channel, useOpus);
                         }
                     });
                 }
@@ -185,16 +186,16 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static void ConvertToMp3(string sourcePath, string targetPath)
+        public static void ConvertToOutput(string sourcePath, string targetPath)
         {
             using Process ffmpeg = new Process();
             ffmpeg.StartInfo.FileName = @"ffmpeg";
-            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a 192k -vn \"{targetPath}\"";
+            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a 128k -vn \"{targetPath}\"";
             ffmpeg.Start();
             ffmpeg.WaitForExit();
         }
 
-        public static string GetFileName(string title)
+        public static string GetFileName(string title, string extension)
         {
             foreach (var c in Path.GetInvalidFileNameChars())
                 title = title.Replace(c, ' ');
@@ -209,7 +210,7 @@ namespace MihuBot.Helpers
 
             title = title.Replace('"', '\'');
 
-            return title + ".mp3";
+            return title + extension;
         }
 
         public static IStreamInfo GetBestAudio(StreamManifest manifest, out string extension)
