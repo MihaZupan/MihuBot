@@ -1,6 +1,8 @@
-﻿using System;
+﻿using MihuBot.Helpers;
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -123,6 +125,16 @@ namespace MihuBot.Commands
                 {
                     await ctx.ReplyAsync("'After' must be earlier in time than 'Before'", mention: true);
                     return;
+                }
+
+                if (!Constants.Admins.Contains(ctx.AuthorId))
+                {
+                    HashSet<ulong> guildIds = Constants.GuildMods
+                        .Where(gm => gm.Value.Contains(ctx.AuthorId))
+                        .Select(gm => gm.Key)
+                        .ToHashSet();
+
+                    predicates.Add(le => guildIds.Contains(le.GuildID));
                 }
 
                 if (fromFilters.Count != 0)
