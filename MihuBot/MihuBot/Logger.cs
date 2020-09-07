@@ -212,8 +212,8 @@ namespace MihuBot
         private static string DateTimeString(DateTime dateTime) => dateTime.ToString("yyyy-MM-dd_HH-mm-ss");
 
         public SocketTextChannel DebugTextChannel => _services.Discord.GetGuild(Guilds.Mihu).GetTextChannel(719903263297896538ul);
-        public SocketTextChannel LogsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Constants.LogTextChannelID);
-        public SocketTextChannel LogsReportsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Constants.LogReportsChannelID);
+        public SocketTextChannel LogsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Channels.LogText);
+        public SocketTextChannel LogsReportsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Channels.LogReports);
 
         public Logger(ServiceCollection services)
         {
@@ -374,7 +374,7 @@ namespace MihuBot
             if (!(userMessage.Channel is SocketGuildChannel channel))
                 return;
 
-            if (message.Author.Id == KnownUsers.MihuBot && channel.Guild.Id == Guilds.PrivateLogs && channel.Id == Constants.LogTextChannelID)
+            if (message.Author.Id == KnownUsers.MihuBot && channel.Guild.Id == Guilds.PrivateLogs && channel.Id == Channels.LogText)
                 return;
 
             if (!string.IsNullOrWhiteSpace(message.Content) && !message.Content.Contains('\0'))

@@ -53,9 +53,6 @@ namespace MihuBot.Helpers
             .Select(i => i.ToString() + CombiningEnclosingKeycap)
             .Select(e => new Emoji(e))
             .ToArray();
-
-        public const ulong LogTextChannelID     = 750706839431413870ul;
-        public const ulong LogReportsChannelID  = 750736528661020781ul;
     }
 
     public static class Guilds
@@ -69,6 +66,17 @@ namespace MihuBot.Helpers
         public const ulong Arisas       = 417794764029820939ul;
         public const ulong Brandons     = 478637384347549713ul;
         public const ulong Dreamlings   = 612032458258644992ul;
+    }
+
+    public static class Channels
+    {
+        public const ulong DDsGeneral       = 353640904185085953ul;
+        public const ulong DDsIntroductions = 374585088404488202ul;
+
+        public const ulong LogText          = 750706839431413870ul;
+        public const ulong LogReports       = 750736528661020781ul;
+
+        public const ulong BirthdaysLog     = 752617146172964875ul;
     }
 
     public static class KnownUsers

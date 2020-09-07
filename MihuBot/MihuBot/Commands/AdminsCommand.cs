@@ -14,7 +14,7 @@ namespace MihuBot.Commands
                 return;
 
             var guild = ctx.Guild;
-            await ctx.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => u.IsAdminFor(guild)).Select(a => a.Username)));
+            await ctx.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => u.IsAdminFor(guild.Id)).Select(a => a.Username)));
         }
     }
 }

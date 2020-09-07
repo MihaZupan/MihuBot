@@ -221,10 +221,41 @@ namespace MihuBot
                 }
             }
 
-            if (guildChannel.Guild.Id == Guilds.DDs && guildChannel.Id == 353640904185085953ul)
-            {
-                // Ignore DDs General chat
+            if (message.Author.Id == KnownUsers.MihuBot)
                 return;
+
+            if (guildChannel.Guild.Id == Guilds.DDs)
+            {
+                if (guildChannel.Id == Channels.DDsGeneral)
+                    return; // Ignore
+
+                if (guildChannel.Id == Channels.DDsIntroductions)
+                {
+                    if (!message.Author.IsBot)
+                    {
+                        SocketTextChannel birthdayChannel = Client.GetGuild(Guilds.Mihu).GetTextChannel(Channels.BirthdaysLog);
+
+                        string reply;
+
+                        if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
+                            message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string[] lines = message.Content.SplitLines(removeEmpty: true);
+                            string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
+                            string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
+
+                            reply = $"{nameLine}\n{birthdayLine}";
+                        }
+                        else
+                        {
+                            reply = "Could not find name/birthday";
+                        }
+
+                        await birthdayChannel.SendMessageAsync($"{message.GetJumpUrl()}\n{reply}");
+                    }
+
+                    return; // Ignore
+                }
             }
 
             await HandleMessageAsync(message);
@@ -234,9 +265,6 @@ namespace MihuBot
         {
             if (message.Content.Contains('\0'))
                 throw new InvalidOperationException("Null in text");
-
-            if (message.Author.Id == KnownUsers.MihuBot)
-                return;
 
             var content = message.Content.TrimStart();
 

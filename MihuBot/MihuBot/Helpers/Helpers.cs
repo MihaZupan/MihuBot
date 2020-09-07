@@ -24,14 +24,14 @@ namespace MihuBot.Helpers
             return (channel as SocketGuildChannel).Guild;
         }
 
-        public static bool IsAdminFor(this SocketUser user, SocketGuild guild)
+        public static bool IsAdminFor(this SocketUser user, ulong guild)
         {
-            return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild.Id, out var guildMods) && guildMods.Contains(user.Id));
+            return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild, out var guildMods) && guildMods.Contains(user.Id));
         }
 
         public static bool AuthorIsAdmin(this SocketMessage message)
         {
-            return message.Author.IsAdminFor(message.Guild());
+            return message.Author.IsAdminFor(message.Guild().Id);
         }
 
         public static bool AuthorHasSafePermissions(this SocketMessage message)
