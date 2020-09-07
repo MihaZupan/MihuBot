@@ -23,7 +23,7 @@ namespace MihuBot.Commands
 
             if (msg != null && YoutubeHelper.TryParseVideoId(msg.Content, out string videoId))
             {
-                _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel));
+                _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel, useOpus: false));
             }
 
             return Task.CompletedTask;
