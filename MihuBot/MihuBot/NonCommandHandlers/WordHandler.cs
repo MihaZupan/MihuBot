@@ -12,6 +12,8 @@ namespace MihuBot.NonCommandHandlers
     {
         private readonly CompactPrefixTree<Func<MessageContext, Task>> _wordHandlers;
 
+        private readonly CooldownTracker _stinkyTracker = new CooldownTracker(TimeSpan.FromHours(1), cooldownTolerance: 0);
+
         public WordHandler()
         {
             _wordHandlers = new CompactPrefixTree<Func<MessageContext, Task>>(ignoreCase: true);
@@ -27,9 +29,10 @@ namespace MihuBot.NonCommandHandlers
 
             static async Task BananaReactionHandler(MessageContext ctx) => await ctx.Message.AddReactionAsync(Emotes.PudeesJammies);
             static async Task TypingResponseHandler(MessageContext ctx) => await ctx.Channel.TriggerTypingAsync();
-            static async Task StinkyHandler(MessageContext ctx)
+
+            async Task StinkyHandler(MessageContext ctx)
             {
-                if (Rng.Chance(25))
+                if (Rng.Chance(25) && _stinkyTracker.TryEnter(ctx, out _, out _))
                 {
                     await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
                 }

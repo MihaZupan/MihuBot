@@ -36,7 +36,7 @@ namespace MihuBot.NonCommandHandlers
                 response = "┬─┬ ノ( ゜-゜ノ)";
             }
 
-            if (response != null && TryEnter(ctx, out _, out _))
+            if (response != null && TryEnter(ctx))
             {
                 await ctx.ReplyAsync(response);
             }
