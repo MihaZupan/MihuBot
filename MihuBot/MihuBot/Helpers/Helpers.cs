@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,19 @@ namespace MihuBot.Helpers
 {
     public static class Helpers
     {
+        public static IEnumerable<T> Unique<T>(this IEnumerable<T> source)
+        {
+            var hashSet = new HashSet<T>();
+
+            foreach (T element in source)
+            {
+                if (hashSet.Add(element))
+                {
+                    yield return element;
+                }
+            }
+        }
+
         public static async Task ReplyAsync(this SocketMessage message, string text, bool mention = false)
         {
             await message.Channel.SendMessageAsync(mention ? string.Concat(MentionUtils.MentionUser(message.Author.Id), " ", text) : text);

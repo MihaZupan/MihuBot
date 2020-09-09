@@ -1,7 +1,9 @@
-﻿using MihuBot.Helpers;
+﻿using Discord;
+using MihuBot.Helpers;
 using SharpCollections.Generic;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
@@ -21,8 +23,17 @@ namespace MihuBot.NonCommandHandlers
                 _wordHandlers.Add(word, TypingResponseHandler);
             }
 
+            _wordHandlers.Add("stinky", StinkyHandler);
+
             static async Task BananaReactionHandler(MessageContext ctx) => await ctx.Message.AddReactionAsync(Emotes.PudeesJammies);
             static async Task TypingResponseHandler(MessageContext ctx) => await ctx.Channel.TriggerTypingAsync();
+            static async Task StinkyHandler(MessageContext ctx)
+            {
+                if (Rng.Chance(25))
+                {
+                    await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
+                }
+            }
         }
 
         public override async ValueTask HandleAsync(MessageContext ctx)
@@ -58,7 +69,7 @@ namespace MihuBot.NonCommandHandlers
             }
             while (space + 1 < text.Length);
 
-            return list;
+            return list?.Unique().ToList();
         }
     }
 }
