@@ -70,7 +70,14 @@ namespace MihuBot.NonCommandHandlers
 
                 if (partner.IsNullOrEmpty || !ulong.TryParse(partner, out ulong partnerId))
                 {
-                    await ctx.ReplyAsync($"{Emotes.PepePoint}");
+                    if (Rng.Chance(2))
+                    {
+                        await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
+                    }
+                    else
+                    {
+                        await ctx.ReplyAsync($"{Emotes.PepePoint}");
+                    }
                 }
                 else if (!all)
                 {
