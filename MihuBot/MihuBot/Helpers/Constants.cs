@@ -125,6 +125,7 @@ namespace MihuBot.Helpers
         public static readonly Emote SenpaiLove     = Emote.Parse("<:senpaiLove:681560481214889999>");
         public static readonly Emote PauseChamp     = Emote.Parse("<:PauseChamp:724041635821781002>");
         public static readonly Emote PepePoint      = Emote.Parse("<:pepePoint:701207439273361408>");
+        public static readonly Emote EyesShaking    = Emote.Parse("<a:eyesShaking:719904795091009636>");
 
 
         public static readonly IEmote ThumbsUp      = new Emoji("👍");

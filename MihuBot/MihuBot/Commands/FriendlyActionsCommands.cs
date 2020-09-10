@@ -10,13 +10,13 @@ namespace MihuBot.Commands
     public sealed class FriendlyActionsCommands : CommandBase
     {
         public override string Command => "hug";
-        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "dropkickofftheturnbuckle" };
+        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "spank", "dropkickofftheturnbuckle" };
 
         private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (ctx.Guild.Id == Guilds.LiverGang && !(ctx.Command == "hug"))
+            if (ctx.Guild.Id == Guilds.LiverGang && ctx.Command != "hug")
             {
                 return;
             }
@@ -75,6 +75,7 @@ namespace MihuBot.Commands
                 "hug" => $"is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiLove}",
                 "kiss" => $"just kissed {target}! {Emotes.DarlKiss}",
                 "boop" => $"{Emotes.DarlBoop}",
+                "spank" => $"just spanked {target} {Emotes.EyesShaking}",
                 _ => null
             };
 
