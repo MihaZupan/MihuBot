@@ -75,15 +75,29 @@ namespace MihuBot
                 try
                 {
                     string extension = Path.GetExtension(FilePath)?.ToLowerInvariant();
-                    bool isTextFile = extension == ".txt" || extension == ".json";
 
-                    string blobName = FilePath.Replace('/', '_').Replace('\\', '_');
+                    AccessTier accessTier = extension switch
+                    {
+                        ".txt" => AccessTier.Hot,
+                        ".json" => AccessTier.Hot,
+                        ".html" => AccessTier.Hot,
+                        ".jpg" => AccessTier.Cool,
+                        ".jpeg" => AccessTier.Cool,
+                        ".png" => AccessTier.Cool,
+                        ".gif" => AccessTier.Cool,
+                        ".mp3" => AccessTier.Cool,
+                        ".wav" => AccessTier.Cool,
+                        _ => AccessTier.Archive
+                    };
+
+                    string blobName = FilePath
+                        .Substring(LogsRoot.Length)
+                        .Replace('/', '_')
+                        .Replace('\\', '_');
+
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                    var blobOptions = new BlobUploadOptions()
-                    {
-                        AccessTier = isTextFile ? AccessTier.Cool : AccessTier.Archive
-                    };
+                    var blobOptions = new BlobUploadOptions() { AccessTier = accessTier };
 
                     using (FileStream fs = File.OpenRead(FilePath))
                     {
