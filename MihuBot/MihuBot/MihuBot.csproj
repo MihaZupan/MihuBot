@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.6.0" />
     <PackageReference Include="Discord.Net" Version="2.2.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="5.0.0-preview.8.20407.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="5.0.0-preview.8.20407.4" />

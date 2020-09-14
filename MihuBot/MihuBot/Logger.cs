@@ -1,4 +1,6 @@
-﻿using Discord;
+﻿using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
@@ -21,7 +23,6 @@ namespace MihuBot
     {
         private const string LogsRoot = "logs/";
         private const string FilesRoot = LogsRoot + "files/";
-        private string CurrentFilesDirectory;
 
         private readonly ServiceCollection _services;
 
@@ -37,6 +38,9 @@ namespace MihuBot
         private Stream JsonLogStream;
         private string JsonLogPath;
         private DateTime LogDate;
+
+        private readonly BlobContainerClient BlobContainerClient;
+        private readonly Channel<(string FilePath, bool Delete)> FileArchivingChannel;
 
         private async Task ChannelReaderTaskAsync()
         {
@@ -60,6 +64,42 @@ namespace MihuBot
                 if (DateTime.UtcNow.Date != LogDate)
                 {
                     await SendLogFilesAsync(LogsReportsTextChannel, resetLogFiles: true);
+                }
+            }
+        }
+
+        private async Task FileArchivingTaskAsync()
+        {
+            await foreach (var (FilePath, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
+            {
+                try
+                {
+                    string extension = Path.GetExtension(FilePath)?.ToLowerInvariant();
+                    bool isTextFile = extension == ".txt" || extension == ".json";
+
+                    string blobName = FilePath.Replace('/', '_').Replace('\\', '_');
+                    BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+
+                    var blobOptions = new BlobUploadOptions()
+                    {
+                        AccessTier = isTextFile ? AccessTier.Cool : AccessTier.Archive
+                    };
+
+                    using (FileStream fs = File.OpenRead(FilePath))
+                    {
+                        await blobClient.UploadAsync(fs, blobOptions);
+                    }
+
+                    if (Delete)
+                    {
+                        File.Delete(FilePath);
+                    }
+
+                    await DebugAsync($"Archived {FilePath}", logOnly: true);
+                }
+                catch (Exception ex)
+                {
+                    await DebugAsync($"Failed to archive {FilePath}: {ex}", logOnly: true);
                 }
             }
         }
@@ -101,7 +141,12 @@ namespace MihuBot
                     if (resetLogFiles)
                     {
                         LogBuilder.Length = 0;
-                        await File.WriteAllTextAsync(Path.ChangeExtension(JsonLogPath, ".txt"), readableLog);
+
+                        string textLogPath = Path.ChangeExtension(JsonLogPath, ".txt");
+                        await File.WriteAllTextAsync(textLogPath, readableLog);
+
+                        FileArchivingChannel.Writer.TryWrite((textLogPath, Delete: false));
+                        FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
 
                         await JsonLogStream.DisposeAsync();
                     }
@@ -116,10 +161,6 @@ namespace MihuBot
 
                     JsonLogPath = Path.Combine(LogsRoot, timeString + ".json");
                     JsonLogStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-
-                    var newFilesDirectory = FilesRoot + timeString + "/";
-                    Directory.CreateDirectory(newFilesDirectory);
-                    CurrentFilesDirectory = newFilesDirectory;
                 }
             }
             catch (Exception ex)
@@ -229,6 +270,10 @@ namespace MihuBot
 
             LogChannel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions() { SingleReader = true });
             Task.Run(ChannelReaderTaskAsync);
+
+            BlobContainerClient = new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
+            FileArchivingChannel = Channel.CreateUnbounded<(string, bool)>(new UnboundedChannelOptions() { SingleReader = true });
+            Task.Run(FileArchivingTaskAsync);
 
             _ = new Timer(_ => Log(new LogEvent("Keepalive")), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
@@ -398,9 +443,18 @@ namespace MihuBot
                     {
                         var response = await _services.Http.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
 
-                        using FileStream fs = File.OpenWrite(CurrentFilesDirectory + a.Id + "_" + a.Filename);
-                        using Stream stream = await response.Content.ReadAsStreamAsync();
-                        await stream.CopyToAsync(fs);
+                        string timeString = DateTimeString((message.EditedTimestamp ?? message.Timestamp).UtcDateTime);
+                        string filePath = $"{FilesRoot}{timeString}_{a.Id}_{a.Filename}";
+
+                        using (FileStream fs = File.OpenWrite(filePath))
+                        {
+                            using Stream stream = await response.Content.ReadAsStreamAsync();
+                            await stream.CopyToAsync(fs);
+                        }
+
+                        await DebugAsync($"Downloaded {filePath}", logOnly: true);
+
+                        FileArchivingChannel.Writer.TryWrite((filePath, Delete: true));
 
                         int fileCount = Interlocked.Increment(ref _fileCounter);
 
