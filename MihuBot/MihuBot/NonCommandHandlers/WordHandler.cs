@@ -39,11 +39,15 @@ namespace MihuBot.NonCommandHandlers
             }
         }
 
-        public override async ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             var handlers = GetWordHandlersForText(ctx.Content);
 
-            if (handlers != null)
+            return handlers is null
+                ? Task.CompletedTask
+                : HandleAsyncCore();
+
+            async Task HandleAsyncCore()
             {
                 foreach (var handler in handlers)
                 {

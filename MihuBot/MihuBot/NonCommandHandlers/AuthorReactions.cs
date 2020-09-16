@@ -6,30 +6,41 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class AuthorReactions : NonCommandHandler
     {
-        public override async ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
-            var message = ctx.Message;
-
-            if (ctx.AuthorId == KnownUsers.Gradravin && Rng.Chance(1000))
+            if ((ctx.AuthorId == KnownUsers.Gradravin && Rng.Chance(1000))
+                || (ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
             {
-                await message.AddReactionAsync(Emotes.DarlBoop);
+                return HandleAsyncCore();
             }
 
-            if (ctx.AuthorId == KnownUsers.James && Rng.Chance(50))
+            return Task.CompletedTask;
+
+            async Task HandleAsyncCore()
             {
-                await message.AddReactionAsync(Emotes.CreepyFace);
-                _ = Task.Run(async () =>
+                var message = ctx.Message;
+
+                if (ctx.AuthorId == KnownUsers.Gradravin)
                 {
-                    try
+                    await message.AddReactionAsync(Emotes.DarlBoop);
+                }
+
+                if (ctx.AuthorId == KnownUsers.James)
+                {
+                    await message.AddReactionAsync(Emotes.CreepyFace);
+                    _ = Task.Run(async () =>
                     {
-                        await Task.Delay(750);
-                        await message.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                });
+                        try
+                        {
+                            await Task.Delay(750);
+                            await message.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex);
+                        }
+                    });
+                }
             }
         }
     }

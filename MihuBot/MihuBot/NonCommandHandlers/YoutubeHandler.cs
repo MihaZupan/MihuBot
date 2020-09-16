@@ -7,7 +7,7 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class YoutubeHandler : NonCommandHandler
     {
-        public override ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             if (ctx.IsMentioned && ctx.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
             {
@@ -25,7 +25,7 @@ namespace MihuBot.NonCommandHandlers
                 }
             }
 
-            return new ValueTask();
+            return Task.CompletedTask;
         }
     }
 }

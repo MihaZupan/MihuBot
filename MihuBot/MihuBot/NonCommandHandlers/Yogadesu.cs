@@ -7,9 +7,16 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
-        public override async ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             if (ctx.Content.StartsWith("@yogadesu", StringComparison.OrdinalIgnoreCase))
+            {
+                return HandleAsyncCore();
+            }
+
+            return Task.CompletedTask;
+
+            async Task HandleAsyncCore()
             {
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;

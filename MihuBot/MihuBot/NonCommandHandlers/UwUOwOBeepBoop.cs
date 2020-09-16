@@ -7,7 +7,7 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromSeconds(15);
 
-        public override async ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             string response = null;
 
@@ -37,6 +37,13 @@ namespace MihuBot.NonCommandHandlers
             }
 
             if (response != null && TryEnter(ctx))
+            {
+                return HandleAsyncCore();
+            }
+
+            return Task.CompletedTask;
+
+            async Task HandleAsyncCore()
             {
                 await ctx.ReplyAsync(response);
             }

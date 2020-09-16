@@ -11,7 +11,7 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
-        public override async ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             var content = ctx.Content;
 
@@ -21,7 +21,11 @@ namespace MihuBot.NonCommandHandlers
                 (content.StartsWith("@husband", StringComparison.OrdinalIgnoreCase) &&
                 (content.Length == 8 || (content[8] | 0x20) == 'o'));
 
-            if (waifu || husbando)
+            return waifu || husbando
+                ? HandleAsyncCore()
+                : Task.CompletedTask;
+
+            async Task HandleAsyncCore()
             {
                 string redisPrefix = waifu ? "waifu-" : "husbando-";
 

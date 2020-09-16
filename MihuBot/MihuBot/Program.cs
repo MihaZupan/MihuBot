@@ -27,7 +27,7 @@ namespace MihuBot
         private static ServiceCollection ServiceCollection;
 
         private static CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
-        private static List<NonCommandHandler> _nonCommandHandlers = new List<NonCommandHandler>();
+        private static List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
 
         internal static readonly TaskCompletionSource<object> BotStopTCS =
             new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -76,6 +76,7 @@ namespace MihuBot
                     {
                         _commands.Add(alias, instance);
                     }
+                    _nonCommandHandlers.Add(instance);
                 }
                 else if (typeof(NonCommandHandler).IsAssignableFrom(type))
                 {
@@ -292,6 +293,7 @@ namespace MihuBot
             else
             {
                 var messageContext = new MessageContext(ServiceCollection, message);
+
                 foreach (var handler in _nonCommandHandlers)
                 {
                     await handler.HandleAsync(messageContext);

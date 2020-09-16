@@ -2,9 +2,9 @@
 
 namespace MihuBot
 {
-    public abstract class NonCommandHandler : CooldownTrackable
+    public abstract class NonCommandHandler : CooldownTrackable, INonCommandHandler
     {
-        public abstract ValueTask HandleAsync(MessageContext ctx);
+        public abstract Task HandleAsync(MessageContext ctx);
 
         public virtual Task InitAsync(ServiceCollection services) => Task.CompletedTask;
     }

@@ -7,14 +7,14 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class PlayHandler : NonCommandHandler
     {
-        public override ValueTask HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             if (ctx.IsMentioned && ctx.Content.Contains(" play ", StringComparison.OrdinalIgnoreCase))
             {
                 _ = Task.Run(async () => await OnPlayCommand(ctx));
             }
 
-            return new ValueTask();
+            return Task.CompletedTask;
         }
 
         private static async Task OnPlayCommand(MessageContext ctx)
