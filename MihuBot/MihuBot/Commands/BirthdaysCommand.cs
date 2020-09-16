@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,28 +25,24 @@ namespace MihuBot.Commands
 
             if (source == "teamup")
             {
-                int year = DateTime.UtcNow.Year;
-                string uri = $"https://teamup.com/ks6sktk26s43g8c5hw/events?startDate={year}-01-01&endDate={year + 1}-01-01";
-                string json = await ctx.Services.Http.GetStringAsync(uri);
-
-                EventModel[] events = JsonConvert.DeserializeObject<TeamUpResponse>(json).Events;
-
-                string response = string.Join('\n', events.Select(e => $"{e.Name()} {e.StartDt.ToShortDateString()}"));
+                var teamupEvents = await GetTeamupBirthdaysAsync(ctx);
+                string response = string.Join('\n', teamupEvents.Select(e => $"{e.Date.ToISODate()} {e.Name}"));
                 await ctx.Channel.SendTextFileAsync("BirthdaysTeamup.txt", response);
             }
             else if (source == "introductions")
             {
-                SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
+                SimpleMessageModel[] messages = await TryLoadMessagesFromCache();
 
-                var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: new RequestOptions()
+                if (messages is null || ctx.Arguments.Any(a => a.Equals("reload", StringComparison.OrdinalIgnoreCase)))
                 {
-                    AuditLogReason = $"Birthdays command ran by {ctx.Author.Username}"
-                });
+                    SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
 
-                IMessage[] messages = (await messagesSource.ToArrayAsync())
-                    .SelectMany(i => i)
-                    .Where(i => !string.IsNullOrWhiteSpace(i.Content))
-                    .ToArray();
+                    messages = (await channel.DangerousGetAllMessagesAsync($"Birthdays command ran by {ctx.Author.Username}"))
+                        .Select(m => SimpleMessageModel.FromMessage(m))
+                        .ToArray();
+
+                    await SaveMessagesToCache(messages);
+                }
 
                 var failed = new List<string>();
                 var response = new StringBuilder();
@@ -81,6 +78,56 @@ namespace MihuBot.Commands
             else
             {
                 await ctx.ReplyAsync("Specify source type: teamup / introductions");
+            }
+        }
+
+        private async Task<(string Name, DateTime Date)[]> GetTeamupBirthdaysAsync(CommandContext ctx)
+        {
+            int year = DateTime.UtcNow.Year;
+            string uri = $"https://teamup.com/ks6sktk26s43g8c5hw/events?startDate={year}-01-01&endDate={year + 1}-01-01";
+            string json = await ctx.Services.Http.GetStringAsync(uri);
+
+            EventModel[] events = JsonConvert.DeserializeObject<TeamUpResponse>(json).Events;
+
+            return events
+                .Select(e => (e.Name(), e.StartDt.Date))
+                .ToArray();
+        }
+
+        private const string MessagesCachePath = "IntroductionsMessagesCache.json";
+
+        private static async Task<SimpleMessageModel[]> TryLoadMessagesFromCache()
+        {
+            if (!File.Exists(MessagesCachePath))
+                return null;
+
+            string json = await File.ReadAllTextAsync(MessagesCachePath);
+            return JsonConvert.DeserializeObject<SimpleMessageModel[]>(json);
+        }
+
+        private static async Task SaveMessagesToCache(SimpleMessageModel[] messages)
+        {
+            await File.WriteAllTextAsync(MessagesCachePath, JsonConvert.SerializeObject(messages));
+        }
+
+        private class SimpleMessageModel
+        {
+            public ulong Id;
+            public DateTime TimeStamp;
+            public string Content;
+            public ulong AuthorId;
+            public string AuthorName;
+
+            public static SimpleMessageModel FromMessage(IMessage message)
+            {
+                return new SimpleMessageModel()
+                {
+                    Id = message.Id,
+                    TimeStamp = message.Timestamp.UtcDateTime,
+                    Content = message.Content,
+                    AuthorId = message.Author.Id,
+                    AuthorName = message.Author.Username
+                };
             }
         }
 

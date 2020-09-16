@@ -146,38 +146,22 @@ namespace MihuBot.Helpers
             return users[Rng.Next(users.Length)];
         }
 
-        public static Task<T> CancelAfter<T>(this Task<T> task, TimeSpan timeSpan)
+        public static async Task<IMessage[]> DangerousGetAllMessagesAsync(this ITextChannel channel, string auditReason)
         {
-            if (task.IsCompleted)
-                return task;
+            await Logger.Instance.DebugAsync(
+                $"Fetching all messages for {channel.Name} ({channel.GuildId}-{channel.Id})",
+                logOnly: true);
 
-            var tcs = new TaskCompletionSource<T>();
-
-            var timer = new Timer(s =>
+            var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: new RequestOptions()
             {
-                ((TaskCompletionSource<T>)s).TrySetException(new TimeoutException());
-            }, tcs, timeSpan, Timeout.InfiniteTimeSpan);
+                AuditLogReason = auditReason
+            });
 
-            task.ContinueWith((t, s) =>
-                {
-                    var state = (Tuple<TaskCompletionSource<T>, Timer>)s;
-                    state.Item2.Dispose();
-
-                    if (t.IsCompletedSuccessfully)
-                    {
-                        state.Item1.TrySetResult(t.Result);
-                    }
-                    else
-                    {
-                        state.Item1.TrySetException(t.Exception);
-                    }
-                },
-                Tuple.Create(tcs, timer),
-                cancellationToken: default,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Current);
-
-            return tcs.Task;
+            return (await messagesSource.ToArrayAsync())
+                .SelectMany(i => i)
+                .ToArray();
         }
+
+        public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");
     }
 }

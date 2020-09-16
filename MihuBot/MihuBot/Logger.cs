@@ -21,6 +21,8 @@ namespace MihuBot
 {
     public sealed class Logger
     {
+        public static Logger Instance;
+
         private const string LogsRoot = "logs/";
         private const string FilesRoot = LogsRoot + "files/";
 
@@ -274,6 +276,8 @@ namespace MihuBot
         {
             _services = services;
             services.Logger = this;
+
+            Instance ??= this;
 
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
