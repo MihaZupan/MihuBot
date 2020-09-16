@@ -106,6 +106,21 @@ namespace MihuBot.Commands
                         string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
                         string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
 
+                        nameLine = nameLine.Trim(' ', '\t', '`', '*', '_');
+                        birthdayLine = birthdayLine.Trim(' ', '\t', '`', '*', '_');
+
+                        if (nameLine.StartsWith("name: ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            nameLine = nameLine.Substring(6);
+                        }
+
+                        if (birthdayLine.StartsWith("birthday: ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            birthdayLine = birthdayLine.Substring(10);
+                        }
+
+                        nameLine = nameLine.PadRight(24, ' ');
+
                         response.Append(nameLine).Append(" - ").Append(birthdayLine).Append('\n');
                     }
                     else
