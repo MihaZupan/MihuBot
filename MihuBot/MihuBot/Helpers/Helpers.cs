@@ -45,7 +45,7 @@ namespace MihuBot.Helpers
             await message.Channel.SendMessageAsync(mention ? string.Concat(MentionUtils.MentionUser(message.Author.Id), " ", text) : text);
         }
 
-        public static async Task<RestUserMessage> SendFileAsync(this ISocketMessageChannel channel, string name, string content)
+        public static async Task<RestUserMessage> SendTextFileAsync(this ISocketMessageChannel channel, string name, string content)
         {
             byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));
             try

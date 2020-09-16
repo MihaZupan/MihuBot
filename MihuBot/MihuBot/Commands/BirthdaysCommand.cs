@@ -31,7 +31,7 @@ namespace MihuBot.Commands
                 EventModel[] events = JsonConvert.DeserializeObject<TeamUpResponse>(json).Events;
 
                 string response = string.Join('\n', events.Select(e => $"{e.Name()} {e.StartDt.ToShortDateString()}"));
-                await ctx.Channel.SendFileAsync("BirthdaysTeamup.txt", response);
+                await ctx.Channel.SendTextFileAsync("BirthdaysTeamup.txt", response);
             }
             else if (source == "introductions")
             {
@@ -76,7 +76,7 @@ namespace MihuBot.Commands
                     }
                 }
 
-                await ctx.Channel.SendFileAsync("BirthdaysIntroductions.txt", response.ToString());
+                await ctx.Channel.SendTextFileAsync("BirthdaysIntroductions.txt", response.ToString());
             }
             else
             {
