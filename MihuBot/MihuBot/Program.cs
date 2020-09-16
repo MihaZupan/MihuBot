@@ -122,6 +122,8 @@ namespace MihuBot
                 await Client.StopAsync();
             }
             catch { }
+
+            await Logger.OnShutdownAsync();
         }
 
         private static async Task Client_ReactionAdded(Cacheable<IUserMessage, ulong> message, ISocketMessageChannel channel, SocketReaction reaction)

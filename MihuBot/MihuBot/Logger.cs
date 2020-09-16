@@ -44,6 +44,16 @@ namespace MihuBot
         private readonly BlobContainerClient BlobContainerClient;
         private readonly Channel<(string FilePath, bool Delete)> FileArchivingChannel;
 
+        public async Task OnShutdownAsync()
+        {
+            try
+            {
+                await SendLogFilesAsync(LogsReportsTextChannel, resetLogFiles: true);
+                await Task.Delay(1000);
+            }
+            catch { }
+        }
+
         private async Task ChannelReaderTaskAsync()
         {
             while (await LogChannel.Reader.WaitToReadAsync())
