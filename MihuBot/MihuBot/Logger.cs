@@ -266,9 +266,9 @@ namespace MihuBot
 
         private static string DateTimeString(DateTime dateTime) => dateTime.ToString("yyyy-MM-dd_HH-mm-ss");
 
-        public SocketTextChannel DebugTextChannel => _services.Discord.GetGuild(Guilds.Mihu).GetTextChannel(719903263297896538ul);
-        public SocketTextChannel LogsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Channels.LogText);
-        public SocketTextChannel LogsReportsTextChannel => _services.Discord.GetGuild(Guilds.PrivateLogs).GetTextChannel(Channels.LogReports);
+        public SocketTextChannel DebugTextChannel => _services.Discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
+        public SocketTextChannel LogsTextChannel => _services.Discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
+        public SocketTextChannel LogsReportsTextChannel => _services.Discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogReports);
 
         public Logger(ServiceCollection services)
         {

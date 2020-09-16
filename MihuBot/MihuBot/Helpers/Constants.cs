@@ -73,6 +73,7 @@ namespace MihuBot.Helpers
         public const ulong DDsGeneral       = 353640904185085953ul;
         public const ulong DDsIntroductions = 374585088404488202ul;
 
+        public const ulong Debug            = 719903263297896538ul;
         public const ulong LogText          = 750706839431413870ul;
         public const ulong LogReports       = 750736528661020781ul;
 

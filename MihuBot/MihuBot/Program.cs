@@ -233,7 +233,7 @@ namespace MihuBot
                 {
                     if (!message.Author.IsBot)
                     {
-                        SocketTextChannel birthdayChannel = Client.GetGuild(Guilds.Mihu).GetTextChannel(Channels.BirthdaysLog);
+                        SocketTextChannel birthdayChannel = Client.GetTextChannel(Guilds.Mihu, Channels.BirthdaysLog);
 
                         string reply;
 

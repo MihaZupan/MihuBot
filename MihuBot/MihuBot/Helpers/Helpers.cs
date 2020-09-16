@@ -1,8 +1,12 @@
 ﻿using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,9 +27,42 @@ namespace MihuBot.Helpers
             }
         }
 
+        public static IEnumerable<TElement> UniqueBy<TElement, TBy>(this IEnumerable<TElement> source, Func<TElement, TBy> selector)
+        {
+            var hashSet = new HashSet<TBy>();
+
+            foreach (TElement element in source)
+            {
+                if (hashSet.Add(selector(element)))
+                {
+                    yield return element;
+                }
+            }
+        }
+
         public static async Task ReplyAsync(this SocketMessage message, string text, bool mention = false)
         {
             await message.Channel.SendMessageAsync(mention ? string.Concat(MentionUtils.MentionUser(message.Author.Id), " ", text) : text);
+        }
+
+        public static async Task<RestUserMessage> SendFileAsync(this ISocketMessageChannel channel, string name, string content)
+        {
+            byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));
+            try
+            {
+                int length = Encoding.UTF8.GetBytes(content, bytes);
+                var ms = new MemoryStream(bytes, 0, length);
+                return await channel.SendFileAsync(ms, name);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(bytes);
+            }
+        }
+
+        public static SocketTextChannel GetTextChannel(this DiscordSocketClient client, ulong guildId, ulong channelId)
+        {
+            return client.GetGuild(guildId)?.GetTextChannel(channelId);
         }
 
         public static SocketGuild Guild(this SocketMessage message)

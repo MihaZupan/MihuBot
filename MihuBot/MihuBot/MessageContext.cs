@@ -51,16 +51,6 @@ namespace MihuBot
             await ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
         }
 
-        internal async Task DebugAsync(string message)
-        {
-            lock (Console.Out)
-                Console.WriteLine("DEBUG: " + message);
-
-            try
-            {
-                await Discord.GetGuild(566925785563136020ul).GetTextChannel(719903263297896538ul).SendMessageAsync(message);
-            }
-            catch { }
-        }
+        internal async Task DebugAsync(string message) => await Services.Logger.DebugAsync(message);
     }
 }
