@@ -47,10 +47,10 @@ namespace MihuBot.Commands
                 var failed = new List<string>();
                 var response = new StringBuilder();
 
-                foreach (IMessage message in messages)
+                foreach (SimpleMessageModel message in messages)
                 {
                     if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
-                            message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
+                        message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
                     {
                         string[] lines = message.Content.SplitLines(removeEmpty: true);
                         string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
