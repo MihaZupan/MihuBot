@@ -163,5 +163,7 @@ namespace MihuBot.Helpers
         }
 
         public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");
+
+        public static string ToISODate(this DateTimeOffset date) => ToISODate(date.DateTime);
     }
 }

@@ -1,8 +1,8 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
+using MihuBot.Helpers.TeamUp;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,17 +16,67 @@ namespace MihuBot.Commands
     {
         public override string Command => "birthdays";
 
+        private TeamUpClient _teamUpClient;
+
+        public override Task InitAsync(ServiceCollection services)
+        {
+            _teamUpClient = new TeamUpClient(
+                services.Http,
+                Secrets.TeamUp.APIKey,
+                Secrets.TeamUp.CalendarKey,
+                Secrets.TeamUp.SubCalendarId);
+
+            return Task.CompletedTask;
+        }
+
+        public override Task HandleAsync(MessageContext ctx)
+        {
+            if (ctx.Guild.Id == Guilds.DDs && ctx.Channel.Id == Channels.DDsIntroductions && !ctx.Author.IsBot)
+            {
+                return HandleAsyncCore();
+            }
+
+            return Task.CompletedTask;
+
+            async Task HandleAsyncCore()
+            {
+                SocketTextChannel birthdayChannel = ctx.Discord.GetTextChannel(Guilds.Mihu, Channels.BirthdaysLog);
+
+                var message = ctx.Message;
+
+                string reply;
+
+                if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
+                    message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
+                {
+                    string[] lines = message.Content.SplitLines(removeEmpty: true);
+                    string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
+                    string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
+
+                    reply = $"{nameLine}\n{birthdayLine}";
+                }
+                else
+                {
+                    reply = "Could not find name/birthday";
+                }
+
+                await birthdayChannel.SendMessageAsync($"{message.GetJumpUrl()}\n{reply}");
+            }
+        }
+
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!ctx.Author.IsAdminFor(Guilds.DDs))
                 return;
 
             string source = ctx.Arguments.FirstOrDefault()?.ToLowerInvariant();
 
             if (source == "teamup")
             {
-                var teamupEvents = await GetTeamupBirthdaysAsync(ctx);
-                string response = string.Join('\n', teamupEvents.Select(e => $"{e.Date.ToISODate()} {e.Name}"));
+                int year = DateTime.UtcNow.Year;
+                Event[] events = await _teamUpClient.SearchEventsAsync(new DateTime(year, 1, 1), new DateTime(year, 12, 31));
+
+                string response = string.Join('\n', events.Select(e => $"{e.StartDt.ToISODate()} {GetNameFromTitle(e)}"));
                 await ctx.Channel.SendTextFileAsync("BirthdaysTeamup.txt", response);
             }
             else if (source == "introductions")
@@ -81,19 +131,16 @@ namespace MihuBot.Commands
             }
         }
 
-        private async Task<(string Name, DateTime Date)[]> GetTeamupBirthdaysAsync(CommandContext ctx)
+        public string GetNameFromTitle(Event e)
         {
-            int year = DateTime.UtcNow.Year;
-            string uri = $"https://teamup.com/ks6sktk26s43g8c5hw/events?startDate={year}-01-01&endDate={year + 1}-01-01";
-            string json = await ctx.Services.Http.GetStringAsync(uri);
+            string title = e.Title.Trim().Trim('\u2661').Trim();
+            int apostrophe = title.IndexOf('\'');
+            if (apostrophe != -1)
+            {
+                title = title.Substring(0, apostrophe);
+            }
 
-            EventModel[] events = JsonConvert.DeserializeObject<TeamUpResponse>(json).Events;
-
-            return events
-                .UniqueBy(e => e.Id)
-                .Select(e => (e.Name(), e.StartDt.Date))
-                .OrderBy(e => e.Date)
-                .ToArray();
+            return title;
         }
 
         private const string MessagesCachePath = "IntroductionsMessagesCache.json";
@@ -130,32 +177,6 @@ namespace MihuBot.Commands
                     AuthorId = message.Author.Id,
                     AuthorName = message.Author.Username
                 };
-            }
-        }
-
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        private class TeamUpResponse
-        {
-            public EventModel[] Events;
-        }
-
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        private class EventModel
-        {
-            public string Id;
-            public string Title;
-            public DateTime StartDt;
-
-            public string Name()
-            {
-                string title = Title.Trim().Trim('\u2661').Trim();
-                int apostrophe = title.IndexOf('\'');
-                if (apostrophe != -1)
-                {
-                    title = title.Substring(0, apostrophe);
-                }
-
-                return title;
             }
         }
     }

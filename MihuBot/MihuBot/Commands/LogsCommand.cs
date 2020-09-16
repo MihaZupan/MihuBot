@@ -152,7 +152,7 @@ namespace MihuBot.Commands
                     predicates.Add(le => inChannelFilters.Contains(le.ChannelID));
                 }
 
-                Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray());
+                Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray().All);
 
                 if (logs.Length == 0)
                 {

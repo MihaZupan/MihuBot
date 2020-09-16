@@ -231,34 +231,6 @@ namespace MihuBot
             {
                 if (guildChannel.Id == Channels.DDsGeneral)
                     return; // Ignore
-
-                if (guildChannel.Id == Channels.DDsIntroductions)
-                {
-                    if (!message.Author.IsBot)
-                    {
-                        SocketTextChannel birthdayChannel = Client.GetTextChannel(Guilds.Mihu, Channels.BirthdaysLog);
-
-                        string reply;
-
-                        if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
-                            message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
-                        {
-                            string[] lines = message.Content.SplitLines(removeEmpty: true);
-                            string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
-                            string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
-
-                            reply = $"{nameLine}\n{birthdayLine}";
-                        }
-                        else
-                        {
-                            reply = "Could not find name/birthday";
-                        }
-
-                        await birthdayChannel.SendMessageAsync($"{message.GetJumpUrl()}\n{reply}");
-                    }
-
-                    return; // Ignore
-                }
             }
 
             await HandleMessageAsync(message);
