@@ -90,7 +90,9 @@ namespace MihuBot.Commands
             EventModel[] events = JsonConvert.DeserializeObject<TeamUpResponse>(json).Events;
 
             return events
+                .UniqueBy(e => e.Id)
                 .Select(e => (e.Name(), e.StartDt.Date))
+                .OrderBy(e => e.Date)
                 .ToArray();
         }
 
