@@ -24,7 +24,8 @@ namespace MihuBot.Helpers.TeamUp
 
         private async Task<T> MakeRequestAsync<T>(HttpMethod method, string eventId = null, string content = null, string query = null)
         {
-            var request = new HttpRequestMessage(method, $"https://api.teamup.com/{_calendarKey}/events/{eventId}{query}");
+            string uri = $"https://api.teamup.com/{_calendarKey}/events/{eventId}{query}".TrimEnd('/');
+            var request = new HttpRequestMessage(method, uri);
 
             request.Headers.Add("Teamup-Token", _apiKey);
 
