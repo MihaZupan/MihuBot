@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -69,9 +70,9 @@ namespace MihuBot.Commands
             if (!ctx.Author.IsAdminFor(Guilds.DDs))
                 return;
 
-            string source = ctx.Arguments.FirstOrDefault()?.ToLowerInvariant();
+            string action = ctx.Arguments.FirstOrDefault()?.ToLowerInvariant();
 
-            if (source == "teamup")
+            if (action == "teamup")
             {
                 int year = DateTime.UtcNow.Year;
                 Event[] events = await _teamUpClient.SearchEventsAsync(new DateTime(year, 1, 1), new DateTime(year, 12, 31));
@@ -79,7 +80,7 @@ namespace MihuBot.Commands
                 string response = string.Join('\n', events.Select(e => $"{e.StartDt.ToISODate()} {GetNameFromTitle(e)}"));
                 await ctx.Channel.SendTextFileAsync("BirthdaysTeamup.txt", response);
             }
-            else if (source == "introductions")
+            else if (action == "introductions")
             {
                 SimpleMessageModel[] messages = await TryLoadMessagesFromCache();
 
@@ -139,6 +140,23 @@ namespace MihuBot.Commands
                 }
 
                 await ctx.Channel.SendTextFileAsync("BirthdaysIntroductions.txt", response.ToString());
+            }
+            else if (action == "add")
+            {
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^add (\d\d\d\d-\d\d?-\d\d?) (.+?)$", RegexOptions.IgnoreCase);
+                if (match.Success && DateTime.TryParse(match.Groups[1].Value, out DateTime date))
+                {
+                    string name = match.Groups[2].Value.Trim();
+                    Event createdEvent = await _teamUpClient.CreateYearlyWholeDayEventAsync($"♡ {name}'s Birthday ♡", date);
+
+                    string eventLink = $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{createdEvent.Id}";
+
+                    await ctx.ReplyAsync($"Created a recurring event for {name} on {date:MMMM d}: {eventLink}");
+                }
+                else
+                {
+                    await ctx.ReplyAsync("Use format add YYYY-MM-DD name");
+                }
             }
             else
             {
