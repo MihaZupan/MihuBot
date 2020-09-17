@@ -28,14 +28,9 @@ namespace MihuBot.Helpers.TeamUp
 
             request.Headers.Add("Teamup-Token", _apiKey);
 
-            if (method == HttpMethod.Post || method == HttpMethod.Put)
-            {
-                request.Headers.Add("Content-type", "application/json");
-            }
-
             if (content != null)
             {
-                request.Content = new StringContent(content, Encoding.UTF8);
+                request.Content = new StringContent(content, Encoding.UTF8, "application/json");
             }
 
             using HttpResponseMessage response = await _httpClient.SendAsync(request);
