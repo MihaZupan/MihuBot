@@ -56,6 +56,19 @@ namespace MihuBot.Helpers.TeamUp
             return response.Events;
         }
 
+        public async Task<Event> TryGetEventAsync(string eventId)
+        {
+            try
+            {
+                EventResponse response = await MakeRequestAsync<EventResponse>(HttpMethod.Get, eventId);
+                return response.Event;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public async Task<Event> CreateYearlyWholeDayEventAsync(string title, DateTime date)
         {
             var requestEvent = new Event()

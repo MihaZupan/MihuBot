@@ -14,5 +14,9 @@ namespace MihuBot
         public virtual Task InitAsync(ServiceCollection services) => Task.CompletedTask;
 
         public virtual Task HandleAsync(MessageContext ctx) => Task.CompletedTask;
+
+
+        protected static string GetMessageLink(ulong guildId, ulong channelId, ulong messageId) =>
+            $"https://discordapp.com/channels/{guildId}/{channelId}/{messageId}";
     }
 }

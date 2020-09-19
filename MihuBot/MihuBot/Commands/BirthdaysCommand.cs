@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -18,6 +19,7 @@ namespace MihuBot.Commands
         public override string Command => "birthdays";
 
         private TeamUpClient _teamUpClient;
+        private readonly BirthdayEntries _birthdayEntries = new BirthdayEntries("BirthdayEntries.json");
 
         public override Task InitAsync(ServiceCollection services)
         {
@@ -45,21 +47,9 @@ namespace MihuBot.Commands
 
                 var message = ctx.Message;
 
-                string reply;
-
-                if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
-                    message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
-                {
-                    string[] lines = message.Content.SplitLines(removeEmpty: true);
-                    string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
-                    string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
-
-                    reply = $"{nameLine}\n{birthdayLine}";
-                }
-                else
-                {
-                    reply = "Could not find name/birthday";
-                }
+                string reply = TryGetNameAndBirthday(message.Content, out string name, out string birthday)
+                    ? $"Name: {name}\nBirthday: {birthday}"
+                    : "Could not find name/birthday";
 
                 await birthdayChannel.SendMessageAsync($"{message.GetJumpUrl()}\n{reply}");
             }
@@ -82,47 +72,20 @@ namespace MihuBot.Commands
             }
             else if (action == "introductions")
             {
-                SimpleMessageModel[] messages = await TryLoadMessagesFromCache();
-
-                if (messages is null || ctx.Arguments.Any(a => a.Equals("reload", StringComparison.OrdinalIgnoreCase)))
-                {
-                    SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
-
-                    messages = (await channel.DangerousGetAllMessagesAsync($"Birthdays command ran by {ctx.Author.Username}"))
-                        .Select(m => SimpleMessageModel.FromMessage(m))
-                        .ToArray();
-
-                    await SaveMessagesToCache(messages);
-                }
+                SimpleMessageModel[] messages = await LoadMessagesAsync(ctx,
+                    maxAge: ctx.Arguments.Any(a => a.Equals("reload", StringComparison.OrdinalIgnoreCase))
+                        ? TimeSpan.FromSeconds(5)
+                        : TimeSpan.FromHours(6));
 
                 var failed = new List<string>();
                 var response = new StringBuilder();
 
-                foreach (SimpleMessageModel message in messages)
+                foreach (SimpleMessageModel message in messages.Where(m => !m.AuthorIsBot))
                 {
-                    if (message.Content.Contains("name", StringComparison.OrdinalIgnoreCase) &&
-                        message.Content.Contains("birth", StringComparison.OrdinalIgnoreCase))
+                    if (TryGetNameAndBirthday(message.Content, out string name, out string birthday))
                     {
-                        string[] lines = message.Content.SplitLines(removeEmpty: true);
-                        string nameLine = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
-                        string birthdayLine = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
-
-                        nameLine = nameLine.Trim(' ', '\t', '`', '*', '_');
-                        birthdayLine = birthdayLine.Trim(' ', '\t', '`', '*', '_');
-
-                        if (nameLine.StartsWith("name: ", StringComparison.OrdinalIgnoreCase))
-                        {
-                            nameLine = nameLine.Substring(6);
-                        }
-
-                        if (birthdayLine.StartsWith("birthday: ", StringComparison.OrdinalIgnoreCase))
-                        {
-                            birthdayLine = birthdayLine.Substring(10);
-                        }
-
-                        nameLine = nameLine.PadRight(24, ' ');
-
-                        response.Append(nameLine).Append(" - ").Append(birthdayLine).Append('\n');
+                        name = name.PadRight(24, ' ');
+                        response.Append(name).Append(" - ").Append(birthday).Append('\n');
                     }
                     else
                     {
@@ -135,7 +98,7 @@ namespace MihuBot.Commands
                     response.Append("\n\nFailed:\n");
                     foreach (string failure in failed)
                     {
-                        response.Append(failure.NormalizeNewLines().Replace("\n", " <new-line> ")).Append('\n');
+                        response.AppendLine(failure.NormalizeNewLines().Replace("\n", " <new-line> "));
                     }
                 }
 
@@ -143,28 +106,282 @@ namespace MihuBot.Commands
             }
             else if (action == "add")
             {
-                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^add (\d\d\d\d-\d\d?-\d\d?) (.+?)$", RegexOptions.IgnoreCase);
-                if (match.Success && DateTime.TryParse(match.Groups[1].Value, out DateTime date))
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^add (\d{1,20}) (\d\d\d\d[-\.]\d\d?[-\.]\d\d?) (.+?)$", RegexOptions.IgnoreCase);
+                if (match.Success &&
+                    ulong.TryParse(match.Groups[1].Value, out ulong messageId) &&
+                    DateTime.TryParse(match.Groups[2].Value, out DateTime date))
                 {
-                    string name = match.Groups[2].Value.Trim();
-                    Event createdEvent = await _teamUpClient.CreateYearlyWholeDayEventAsync($"♡ {name}'s Birthday ♡", date);
+                    SimpleMessageModel[] messages = await LoadMessagesAsync(ctx, maxAge: TimeSpan.FromHours(6));
 
-                    string eventLink = $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{createdEvent.Id}";
+                    if (!messages.Any(m => m.Id == messageId))
+                        messages = await LoadMessagesAsync(ctx, maxAge: TimeSpan.FromMinutes(15));
 
-                    await ctx.ReplyAsync($"Created a recurring event for {name} on {date:MMMM d}: {eventLink}");
+                    SimpleMessageModel message = messages.FirstOrDefault(m => m.Id == messageId);
+                    if (message is null)
+                    {
+                        await ctx.ReplyAsync("Could not find a message with that ID");
+                        return;
+                    }
+
+                    List<BirthdayEntry> entries = await _birthdayEntries.EnterAsync();
+                    try
+                    {
+                        BirthdayEntry previousEntry = entries.FirstOrDefault(e => e.DiscordMessageId == messageId);
+                        if (previousEntry != null)
+                        {
+                            await ctx.ReplyAsync("Birthday event already exists: " + GetEventLink(previousEntry.TeamUpEventId));
+                            return;
+                        }
+
+                        string name = match.Groups[3].Value.Trim();
+                        Event createdEvent = await _teamUpClient.CreateYearlyWholeDayEventAsync($"♡ {name}'s Birthday ♡", date);
+
+                        entries.Add(new BirthdayEntry()
+                        {
+                            Date = date,
+                            DiscordMessageId = message.Id,
+                            DiscordAuthorId = message.AuthorId,
+                            TeamUpEventId = createdEvent.Id
+                        });
+
+                        await ctx.ReplyAsync($"Created a recurring event for {name} on {date:MMMM d}: {GetEventLink(createdEvent.Id)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        await ctx.DebugAsync(ex.ToString());
+                        await ctx.ReplyAsync("Something went wrong");
+                    }
+                    finally
+                    {
+                        _birthdayEntries.Exit();
+                    }
                 }
                 else
                 {
-                    await ctx.ReplyAsync("Use format add YYYY-MM-DD name");
+                    await ctx.ReplyAsync("Usage: `!birthdays add MessageId YYYY-MM-DD name`");
+                }
+            }
+            else if (action == "bind")
+            {
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (\d{1,20}) (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?)$", RegexOptions.IgnoreCase);
+
+                if (match.Success && ulong.TryParse(match.Groups[1].Value, out ulong messageId))
+                {
+                    string eventId = match.Groups[2].Value;
+
+                    List<BirthdayEntry> entries = await _birthdayEntries.EnterAsync();
+                    try
+                    {
+                        BirthdayEntry entry = entries.FirstOrDefault(e => e.TeamUpEventId == eventId);
+                        if (entry != null)
+                        {
+                            await ctx.ReplyAsync($"Event is already bound to a message: {GetMessageLink(entry.DiscordMessageId)}");
+                            return;
+                        }
+
+                        SimpleMessageModel[] messages = await LoadMessagesAsync(ctx, maxAge: TimeSpan.FromMinutes(30));
+                        SimpleMessageModel message = messages.FirstOrDefault(m => m.Id == messageId);
+                        if (message is null)
+                        {
+                            await ctx.ReplyAsync("Could not find a message with that ID");
+                            return;
+                        }
+
+                        Event teamUpEvent = await _teamUpClient.TryGetEventAsync(eventId);
+                        if (teamUpEvent is null)
+                        {
+                            await ctx.ReplyAsync("Could not find that event");
+                            return;
+                        }
+
+                        entries.Add(new BirthdayEntry()
+                        {
+                            Name = GetNameFromTitle(teamUpEvent),
+                            Date = teamUpEvent.StartDt.UtcDateTime.Date,
+                            DiscordMessageId = message.Id,
+                            DiscordAuthorId = message.AuthorId
+                        });
+
+                        await ctx.ReplyAsync($"Added binding for {teamUpEvent.Title} on {teamUpEvent.StartDt.ToISODate()} to {GetMessageLink(messageId)}");
+                    }
+                    finally
+                    {
+                        _birthdayEntries.Exit();
+                    }
+                }
+                else
+                {
+                    await ctx.ReplyAsync("Usage: `!birthdays bind MessageId TeamUpId/Link`");
+                }
+            }
+            else if (action == "binds")
+            {
+                List<BirthdayEntry> entries = await _birthdayEntries.EnterAsync();
+                try
+                {
+                    if (entries.Any())
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        foreach (var entry in entries.OrderBy(entry => entry.Date))
+                        {
+                            sb.Append(entry.Date.ToISODate())
+                                .Append(' ').Append(entry.Name)
+                                .Append(" - ").Append(GetEventLink(entry.TeamUpEventId))
+                                .Append(" - ").AppendLine(GetMessageLink(entry.DiscordMessageId));
+                        }
+                        await ctx.Channel.SendTextFileAsync("Binds.txt", sb.ToString());
+                    }
+                }
+                finally
+                {
+                    _birthdayEntries.Exit();
+                }
+            }
+            else if (action == "remove")
+            {
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?)$", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    string eventId = match.Groups[1].Value;
+
+                    List<BirthdayEntry> entries = await _birthdayEntries.EnterAsync();
+                    try
+                    {
+                        BirthdayEntry entry = entries.FirstOrDefault(e => e.TeamUpEventId == eventId);
+                        if (entry is null)
+                        {
+                            await ctx.ReplyAsync($"Could not find a matching entry for {eventId}");
+                        }
+                        else
+                        {
+                            entries.Remove(entry);
+                            await ctx.ReplyAsync($"Removed an entry for {entry.Name} on {entry.Date:MMMM d}: {GetEventLink(entry.TeamUpEventId)}");
+                        }
+                    }
+                    finally
+                    {
+                        _birthdayEntries.Exit();
+                    }
+                }
+                else
+                {
+                    await ctx.ReplyAsync("Usage: `!birthdays remove TeamUpId/Link`");
+                }
+            }
+            else if (action == "status")
+            {
+                int year = DateTime.UtcNow.Year;
+                Event[] events = await _teamUpClient.SearchEventsAsync(new DateTime(year, 1, 1), new DateTime(year, 12, 31));
+
+                List<BirthdayEntry> entries = await _birthdayEntries.EnterAsync();
+                try
+                {
+                    // Multiple entries per Discord user
+                    var multipleEventsPerUser = entries
+                        .GroupBy(e => e.DiscordAuthorId)
+                        .Where(g => g.Count() > 1)
+                        .ToArray();
+
+                    if (multipleEventsPerUser.Length > 0)
+                    {
+                        var sb = new StringBuilder();
+                        foreach (var userEvents in multipleEventsPerUser)
+                        {
+                            sb.Append(userEvents.Key);
+
+                            SocketUser user = ctx.Discord.GetUser(userEvents.Key);
+                            if (user != null)
+                                sb.Append(" (").Append(user.Username).Append(')');
+
+                            sb.AppendLine(" has multiple events:");
+                            foreach (var @event in userEvents)
+                            {
+                                sb.Append(@event.Date.ToISODate())
+                                    .Append(' ').Append(@event.Name)
+                                    .Append(" - ").Append(GetEventLink(@event.TeamUpEventId))
+                                    .Append(" - ").AppendLine(GetMessageLink(@event.DiscordMessageId));
+                            }
+                            sb.AppendLine();
+                        }
+                        await ctx.Channel.SendTextFileAsync("MultipleEventsPerUser.txt", sb.ToString());
+                    }
+
+                    // TeamUp event doesn't exist anymore
+                    HashSet<string> eventIds = events.Select(e => e.Id).ToHashSet();
+
+                    BirthdayEntry[] orphanedEntries = entries
+                        .Where(e => !eventIds.Contains(e.TeamUpEventId))
+                        .ToArray();
+
+                    if (orphanedEntries.Length > 0)
+                    {
+                        var sb = new StringBuilder();
+                        foreach (var @event in orphanedEntries)
+                        {
+                            sb.Append("Discord user ").Append(@event.DiscordAuthorId);
+
+                            SocketUser user = ctx.Discord.GetUser(@event.DiscordAuthorId);
+                            if (user != null)
+                                sb.Append(" (").Append(user.Username).Append(')');
+
+                            sb.AppendLine();
+                            sb.Append(@event.Date.ToISODate()).Append(' ').AppendLine(@event.Name);
+                            sb.AppendLine(GetMessageLink(@event.DiscordMessageId));
+                            sb.AppendLine();
+                        }
+                        await ctx.Channel.SendTextFileAsync("OrphanedEntries.txt", sb.ToString());
+                    }
+
+                    // Introductions without a matching event
+                    SimpleMessageModel[] messages = await LoadMessagesAsync(ctx, maxAge: TimeSpan.FromMinutes(5));
+
+                    HashSet<ulong> messageIds = entries.Select(e => e.DiscordMessageId).ToHashSet();
+
+                    messages = messages
+                        .Where(m => !messageIds.Contains(m.Id))
+                        .Where(m => !m.AuthorIsBot)
+                        .ToArray();
+
+                    if (messages.Length > 0)
+                    {
+                        StringBuilder sb = new StringBuilder();
+                        sb.Append(messages.Length).AppendLine(" introductions remaining").AppendLine();
+                        foreach (SimpleMessageModel message in messages)
+                        {
+                            sb.AppendLine(GetMessageLink(message.Id));
+                            if (TryGetNameAndBirthday(message.Content, out string name, out string birthday))
+                            {
+                                sb.Append("Name: ").AppendLine(name);
+                                sb.Append("Birthday: ").AppendLine(birthday);
+                            }
+                            else
+                            {
+                                sb.AppendLine(message.Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                            }
+                            sb.AppendLine();
+                        }
+                        await ctx.Channel.SendTextFileAsync("Introductions.txt", sb.ToString());
+                    }
+
+                    if (multipleEventsPerUser.Length == 0 && orphanedEntries.Length == 0 && messages.Length == 0)
+                    {
+                        await ctx.ReplyAsync("All good");
+                    }
+                }
+                finally
+                {
+                    _birthdayEntries.Exit();
                 }
             }
             else
             {
-                await ctx.ReplyAsync("Specify source type: teamup / introductions");
+                await ctx.ReplyAsync("Usage: `!birthdays [action]`\n" +
+                    "teamup / introductions / add / bind / binds / remove / status");
             }
         }
 
-        public string GetNameFromTitle(Event e)
+        public static string GetNameFromTitle(Event e)
         {
             string title = e.Title.Trim().Trim('\u2661').Trim();
             int apostrophe = title.IndexOf('\'');
@@ -176,21 +393,69 @@ namespace MihuBot.Commands
             return title;
         }
 
+        private DateTime _lastCacheRefresh = DateTime.MinValue;
         private const string MessagesCachePath = "IntroductionsMessagesCache.json";
 
-        private static async Task<SimpleMessageModel[]> TryLoadMessagesFromCache()
+        private static bool TryGetNameAndBirthday(string content, out string name, out string birthday)
         {
-            if (!File.Exists(MessagesCachePath))
-                return null;
+            name = birthday = null;
 
-            string json = await File.ReadAllTextAsync(MessagesCachePath);
-            return JsonConvert.DeserializeObject<SimpleMessageModel[]>(json);
+            if (!content.Contains("name", StringComparison.OrdinalIgnoreCase) ||
+                !content.Contains("birth", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string[] lines = content.SplitLines(removeEmpty: true);
+            name = lines.First(l => l.Contains("name", StringComparison.OrdinalIgnoreCase));
+            birthday = lines.First(l => l.Contains("birth", StringComparison.OrdinalIgnoreCase));
+
+            name = name.Trim().Replace("*", "").Replace("`", "").Replace("_", "");
+            birthday = birthday.Trim().Replace("*", "").Replace("`", "").Replace("_", "");
+
+            if (name.StartsWith("name: ", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name.Substring(6);
+            }
+
+            if (birthday.StartsWith("birthday: ", StringComparison.OrdinalIgnoreCase))
+            {
+                birthday = birthday.Substring(10);
+            }
+
+            return true;
         }
 
-        private static async Task SaveMessagesToCache(SimpleMessageModel[] messages)
+        private async Task<SimpleMessageModel[]> LoadMessagesAsync(CommandContext ctx, TimeSpan maxAge)
         {
-            await File.WriteAllTextAsync(MessagesCachePath, JsonConvert.SerializeObject(messages));
+            SimpleMessageModel[] messages;
+
+            if (DateTime.UtcNow.Subtract(_lastCacheRefresh) < maxAge && File.Exists(MessagesCachePath))
+            {
+                string json = await File.ReadAllTextAsync(MessagesCachePath);
+                messages = JsonConvert.DeserializeObject<SimpleMessageModel[]>(json);
+            }
+            else
+            {
+                SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
+
+                messages = (await channel.DangerousGetAllMessagesAsync($"Birthdays command ran by {ctx.Author.Username}"))
+                    .Select(m => SimpleMessageModel.FromMessage(m))
+                    .ToArray();
+
+                await File.WriteAllTextAsync(MessagesCachePath, JsonConvert.SerializeObject(messages));
+                _lastCacheRefresh = DateTime.UtcNow;
+            }
+
+            return messages;
         }
+
+        private static string GetEventLink(string eventId)
+        {
+            return $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{eventId}";
+        }
+
+        private static string GetMessageLink(ulong messageId) => GetMessageLink(Guilds.DDs, Channels.DDsIntroductions, messageId);
 
         private class SimpleMessageModel
         {
@@ -199,6 +464,7 @@ namespace MihuBot.Commands
             public string Content;
             public ulong AuthorId;
             public string AuthorName;
+            public bool AuthorIsBot;
 
             public static SimpleMessageModel FromMessage(IMessage message)
             {
@@ -208,8 +474,48 @@ namespace MihuBot.Commands
                     TimeStamp = message.Timestamp.UtcDateTime,
                     Content = message.Content,
                     AuthorId = message.Author.Id,
-                    AuthorName = message.Author.Username
+                    AuthorName = message.Author.Username,
+                    AuthorIsBot = message.Author.IsBot
                 };
+            }
+        }
+
+        private class BirthdayEntry
+        {
+            public string Name;
+            public DateTime Date;
+            public ulong DiscordMessageId;
+            public ulong DiscordAuthorId;
+            public string TeamUpEventId;
+        }
+
+        private class BirthdayEntries
+        {
+            private readonly string _birthdayEntriesJsonPath;
+            private readonly List<BirthdayEntry> _entries;
+            private readonly SemaphoreSlim _asyncLock;
+
+            public BirthdayEntries(string birthdayEntriesJsonPath)
+            {
+                _birthdayEntriesJsonPath = birthdayEntriesJsonPath;
+
+                _entries = File.Exists(_birthdayEntriesJsonPath)
+                    ? JsonConvert.DeserializeObject<List<BirthdayEntry>>(File.ReadAllText(_birthdayEntriesJsonPath))
+                    : new List<BirthdayEntry>();
+
+                _asyncLock = new SemaphoreSlim(1, 1);
+            }
+
+            public async Task<List<BirthdayEntry>> EnterAsync()
+            {
+                await _asyncLock.WaitAsync();
+                return _entries;
+            }
+
+            public void Exit()
+            {
+                File.WriteAllText(_birthdayEntriesJsonPath, JsonConvert.SerializeObject(_entries, Formatting.Indented));
+                _asyncLock.Release();
             }
         }
     }
