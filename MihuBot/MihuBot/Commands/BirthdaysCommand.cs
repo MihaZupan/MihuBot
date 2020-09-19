@@ -412,8 +412,17 @@ namespace MihuBot.Commands
         private async Task SendBirthdaysListAsync(ISocketMessageChannel channel, DateTime date)
         {
             Event[] events = await _teamUpClient.SearchEventsAsync(date, date);
-            string response = string.Join('\n', events.Select(GetNameFromTitle));
-            await channel.SendMessageAsync($"Birthdays for {date.ToISODate()}:\n```\n{response}\n```");
+            string message;
+            if (events.Any())
+            {
+                string response = string.Join('\n', events.Select(GetNameFromTitle));
+                message = $"Birthdays for {date.ToISODate()}:\n```\n{response}\n```";
+            }
+            else
+            {
+                message = $"No birthdays on {date.ToISODate()}";
+            }
+            await channel.SendMessageAsync(message);
         }
 
         private DateTime _lastCacheRefresh = DateTime.MinValue;
