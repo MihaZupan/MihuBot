@@ -67,9 +67,15 @@ namespace MihuBot.NonCommandHandlers
                 if (next == -1)
                     next = text.Length;
 
-                if (_wordHandlers.TryMatchExact(text.AsSpan(space + 1, next - space - 1), out var match))
+                ReadOnlySpan<char> word = text.AsSpan(space + 1, next - space - 1);
+
+                if (_wordHandlers.TryMatchLongest(word, out var match))
                 {
-                    (list ??= new List<Func<MessageContext, Task>>()).Add(match.Value);
+                    string trimmed = word.ToString()
+                        .Trim('\'', '"', ',', '.', '!', '#', '?', '\r', '\n', '\t');
+
+                    if (trimmed.Length == match.Key.Length)
+                        (list ??= new List<Func<MessageContext, Task>>()).Add(match.Value);
                 }
 
                 space = next;

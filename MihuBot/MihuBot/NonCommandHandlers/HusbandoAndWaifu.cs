@@ -74,7 +74,7 @@ namespace MihuBot.NonCommandHandlers
 
                 if (partner.IsNullOrEmpty || !ulong.TryParse(partner, out ulong partnerId))
                 {
-                    if (Rng.Chance(2))
+                    if (Rng.Bool())
                     {
                         await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
                     }
