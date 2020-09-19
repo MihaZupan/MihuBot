@@ -129,22 +129,24 @@ namespace MihuBot.Commands
                         BirthdayEntry previousEntry = entries.FirstOrDefault(e => e.DiscordMessageId == messageId);
                         if (previousEntry != null)
                         {
-                            await ctx.ReplyAsync("Birthday event already exists: " + GetEventLink(previousEntry.TeamUpEventId));
+                            await ctx.ReplyAsync("Birthday event already exists: " + previousEntry.EventLink);
                             return;
                         }
 
                         string name = match.Groups[3].Value.Trim();
                         Event createdEvent = await _teamUpClient.CreateYearlyWholeDayEventAsync($"♡ {name}'s Birthday ♡", date);
 
-                        entries.Add(new BirthdayEntry()
+                        var entry = new BirthdayEntry()
                         {
+                            Name = name,
                             Date = date,
                             DiscordMessageId = message.Id,
                             DiscordAuthorId = message.AuthorId,
-                            TeamUpEventId = createdEvent.Id
-                        });
+                            TeamUpEventId = createdEvent.RecurringId
+                        };
+                        entries.Add(entry);
 
-                        await ctx.ReplyAsync($"Created a recurring event for {name} on {date:MMMM d}: {GetEventLink(createdEvent.Id)}");
+                        await ctx.ReplyAsync($"Created a recurring event for {name} on {date:MMMM d}: {entry.EventLink}");
                     }
                     catch (Exception ex)
                     {
@@ -163,7 +165,7 @@ namespace MihuBot.Commands
             }
             else if (action == "bind")
             {
-                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (\d{1,20}) (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?)$", RegexOptions.IgnoreCase);
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (\d{1,20}) (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?-rid-.*)$", RegexOptions.IgnoreCase);
 
                 if (match.Success && ulong.TryParse(match.Groups[1].Value, out ulong messageId))
                 {
@@ -199,7 +201,8 @@ namespace MihuBot.Commands
                             Name = GetNameFromTitle(teamUpEvent),
                             Date = teamUpEvent.StartDt.UtcDateTime.Date,
                             DiscordMessageId = message.Id,
-                            DiscordAuthorId = message.AuthorId
+                            DiscordAuthorId = message.AuthorId,
+                            TeamUpEventId = teamUpEvent.RecurringId
                         });
 
                         await ctx.ReplyAsync($"Added binding for {teamUpEvent.Title} on {teamUpEvent.StartDt.ToISODate()} to {GetMessageLink(messageId)}");
@@ -226,7 +229,7 @@ namespace MihuBot.Commands
                         {
                             sb.Append(entry.Date.ToISODate())
                                 .Append(' ').Append(entry.Name)
-                                .Append(" - ").Append(GetEventLink(entry.TeamUpEventId))
+                                .Append(" - ").Append(entry.EventLink)
                                 .Append(" - ").AppendLine(GetMessageLink(entry.DiscordMessageId));
                         }
                         await ctx.Channel.SendTextFileAsync("Binds.txt", sb.ToString());
@@ -239,7 +242,7 @@ namespace MihuBot.Commands
             }
             else if (action == "remove")
             {
-                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?)$", RegexOptions.IgnoreCase);
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?)-rid-.*?$", RegexOptions.IgnoreCase);
 
                 if (match.Success)
                 {
@@ -256,7 +259,7 @@ namespace MihuBot.Commands
                         else
                         {
                             entries.Remove(entry);
-                            await ctx.ReplyAsync($"Removed an entry for {entry.Name} on {entry.Date:MMMM d}: {GetEventLink(entry.TeamUpEventId)}");
+                            await ctx.ReplyAsync($"Removed an entry for {entry.Name} on {entry.Date:MMMM d}: {entry.EventLink}");
                         }
                     }
                     finally
@@ -299,7 +302,7 @@ namespace MihuBot.Commands
                             {
                                 sb.Append(@event.Date.ToISODate())
                                     .Append(' ').Append(@event.Name)
-                                    .Append(" - ").Append(GetEventLink(@event.TeamUpEventId))
+                                    .Append(" - ").Append(@event.EventLink)
                                     .Append(" - ").AppendLine(GetMessageLink(@event.DiscordMessageId));
                             }
                             sb.AppendLine();
@@ -450,11 +453,6 @@ namespace MihuBot.Commands
             return messages;
         }
 
-        private static string GetEventLink(string eventId)
-        {
-            return $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{eventId}";
-        }
-
         private static string GetMessageLink(ulong messageId) => GetMessageLink(Guilds.DDs, Channels.DDsIntroductions, messageId);
 
         private class SimpleMessageModel
@@ -487,6 +485,9 @@ namespace MihuBot.Commands
             public ulong DiscordMessageId;
             public ulong DiscordAuthorId;
             public string TeamUpEventId;
+
+            public string EventLink =>
+                $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{TeamUpEventId}-rid-{new DateTimeOffset(Date.Date).ToUnixTimeSeconds()}";
         }
 
         private class BirthdayEntries
