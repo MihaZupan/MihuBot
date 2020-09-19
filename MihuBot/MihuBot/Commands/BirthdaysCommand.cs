@@ -377,6 +377,19 @@ namespace MihuBot.Commands
                     _birthdayEntries.Exit();
                 }
             }
+            else if (action == "list")
+            {
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^list (\d\d?[-\.]\d\d?)$");
+
+                if (match.Success && DateTime.TryParse($"{DateTime.UtcNow.Year} - {match.Groups[1].Value}", out DateTime date))
+                {
+                    if (date < DateTime.UtcNow)
+                        date = date.AddYears(1);
+                }
+                else date = DateTime.UtcNow;
+
+                await SendBirthdaysListAsync(ctx.Channel, date);
+            }
             else
             {
                 await ctx.ReplyAsync("Usage: `!birthdays [action]`\n" +
@@ -394,6 +407,13 @@ namespace MihuBot.Commands
             }
 
             return title;
+        }
+
+        private async Task SendBirthdaysListAsync(ISocketMessageChannel channel, DateTime date)
+        {
+            Event[] events = await _teamUpClient.SearchEventsAsync(date, date);
+            string response = string.Join('\n', events.Select(GetNameFromTitle));
+            await channel.SendMessageAsync($"Birthdays for {date.ToISODate()}:\n```\n{response}\n```");
         }
 
         private DateTime _lastCacheRefresh = DateTime.MinValue;
