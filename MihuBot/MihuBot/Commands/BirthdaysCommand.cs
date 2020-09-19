@@ -165,7 +165,7 @@ namespace MihuBot.Commands
             }
             else if (action == "bind")
             {
-                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^remove (\d{1,20}) (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?-rid-.*)$", RegexOptions.IgnoreCase);
+                Match match = Regex.Match(ctx.ArgumentLines.First(), @"^bind (\d{1,20}) (?:https:\/\/teamup\.com\/.*?\/events\/)?(.+?-rid-.*)$", RegexOptions.IgnoreCase);
 
                 if (match.Success && ulong.TryParse(match.Groups[1].Value, out ulong messageId))
                 {
