@@ -183,7 +183,7 @@ namespace MihuBot
                     DateTime utcNow = DateTime.UtcNow;
                     LogDate = utcNow.Date;
 
-                    string timeString = DateTimeString(utcNow);
+                    string timeString = utcNow.ToISODateTime();
 
                     JsonLogPath = Path.Combine(LogsRoot, timeString + ".json");
                     JsonLogStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
@@ -204,8 +204,8 @@ namespace MihuBot
             if (after >= before)
                 return Array.Empty<LogEvent>();
 
-            string afterString = DateTimeString(after.Date.Subtract(TimeSpan.FromDays(2)));
-            string beforeString = DateTimeString(before.Date.Add(TimeSpan.FromDays(2)));
+            string afterString = after.Date.Subtract(TimeSpan.FromDays(2)).ToISODateTime();
+            string beforeString = before.Date.Add(TimeSpan.FromDays(2)).ToISODateTime();
 
             string[] files = Directory.GetFiles(LogsRoot)
                 .OrderBy(file => file)
@@ -275,8 +275,6 @@ namespace MihuBot
             }
             catch { }
         }
-
-        private static string DateTimeString(DateTime dateTime) => dateTime.ToString("yyyy-MM-dd_HH-mm-ss");
 
         public SocketTextChannel DebugTextChannel => _services.Discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
         public SocketTextChannel LogsTextChannel => _services.Discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
@@ -471,7 +469,7 @@ namespace MihuBot
                     {
                         var response = await _services.Http.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
 
-                        string timeString = DateTimeString((message.EditedTimestamp ?? message.Timestamp).UtcDateTime);
+                        string timeString = (message.EditedTimestamp ?? message.Timestamp).UtcDateTime.ToISODateTime();
                         string filePath = $"{FilesRoot}{timeString}_{a.Id}_{a.Filename}";
 
                         using (FileStream fs = File.OpenWrite(filePath))

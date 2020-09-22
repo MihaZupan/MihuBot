@@ -381,7 +381,7 @@ namespace MihuBot.Commands
             {
                 Match match = Regex.Match(ctx.ArgumentLines.First(), @"^list (\d\d?[-\.]\d\d?)$");
 
-                if (match.Success && DateTime.TryParse($"{DateTime.UtcNow.Year} - {match.Groups[1].Value}", out DateTime date))
+                if (match.Success && DateTime.TryParse($"{DateTime.UtcNow.Year}-{match.Groups[1].Value}", out DateTime date))
                 {
                     if (date < DateTime.UtcNow)
                         date = date.AddYears(1);
