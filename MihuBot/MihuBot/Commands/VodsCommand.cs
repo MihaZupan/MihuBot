@@ -34,7 +34,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/(?:videos|.*?\/clip)\/[^\/\?\#]+", RegexOptions.IgnoreCase);
+            Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/(?:videos?|.*?\/clip)\/[^\/\?\#]+", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
                 await ctx.ReplyAsync("Unknown vod link format");
@@ -104,7 +104,7 @@ namespace MihuBot.Commands
                 argumentBuilder
                     .Append("-i \"")
                     .Append(selectedFormat.Url)
-                    .Append("\" -c copy -f matroska -");
+                    .Append("\" -bsf:a aac_adtstoasc -c copy -f matroska -");
 
                 string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
