@@ -47,11 +47,7 @@ namespace MihuBot.Commands
             try
             {
                 string youtubeDlJson = await RunProcessAndReadOutputAsync("youtube-dl", $"-j {link}");
-                try
-                {
-                    metadata = JsonConvert.DeserializeObject<YoutubeDlMetadata>(youtubeDlJson);
-                }
-                catch (Exception ex) { throw new Exception("Json: " + youtubeDlJson, ex); }
+                metadata = JsonConvert.DeserializeObject<YoutubeDlMetadata>(youtubeDlJson);
             }
             catch (Exception ex)
             {
@@ -115,10 +111,10 @@ namespace MihuBot.Commands
                     using var responseStream = await response.Content.ReadAsStreamAsync();
 
                     string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{selectedFormat.Ext}";
-                    string blobName = $"{metadata.UploaderId ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
+                    string blobName = $"{metadata.Creator ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                    Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({metadata.Duration} s) ...");
+                    Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
                     try
                     {
                         await blobClient.UploadAsync(responseStream);
@@ -143,9 +139,9 @@ namespace MihuBot.Commands
         {
             public string Id;
             public string Title;
-            public string UploaderId;
+            public string Creator;
             public bool IsLive;
-            public int Duration;
+            public double Duration;
 
             public YoutubeDlFormat[] Formats;
 
@@ -159,8 +155,8 @@ namespace MihuBot.Commands
             public string FormatId;
             public string Ext;
             public string Url;
-            public int? Tbr;
-            public int? Height;
+            public double? Tbr;
+            public double? Height;
             public Dictionary<string, string> HttpHeaders;
 
             public int CompareTo(object obj) => CompareTo(obj as YoutubeDlFormat);
