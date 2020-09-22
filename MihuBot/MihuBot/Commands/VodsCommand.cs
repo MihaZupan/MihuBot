@@ -9,9 +9,8 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -85,69 +84,55 @@ namespace MihuBot.Commands
                 }
             }
 
-            HttpResponseMessage response = null;
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, selectedFormat.Url);
-                foreach (var header in selectedFormat.HttpHeaders)
+                var argumentBuilder = new StringBuilder();
+
+                if (selectedFormat.HttpHeaders != null)
                 {
-                    request.Headers.Add(header.Key, header.Value);
+                    foreach (var header in selectedFormat.HttpHeaders)
+                    {
+                        argumentBuilder
+                            .Append("-headers \"")
+                            .Append(header.Key)
+                            .Append(": ")
+                            .Append(header.Value)
+                            .Append("\" ");
+                    }
                 }
 
-                response = await ctx.Services.Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-            }
-            catch (Exception ex)
-            {
-                response?.Dispose();
-                await ctx.DebugAsync(ex.ToString());
-                await ctx.ReplyAsync($"Failed to initiate a media transfer");
-                return;
-            }
+                argumentBuilder
+                    .Append("-i \"")
+                    .Append(selectedFormat.Url)
+                    .Append("\" -c copy -f mkv -");
 
-            try
-            {
-                using (response)
+                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
+                string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
+                BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+
+                Task<RestUserMessage> statusMessage = metadata.Duration < 120
+                    ? null
+                    : ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
+
+                try
                 {
-                    using var responseStream = await response.Content.ReadAsStreamAsync();
+                    using var proc = new Process();
+                    proc.StartInfo.FileName = "ffmpeg";
+                    proc.StartInfo.Arguments = argumentBuilder.ToString();
+                    proc.StartInfo.UseShellExecute = false;
+                    proc.StartInfo.RedirectStandardInput = true;
+                    proc.StartInfo.RedirectStandardOutput = true;
 
-                    string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mp4";
-                    string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
-                    BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+                    proc.Start();
 
-                    Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
-                    try
-                    {
-                        using var proc = new Process();
-                        proc.StartInfo.FileName = "ffmpeg";
-                        proc.StartInfo.Arguments = "-i - -c copy -f mp4 -";
-                        proc.StartInfo.UseShellExecute = false;
-                        proc.StartInfo.RedirectStandardInput = true;
-                        proc.StartInfo.RedirectStandardOutput = true;
+                    await blobClient.UploadAsync(proc.StandardOutput.BaseStream);
 
-                        proc.Start();
-
-                        var cts = new CancellationTokenSource();
-                        Task inputCopyTask = responseStream.CopyToAsync(proc.StandardInput.BaseStream, cts.Token);
-                        Task uploadTask = blobClient.UploadAsync(proc.StandardOutput.BaseStream, cts.Token);
-
-                        Task completedTask = await Task.WhenAny(inputCopyTask, uploadTask);
-                        Task runningTask = completedTask == uploadTask ? inputCopyTask : uploadTask;
-                        if (!runningTask.IsCompleted)
-                        {
-                            Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(10), cts.Token);
-                            await Task.WhenAny(timeoutTask, runningTask);
-                            cts.Cancel();
-                        }
-
-                        await Task.WhenAll(inputCopyTask, uploadTask);
-
-                        await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
-                    }
-                    finally
-                    {
+                    await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
+                }
+                finally
+                {
+                    if (statusMessage != null)
                         await (await statusMessage).DeleteAsync();
-                    }
                 }
             }
             catch (Exception ex)
