@@ -104,9 +104,9 @@ namespace MihuBot.Commands
                 argumentBuilder
                     .Append("-i \"")
                     .Append(selectedFormat.Url)
-                    .Append("\" -bsf:a aac_adtstoasc -c copy -f matroska -");
+                    .Append("\" -c copy -f mp4 -bsf:a aac_adtstoasc -");
 
-                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
+                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mp4";
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                 BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
