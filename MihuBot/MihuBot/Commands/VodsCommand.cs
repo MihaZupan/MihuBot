@@ -153,6 +153,7 @@ namespace MihuBot.Commands
             public string Filename;
         }
 
+        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
         private class YoutubeDlFormat : IComparable<YoutubeDlFormat>, IComparable
         {
             public string FormatId;
