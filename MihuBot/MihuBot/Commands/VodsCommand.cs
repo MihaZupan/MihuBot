@@ -101,12 +101,21 @@ namespace MihuBot.Commands
                     }
                 }
 
-                argumentBuilder
-                    .Append("-i \"")
-                    .Append(selectedFormat.Url)
-                    .Append("\" -map 0 -c copy -f matroska -bsf:a aac_adtstoasc -");
+                argumentBuilder.Append("-i \"").Append(selectedFormat.Url).Append("\" ");
 
-                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
+                string extension;
+                if (selectedFormat.Url.EndsWith("m3u8", StringComparison.OrdinalIgnoreCase))
+                {
+                    argumentBuilder.Append("-c:v copy -c:a opus -b:a 160k -f matroska -");
+                    extension = "mkv";
+                }
+                else
+                {
+                    argumentBuilder.Append("-c copy -f mp4 -");
+                    extension = "mp4";
+                }
+
+                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{extension}";
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                 BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
