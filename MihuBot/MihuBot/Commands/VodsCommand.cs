@@ -104,7 +104,7 @@ namespace MihuBot.Commands
                 argumentBuilder
                     .Append("-i \"")
                     .Append(selectedFormat.Url)
-                    .Append("\" -c copy -f mkv -");
+                    .Append("\" -c copy -f matroska -");
 
                 string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
@@ -138,7 +138,7 @@ namespace MihuBot.Commands
                         throw new Exception(error, ex);
                     }
 
-                    await ctx.DebugAsync(await errorReader);
+                    await ctx.Services.Logger.DebugAsync(await errorReader, logOnly: true);
 
                     await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                 }
