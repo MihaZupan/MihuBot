@@ -6,6 +6,7 @@ using Newtonsoft.Json.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -30,17 +31,19 @@ namespace MihuBot.Commands
                 return;
             }
 
-            Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/videos\/(\d+)", RegexOptions.IgnoreCase);
+            Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/(?:videos|.*?\/clip)\/[^\/\?\#]+", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
                 await ctx.ReplyAsync("Unknown vod link format");
                 return;
             }
 
+            string link = match.Value;
+
             YoutubeDlMetadata metadata;
             try
             {
-                string youtubeDlJson = await RunProcessAndReadOutputAsync("youtube-dl", $"-j https://www.twitch.tv/videos/{match.Groups[1].Value}");
+                string youtubeDlJson = await RunProcessAndReadOutputAsync("youtube-dl", $"-j {link}");
                 try
                 {
                     metadata = JsonConvert.DeserializeObject<YoutubeDlMetadata>(youtubeDlJson);
@@ -49,7 +52,7 @@ namespace MihuBot.Commands
             }
             catch (Exception ex)
             {
-                await ctx.DebugAsync(ex.ToString());
+                await ctx.DebugAsync($"{ex} for {link}");
                 await ctx.ReplyAsync($"Failed to fetch vod metadata");
                 return;
             }
@@ -66,7 +69,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f.Tbr).First();
+            YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f).First();
 
             if (ctx.Arguments.Length > 1)
             {
@@ -110,7 +113,7 @@ namespace MihuBot.Commands
                 string blobName = $"{metadata.UploaderId ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                 BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                using Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({metadata.Duration} s) ...");
+                Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({metadata.Duration} s) ...");
                 try
                 {
                     await blobClient.UploadAsync(responseStream);
@@ -144,13 +147,29 @@ namespace MihuBot.Commands
             public string Filename;
         }
 
-        private class YoutubeDlFormat
+        private class YoutubeDlFormat : IComparable<YoutubeDlFormat>, IComparable
         {
             public string FormatId;
             public string Ext;
             public string Url;
-            public int Tbr;
+            public int? Tbr;
+            public int? Height;
             public Dictionary<string, string> HttpHeaders;
+
+            public int CompareTo(object obj) => CompareTo(obj as YoutubeDlFormat);
+
+            public int CompareTo([AllowNull] YoutubeDlFormat other)
+            {
+                if (other is null) return 1;
+
+                if (Tbr.HasValue && other.Tbr.HasValue)
+                    return Tbr.Value.CompareTo(other.Tbr.Value);
+
+                if (Height.HasValue && other.Height.HasValue)
+                    return Height.Value.CompareTo(other.Height.Value);
+
+                return FormatId.CompareTo(other.FormatId);
+            }
         }
 
         private static async Task<string> RunProcessAndReadOutputAsync(string name, string arguments)
@@ -160,6 +179,8 @@ namespace MihuBot.Commands
             proc.StartInfo.Arguments = arguments;
             proc.StartInfo.UseShellExecute = false;
             proc.StartInfo.RedirectStandardOutput = true;
+
+            proc.Start();
 
             string output = await proc.StandardOutput.ReadToEndAsync();
             proc.WaitForExit();
