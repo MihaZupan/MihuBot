@@ -25,6 +25,9 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
+            if (!ctx.IsFromAdmin)
+                return;
+
             if (!ctx.Arguments.Any())
             {
                 await ctx.ReplyAsync("Usage: `!vods vodLink [format_id]`");
@@ -107,21 +110,24 @@ namespace MihuBot.Commands
 
             try
             {
-                using var responseStream = await response.Content.ReadAsStreamAsync();
-
-                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{selectedFormat.Ext}";
-                string blobName = $"{metadata.UploaderId ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
-                BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
-
-                Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({metadata.Duration} s) ...");
-                try
+                using (response)
                 {
-                    await blobClient.UploadAsync(responseStream);
-                    await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n{blobClient.Uri.AbsoluteUri}");
-                }
-                finally
-                {
-                    await (await statusMessage).DeleteAsync();
+                    using var responseStream = await response.Content.ReadAsStreamAsync();
+
+                    string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{selectedFormat.Ext}";
+                    string blobName = $"{metadata.UploaderId ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
+                    BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+
+                    Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({metadata.Duration} s) ...");
+                    try
+                    {
+                        await blobClient.UploadAsync(responseStream);
+                        await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n{blobClient.Uri.AbsoluteUri}");
+                    }
+                    finally
+                    {
+                        await (await statusMessage).DeleteAsync();
+                    }
                 }
             }
             catch (Exception ex)
