@@ -111,14 +111,14 @@ namespace MihuBot.Commands
                     using var responseStream = await response.Content.ReadAsStreamAsync();
 
                     string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{selectedFormat.Ext}";
-                    string blobName = $"{metadata.Creator ?? $"unknown_{metadata.Id}"}/{DateTime.UtcNow.ToISODateTime()}_{fileName}";
+                    string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
                     Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
                     try
                     {
                         await blobClient.UploadAsync(responseStream);
-                        await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n{blobClient.Uri.AbsoluteUri}");
+                        await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                     }
                     finally
                     {
@@ -139,7 +139,6 @@ namespace MihuBot.Commands
         {
             public string Id;
             public string Title;
-            public string Creator;
             public bool IsLive;
             public double Duration;
 
