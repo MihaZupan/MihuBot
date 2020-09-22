@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -110,14 +111,37 @@ namespace MihuBot.Commands
                 {
                     using var responseStream = await response.Content.ReadAsStreamAsync();
 
-                    string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{selectedFormat.Ext}";
+                    string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mp4";
                     string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
                     Task<RestUserMessage> statusMessage = ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
                     try
                     {
-                        await blobClient.UploadAsync(responseStream);
+                        using var proc = new Process();
+                        proc.StartInfo.FileName = "ffmpeg";
+                        proc.StartInfo.Arguments = "-i - -c copy -f mp4 -";
+                        proc.StartInfo.UseShellExecute = false;
+                        proc.StartInfo.RedirectStandardInput = true;
+                        proc.StartInfo.RedirectStandardOutput = true;
+
+                        proc.Start();
+
+                        var cts = new CancellationTokenSource();
+                        Task inputCopyTask = responseStream.CopyToAsync(proc.StandardInput.BaseStream, cts.Token);
+                        Task uploadTask = blobClient.UploadAsync(proc.StandardOutput.BaseStream, cts.Token);
+
+                        Task completedTask = await Task.WhenAny(inputCopyTask, uploadTask);
+                        Task runningTask = completedTask == uploadTask ? inputCopyTask : uploadTask;
+                        if (!runningTask.IsCompleted)
+                        {
+                            Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(10), cts.Token);
+                            await Task.WhenAny(timeoutTask, runningTask);
+                            cts.Cancel();
+                        }
+
+                        await Task.WhenAll(inputCopyTask, uploadTask);
+
                         await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                     }
                     finally
@@ -152,7 +176,6 @@ namespace MihuBot.Commands
         private class YoutubeDlFormat : IComparable<YoutubeDlFormat>, IComparable
         {
             public string FormatId;
-            public string Ext;
             public string Url;
             public double? Tbr;
             public double? Height;
