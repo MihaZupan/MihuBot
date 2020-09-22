@@ -122,10 +122,21 @@ namespace MihuBot.Commands
                     proc.StartInfo.UseShellExecute = false;
                     proc.StartInfo.RedirectStandardInput = true;
                     proc.StartInfo.RedirectStandardOutput = true;
+                    proc.StartInfo.RedirectStandardError = true;
 
                     proc.Start();
 
-                    await blobClient.UploadAsync(proc.StandardOutput.BaseStream);
+                    Task<string> errorReader = proc.StandardError.ReadToEndAsync();
+
+                    try
+                    {
+                        await blobClient.UploadAsync(proc.StandardOutput.BaseStream);
+                    }
+                    catch (Exception ex)
+                    {
+                        string error = await errorReader.TimeoutAfter(TimeSpan.FromSeconds(5));
+                        throw new Exception(error, ex);
+                    }
 
                     await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                 }
