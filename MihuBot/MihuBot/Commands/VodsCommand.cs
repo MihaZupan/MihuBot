@@ -138,6 +138,8 @@ namespace MihuBot.Commands
                         throw new Exception(error, ex);
                     }
 
+                    await ctx.DebugAsync(await errorReader);
+
                     await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                 }
                 finally
