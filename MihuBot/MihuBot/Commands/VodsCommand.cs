@@ -106,7 +106,7 @@ namespace MihuBot.Commands
                 string extension;
                 if (selectedFormat.Url.EndsWith("m3u8", StringComparison.OrdinalIgnoreCase))
                 {
-                    argumentBuilder.Append("-c:v copy -c:a opus -b:a 160k -f matroska -");
+                    argumentBuilder.Append("-c:v copy -c:a libopus -b:a 160k -f matroska -");
                     extension = "mkv";
                 }
                 else
