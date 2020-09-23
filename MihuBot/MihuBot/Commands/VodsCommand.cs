@@ -119,7 +119,7 @@ namespace MihuBot.Commands
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                 BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                Task<RestUserMessage> statusMessage = metadata.Duration < 120
+                Task<RestUserMessage> statusMessage = extension == "mp4" || metadata.Duration < 30
                     ? null
                     : ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
 
