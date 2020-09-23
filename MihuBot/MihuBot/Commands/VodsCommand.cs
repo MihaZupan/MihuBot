@@ -103,23 +103,18 @@ namespace MihuBot.Commands
 
                 argumentBuilder.Append("-i \"").Append(selectedFormat.Url).Append("\" ");
 
-                string extension;
                 if (selectedFormat.Url.EndsWith("m3u8", StringComparison.OrdinalIgnoreCase))
-                {
-                    argumentBuilder.Append("-c:v copy -c:a libopus -b:a 160k -f matroska -");
-                    extension = "mkv";
-                }
+                    argumentBuilder.Append("-c:v copy -c:a libopus -b:a 160k");
                 else
-                {
-                    argumentBuilder.Append("-c copy -f mp4 -");
-                    extension = "mp4";
-                }
+                    argumentBuilder.Append("-c copy");
 
-                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.{extension}";
+                argumentBuilder.Append(" -f matroska -");
+
+                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
                 string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
                 BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                Task<RestUserMessage> statusMessage = extension == "mp4" || metadata.Duration < 30
+                Task<RestUserMessage> statusMessage = metadata.Duration < 30
                     ? null
                     : ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
 
