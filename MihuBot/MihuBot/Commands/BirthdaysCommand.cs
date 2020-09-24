@@ -515,6 +515,7 @@ namespace MihuBot.Commands
             public ulong DiscordAuthorId;
             public string TeamUpEventId;
 
+            [JsonIgnore]
             public string EventLink =>
                 $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{TeamUpEventId}-rid-{new DateTimeOffset(Date.Date).ToUnixTimeSeconds()}";
         }
