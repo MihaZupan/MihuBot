@@ -195,7 +195,7 @@ namespace MihuBot.Commands
             isBefore = groups[1].Value.Equals("before", StringComparison.OrdinalIgnoreCase);
 
             time = new DateTime(int.Parse(groups[2].Value), int.Parse(groups[3].Value), int.Parse(groups[4].Value));
-            if (groups[4].Success)
+            if (groups[5].Success)
             {
                 time = time.AddHours(int.Parse(groups[5].Value)).AddMinutes(int.Parse(groups[6].Value)).AddSeconds(int.Parse(groups[7].Value));
             }
