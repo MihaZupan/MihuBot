@@ -779,7 +779,7 @@ RecipientAdded
                     if (content != null)
                     {
                         builder.Append(": ");
-                        builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                        builder.Append(content.NormalizeNewLines().Replace("\n", " <new-line> "));
                     }
                 }
                 else if (Type == EventType.ReactionAdded || Type == EventType.ReactionRemoved || Type == EventType.ReactionsCleared)
