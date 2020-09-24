@@ -9,7 +9,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -19,7 +18,8 @@ namespace MihuBot.Commands
         public override string Command => "birthdays";
 
         private TeamUpClient _teamUpClient;
-        private readonly BirthdayEntries _birthdayEntries = new BirthdayEntries("BirthdayEntries.json");
+        private readonly SynchronizedLocalJsonStore<List<BirthdayEntry>> _birthdayEntries =
+            new SynchronizedLocalJsonStore<List<BirthdayEntry>>("BirthdayEntries.json");
 
         public override Task InitAsync(ServiceCollection services)
         {
@@ -517,36 +517,6 @@ namespace MihuBot.Commands
 
             public string EventLink =>
                 $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{TeamUpEventId}-rid-{new DateTimeOffset(Date.Date).ToUnixTimeSeconds()}";
-        }
-
-        private class BirthdayEntries
-        {
-            private readonly string _birthdayEntriesJsonPath;
-            private readonly List<BirthdayEntry> _entries;
-            private readonly SemaphoreSlim _asyncLock;
-
-            public BirthdayEntries(string birthdayEntriesJsonPath)
-            {
-                _birthdayEntriesJsonPath = birthdayEntriesJsonPath;
-
-                _entries = File.Exists(_birthdayEntriesJsonPath)
-                    ? JsonConvert.DeserializeObject<List<BirthdayEntry>>(File.ReadAllText(_birthdayEntriesJsonPath))
-                    : new List<BirthdayEntry>();
-
-                _asyncLock = new SemaphoreSlim(1, 1);
-            }
-
-            public async Task<List<BirthdayEntry>> EnterAsync()
-            {
-                await _asyncLock.WaitAsync();
-                return _entries;
-            }
-
-            public void Exit()
-            {
-                File.WriteAllText(_birthdayEntriesJsonPath, JsonConvert.SerializeObject(_entries, Formatting.Indented));
-                _asyncLock.Release();
-            }
         }
     }
 }

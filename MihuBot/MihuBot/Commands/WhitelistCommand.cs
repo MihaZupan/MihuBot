@@ -1,11 +1,8 @@
 ﻿using Discord;
 using MihuBot.Helpers;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -16,7 +13,8 @@ namespace MihuBot.Commands
 
         protected override TimeSpan Cooldown => TimeSpan.FromSeconds(3);
 
-        private readonly Whitelist _whitelist = new Whitelist("whitelist.json");
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelist =
+            new SynchronizedLocalJsonStore<Dictionary<ulong, string>>("whitelist.json");
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -124,37 +122,6 @@ namespace MihuBot.Commands
             finally
             {
                 _whitelist.Exit();
-            }
-        }
-
-
-        private class Whitelist
-        {
-            private readonly string _whitelistJsonPath;
-            private readonly Dictionary<ulong, string> _entries;
-            private readonly SemaphoreSlim _asyncLock;
-
-            public Whitelist(string whitelistJsonPath)
-            {
-                _whitelistJsonPath = whitelistJsonPath;
-
-                _entries = File.Exists(_whitelistJsonPath)
-                    ? JsonConvert.DeserializeObject<Dictionary<ulong, string>>(File.ReadAllText(_whitelistJsonPath))
-                    : new Dictionary<ulong, string>();
-
-                _asyncLock = new SemaphoreSlim(1, 1);
-            }
-
-            public async Task<Dictionary<ulong, string>> EnterAsync()
-            {
-                await _asyncLock.WaitAsync();
-                return _entries;
-            }
-
-            public void Exit()
-            {
-                File.WriteAllText(_whitelistJsonPath, JsonConvert.SerializeObject(_entries, Formatting.Indented));
-                _asyncLock.Release();
             }
         }
     }
