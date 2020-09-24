@@ -36,7 +36,6 @@ namespace MihuBot
 
         private readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
         private readonly Channel<LogEvent> LogChannel;
-        private readonly StringBuilder LogBuilder = new StringBuilder(4 * 1024 * 1024);
         private Stream JsonLogStream;
         private string JsonLogPath;
         private DateTime LogDate;
@@ -63,12 +62,6 @@ namespace MihuBot
                 {
                     await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
                     await JsonLogStream.WriteAsync(NewLineByte);
-
-                    if (logEvent.Type != EventType.VoiceStatusUpdated && logEvent.Type != EventType.UserIsTyping)
-                    {
-                        logEvent.ToString(LogBuilder, _services.Discord);
-                        LogBuilder.Append('\n');
-                    }
                 }
                 await JsonLogStream.FlushAsync();
                 LogSemaphore.Release();
@@ -141,18 +134,6 @@ namespace MihuBot
 
                     string fileName = Path.GetFileNameWithoutExtension(JsonLogPath);
 
-                    string readableLog = LogBuilder.ToString();
-                    using var readableLogStream = new MemoryStream(Encoding.UTF8.GetBytes(readableLog));
-                    if (readableLogStream.Length <= SizeLimit)
-                    {
-                        await channel.SendFileAsync(readableLogStream, fileName + ".txt");
-                    }
-                    else
-                    {
-                        using var brotliStream = new BrotliStream(readableLogStream, CompressionLevel.Optimal);
-                        await channel.SendFileAsync(brotliStream, fileName + ".txt.br");
-                    }
-
                     using var jsonFileStream = File.OpenRead(JsonLogPath);
                     if (jsonFileStream.Length <= SizeLimit)
                     {
@@ -166,15 +147,8 @@ namespace MihuBot
 
                     if (resetLogFiles)
                     {
-                        LogBuilder.Length = 0;
-
-                        string textLogPath = Path.ChangeExtension(JsonLogPath, ".txt");
-                        await File.WriteAllTextAsync(textLogPath, readableLog);
-
-                        FileArchivingChannel.Writer.TryWrite((textLogPath, Delete: false));
-                        FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
-
                         await JsonLogStream.DisposeAsync();
+                        FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
                     }
                 }
 
@@ -303,7 +277,7 @@ namespace MihuBot
 
             _ = new Timer(_ => Log(new LogEvent("Keepalive")), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
-            //services.Discord.Log += Discord_LogAsync;
+            services.Discord.Log += Discord_LogAsync;
             services.Discord.LatencyUpdated += LatencyUpdatedAsync;
             services.Discord.JoinedGuild += async guild => await DebugAsync($"Added to {guild.Name} ({guild.Id})");
             services.Discord.MessageReceived += message => MessageReceivedAsync(message);
