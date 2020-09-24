@@ -311,7 +311,7 @@ namespace MihuBot.Commands
                     }
 
                     // TeamUp event doesn't exist anymore
-                    HashSet<string> eventIds = events.Select(e => e.Id).ToHashSet();
+                    HashSet<string> eventIds = events.Select(e => e.RecurringId).ToHashSet();
 
                     BirthdayEntry[] orphanedEntries = entries
                         .Where(e => !eventIds.Contains(e.TeamUpEventId))
