@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 
 namespace MihuBot.Helpers
 {
-    public sealed class SynchronizedLocalJsonStore<T> where T : new()
+    public sealed class SynchronizedLocalJsonStore<T>
+        where T : class, new()
     {
         private readonly string _jsonPath;
         private readonly T _value;
