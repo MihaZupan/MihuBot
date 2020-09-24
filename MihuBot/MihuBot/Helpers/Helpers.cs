@@ -67,12 +67,12 @@ namespace MihuBot.Helpers
 
         public static SocketGuild Guild(this SocketMessage message)
         {
-            return (message.Channel as SocketGuildChannel).Guild;
+            return (message.Channel as SocketGuildChannel)?.Guild;
         }
 
         public static SocketGuild Guild(this ISocketMessageChannel channel)
         {
-            return (channel as SocketGuildChannel).Guild;
+            return (channel as SocketGuildChannel)?.Guild;
         }
 
         public static bool IsAdminFor(this SocketUser user, ulong guild)
@@ -82,14 +82,15 @@ namespace MihuBot.Helpers
 
         public static bool AuthorIsAdmin(this SocketMessage message)
         {
-            return message.Author.IsAdminFor(message.Guild().Id);
+            var guild = message.Guild();
+            return guild != null && message.Author.IsAdminFor(guild.Id);
         }
 
         public static bool AuthorHasSafePermissions(this SocketMessage message)
         {
             var guild = message.Guild();
 
-            if (guild.Id != Guilds.DDs)
+            if (guild is null || guild.Id != Guilds.DDs)
                 return false;
 
             var user = message.Author;

@@ -303,6 +303,8 @@ namespace MihuBot
 
             _ = new Timer(_ => Log(new LogEvent("Keepalive")), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
+            //services.Discord.Log += Discord_LogAsync;
+            services.Discord.LatencyUpdated += LatencyUpdatedAsync;
             services.Discord.JoinedGuild += async guild => await DebugAsync($"Added to {guild.Name} ({guild.Id})");
             services.Discord.MessageReceived += message => MessageReceivedAsync(message);
             services.Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
@@ -313,9 +315,51 @@ namespace MihuBot
             services.Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
             services.Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
             services.Discord.UserBanned += UserBannedAsync;
+            services.Discord.UserUnbanned += UserUnbannedAsync;
             services.Discord.UserLeft += UserLeftAsync;
             services.Discord.UserJoined += UserJoinedAsync;
             services.Discord.UserIsTyping += UserIsTypingAsync;
+            // services.Discord.ChannelCreated
+            services.Discord.ChannelDestroyed += ChannelDestroyedAsync;
+            // services.Discord.ChannelUpdated
+            // services.Discord.GuildUpdated
+            // services.Discord.RoleCreated
+            // services.Discord.RoleDeleted
+            // services.Discord.RoleUpdated
+            // services.Discord.UserUpdated
+            // services.Discord.GuildMemberUpdated
+
+            /*
+LeftGuild
+GuildUnavailable
+GuildMembersDownloaded
+VoiceServerUpdated
+CurrentUserUpdated
+GuildAvailable
+RecipientRemoved
+RecipientAdded
+            */
+        }
+
+        private Task LatencyUpdatedAsync(int before, int after)
+        {
+            Log(new LogEvent($"Latency updated: {before} => {after}"));
+            return Task.CompletedTask;
+        }
+
+        private Task Discord_LogAsync(LogMessage logMessage)
+        {
+            Log(new LogEvent(EventType.DebugMessage)
+            {
+                LogMessage = LogMessageModel.FromLogMessage(logMessage)
+            });
+            return Task.CompletedTask;
+        }
+
+        private Task ChannelDestroyedAsync(SocketChannel channel)
+        {
+            Log(new LogEvent(EventType.ChannelDestroyed, channel));
+            return Task.CompletedTask;
         }
 
         private Task UserIsTypingAsync(SocketUser user, ISocketMessageChannel channel)
@@ -348,6 +392,15 @@ namespace MihuBot
         private Task UserBannedAsync(SocketUser user, SocketGuild guild)
         {
             Log(new LogEvent(EventType.UserBanned, guild.Id)
+            {
+                UserID = user.Id
+            });
+            return Task.CompletedTask;
+        }
+
+        private Task UserUnbannedAsync(SocketUser user, SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.UserUnbanned, guild.Id)
             {
                 UserID = user.Id
             });
@@ -395,13 +448,13 @@ namespace MihuBot
 
         private Task ReactionsClearedAsync(ulong messageId, ISocketMessageChannel channel)
         {
-            Log(new LogEvent(EventType.ReactionsCleared, channel.Guild().Id, channel.Id, messageId));
+            Log(new LogEvent(EventType.ReactionsCleared, channel.Guild()?.Id ?? 0, channel.Id, messageId));
             return Task.CompletedTask;
         }
 
         private Task ReactionRemovedAsync(SocketReaction reaction)
         {
-            Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
+            Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild()?.Id ?? 0, reaction.Channel.Id, reaction.MessageId)
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
@@ -412,7 +465,7 @@ namespace MihuBot
 
         private Task ReactionAddedAsync(SocketReaction reaction)
         {
-            Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild().Id, reaction.Channel.Id, reaction.MessageId)
+            Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild()?.Id ?? 0, reaction.Channel.Id, reaction.MessageId)
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
@@ -532,11 +585,6 @@ namespace MihuBot
             return flags;
         }
 
-        private static VoiceStatusUpdateFlags GetVoiceUpdateFlags(SocketVoiceState before, SocketVoiceState after)
-        {
-            return (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after);
-        }
-
         public sealed class LogEmote
         {
             public string Name { get; set; }
@@ -552,6 +600,22 @@ namespace MihuBot
                 Animated = emote.Animated,
                 CreatedAt = emote.CreatedAt,
                 Url = emote.Url,
+            };
+        }
+
+        public sealed class LogMessageModel
+        {
+            public LogSeverity Severity { get; set; }
+            public string Source { get; set; }
+            public string Message { get; set; }
+            public string Exception { get; set; }
+
+            public static LogMessageModel FromLogMessage(LogMessage logMessage) => new LogMessageModel()
+            {
+                Severity = logMessage.Severity,
+                Source = logMessage.Source,
+                Message = logMessage.Message,
+                Exception = logMessage.Exception?.ToString()
             };
         }
 
@@ -572,6 +636,8 @@ namespace MihuBot
             UserIsTyping,
             UserJoinedVoice,
             UserLeftVoice,
+            ChannelDestroyed,
+            UserUnbanned,
         }
 
         public sealed class LogEvent
@@ -601,7 +667,7 @@ namespace MihuBot
             }
 
             public LogEvent(EventType type, SocketUserMessage message)
-                : this(type, message.Guild().Id, message.Channel.Id, message.Id)
+                : this(type, message.Guild()?.Id ?? 0, message.Channel.Id, message.Id)
             {
                 if (type == EventType.MessageReceived || type == EventType.MessageUpdated)
                 {
@@ -651,6 +717,7 @@ namespace MihuBot
             public LogEmote Emote { get; set; }
             public string Emoji { get; set; }
             public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
+            public LogMessageModel LogMessage { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
             {
@@ -726,10 +793,20 @@ namespace MihuBot
                         }
                     }
                 }
-                else if (Type == EventType.DebugMessage && Content != null)
+                else if (Type == EventType.DebugMessage)
                 {
-                    builder.Append(": ");
-                    builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                    string content = Content;
+
+                    if (LogMessage != null)
+                    {
+                        content = JsonSerializer.Serialize(LogMessage, JsonOptions);
+                    }
+
+                    if (content != null)
+                    {
+                        builder.Append(": ");
+                        builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                    }
                 }
                 else if (Type == EventType.ReactionAdded || Type == EventType.ReactionRemoved || Type == EventType.ReactionsCleared)
                 {
@@ -756,7 +833,7 @@ namespace MihuBot
                         builder.Append(Emote.Url);
                     }
                 }
-                else if (Type == EventType.UserJoined || Type == EventType.UserLeft || Type == EventType.UserBanned)
+                else if (Type == EventType.UserJoined || Type == EventType.UserLeft || Type == EventType.UserBanned || Type == EventType.UserUnbanned)
                 {
                     builder.Append(": ");
                     AppendGuildName(builder, client, GuildID);
@@ -779,6 +856,11 @@ namespace MihuBot
                     builder.Append(" - ");
                     builder.Append(VoiceStatusUpdated);
                 }
+                else if (Type == EventType.ChannelDestroyed)
+                {
+                    builder.Append(": ");
+                    AppendChannelName(builder, client, GuildID, ChannelID);
+                }
 
                 static void AppendTwoDigits(StringBuilder builder, int value)
                 {
@@ -788,6 +870,7 @@ namespace MihuBot
                 static void AppendChannelName(StringBuilder builder, DiscordSocketClient client, ulong guildId, ulong channelId)
                 {
                     string channelName = client.GetGuild(guildId)?.GetChannel(channelId)?.Name;
+
                     if (channelName is null)
                     {
                         builder.Append(guildId);
