@@ -443,7 +443,7 @@ RecipientAdded
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
-                Emoji = (reaction.Emote as Emoji).Name
+                Emoji = (reaction.Emote as Emoji)?.Name
             });
             return Task.CompletedTask;
         }
