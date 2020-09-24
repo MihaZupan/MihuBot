@@ -10,7 +10,7 @@ namespace MihuBot.Commands
     public sealed class FriendlyActionsCommands : CommandBase
     {
         public override string Command => "hug";
-        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "spank", "dropkickofftheturnbuckle" };
+        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "spank", "dropkickofftheturnbuckle", "tableflip" };
 
         private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
 
@@ -76,6 +76,7 @@ namespace MihuBot.Commands
                 "kiss" => $"just kissed {target}! {Emotes.DarlKiss}",
                 "boop" => $"{Emotes.DarlBoop}",
                 "spank" => $"just spanked {target} {Emotes.EyesShaking}",
+                "tableflip" => $"just flipped {target} over the table?",
                 _ => null
             };
 
