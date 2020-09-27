@@ -10,7 +10,7 @@ namespace MihuBot.Commands
     public sealed class FriendlyActionsCommands : CommandBase
     {
         public override string Command => "hug";
-        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "spank", "dropkickofftheturnbuckle", "tableflip", "spit", "curbstomp" };
+        public override string[] Aliases => new[] { "butt", "slap", "kick", "love", "kiss", "boop", "spank", "dropkickofftheturnbuckle", "tableflip", "spit", "curbstomp", "smell" };
 
         private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
 
@@ -24,6 +24,12 @@ namespace MihuBot.Commands
             if ((ctx.Command == "spit" || ctx.Command == "curbstomp") &&
                 !(ctx.IsFromAdmin || ctx.AuthorId == KnownUsers.Sticky || ctx.AuthorId == KnownUsers.Ai))
             {
+                return;
+            }
+
+            if (ctx.Command == "smell")
+            {
+                await ctx.ReplyAsync($"{Emotes.WeirdChamp}");
                 return;
             }
 
