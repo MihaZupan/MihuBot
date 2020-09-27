@@ -58,13 +58,14 @@ namespace MihuBot.Helpers
             _guild.AudioClient.Disconnected += AudioClient_DisconnectedAsync;
         }
 
-        private Task AudioClient_DisconnectedAsync(Exception arg)
+        private async Task AudioClient_DisconnectedAsync(Exception arg)
         {
+            await Logger.Instance.DebugAsync(nameof(AudioClient_DisconnectedAsync), logOnly: true);
+
             lock (_audioClients)
             {
                 _audioClients.Remove(_guild.Id);
             }
-            return Task.CompletedTask;
         }
 
         private Task AudioClient_StreamCreatedAsync(ulong id, AudioInStream stream)
@@ -73,18 +74,48 @@ namespace MihuBot.Helpers
             {
                 try
                 {
+                    await Logger.Instance.DebugAsync($"Enter: {nameof(AudioClient_StreamCreatedAsync)}", logOnly: true);
+
                     var config = SpeechConfig.FromSubscription(Secrets.AzureSpeech.SubscriptionKey, Secrets.AzureSpeech.Region);
 
                     using var pushStream = AudioInputStream.CreatePushStream(AudioStreamFormat.GetCompressedFormat(AudioStreamContainerFormat.OGG_OPUS));
                     using var audioInput = AudioConfig.FromStreamInput(pushStream);
                     using var recognizer = new SpeechRecognizer(config, audioInput);
 
+                    recognizer.SessionStarted += (s, e) =>
+                    {
+                        Logger.Instance.DebugAsync($"SessionStarted", logOnly: true).GetAwaiter().GetResult();
+                    };
+
+                    recognizer.SessionStopped += (s, e) =>
+                    {
+                        Logger.Instance.DebugAsync($"SessionStopped", logOnly: true).GetAwaiter().GetResult();
+                    };
+
+                    recognizer.Recognizing += (s, e) =>
+                    {
+                        Logger.Instance.DebugAsync($"Recognizing: Text={e.Result.Text}", logOnly: true).GetAwaiter().GetResult();
+                    };
+
                     recognizer.Recognized += (s, e) =>
                     {
                         if (e.Result.Reason == ResultReason.RecognizedSpeech)
                         {
-                            Logger.Instance.DebugAsync($"RECOGNIZED: Text={e.Result.Text}", logOnly: true).GetAwaiter().GetResult();
+                            Logger.Instance.DebugAsync($"Recognized: Text={e.Result.Text}", logOnly: true).GetAwaiter().GetResult();
                         }
+                    };
+
+                    recognizer.Canceled += (s, e) =>
+                    {
+                        string reason = e.Reason.ToString();
+
+                        if (e.Reason == CancellationReason.Error)
+                        {
+                            reason += "\nErrorCode: " + e.ErrorCode;
+                            reason += "\nErrorDetails: " + e.ErrorDetails;
+                        }
+
+                        Logger.Instance.DebugAsync($"Canceled: {reason}", logOnly: true).GetAwaiter().GetResult();
                     };
 
                     await recognizer.StartContinuousRecognitionAsync();
@@ -100,6 +131,7 @@ namespace MihuBot.Helpers
                     }
                     finally
                     {
+                        await Logger.Instance.DebugAsync(nameof(recognizer.StopContinuousRecognitionAsync), logOnly: true);
                         await recognizer.StopContinuousRecognitionAsync();
                     }
                 }
@@ -107,6 +139,8 @@ namespace MihuBot.Helpers
                 {
                     await Logger.Instance.DebugAsync(ex.ToString());
                 }
+
+                await Logger.Instance.DebugAsync($"Exit: {nameof(AudioClient_StreamCreatedAsync)}", logOnly: true);
             });
 
             return Task.CompletedTask;
