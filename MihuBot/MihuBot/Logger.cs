@@ -102,10 +102,12 @@ namespace MihuBot
 
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
-                    var blobOptions = new BlobUploadOptions() { AccessTier = accessTier };
-
                     using (FileStream fs = File.OpenRead(FilePath))
                     {
+                        if (accessTier == AccessTier.Archive && fs.Length < 2 * 1024 * 1024 /* 2 MB */)
+                            accessTier = AccessTier.Cool;
+
+                        var blobOptions = new BlobUploadOptions() { AccessTier = accessTier };
                         await blobClient.UploadAsync(fs, blobOptions);
                     }
 
@@ -317,7 +319,8 @@ RecipientAdded
 
         private Task LatencyUpdatedAsync(int before, int after)
         {
-            Log(new LogEvent($"Latency updated: {before} => {after}"));
+            if (before > 100 || after > 100)
+                Log(new LogEvent($"Latency updated: {before} => {after}"));
             return Task.CompletedTask;
         }
 
