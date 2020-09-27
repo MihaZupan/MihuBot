@@ -83,7 +83,7 @@ namespace MihuBot.Helpers
                     {
                         if (e.Result.Reason == ResultReason.RecognizedSpeech)
                         {
-                            Console.WriteLine($"RECOGNIZED: Text={e.Result.Text}");
+                            Logger.Instance.DebugAsync($"RECOGNIZED: Text={e.Result.Text}", logOnly: true).GetAwaiter().GetResult();
                         }
                     };
 

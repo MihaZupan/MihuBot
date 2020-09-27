@@ -18,21 +18,6 @@ namespace MihuBot.Commands
             if (!ctx.IsFromAdmin)
                 return;
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await ExecuteAsyncCore(ctx);
-                }
-                catch (Exception ex)
-                {
-                    await ctx.DebugAsync(ex.ToString());
-                }
-            });
-        }
-
-        private async Task ExecuteAsyncCore(CommandContext ctx)
-        {
             bool reset = ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase);
 
             Logger logger = ctx.Services.Logger;

@@ -254,7 +254,17 @@ namespace MihuBot
 
                     if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                     {
-                        await command.ExecuteAsync(context);
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await command.ExecuteAsync(context);
+                            }
+                            catch (Exception ex)
+                            {
+                                await Logger.Instance.DebugAsync(ex.ToString());
+                            }
+                        });
                     }
                     else if (shouldWarn)
                     {

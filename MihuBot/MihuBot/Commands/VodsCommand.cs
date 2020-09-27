@@ -23,13 +23,7 @@ namespace MihuBot.Commands
         private readonly BlobContainerClient BlobContainerClient =
             new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.VodsContainerName);
 
-        public override Task ExecuteAsync(CommandContext ctx)
-        {
-            _ = Task.Run(async () => await ExecuteAsyncCore(ctx));
-            return Task.CompletedTask;
-        }
-
-        private async Task ExecuteAsyncCore(CommandContext ctx)
+        public override async Task ExecuteAsync(CommandContext ctx)
         {
             if (!ctx.IsFromAdmin)
                 return;
