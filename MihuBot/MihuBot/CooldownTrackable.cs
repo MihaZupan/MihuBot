@@ -21,6 +21,9 @@ namespace MihuBot
                 : CooldownTracker.NoCooldownTracker;
         }
 
+        public bool TryPeek(MessageContext ctx) =>
+            _cooldownTracker.TryPeek(ctx);
+
         public bool TryEnter(MessageContext ctx) =>
             TryEnter(ctx, out _, out _);
 

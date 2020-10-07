@@ -262,7 +262,7 @@ namespace MihuBot
                             }
                             catch (Exception ex)
                             {
-                                await Logger.Instance.DebugAsync(ex.ToString());
+                                await context.DebugAsync(ex.ToString());
                             }
                         });
                     }
@@ -278,7 +278,34 @@ namespace MihuBot
 
                 foreach (var handler in _nonCommandHandlers)
                 {
-                    await handler.HandleAsync(messageContext);
+                    try
+                    {
+                        Task task = handler.HandleAsync(messageContext);
+
+                        if (task.IsCompleted)
+                        {
+                            if (!task.IsCompletedSuccessfully)
+                                await task;
+                        }
+                        else
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await task;
+                                }
+                                catch (Exception ex)
+                                {
+                                    await messageContext.DebugAsync(ex.ToString());
+                                }
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _ = Task.Run(async () => await messageContext.DebugAsync(ex.ToString()));
+                    }
                 }
             }
         }

@@ -62,6 +62,14 @@ namespace MihuBot.Helpers
             }
         }
 
+        public bool TryPeek(MessageContext ctx)
+        {
+            return _timings is null
+                || (_adminOverride && ctx.IsFromAdmin)
+                || !_timings.TryGetValue(ctx.AuthorId, out UserTimings timings)
+                || timings.Ticks != timings.TryGetNext(_cooldown, DateTime.UtcNow.Ticks).Ticks;
+        }
+
         public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn)
         {
             cooldown = TimeSpan.Zero;

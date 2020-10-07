@@ -247,6 +247,9 @@ namespace MihuBot
 
             try
             {
+                if (message.Length >= 2000)
+                    message = message.Substring(0, 1995) + " ...";
+
                 await DebugTextChannel.SendMessageAsync(message);
             }
             catch { }
