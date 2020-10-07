@@ -70,6 +70,8 @@ namespace MihuBot.Helpers
                 || timings.Ticks != timings.TryGetNext(_cooldown, DateTime.UtcNow.Ticks).Ticks;
         }
 
+        public bool TryEnter(MessageContext ctx) => TryEnter(ctx, out _, out _);
+
         public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn)
         {
             cooldown = TimeSpan.Zero;
