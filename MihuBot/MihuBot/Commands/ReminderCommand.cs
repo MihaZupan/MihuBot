@@ -211,6 +211,8 @@ namespace MihuBot.Commands
             message = message.Trim();
             var entry = new ReminderEntry(time, message, ctx);
 
+            await ctx.Services.Logger.DebugAsync($"Setting reminder entry for {entry}", logOnly: true);
+
             List<ReminderEntry> reminders = await _reminders.EnterAsync();
             try
             {
@@ -256,6 +258,8 @@ namespace MihuBot.Commands
 
                 foreach (var entry in entries.Where(e => e.Time - now < TimeSpan.FromSeconds(10)))
                 {
+                    Logger.Instance.DebugAsync($"Running reminder {entry}", logOnly: true).GetAwaiter().GetResult();
+
                     Task.Run(async () =>
                     {
                         try
