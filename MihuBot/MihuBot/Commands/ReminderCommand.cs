@@ -235,7 +235,7 @@ namespace MihuBot.Commands
             {
                 lock (_remindersHeap)
                 {
-                    while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time >= now)
+                    while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time < now)
                     {
                         Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
                         (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
@@ -255,7 +255,7 @@ namespace MihuBot.Commands
                         _reminders.Exit();
                     }
 
-                    foreach (var entry in entries.Where(e => e.Time - now < TimeSpan.FromSeconds(10)))
+                    foreach (var entry in entries.Where(e => now - e.Time < TimeSpan.FromSeconds(10)))
                     {
                         Logger.Instance.DebugLog($"Running reminder {entry}");
 
