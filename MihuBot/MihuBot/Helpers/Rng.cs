@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -10,6 +9,8 @@ namespace MihuBot.Helpers
 {
     public static class Rng
     {
+        private static ulong _rngBoolCache = 0;
+
         public static bool Chance(int oneInX)
         {
             return Next(oneInX) == 0;
@@ -29,9 +30,30 @@ namespace MihuBot.Helpers
 
         public static bool Bool()
         {
-            Span<byte> buffer = stackalloc byte[1];
-            RandomNumberGenerator.Fill(buffer);
-            return (buffer[0] & 1) == 0;
+            const ulong LengthOne = 1ul << 56;
+            const ulong LengthMask = 0xFFul << 56;
+            const ulong RngBitsMask = ~LengthMask;
+
+            ulong value = _rngBoolCache;
+            while (value != 0)
+            {
+                ulong updated = ((value & LengthMask) - LengthOne) | ((value & RngBitsMask) >> 1);
+                ulong newValue = PreNet5Compat.InterlockedCompareExchange(ref _rngBoolCache, updated, value);
+
+                if (value == newValue)
+                    return (newValue & 1) == 1;
+
+                value = newValue;
+            }
+
+            ulong buffer = 0;
+            RandomNumberGenerator.Fill(MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref buffer), 7));
+
+            if (!BitConverter.IsLittleEndian)
+                buffer >>= 8;
+
+            _rngBoolCache = (55 * LengthOne) | (buffer >> 1);
+            return (buffer & 1) == 1;
         }
 
         public static int FlipCoins(int count)
@@ -39,7 +61,7 @@ namespace MihuBot.Helpers
             if (count < 0)
                 throw new ArgumentOutOfRangeException(nameof(count), "Must be > 0");
 
-            const int StackallocSize = 4096;
+            const int StackallocSize = 128;
             const int SizeAsUlong = StackallocSize / 8;
 
             int heads = 0;
@@ -60,9 +82,19 @@ namespace MihuBot.Helpers
                 count -= memoryAsLongs.Length << 6;
             }
 
-            RandomNumberGenerator.Fill(memory.Slice(0, count));
-            foreach (byte b in memory.Slice(0, count))
-                heads += b & 1;
+            if (count > 0)
+            {
+                RandomNumberGenerator.Fill(memory.Slice(0, (count + 7) >> 3));
+
+                foreach (byte b in memory.Slice(0, count >> 3))
+                    heads += BitOperations.PopCount(b);
+
+                if ((count & 7) != 0)
+                {
+                    uint lastBits = memory[count >> 3] & ((1u << (count & 7)) - 1);
+                    heads += BitOperations.PopCount(lastBits);
+                }
+            }
 
             return heads;
         }

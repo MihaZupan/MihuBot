@@ -58,13 +58,13 @@ namespace MihuBot.Commands
 
             if (rngUser is null)
             {
-                if (_riggedRng.TryRemove(ctx.AuthorId, out ulong userId))
+                if (_riggedRng.TryRemove(ctx.AuthorId, out ulong userId) && userId != KnownUsers.Miha)
                 {
                     rngUser = ctx.Discord.GetUser(userId);
                 }
                 else
                 {
-                    rngUser = await ctx.Channel.GetRandomChannelUserAsync();
+                    rngUser = await ctx.Channel.GetRandomChannelUserAsync(KnownUsers.Miha);
                 }
             }
             else if (rig)

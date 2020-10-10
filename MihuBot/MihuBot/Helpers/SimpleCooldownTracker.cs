@@ -12,13 +12,13 @@ namespace MihuBot.Helpers
             _cooldown = cooldown.Ticks;
         }
 
-        public bool TryEnter(Func<bool> secondCondition)
+        public bool TryEnter<T>(Predicate<T> secondCondition, T state)
         {
             lock (this)
             {
                 long currentTime = DateTime.UtcNow.Ticks;
 
-                if (_lastTicks + _cooldown > currentTime || !secondCondition())
+                if (_lastTicks + _cooldown > currentTime || !secondCondition(state))
                 {
                     return false;
                 }

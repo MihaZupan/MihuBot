@@ -140,11 +140,18 @@ namespace MihuBot.Helpers
             return false;
         }
 
-        public static async Task<IUser> GetRandomChannelUserAsync(this ISocketMessageChannel channel)
+        public static async Task<IUser> GetRandomChannelUserAsync(this ISocketMessageChannel channel, params ulong[] exclusions)
         {
-            var userLists = await channel.GetUsersAsync(CacheMode.AllowDownload).ToArrayAsync();
-            var users = userLists.SelectMany(i => i).ToArray();
-            return users[Rng.Next(users.Length)];
+            var userLists = await channel
+                .GetUsersAsync(CacheMode.AllowDownload)
+                .ToArrayAsync();
+
+            var users = userLists
+                .SelectMany(i => i)
+                .Where(i => !exclusions.Contains(i.Id))
+                .ToArray();
+
+            return users.Random();
         }
 
         public static async Task<IMessage[]> DangerousGetAllMessagesAsync(this ITextChannel channel, string auditReason)

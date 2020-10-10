@@ -16,7 +16,7 @@ namespace MihuBot.Commands
         {
             if (ctx.Arguments.Length > 0 && int.TryParse(ctx.Arguments[0], out int count) && count > 0)
             {
-                count = Math.Min(1_000_000, count);
+                count = Math.Min(1024, count);
                 int heads = Rng.FlipCoins(count);
                 await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
             }

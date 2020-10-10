@@ -19,13 +19,12 @@ namespace MihuBot.NonCommandHandlers
         {
             _wordHandlers = new CompactPrefixTree<Func<MessageContext, Task>>(ignoreCase: true);
 
-            _wordHandlers.Add("banana", BananaReactionHandler);
-
             foreach (string word in new[] { "cock", "penis" })
             {
                 _wordHandlers.Add(word, TypingResponseHandler);
             }
 
+            _wordHandlers.Add("banana", BananaReactionHandler);
             _wordHandlers.Add("stinky", StinkyHandler);
 
             static async Task BananaReactionHandler(MessageContext ctx) => await ctx.Message.AddReactionAsync(Emotes.PudeesJammies);
