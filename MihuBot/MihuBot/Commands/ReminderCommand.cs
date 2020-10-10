@@ -91,7 +91,7 @@ namespace MihuBot.Commands
                         _remindersHeap.Push(entry);
                 }
             }
-            catch
+            finally
             {
                 _reminders.Exit();
             }
@@ -228,8 +228,6 @@ namespace MihuBot.Commands
 
         private void OnReminderTimer(DiscordSocketClient client)
         {
-            Logger.Instance.DebugLog(nameof(OnReminderTimer));
-
             var now = DateTime.UtcNow;
             List<ReminderEntry> entries = null;
 
@@ -237,8 +235,6 @@ namespace MihuBot.Commands
             {
                 lock (_remindersHeap)
                 {
-                    Logger.Instance.DebugLog($"Reminder heap size {_remindersHeap.Count}");
-
                     while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time >= now)
                     {
                         Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
