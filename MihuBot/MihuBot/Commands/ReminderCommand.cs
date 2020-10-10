@@ -22,7 +22,12 @@ namespace MihuBot.Commands
         private static readonly Regex _reminderRegex = new Regex(
             @"^remind(?:er|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(2));
+
+        private static readonly Regex _timeRegex = new Regex(
+            @"(\d*?)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            TimeSpan.FromSeconds(5));
 
         private static bool TryParseRemindTime(string time, out DateTime dateTime)
         {
@@ -36,7 +41,7 @@ namespace MihuBot.Commands
             else
             {
                 dateTime = default;
-                var matches = Regex.Matches(time, @"(\d*?)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)");
+                var matches = _timeRegex.Matches(time);
 
                 if (matches.Count > 10)
                     return false;
