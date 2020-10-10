@@ -22,7 +22,7 @@ namespace MihuBot.Commands
             }
 
             if ((ctx.Command == "spit" || ctx.Command == "curbstomp") &&
-                !(ctx.IsFromAdmin || ctx.AuthorId == KnownUsers.Sticky || ctx.AuthorId == KnownUsers.Ai))
+                !(ctx.IsFromAdmin || ctx.AuthorId == KnownUsers.Sticky || ctx.AuthorId == KnownUsers.Ai || ctx.AuthorId == KnownUsers.Joster))
             {
                 return;
             }
