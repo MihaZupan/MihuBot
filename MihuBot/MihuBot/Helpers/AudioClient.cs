@@ -58,7 +58,7 @@ namespace MihuBot.Helpers
             _guild.AudioClient.Disconnected += AudioClient_DisconnectedAsync;
         }
 
-        private async Task AudioClient_DisconnectedAsync(Exception arg)
+        private Task AudioClient_DisconnectedAsync(Exception arg)
         {
             Logger.Instance.DebugLog(nameof(AudioClient_DisconnectedAsync));
 
@@ -66,6 +66,8 @@ namespace MihuBot.Helpers
             {
                 _audioClients.Remove(_guild.Id);
             }
+
+            return Task.CompletedTask;
         }
 
         private Task AudioClient_StreamCreatedAsync(ulong id, AudioInStream stream)

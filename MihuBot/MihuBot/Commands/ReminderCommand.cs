@@ -96,11 +96,7 @@ namespace MihuBot.Commands
                 _reminders.Exit();
             }
 
-            _reminderTimer = new Timer(
-                client => OnReminderTimer(client as DiscordSocketClient),
-                services.Discord,
-                1_000,
-                Timeout.Infinite);
+            _reminderTimer = new Timer(_ => OnReminderTimer(services.Discord), null, 1_000, Timeout.Infinite);
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -232,51 +228,64 @@ namespace MihuBot.Commands
 
         private void OnReminderTimer(DiscordSocketClient client)
         {
+            Logger.Instance.DebugLog(nameof(OnReminderTimer));
+
             var now = DateTime.UtcNow;
             List<ReminderEntry> entries = null;
 
-            lock (_remindersHeap)
+            try
             {
-                while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time >= now)
+                lock (_remindersHeap)
                 {
-                    Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
-                    (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
-                }
-            }
+                    Logger.Instance.DebugLog($"Reminder heap size {_remindersHeap.Count}");
 
-            if (entries != null)
-            {
-                List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
-                try
-                {
-                    foreach (var entry in entries)
-                        reminders.Remove(entry);
-                }
-                finally
-                {
-                    _reminders.Exit();
-                }
-
-                foreach (var entry in entries.Where(e => e.Time - now < TimeSpan.FromSeconds(10)))
-                {
-                    Logger.Instance.DebugLog($"Running reminder {entry}");
-
-                    Task.Run(async () =>
+                    while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time >= now)
                     {
-                        try
+                        Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
+                        (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
+                    }
+                }
+
+                if (entries != null)
+                {
+                    List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
+                    try
+                    {
+                        foreach (var entry in entries)
+                            reminders.Remove(entry);
+                    }
+                    finally
+                    {
+                        _reminders.Exit();
+                    }
+
+                    foreach (var entry in entries.Where(e => e.Time - now < TimeSpan.FromSeconds(10)))
+                    {
+                        Logger.Instance.DebugLog($"Running reminder {entry}");
+
+                        Task.Run(async () =>
                         {
-                            var channel = client.GetTextChannel(entry.GuildId, entry.ChannelId);
-                            await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Instance.DebugLog($"{entry} - {ex}");
-                        }
-                    });
+                            try
+                            {
+                                var channel = client.GetTextChannel(entry.GuildId, entry.ChannelId);
+                                await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Instance.DebugLog($"{entry} - {ex}");
+                            }
+                        });
+                    }
                 }
             }
-
-            _reminderTimer.Change(1_000, Timeout.Infinite);
+            catch (Exception ex)
+            {
+                Logger.Instance.DebugLog(ex.ToString());
+            }
+            finally
+            {
+                _reminderTimer.Change(1_000, Timeout.Infinite);
+            }
         }
     }
 }
