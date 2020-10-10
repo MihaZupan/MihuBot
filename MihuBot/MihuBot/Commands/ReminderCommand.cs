@@ -219,7 +219,11 @@ namespace MihuBot.Commands
 
         private async Task ScheduleReminderAsync(MessageContext ctx, string message, DateTime time)
         {
-            message = message.Trim();
+            message = message
+                .Trim()
+                .Trim(' ', '\'', '"', ',', '.', '!', '#', '?', '\r', '\n', '\t')
+                .Trim();
+
             var entry = new ReminderEntry(time, message, ctx);
 
             ctx.Services.Logger.DebugLog($"Setting reminder entry for {entry}");
