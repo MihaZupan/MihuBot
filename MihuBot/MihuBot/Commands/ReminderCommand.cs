@@ -190,6 +190,8 @@ namespace MihuBot.Commands
             public ulong ChannelId { get; set; }
             public ulong AuthorId { get; set; }
 
+            public ReminderEntry() { }
+
             public ReminderEntry(DateTime time, string message, MessageContext ctx)
             {
                 Time = time;
