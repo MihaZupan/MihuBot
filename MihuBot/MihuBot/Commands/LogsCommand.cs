@@ -68,7 +68,7 @@ namespace MihuBot.Commands
                         continue;
                     }
 
-                    var lastMatch = Regex.Match(line, @"^last:? (\d*?)? ?(s|sec|seconds?|m|min|minutes|h|hours?|d|days?|w|weeks?)$", RegexOptions.IgnoreCase);
+                    var lastMatch = Regex.Match(line, @"^last:? (\d*?)? ?(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?|w|weeks?)$", RegexOptions.IgnoreCase);
                     if (lastMatch.Success)
                     {
                         lastSet = true;

@@ -20,7 +20,7 @@ namespace MihuBot.Commands
         protected override int CooldownToleranceCount => 2;
 
         private static readonly Regex _reminderRegex = new Regex(
-            @"^remind(?:er|me)?(?: me)?(?: to)? (.*?) ((?:in|at) (?!in|at).*?)$",
+            @"^remind(?:er|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             TimeSpan.FromSeconds(1));
 
@@ -36,7 +36,7 @@ namespace MihuBot.Commands
             else
             {
                 dateTime = default;
-                var matches = Regex.Matches(time, @"(\d*?)? ?(s|sec|seconds?|m|min|minutes|h|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)");
+                var matches = Regex.Matches(time, @"(\d*?)? ?(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)");
 
                 if (matches.Count > 10)
                     return false;
@@ -72,7 +72,7 @@ namespace MihuBot.Commands
                     dateTime += segment;
                 }
 
-                if (dateTime != default)
+                if (dateTime != now)
                     return true;
             }
 
