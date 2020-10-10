@@ -36,7 +36,7 @@ namespace MihuBot.Commands
             else
             {
                 dateTime = default;
-                var matches = Regex.Matches(time, @"(\d*?)? ?(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)");
+                var matches = Regex.Matches(time, @"(\d*?)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)");
 
                 if (matches.Count > 10)
                     return false;
