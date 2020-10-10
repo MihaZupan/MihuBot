@@ -142,7 +142,7 @@ namespace MihuBot.Commands
                         throw new Exception(error, ex);
                     }
 
-                    await ctx.Services.Logger.DebugAsync(await errorReader, logOnly: true);
+                    ctx.Services.Logger.DebugLog(await errorReader);
 
                     await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
                 }

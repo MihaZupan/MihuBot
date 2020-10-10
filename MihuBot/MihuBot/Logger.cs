@@ -116,11 +116,11 @@ namespace MihuBot
                         File.Delete(FilePath);
                     }
 
-                    await DebugAsync($"Archived {FilePath}", logOnly: true);
+                    DebugLog($"Archived {FilePath}");
                 }
                 catch (Exception ex)
                 {
-                    await DebugAsync($"Failed to archive {FilePath}: {ex}", logOnly: true);
+                    DebugLog($"Failed to archive {FilePath}: {ex}");
                 }
             }
         }
@@ -234,6 +234,8 @@ namespace MihuBot
         }
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
+
+        public void DebugLog(string message) => Log(new LogEvent(message));
 
         public async Task DebugAsync(string message, bool logOnly = false)
         {
@@ -511,7 +513,7 @@ RecipientAdded
                             await stream.CopyToAsync(fs);
                         }
 
-                        await DebugAsync($"Downloaded {filePath}", logOnly: true);
+                        DebugLog($"Downloaded {filePath}");
 
                         FileArchivingChannel.Writer.TryWrite((filePath, Delete: true));
 

@@ -211,7 +211,7 @@ namespace MihuBot.Commands
             message = message.Trim();
             var entry = new ReminderEntry(time, message, ctx);
 
-            await ctx.Services.Logger.DebugAsync($"Setting reminder entry for {entry}", logOnly: true);
+            ctx.Services.Logger.DebugLog($"Setting reminder entry for {entry}");
 
             List<ReminderEntry> reminders = await _reminders.EnterAsync();
             try
@@ -239,6 +239,7 @@ namespace MihuBot.Commands
             {
                 while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time >= now)
                 {
+                    Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
                     (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
                 }
             }
@@ -258,7 +259,7 @@ namespace MihuBot.Commands
 
                 foreach (var entry in entries.Where(e => e.Time - now < TimeSpan.FromSeconds(10)))
                 {
-                    Logger.Instance.DebugAsync($"Running reminder {entry}", logOnly: true).GetAwaiter().GetResult();
+                    Logger.Instance.DebugLog($"Running reminder {entry}");
 
                     Task.Run(async () =>
                     {
@@ -269,7 +270,7 @@ namespace MihuBot.Commands
                         }
                         catch (Exception ex)
                         {
-                            await Logger.Instance.DebugAsync($"{entry} - {ex}");
+                            Logger.Instance.DebugLog($"{entry} - {ex}");
                         }
                     });
                 }
