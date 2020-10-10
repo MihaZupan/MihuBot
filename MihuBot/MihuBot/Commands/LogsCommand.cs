@@ -48,7 +48,7 @@ namespace MihuBot.Commands
                 {
                     if (TryParseBeforeAfter(line, out bool isBefore, out DateTime time))
                     {
-                        if (afterSet || beforeSet || lastSet)
+                        if (lastSet || (beforeSet && isBefore) || (afterSet && !isBefore))
                         {
                             await ctx.ReplyAsync("Only use one 'after', 'before' or 'last' filter");
                             return;
