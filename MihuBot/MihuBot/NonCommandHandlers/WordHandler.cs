@@ -19,7 +19,7 @@ namespace MihuBot.NonCommandHandlers
         {
             _wordHandlers = new CompactPrefixTree<Func<MessageContext, Task>>(ignoreCase: true);
 
-            foreach (string word in new[] { "cock", "penis" })
+            foreach (string word in new[] { "cock", "penis", "dick", "dicks", "wiener", "glizzy" })
             {
                 _wordHandlers.Add(word, TypingResponseHandler);
             }
