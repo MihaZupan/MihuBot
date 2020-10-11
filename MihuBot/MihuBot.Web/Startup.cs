@@ -1,8 +1,10 @@
+using LettuceEncrypt;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace MihuBot.Web
@@ -20,7 +22,11 @@ namespace MihuBot.Web
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                services.AddLettuceEncrypt();
+                DirectoryInfo certDir = new DirectoryInfo("/home/certs");
+                certDir.Create();
+
+                services.AddLettuceEncrypt()
+                    .PersistDataToDirectory(certDir, "certpass123");
             }
 
             services.AddRazorPages();
