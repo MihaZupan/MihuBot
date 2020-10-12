@@ -67,7 +67,7 @@
             int hours = (int)remaining.Hours;
             result += " " + hours + " hour" + (hours == 1 ? "" : "s");
 
-            if (remaining.TotalDays > 0) return result;
+            if (remaining.TotalDays >= 1) return result;
         }
 
         if (remaining.Minutes > 0)
