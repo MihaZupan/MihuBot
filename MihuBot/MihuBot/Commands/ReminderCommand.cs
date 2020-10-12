@@ -93,9 +93,9 @@ namespace MihuBot.Commands
             return false;
         }
 
-        public override async Task InitAsync(ServiceCollection services)
+        public ReminderCommand(DiscordSocketClient discord)
         {
-            List<ReminderEntry> reminders = await _reminders.EnterAsync();
+            List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
             try
             {
                 lock (_remindersHeap)
@@ -109,7 +109,7 @@ namespace MihuBot.Commands
                 _reminders.Exit();
             }
 
-            _reminderTimer = new Timer(_ => OnReminderTimer(services.Discord), null, 1_000, Timeout.Infinite);
+            _reminderTimer = new Timer(_ => OnReminderTimer(discord), null, 1_000, Timeout.Infinite);
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -226,7 +226,7 @@ namespace MihuBot.Commands
 
             var entry = new ReminderEntry(time, message, ctx);
 
-            ctx.Services.Logger.DebugLog($"Setting reminder entry for {entry}");
+            Logger.DebugLog($"Setting reminder entry for {entry}");
 
             List<ReminderEntry> reminders = await _reminders.EnterAsync();
             try
@@ -256,7 +256,7 @@ namespace MihuBot.Commands
                 {
                     while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time < now)
                     {
-                        Logger.Instance.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
+                        Logger.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
                         (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
                     }
                 }
@@ -276,7 +276,7 @@ namespace MihuBot.Commands
 
                     foreach (var entry in entries.Where(e => now - e.Time < TimeSpan.FromSeconds(10)))
                     {
-                        Logger.Instance.DebugLog($"Running reminder {entry}");
+                        Logger.DebugLog($"Running reminder {entry}");
 
                         Task.Run(async () =>
                         {
@@ -287,7 +287,7 @@ namespace MihuBot.Commands
                             }
                             catch (Exception ex)
                             {
-                                Logger.Instance.DebugLog($"{entry} - {ex}");
+                                Logger.DebugLog($"{entry} - {ex}");
                             }
                         });
                     }
@@ -295,7 +295,7 @@ namespace MihuBot.Commands
             }
             catch (Exception ex)
             {
-                Logger.Instance.DebugLog(ex.ToString());
+                Logger.DebugLog(ex.ToString());
             }
             finally
             {

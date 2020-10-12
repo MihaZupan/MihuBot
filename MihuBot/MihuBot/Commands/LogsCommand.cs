@@ -20,7 +20,7 @@ namespace MihuBot.Commands
 
             bool reset = ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase);
 
-            Logger logger = ctx.Services.Logger;
+            Logger logger = Logger.Instance;
 
             if (ctx.ArgumentLines.Length == 0 || reset)
             {

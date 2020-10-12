@@ -4,6 +4,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -15,13 +16,20 @@ namespace MihuBot.Commands
         protected override int CooldownToleranceCount => 0;
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
+        private readonly HttpClient _http;
+
         private Image<Rgba32> SourceImage;
         private int _counter = -1;
-        private List<int> _coords = new List<int>();
+        private readonly List<int> _coords = new List<int>();
 
-        public override async Task InitAsync(ServiceCollection services)
+        public FeetPicsCommand(HttpClient httpClient)
         {
-            var response = await services.Http.GetAsync("https://cdn.discordapp.com/attachments/731612070843383871/731675070107353108/paul.png");
+            _http = httpClient;
+        }
+
+        public override async Task InitAsync()
+        {
+            var response = await _http.GetAsync("https://cdn.discordapp.com/attachments/731612070843383871/731675070107353108/paul.png");
             var bytes = await response.Content.ReadAsByteArrayAsync();
             SourceImage = Image.Load(bytes).CloneAs<Rgba32>();
         }

@@ -12,7 +12,6 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -21,18 +20,19 @@ namespace MihuBot
 {
     public sealed class Logger
     {
-        public static Logger Instance;
+        public static Logger Instance { get; private set; }
 
         private const string LogsRoot = "logs/";
         private const string FilesRoot = LogsRoot + "files/";
 
-        private readonly ServiceCollection _services;
+        private readonly HttpClient _http;
+        private readonly DiscordSocketClient _discord;
 
         private int _fileCounter = 0;
 
         private static readonly ReadOnlyMemory<byte> NewLineByte = new[] { (byte)'\n' };
         private static readonly char[] TrimChars = new[] { ' ', '\t', '\n', '\r' };
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
 
         private readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
         private readonly Channel<LogEvent> LogChannel;
@@ -136,7 +136,7 @@ namespace MihuBot
 
                     string fileName = Path.GetFileNameWithoutExtension(JsonLogPath);
 
-                    using var jsonFileStream = File.OpenRead(JsonLogPath);
+                    using var jsonFileStream = File.Open(JsonLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     if (jsonFileStream.Length <= SizeLimit)
                     {
                         await channel.SendFileAsync(jsonFileStream, fileName + ".json");
@@ -235,7 +235,7 @@ namespace MihuBot
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
 
-        public void DebugLog(string message) => Log(new LogEvent(message));
+        public static void DebugLog(string message) => Instance.Log(new LogEvent(message));
 
         public async Task DebugAsync(string message, bool logOnly = false)
         {
@@ -257,14 +257,14 @@ namespace MihuBot
             catch { }
         }
 
-        public SocketTextChannel DebugTextChannel => _services.Discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
-        public SocketTextChannel LogsTextChannel => _services.Discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
-        public SocketTextChannel LogsReportsTextChannel => _services.Discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogReports);
+        public SocketTextChannel DebugTextChannel => _discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
+        public SocketTextChannel LogsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
+        public SocketTextChannel LogsReportsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogReports);
 
-        public Logger(ServiceCollection services)
+        public Logger(HttpClient httpClient, DiscordSocketClient discord)
         {
-            _services = services;
-            services.Logger = this;
+            _http = httpClient;
+            _discord = discord;
 
             Instance ??= this;
 
@@ -282,33 +282,33 @@ namespace MihuBot
             FileArchivingChannel = Channel.CreateUnbounded<(string, bool)>(new UnboundedChannelOptions() { SingleReader = true });
             Task.Run(FileArchivingTaskAsync);
 
-            _ = new Timer(_ => Log(new LogEvent("Keepalive")), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
+            _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
-            services.Discord.Log += Discord_LogAsync;
-            services.Discord.LatencyUpdated += LatencyUpdatedAsync;
-            services.Discord.JoinedGuild += async guild => await DebugAsync($"Added to {guild.Name} ({guild.Id})");
-            services.Discord.MessageReceived += message => MessageReceivedAsync(message);
-            services.Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
-            services.Discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
-            services.Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
-            services.Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
-            services.Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
-            services.Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
-            services.Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
-            services.Discord.UserBanned += UserBannedAsync;
-            services.Discord.UserUnbanned += UserUnbannedAsync;
-            services.Discord.UserLeft += UserLeftAsync;
-            services.Discord.UserJoined += UserJoinedAsync;
-            services.Discord.UserIsTyping += UserIsTypingAsync;
-            // services.Discord.ChannelCreated
-            services.Discord.ChannelDestroyed += ChannelDestroyedAsync;
-            // services.Discord.ChannelUpdated
-            // services.Discord.GuildUpdated
-            // services.Discord.RoleCreated
-            // services.Discord.RoleDeleted
-            // services.Discord.RoleUpdated
-            // services.Discord.UserUpdated
-            // services.Discord.GuildMemberUpdated
+            discord.Log += Discord_LogAsync;
+            discord.LatencyUpdated += LatencyUpdatedAsync;
+            discord.JoinedGuild += async guild => await DebugAsync($"Added to {guild.Name} ({guild.Id})");
+            discord.MessageReceived += message => MessageReceivedAsync(message);
+            discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
+            discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
+            discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
+            discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
+            discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
+            discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
+            discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
+            discord.UserBanned += UserBannedAsync;
+            discord.UserUnbanned += UserUnbannedAsync;
+            discord.UserLeft += UserLeftAsync;
+            discord.UserJoined += UserJoinedAsync;
+            discord.UserIsTyping += UserIsTypingAsync;
+            // discord.ChannelCreated
+            discord.ChannelDestroyed += ChannelDestroyedAsync;
+            // discord.ChannelUpdated
+            // discord.GuildUpdated
+            // discord.RoleCreated
+            // discord.RoleDeleted
+            // discord.RoleUpdated
+            // discord.UserUpdated
+            // discord.GuildMemberUpdated
 
             /*
 LeftGuild
@@ -502,7 +502,7 @@ RecipientAdded
                 {
                     try
                     {
-                        var response = await _services.Http.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
+                        var response = await _http.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
 
                         string timeString = (message.EditedTimestamp ?? message.Timestamp).UtcDateTime.ToISODateTime();
                         string filePath = $"{FilesRoot}{timeString}_{a.Id}_{a.Filename}";

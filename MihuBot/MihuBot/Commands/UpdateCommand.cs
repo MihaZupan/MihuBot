@@ -14,7 +14,7 @@ namespace MihuBot.Commands
             {
                 if (ctx.Command == "update")
                 {
-                    _ = Task.Run(async () => await Program.StartUpdateAsync(ctx.Message));
+                    _ = Task.Run(Program.StartUpdate);
                 }
                 else if (ctx.AuthorId == KnownUsers.Miha)
                 {

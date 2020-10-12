@@ -1,4 +1,5 @@
-﻿using System;
+﻿using StackExchange.Redis;
+using System;
 using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
@@ -6,6 +7,13 @@ namespace MihuBot.NonCommandHandlers
     public sealed class Yogadesu : NonCommandHandler
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
+
+        private readonly IConnectionMultiplexer _redis;
+
+        public Yogadesu(IConnectionMultiplexer redis)
+        {
+            _redis = redis;
+        }
 
         public override Task HandleAsync(MessageContext ctx)
         {
@@ -21,7 +29,7 @@ namespace MihuBot.NonCommandHandlers
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
-                int count = (int)await ctx.Redis.StringIncrementAsync("counters-yogadesu");
+                int count = (int)await _redis.GetDatabase().StringIncrementAsync("counters-yogadesu");
                 count = Math.Min(count, 1024);
 
                 await ctx.ReplyAsync($"Y{new string('o', count)}gades");

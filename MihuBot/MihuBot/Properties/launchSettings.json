@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "MihuBot.Web": {
+    "MihuBot": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

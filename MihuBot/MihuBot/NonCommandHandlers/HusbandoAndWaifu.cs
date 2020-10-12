@@ -11,6 +11,13 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
+        private readonly IConnectionMultiplexer _redis;
+
+        public HusbandoAndWaifu(IConnectionMultiplexer redis)
+        {
+            _redis = redis;
+        }
+
         public override Task HandleAsync(MessageContext ctx)
         {
             var content = ctx.Content;
@@ -36,6 +43,8 @@ namespace MihuBot.NonCommandHandlers
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
+                IDatabase redis = _redis.GetDatabase();
+
                 if (ctx.IsFromAdmin)
                 {
                     string[] parts = content.Split(' ');
@@ -47,7 +56,7 @@ namespace MihuBot.NonCommandHandlers
                             case "add":
                                 if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
                                 {
-                                    await ctx.Redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
+                                    await redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
                                     return;
                                 }
                                 break;
@@ -55,13 +64,13 @@ namespace MihuBot.NonCommandHandlers
                             case "remove":
                                 if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
                                 {
-                                    await ctx.Redis.SetRemoveAsync(redisPrefix + argId1, argId2.ToString());
+                                    await redis.SetRemoveAsync(redisPrefix + argId1, argId2.ToString());
                                     return;
                                 }
                                 break;
 
                             case "list":
-                                ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + argId1).ToArrayAsync())
+                                ulong[] partners = (await redis.SetScanAsync(redisPrefix + argId1).ToArrayAsync())
                                     .Select(p => ulong.Parse(p))
                                     .ToArray();
                                 await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).Username))}\n```");
@@ -70,7 +79,7 @@ namespace MihuBot.NonCommandHandlers
                     }
                 }
 
-                RedisValue partner = await ctx.Redis.SetRandomMemberAsync(redisPrefix + ctx.AuthorId);
+                RedisValue partner = await redis.SetRandomMemberAsync(redisPrefix + ctx.AuthorId);
 
                 if (partner.IsNullOrEmpty || !ulong.TryParse(partner, out ulong partnerId))
                 {
@@ -89,7 +98,7 @@ namespace MihuBot.NonCommandHandlers
                 }
                 else
                 {
-                    ulong[] partners = (await ctx.Redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
+                    ulong[] partners = (await redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
                         .Select(p => ulong.Parse(p))
                         .ToArray();
 

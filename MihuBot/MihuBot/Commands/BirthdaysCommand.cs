@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -17,19 +18,17 @@ namespace MihuBot.Commands
     {
         public override string Command => "birthdays";
 
-        private TeamUpClient _teamUpClient;
+        private readonly TeamUpClient _teamUpClient;
         private readonly SynchronizedLocalJsonStore<List<BirthdayEntry>> _birthdayEntries =
             new SynchronizedLocalJsonStore<List<BirthdayEntry>>("BirthdayEntries.json");
 
-        public override Task InitAsync(ServiceCollection services)
+        public BirthdaysCommand(HttpClient httpClient)
         {
             _teamUpClient = new TeamUpClient(
-                services.Http,
+                httpClient,
                 Secrets.TeamUp.APIKey,
                 Secrets.TeamUp.CalendarKey,
                 Secrets.TeamUp.SubCalendarId);
-
-            return Task.CompletedTask;
         }
 
         public override Task HandleAsync(MessageContext ctx)

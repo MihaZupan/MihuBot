@@ -11,7 +11,7 @@ namespace MihuBot
 
         public virtual string[] Aliases { get; } = Array.Empty<string>();
 
-        public virtual Task InitAsync(ServiceCollection services) => Task.CompletedTask;
+        public virtual Task InitAsync() => Task.CompletedTask;
 
         public virtual Task HandleAsync(MessageContext ctx) => Task.CompletedTask;
 

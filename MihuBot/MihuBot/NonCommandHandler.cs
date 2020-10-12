@@ -6,6 +6,6 @@ namespace MihuBot
     {
         public abstract Task HandleAsync(MessageContext ctx);
 
-        public virtual Task InitAsync(ServiceCollection services) => Task.CompletedTask;
+        public virtual Task InitAsync() => Task.CompletedTask;
     }
 }

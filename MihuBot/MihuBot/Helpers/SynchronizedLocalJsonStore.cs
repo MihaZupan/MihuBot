@@ -26,13 +26,13 @@ namespace MihuBot.Helpers
         public async Task<T> EnterAsync()
         {
             await _asyncLock.WaitAsync();
-            Logger.Instance.DebugLog($"Entered {_jsonPath}");
+            Logger.DebugLog($"Entered {_jsonPath}");
             return _value;
         }
 
         public void Exit()
         {
-            Logger.Instance.DebugLog($"Exiting {_jsonPath}");
+            Logger.DebugLog($"Exiting {_jsonPath}");
             File.WriteAllText(_jsonPath, JsonConvert.SerializeObject(_value, Formatting.Indented));
             _asyncLock.Release();
         }
