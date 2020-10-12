@@ -26,6 +26,10 @@ app {
     align-items: center;
 }
 
+.profile-image {
+    height: calc(100% - 0.5rem);
+}
+
 .main {
     flex: 1;
 }
