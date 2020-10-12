@@ -11,14 +11,22 @@ namespace MihuBot.Helpers
         private readonly string _jsonPath;
         private readonly T _value;
         private readonly SemaphoreSlim _asyncLock;
+        private string _previousJson;
 
         public SynchronizedLocalJsonStore(string jsonPath)
         {
             _jsonPath = jsonPath;
 
-            _value = File.Exists(_jsonPath)
-                ? JsonConvert.DeserializeObject<T>(File.ReadAllText(_jsonPath))
-                : new T();
+            if (File.Exists(_jsonPath))
+            {
+                _previousJson = File.ReadAllText(_jsonPath);
+                _value = JsonConvert.DeserializeObject<T>(_previousJson);
+            }
+            else
+            {
+                _previousJson = string.Empty;
+                _value = new T();
+            }
 
             _asyncLock = new SemaphoreSlim(1, 1);
         }
@@ -32,8 +40,19 @@ namespace MihuBot.Helpers
 
         public void Exit()
         {
-            Logger.DebugLog($"Exiting {_jsonPath}");
-            File.WriteAllText(_jsonPath, JsonConvert.SerializeObject(_value, Formatting.Indented));
+            string newJson = JsonConvert.SerializeObject(_value, Formatting.Indented);
+
+            if (newJson == _previousJson)
+            {
+                Logger.DebugLog($"Exiting {_jsonPath}, no changes");
+            }
+            else
+            {
+                Logger.DebugLog($"Exiting {_jsonPath}, saving changes");
+                _previousJson = newJson;
+                File.WriteAllText(_jsonPath, newJson);
+            }
+
             _asyncLock.Release();
         }
     }
