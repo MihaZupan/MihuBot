@@ -1,4 +1,5 @@
 ﻿@page "/reminders"
+@attribute [Authorize]
 @using MihuBot.Reminders
 @inject IReminderService reminderService
 @inject DiscordSocketClient discord

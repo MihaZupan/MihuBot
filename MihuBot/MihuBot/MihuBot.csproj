@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AspNet.Security.OAuth.Discord" Version="3.1.4" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.6.0" />
     <PackageReference Include="Discord.Net" Version="2.2.0" />
     <PackageReference Include="LettuceEncrypt" Version="1.0.0" />
@@ -13,11 +14,7 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="1.0.1" />
     <PackageReference Include="StackExchange.Redis" Version="2.1.58" />
     <PackageReference Include="System.Text.Json" Version="4.7.2" />
-    <PackageReference Include="YoutubeExplode" Version="5.1.6" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Data\" />
+    <PackageReference Include="YoutubeExplode" Version="5.1.7" />
   </ItemGroup>
 
 </Project>

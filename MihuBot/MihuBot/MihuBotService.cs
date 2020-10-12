@@ -272,9 +272,9 @@ namespace MihuBot
 
             _discord.ReactionAdded += Client_ReactionAdded;
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) // Testing only
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                await _discord.LoginAsync(TokenType.Bot, Secrets.AuthToken);
+                await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
                 await _discord.StartAsync();
 
                 await onConnectedTcs.Task;
@@ -294,7 +294,10 @@ namespace MihuBot
             }
             catch { }
 
-            await Logger.Instance.OnShutdownAsync();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                await Logger.Instance.OnShutdownAsync();
+            }
         }
     }
 }

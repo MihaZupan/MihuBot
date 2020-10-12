@@ -1,5 +1,7 @@
+using AspNet.Security.OAuth.Discord;
 using Discord.WebSocket;
 using LettuceEncrypt;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -53,8 +55,25 @@ namespace MihuBot
 
             services.AddHostedService<MihuBotService>();
 
+            services.AddAuthentication(options =>
+                {
+                    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                    options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                    options.DefaultChallengeScheme = DiscordAuthenticationDefaults.AuthenticationScheme;
+                })
+                .AddCookie()
+                .AddDiscord(options =>
+                {
+                    options.ClientId = Secrets.Discord.ClientId;
+                    options.ClientSecret = Secrets.Discord.ClientSecret;
+                    options.SaveTokens = true;
+
+                    options.Scope.Add("guilds");
+                });
+
             services.AddRazorPages();
             services.AddServerSideBlazor();
+            services.AddControllers();
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -73,9 +92,11 @@ namespace MihuBot
             app.UseStaticFiles();
 
             app.UseRouting();
+            app.UseAuthentication();
 
             app.UseEndpoints(endpoints =>
             {
+                endpoints.MapControllers();
                 endpoints.MapBlazorHub();
                 endpoints.MapFallbackToPage("/_Host");
             });
