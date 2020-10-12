@@ -1,0 +1,33 @@
+﻿@page "/reminders"
+@using MihuBot.Reminders
+@inject IReminderService reminderService
+@inject DiscordSocketClient discord
+
+<h1>Reminders</h1>
+
+<table>
+    <tr>
+        <td>Time</td>
+        <td>User</td>
+        <td>Channel</td>
+        <td>Message</td>
+    </tr>
+    @foreach (var entry in reminders.OrderBy(r => r.Time))
+    {
+        <tr>
+            <td>@entry.Time</td>
+            <td>@discord.GetUser(entry.AuthorId).Username</td>
+            <td>@discord.GetTextChannel(entry.GuildId, entry.ChannelId).Name</td>
+            <td>@entry.Message</td>
+        </tr>
+    }
+</table>
+
+@code {
+    IEnumerable<ReminderEntry> reminders;
+
+    protected override async Task OnInitializedAsync()
+    {
+        reminders = await reminderService.GetAllRemindersAsync();
+    }
+}

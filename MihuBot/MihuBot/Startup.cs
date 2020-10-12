@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
+using MihuBot.Reminders;
 using StackExchange.Redis;
 using System.IO;
 using System.Net.Http;
@@ -47,6 +48,8 @@ namespace MihuBot
             services.AddSingleton(discord);
 
             services.AddSingleton(new Logger(http, discord));
+
+            services.AddSingleton<IReminderService, ReminderService>();
 
             services.AddHostedService<MihuBotService>();
 

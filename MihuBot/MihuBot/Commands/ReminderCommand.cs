@@ -1,9 +1,8 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
-using SharpCollections.Generic;
+using MihuBot.Reminders;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -93,23 +92,15 @@ namespace MihuBot.Commands
             return false;
         }
 
-        public ReminderCommand(DiscordSocketClient discord)
-        {
-            List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
-            try
-            {
-                lock (_remindersHeap)
-                {
-                    foreach (var entry in reminders)
-                        _remindersHeap.Push(entry);
-                }
-            }
-            finally
-            {
-                _reminders.Exit();
-            }
+        private readonly DiscordSocketClient _discord;
+        private readonly IReminderService _reminderService;
+        private readonly Timer _reminderTimer;
 
-            _reminderTimer = new Timer(_ => OnReminderTimer(discord), null, 1_000, Timeout.Infinite);
+        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService)
+        {
+            _discord = discord;
+            _reminderService = reminderService;
+            _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -181,42 +172,6 @@ namespace MihuBot.Commands
             await ScheduleReminderAsync(ctx, match.Groups[1].Value, reminderTime);
         }
 
-
-        private class ReminderEntry : IComparable<ReminderEntry>
-        {
-            public DateTime Time { get; set; }
-            public string Message { get; set; }
-            public ulong GuildId { get; set; }
-            public ulong ChannelId { get; set; }
-            public ulong AuthorId { get; set; }
-
-            public ReminderEntry() { }
-
-            public ReminderEntry(DateTime time, string message, MessageContext ctx)
-            {
-                Time = time;
-                Message = message;
-                GuildId = ctx.Guild.Id;
-                ChannelId = ctx.Channel.Id;
-                AuthorId = ctx.AuthorId;
-            }
-
-            public int CompareTo(ReminderEntry other) => Time.CompareTo(other.Time);
-
-            public override string ToString()
-            {
-                return $"{Time} {GuildId}-{ChannelId}-{AuthorId}: {Message}";
-            }
-        }
-
-        private Timer _reminderTimer;
-
-        private readonly BinaryHeap<ReminderEntry> _remindersHeap =
-            new BinaryHeap<ReminderEntry>(32);
-
-        private static readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders =
-            new SynchronizedLocalJsonStore<List<ReminderEntry>>("Reminders.json");
-
         private async Task ScheduleReminderAsync(MessageContext ctx, string message, DateTime time)
         {
             message = message
@@ -226,71 +181,30 @@ namespace MihuBot.Commands
 
             var entry = new ReminderEntry(time, message, ctx);
 
-            Logger.DebugLog($"Setting reminder entry for {entry}");
-
-            List<ReminderEntry> reminders = await _reminders.EnterAsync();
-            try
-            {
-                reminders.Add(entry);
-                lock (_remindersHeap)
-                {
-                    _remindersHeap.Push(entry);
-                }
-            }
-            finally
-            {
-                _reminders.Exit();
-            }
+            await _reminderService.ScheduleAsync(entry);
 
             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
         }
 
-        private void OnReminderTimer(DiscordSocketClient client)
+        private async Task OnReminderTimerAsync()
         {
-            var now = DateTime.UtcNow;
-            List<ReminderEntry> entries = null;
-
             try
             {
-                lock (_remindersHeap)
+                foreach (ReminderEntry entry in await _reminderService.GetPendingRemindersAsync())
                 {
-                    while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time < now)
+                    _ = Task.Run(async () =>
                     {
-                        Logger.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
-                        (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
-                    }
-                }
-
-                if (entries != null)
-                {
-                    List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
-                    try
-                    {
-                        foreach (var entry in entries)
-                            reminders.Remove(entry);
-                    }
-                    finally
-                    {
-                        _reminders.Exit();
-                    }
-
-                    foreach (var entry in entries.Where(e => now - e.Time < TimeSpan.FromSeconds(10)))
-                    {
-                        Logger.DebugLog($"Running reminder {entry}");
-
-                        Task.Run(async () =>
+                        try
                         {
-                            try
-                            {
-                                var channel = client.GetTextChannel(entry.GuildId, entry.ChannelId);
-                                await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.DebugLog($"{entry} - {ex}");
-                            }
-                        });
-                    }
+                            Logger.DebugLog($"Running reminder {entry}");
+                            var channel = _discord.GetTextChannel(entry.GuildId, entry.ChannelId);
+                            await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.DebugLog($"{entry} - {ex}");
+                        }
+                    });
                 }
             }
             catch (Exception ex)
