@@ -9,7 +9,7 @@
         <AuthorizeView>
             <Authorized>
                 <img class="profile-image" src="@context.User.Claims.First(c => c.Type == "urn:discord:avatar:url").Value" alt="Avatar"/>
-                <a href="#">Hello, @context.User.Identity.Name!</a>
+                <a href="/">Hello, @context.User.Identity.Name!</a>
                 <a href="Account/Logout">Log out</a>
             </Authorized>
             <NotAuthorized>

@@ -61,6 +61,11 @@
 
             int days = (int)remaining.TotalDays;
             result += days + " day" + (days == 1 ? "" : "s");
+
+            if (remaining.TotalDays > 100)
+            {
+                return result;
+            }
         }
 
         if (remaining.Hours > 0)
@@ -76,7 +81,7 @@
             int minutes = (int)remaining.Minutes;
             result += " " + minutes + " minute" + (minutes == 1 ? "" : "s");
 
-            if (remaining.Hours > 0) return result;
+            if (remaining.TotalHours >= 1) return result;
         }
 
         if (remaining.Seconds > 0)
