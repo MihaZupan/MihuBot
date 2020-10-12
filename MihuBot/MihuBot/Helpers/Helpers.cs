@@ -172,7 +172,7 @@ namespace MihuBot.Helpers
 
         public static string ToISODate(this DateTimeOffset date) => ToISODate(date.DateTime);
 
-        public static string ToISODateTime(this DateTime dateTime) => dateTime.ToString("yyyy-MM-dd_HH-mm-ss");
+        public static string ToISODateTime(this DateTime dateTime, char separator = '_') => dateTime.ToString($"yyyy-MM-dd{separator}HH-mm-ss");
 
         public static async Task<TResult> TimeoutAfter<TResult>(this Task<TResult> task, TimeSpan timeout)
         {

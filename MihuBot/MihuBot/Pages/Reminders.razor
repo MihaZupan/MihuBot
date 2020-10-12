@@ -5,29 +5,85 @@
 
 <h1>Reminders</h1>
 
-<table>
-    <tr>
-        <td>Time</td>
-        <td>User</td>
-        <td>Channel</td>
-        <td>Message</td>
-    </tr>
+<table class="table">
+    <thead class="thead-light">
+        <tr>
+            <th scope="col">Time (UTC)</th>
+            <th scope="col">Remaining</th>
+            <th scope="col">User</th>
+            <th scope="col">Channel</th>
+            <th scope="col">Message</th>
+        </tr>
+    </thead>
     @foreach (var entry in reminders.OrderBy(r => r.Time))
     {
         <tr>
-            <td>@entry.Time</td>
-            <td>@discord.GetUser(entry.AuthorId).Username</td>
-            <td>@discord.GetTextChannel(entry.GuildId, entry.ChannelId).Name</td>
+            <td scope="row">@entry.Time.ToISODateTime(' ')</td>
+            <td>@GetRemainingTime(entry.Time)</td>
+            <td>@(discord.GetUser(entry.AuthorId)?.Username ?? "Jane Doe")</td>
+            <td>@(discord.GetTextChannel(entry.GuildId, entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
         </tr>
     }
 </table>
 
 @code {
+    DateTime now = DateTime.UtcNow;
     IEnumerable<ReminderEntry> reminders;
+    System.Threading.Timer timer;
 
     protected override async Task OnInitializedAsync()
     {
         reminders = await reminderService.GetAllRemindersAsync();
+
+        timer = new System.Threading.Timer(_ =>
+        {
+            now = DateTime.UtcNow;
+            InvokeAsync(StateHasChanged);
+        }, null, 1_000, 1_000);
+    }
+
+    private string GetRemainingTime(DateTime time)
+    {
+        if (now > time) return "0";
+
+        TimeSpan remaining = time - now;
+
+        string result = string.Empty;
+
+        if (remaining.TotalDays >= 1)
+        {
+            if (remaining.TotalDays > 5 * 365)
+            {
+                return (int)(remaining.TotalDays / 365) + " years";
+            }
+
+            int days = (int)remaining.TotalDays;
+            result += days + " day" + (days == 1 ? "" : "s");
+        }
+
+        if (remaining.Hours > 0)
+        {
+            int hours = (int)remaining.Hours;
+            result += " " + hours + " hour" + (hours == 1 ? "" : "s");
+
+            if (remaining.TotalDays > 0) return result;
+        }
+
+        if (remaining.Minutes > 0)
+        {
+            int minutes = (int)remaining.Minutes;
+            result += " " + minutes + " minute" + (minutes == 1 ? "" : "s");
+
+            if (remaining.Hours > 0) return result;
+        }
+
+        if (remaining.Seconds > 0)
+        {
+            int seconds = (int)remaining.Seconds;
+            result += " " + seconds + " second" + (seconds == 1 ? "" : "s");
+        }
+
+        return result.Trim();
     }
 }

@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -271,15 +272,18 @@ namespace MihuBot
 
             _discord.ReactionAdded += Client_ReactionAdded;
 
-            await _discord.LoginAsync(TokenType.Bot, Secrets.AuthToken);
-            await _discord.StartAsync();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) // Testing only
+            {
+                await _discord.LoginAsync(TokenType.Bot, Secrets.AuthToken);
+                await _discord.StartAsync();
 
-            await onConnectedTcs.Task;
-            await onReadyTcs.Task;
+                await onConnectedTcs.Task;
+                await onReadyTcs.Task;
 
-            await Logger.Instance.DebugAsync("Beep boop. I'm back!");
+                await Logger.Instance.DebugAsync("Beep boop. I'm back!");
 
-            await _discord.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
+                await _discord.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
+            }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
