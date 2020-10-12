@@ -71,6 +71,8 @@ namespace MihuBot
                     options.Scope.Add("guilds");
                 });
 
+            services.AddHttpContextAccessor();
+
             services.AddRazorPages();
             services.AddServerSideBlazor();
             services.AddControllers();

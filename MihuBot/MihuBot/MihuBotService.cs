@@ -286,17 +286,38 @@ namespace MihuBot
             }
         }
 
+        private TaskCompletionSource<object> _stopTcs;
+
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            try
-            {
-                await _discord.StopAsync();
-            }
-            catch { }
+            var tcs = Interlocked.CompareExchange(
+                ref _stopTcs,
+                new TaskCompletionSource<object>(TaskContinuationOptions.RunContinuationsAsynchronously),
+                null);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            if (tcs is null)
             {
-                await Logger.Instance.OnShutdownAsync();
+                try
+                {
+                    try
+                    {
+                        await _discord.StopAsync();
+                    }
+                    catch { }
+
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    {
+                        await Logger.Instance.OnShutdownAsync();
+                    }
+                }
+                finally
+                {
+                    tcs.SetResult(null);
+                }
+            }
+            else
+            {
+                await tcs.Task;
             }
         }
     }
