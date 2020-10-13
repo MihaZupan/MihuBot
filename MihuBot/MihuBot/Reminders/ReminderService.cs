@@ -15,6 +15,22 @@ namespace MihuBot.Reminders
         private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders =
             new SynchronizedLocalJsonStore<List<ReminderEntry>>("Reminders.json");
 
+        public ReminderService()
+        {
+            Logger.DebugLog($"Initializing {nameof(ReminderService)}");
+
+            List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
+            try
+            {
+                foreach (var reminder in reminders)
+                    _remindersHeap.Push(reminder);
+            }
+            finally
+            {
+                _reminders.Exit();
+            }
+        }
+
         public async ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync()
         {
             List<ReminderEntry> reminders = await _reminders.EnterAsync();
