@@ -6,6 +6,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,17 @@ namespace MihuBot.Helpers
 {
     public static class Helpers
     {
+        public static bool TryGetUserId(this ClaimsPrincipal claims, out ulong userId)
+        {
+            string id = claims.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (id != null && ulong.TryParse(id, out userId))
+                return true;
+
+            userId = 0;
+            return false;
+        }
+
         public static IEnumerable<T> Unique<T>(this IEnumerable<T> source)
         {
             var hashSet = new HashSet<T>();

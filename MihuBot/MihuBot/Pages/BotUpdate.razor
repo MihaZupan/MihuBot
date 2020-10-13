@@ -28,13 +28,7 @@
 
     bool CheckPermission()
     {
-        var context = httpContextAccessor.HttpContext;
-
-        var id = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (id is null || !ulong.TryParse(id, out ulong userId))
-            return false;
-
-        return Constants.Admins.Contains(userId);
+        return httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId)
+            && Constants.Admins.Contains(userId);
     }
 }

@@ -1,8 +1,9 @@
 ﻿@page "/reminders"
 @attribute [Authorize]
 @using MihuBot.Reminders
-@inject IReminderService reminderService
 @inject DiscordSocketClient discord
+@inject IHttpContextAccessor httpContextAccessor
+@inject IReminderService reminderService
 
 <h1>Reminders</h1>
 
@@ -35,7 +36,17 @@
 
     protected override async Task OnInitializedAsync()
     {
-        reminders = await reminderService.GetAllRemindersAsync();
+        if (httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId))
+        {
+            if (Constants.Admins.Contains(userId))
+            {
+                reminders = await reminderService.GetAllRemindersAsync();
+            }
+            else
+            {
+                reminders = await reminderService.GetRemindersForUserAsync(userId);
+            }
+        }
 
         timer = new System.Threading.Timer(_ =>
         {
