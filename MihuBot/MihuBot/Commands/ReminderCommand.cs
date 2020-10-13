@@ -25,7 +25,7 @@ namespace MihuBot.Commands
             TimeSpan.FromSeconds(2));
 
         private static readonly Regex _timeRegex = new Regex(
-            @"(?:and )?(\d*?(?:[\.,]\d+)?|a|an)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
+            @"(?:and )?(\d*?(?:[\.,]\d+)?|a|an)? ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             TimeSpan.FromSeconds(5));
 
@@ -59,6 +59,10 @@ namespace MihuBot.Commands
                     if (m.Groups[1].Success)
                     {
                         string quantifier = m.Groups[1].Value;
+
+                        if (quantifier.Length == 0)
+                            continue;
+
                         if (char.ToLowerInvariant(quantifier[0]) != 'a')
                         {
                             quantifier = quantifier.Replace(',', '.');
