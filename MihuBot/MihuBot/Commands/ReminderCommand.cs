@@ -24,7 +24,7 @@ namespace MihuBot.Commands
             TimeSpan.FromSeconds(2));
 
         private static readonly Regex _timeRegex = new Regex(
-            @"(\d*?|a|an)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)",
+            @"(\d+|a|an)? ?(s|sec|seconds?|m|min|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?: |$)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             TimeSpan.FromSeconds(5));
 
