@@ -312,7 +312,7 @@ namespace MihuBot
                 }
                 finally
                 {
-                    tcs.SetResult(null);
+                    _stopTcs.SetResult(null);
                 }
             }
             else
