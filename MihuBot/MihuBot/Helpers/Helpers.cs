@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
+using Microsoft.AspNetCore.Components.Authorization;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -15,6 +16,12 @@ namespace MihuBot.Helpers
 {
     public static class Helpers
     {
+        public static bool IsAdmin(this ClaimsPrincipal claims)
+        {
+            return claims.TryGetUserId(out ulong userId)
+                && Constants.Admins.Contains(userId);
+        }
+
         public static bool TryGetUserId(this ClaimsPrincipal claims, out ulong userId)
         {
             string id = claims.FindFirst(ClaimTypes.NameIdentifier)?.Value;

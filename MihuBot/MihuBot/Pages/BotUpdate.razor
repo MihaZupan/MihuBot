@@ -4,31 +4,21 @@
 @inject IHttpContextAccessor httpContextAccessor
 @inject IJSRuntime jsRuntime
 
-<button class="btn-warning" @onclick="OnBotUpdateAsync">
-    <span class="oi oi-loop-circular" aria-hidden="true"></span> Update
-</button>
+@if (httpContextAccessor.HttpContext.User.IsAdmin())
+{
+    <button class="btn-warning" @onclick="OnBotUpdateAsync">
+        <span class="oi oi-loop-circular" aria-hidden="true"></span> Update
+    </button>
+}
 
 @code
 {
     async Task OnBotUpdateAsync()
     {
-        if (CheckPermission())
+        bool confirmed = await jsRuntime.InvokeAsync<bool>("confirm", "Are you sure?");
+        if (confirmed)
         {
-            bool confirmed = await jsRuntime.InvokeAsync<bool>("confirm", "Are you sure?");
-            if (confirmed)
-            {
-                Program.StartUpdate();
-            }
+            Program.StartUpdate();
         }
-        else
-        {
-            await jsRuntime.InvokeAsync<object>("alert", "You don't have the permissions to do this");
-        }
-    }
-
-    bool CheckPermission()
-    {
-        return httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId)
-            && Constants.Admins.Contains(userId);
     }
 }
