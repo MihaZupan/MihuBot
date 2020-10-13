@@ -27,7 +27,7 @@ app {
 }
 
 .profile-image {
-    height: calc(100% - 0.5rem);
+    height: 100%;
 }
 
 .main {

@@ -8,9 +8,10 @@
     <div class="top-row px-4">
         <AuthorizeView>
             <Authorized>
-                <img class="profile-image" src="@context.User.FindFirst("urn:discord:avatar:url").Value" alt="Avatar"/>
-                <a href="/">Hello, @context.User.Identity.Name!</a>
-                <a href="Account/Logout">Log out</a>
+                @if (context.User.IsAdmin())
+                {
+                    <span class="oi oi-lock-unlocked">Admin access</span>
+                }
             </Authorized>
             <NotAuthorized>
                 <a href="Account/Login">Log in</a>
