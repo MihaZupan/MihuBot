@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,6 +30,19 @@ namespace MihuBot.Helpers
             }
 
             _asyncLock = new SemaphoreSlim(1, 1);
+        }
+
+        public async ValueTask<TResult> QueryAsync<TResult>(Func<T, TResult> selector)
+        {
+            await _asyncLock.WaitAsync();
+            try
+            {
+                return selector(_value);
+            }
+            finally
+            {
+                _asyncLock.Release();
+            }
         }
 
         public async Task<T> EnterAsync()

@@ -19,45 +19,22 @@ namespace MihuBot.Reminders
         {
             Logger.DebugLog($"Initializing {nameof(ReminderService)}");
 
-            List<ReminderEntry> reminders = _reminders.EnterAsync().GetAwaiter().GetResult();
-            try
-            {
-                foreach (var reminder in reminders)
-                    _remindersHeap.Push(reminder);
-            }
-            finally
-            {
-                _reminders.Exit();
-            }
+            List<ReminderEntry> reminders = _reminders.QueryAsync(i => i).GetAwaiter().GetResult();
+
+            foreach (var reminder in reminders)
+                _remindersHeap.Push(reminder);
         }
 
         public async ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync()
         {
-            List<ReminderEntry> reminders = await _reminders.EnterAsync();
-            try
-            {
-                return reminders
-                    .ToArray();
-            }
-            finally
-            {
-                _reminders.Exit();
-            }
+            return await _reminders.QueryAsync(i => i.ToArray());
         }
 
         public async ValueTask<IEnumerable<ReminderEntry>> GetRemindersForUserAsync(ulong userId)
         {
-            List<ReminderEntry> reminders = await _reminders.EnterAsync();
-            try
-            {
-                return reminders
-                    .Where(r => r.AuthorId == userId)
-                    .ToArray();
-            }
-            finally
-            {
-                _reminders.Exit();
-            }
+            return await _reminders.QueryAsync(reminders => reminders
+                .Where(r => r.AuthorId == userId)
+                .ToArray());
         }
 
         public async ValueTask<IEnumerable<ReminderEntry>> GetPendingRemindersAsync()
