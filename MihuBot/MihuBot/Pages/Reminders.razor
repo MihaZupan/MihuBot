@@ -4,6 +4,7 @@
 @inject DiscordSocketClient discord
 @inject IHttpContextAccessor httpContextAccessor
 @inject IReminderService reminderService
+@implements IAsyncDisposable
 
 <h1>Reminders</h1>
 
@@ -17,7 +18,9 @@
             <th scope="col">Message</th>
         </tr>
     </thead>
-    @foreach (var entry in reminders.OrderBy(r => r.Time))
+    @foreach (var entry in reminders
+        .Where(r => r.Time > now)
+        .OrderBy(r => r.Time))
     {
         <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
@@ -31,28 +34,47 @@
 
 @code {
     DateTime now = DateTime.UtcNow;
-    IEnumerable<ReminderEntry> reminders;
+    DateTime lastUpdateTime = DateTime.UtcNow;
+    IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
     System.Threading.Timer timer;
+    ulong? userId;
 
     protected override async Task OnInitializedAsync()
     {
-        if (httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId))
+        if (!httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId))
         {
-            if (Constants.Admins.Contains(userId))
-            {
-                reminders = await reminderService.GetAllRemindersAsync();
-            }
-            else
-            {
-                reminders = await reminderService.GetRemindersForUserAsync(userId);
-            }
+            this.userId = null;
+            return;
         }
+
+        this.userId = userId;
+        await UpdateRemindersAsync();
 
         timer = new System.Threading.Timer(_ =>
         {
             now = DateTime.UtcNow;
+
+            bool isAdmin = Constants.Admins.Contains(userId);
+            if (now - lastUpdateTime > (isAdmin ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(60)))
+            {
+                lastUpdateTime = now;
+                Task.Run(UpdateRemindersAsync);
+            }
+
             InvokeAsync(StateHasChanged);
         }, null, 1_000, 1_000);
+    }
+
+    private async Task UpdateRemindersAsync()
+    {
+        if (Constants.Admins.Contains(userId.Value))
+        {
+            reminders = await reminderService.GetAllRemindersAsync();
+        }
+        else
+        {
+            reminders = await reminderService.GetRemindersForUserAsync(userId.Value);
+        }
     }
 
     private string GetRemainingTime(DateTime time)
@@ -102,5 +124,11 @@
         }
 
         return result.Trim();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (timer != null)
+            await timer.DisposeAsync();
     }
 }
