@@ -163,25 +163,25 @@ namespace MihuBot.Commands
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
         private class YoutubeDlMetadata
         {
-            public string Id;
-            public string Title;
-            public bool IsLive;
-            public double Duration;
+            public string Id { get; set; }
+            public string Title { get; set; }
+            public bool IsLive { get; set; }
+            public double Duration { get; set; }
 
-            public YoutubeDlFormat[] Formats;
+            public YoutubeDlFormat[] Formats { get; set; }
 
             [JsonProperty(PropertyName = "_filename")]
-            public string Filename;
+            public string Filename { get; set; }
         }
 
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
         private class YoutubeDlFormat : IComparable<YoutubeDlFormat>, IComparable
         {
-            public string FormatId;
-            public string Url;
-            public double? Tbr;
-            public double? Height;
-            public Dictionary<string, string> HttpHeaders;
+            public string FormatId { get; set; }
+            public string Url { get; set; }
+            public double? Tbr { get; set; }
+            public double? Height { get; set; }
+            public Dictionary<string, string> HttpHeaders { get; set; }
 
             public int CompareTo(object obj) => CompareTo(obj as YoutubeDlFormat);
 

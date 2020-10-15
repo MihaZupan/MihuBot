@@ -103,48 +103,48 @@ namespace MihuBot.Helpers
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
         private class EmbedModel
         {
-            public string Content;
-            public EmbedInfo Embed;
+            public string Content { get; set; }
+            public EmbedInfo Embed { get; set; }
 
             [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
             public class EmbedInfo
             {
-                public uint? Color;
-                public string Title;
-                public string Description;
-                public string Url;
-                public string Timestamp;
-                public Footer Footer;
-                public EmbedUrl Thumbnail;
-                public EmbedUrl Image;
-                public Author Author;
-                public Field[] Fields;
+                public uint? Color { get; set; }
+                public string Title { get; set; }
+                public string Description { get; set; }
+                public string Url { get; set; }
+                public string Timestamp { get; set; }
+                public Footer Footer { get; set; }
+                public EmbedUrl Thumbnail { get; set; }
+                public EmbedUrl Image { get; set; }
+                public Author Author { get; set; }
+                public Field[] Fields { get; set; }
             }
             [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
             public class EmbedUrl
             {
                 [JsonProperty(Required = Required.Always)]
-                public string Url;
+                public string Url { get; set; }
             }
             [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
             public class Footer
             {
-                public string IconUrl;
-                public string Text;
+                public string IconUrl { get; set; }
+                public string Text { get; set; }
             }
             [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
             public class Author
             {
-                public string Name;
-                public string Url;
-                public string IconUrl;
+                public string Name { get; set; }
+                public string Url { get; set; }
+                public string IconUrl { get; set; }
             }
             [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
             public class Field
             {
-                public string Name;
-                public string Value;
-                public bool Inline;
+                public string Name { get; set; }
+                public string Value { get; set; }
+                public bool Inline { get; set; }
             }
         }
     }

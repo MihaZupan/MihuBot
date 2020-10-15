@@ -92,13 +92,13 @@ namespace MihuBot.Helpers.TeamUp
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
         private class EventsResponse
         {
-            public Event[] Events;
+            public Event[] Events { get; set; }
         }
 
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
         private class EventResponse
         {
-            public Event Event;
+            public Event Event { get; set; }
         }
     }
 
