@@ -95,8 +95,8 @@ namespace MihuBot.Commands
                 "tableflip" => $"just flipped {target} over the table?",
                 "spit" => $"spat on {target} and called them a wh ||friend||",
                 "curbstomp" => $"curb stomped {target} {Emotes.EyesShaking}",
-                "boop" => $"{target} {Emotes.DarlBoop}",
                 "poke" => $"pokes {target} {Emotes.MonkaStab}",
+                "boop" => $"{target} {Emotes.DarlBoop}",
                 "laugh" => $"{Emotes.PepePoint} {target}", // TODO {Emotes.DarlClown}
                 "hiton" => $"Come here often, {target}? {Emotes.DarlShyShy}",
                 "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}", // TODO {Emotes.DarlUwU}
@@ -108,7 +108,6 @@ namespace MihuBot.Commands
                 string prefix = ctx.Command switch
                 {
                     "boop" => string.Empty,
-                    "poke" => string.Empty,
                     "laugh" => string.Empty,
                     "hiton" => string.Empty,
                     "uwu" => string.Empty,
