@@ -118,6 +118,7 @@ namespace MihuBot.Helpers
         public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
         public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
         public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
+        public static Emote DarlPatPat { get; }     = Emote.Parse("<a:darlPatPat:760596696090279937>");
         public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlshyshy:758846620765913088>");
         public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
