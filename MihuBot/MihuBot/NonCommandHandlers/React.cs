@@ -8,8 +8,11 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class ReactCommand : NonCommandHandler
     {
+        private readonly DiscordSocketClient _discord;
+
         public ReactCommand(DiscordSocketClient discord)
         {
+            _discord = discord;
             discord.ReactionAdded += Discord_ReactionAddedAsync;
         }
 
@@ -30,9 +33,11 @@ namespace MihuBot.NonCommandHandlers
                     var message = await cacheable.GetOrDownloadAsync();
 
                     if (message != null &&
-                        TryParseMessageLink(message.Content, out ulong guildId, out ulong channelId, out ulong messageId))
+                        TryParseMessageLink(message.Content, out ulong guildId, out ulong channelId, out ulong messageId) &&
+                        Constants.GuildIDs.Contains(guildId))
                     {
-                        await message.AddReactionAsync(reaction.Emote);
+                        var linkedMessage = await _discord.GetTextChannel(guildId, channelId).GetMessageAsync(messageId);
+                        await linkedMessage.AddReactionAsync(reaction.Emote);
                     }
                 }
                 catch { }
