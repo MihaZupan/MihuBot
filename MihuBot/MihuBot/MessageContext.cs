@@ -49,6 +49,9 @@ namespace MihuBot
 
         internal async Task DebugAsync(string debugMessage) => await Logger.Instance.DebugAsync(debugMessage, Message);
 
+        internal Task DebugAsync(Exception ex, string extraDebugInfo = "") =>
+            DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
+
         internal void DebugLog(string debugMessage) => Logger.DebugLog(debugMessage, Message);
     }
 }

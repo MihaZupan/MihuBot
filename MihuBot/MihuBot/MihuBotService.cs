@@ -189,7 +189,7 @@ namespace MihuBot
                             }
                             catch (Exception ex)
                             {
-                                await context.DebugAsync(ex.ToString());
+                                await context.DebugAsync(ex);
                             }
                         });
                     }
@@ -224,14 +224,14 @@ namespace MihuBot
                                 }
                                 catch (Exception ex)
                                 {
-                                    await messageContext.DebugAsync(ex.ToString());
+                                    await messageContext.DebugAsync(ex);
                                 }
                             });
                         }
                     }
                     catch (Exception ex)
                     {
-                        _ = Task.Run(async () => await messageContext.DebugAsync(ex.ToString()));
+                        _ = Task.Run(async () => await messageContext.DebugAsync(ex));
                     }
                 }
             }

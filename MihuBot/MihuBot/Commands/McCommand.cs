@@ -36,7 +36,7 @@ namespace MihuBot.Commands
             catch (Exception ex)
             {
                 await ctx.ReplyAsync("Something went wrong :/");
-                await ctx.DebugAsync(ex.ToString());
+                await ctx.DebugAsync(ex);
             }
         }
 

@@ -51,7 +51,7 @@ namespace MihuBot.Commands
             }
             catch (Exception ex)
             {
-                await ctx.DebugAsync($"{ex} for {link}");
+                await ctx.DebugAsync(ex, $"Link {link}");
                 await ctx.ReplyAsync($"Failed to fetch vod metadata");
                 return;
             }
@@ -154,7 +154,7 @@ namespace MihuBot.Commands
             }
             catch (Exception ex)
             {
-                await ctx.DebugAsync(ex.ToString());
+                await ctx.DebugAsync(ex);
                 await ctx.ReplyAsync($"Failed to initiate a media transfer");
                 return;
             }

@@ -174,7 +174,7 @@ namespace MihuBot.Commands
             {
                 TryEnter(ctx);
                 await ctx.ReplyAsync("Failed to process the reminder in time");
-                await ctx.DebugAsync(rmte.ToString());
+                await ctx.DebugAsync(rmte);
                 return;
             }
 
