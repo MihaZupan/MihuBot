@@ -151,7 +151,12 @@ namespace MihuBot.Helpers
             Emote.Parse("<:james:694013499377975356>"),
             Emote.Parse("<:james:694013521033297981>"),
             Emote.Parse("<:james:694013527660167229>"),
-            Emote.Parse("<:james:694013534878826526>")
+            Emote.Parse("<:james:694013534878826526>"),
+            Emote.Parse("<:james:766226359306813440>"),
+            Emote.Parse("<:james:766226402026061864>"),
+            Emote.Parse("<:james:766226424007753728>"),
+            Emote.Parse("<:james:766226439099777024>"),
+            Emote.Parse("<:james:766226456992284692>"),
         };
 
         public static IEmote ThumbsUp { get; }      = new Emoji("👍");

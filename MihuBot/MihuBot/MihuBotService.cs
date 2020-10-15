@@ -81,10 +81,7 @@ namespace MihuBot
 
                         if (userMessage.IsSpecified)
                         {
-                            foreach (var emote in Emotes.JamesEmotes)
-                            {
-                                await userMessage.Value.AddReactionAsync(emote);
-                            }
+                            await userMessage.Value.AddReactionsAsync(Emotes.JamesEmotes);
                         }
                     }
                 }
