@@ -110,16 +110,19 @@ namespace MihuBot.Helpers
 
     public static class Emotes
     {
+        // TODO
+        // DarlClown, DarlUwU, DarlHug
+        public static Emote DarlBoop { get; } = Emote.Parse("<:darlBoop:765152659782631444>");
+
         // DDs
         public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
-        public static Emote DarlBoop { get; }       = Emote.Parse("<:darlBoop:765152659782631444>");
         public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
         public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
+        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlshyshy:758846620765913088>");
         public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
         public static Emote PudeesJammies { get; }  = Emote.Parse("<a:pudeesJammies:686340394866573338>");
         public static Emote YesW { get; }           = Emote.Parse("<:yesW:726548253059055759>");
-        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlshyshy:758846620765913088>");
 
         // Mihu
         public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708818227446284369>");
@@ -133,8 +136,8 @@ namespace MihuBot.Helpers
         public static Emote SenpaiLove { get; }     = Emote.Parse("<:senpaiLove:681560481214889999>");
 
         // Paul
-        public static Emote MonkaStab { get; }      = Emote.Parse("<:monkaStab:715603083345789088>");
         public static Emote KermitUwU { get; }      = Emote.Parse("<:KermitUwU:716355675457847336>");
+        public static Emote MonkaStab { get; }      = Emote.Parse("<:monkaStab:715603083345789088>");
 
 
         public static readonly Emote[] JamesEmotes  = new Emote[]
