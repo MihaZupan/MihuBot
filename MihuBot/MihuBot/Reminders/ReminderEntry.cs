@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MihuBot.Helpers;
+using System;
 
 namespace MihuBot.Reminders
 {
@@ -26,7 +27,7 @@ namespace MihuBot.Reminders
 
         public override string ToString()
         {
-            return $"{Time} {GuildId}-{ChannelId}-{AuthorId}: {Message}";
+            return $"{Time.ToISODateTime()}: {Message}";
         }
     }
 }

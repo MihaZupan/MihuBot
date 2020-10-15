@@ -60,7 +60,7 @@ namespace MihuBot.Helpers
 
         private Task AudioClient_DisconnectedAsync(Exception arg)
         {
-            Logger.DebugLog(nameof(AudioClient_DisconnectedAsync));
+            Logger.DebugLog(nameof(AudioClient_DisconnectedAsync), guildId: _guild.Id);
 
             lock (_audioClients)
             {
@@ -76,7 +76,7 @@ namespace MihuBot.Helpers
             {
                 try
                 {
-                    Logger.DebugLog($"Enter: {nameof(AudioClient_StreamCreatedAsync)}");
+                    Logger.DebugLog($"Enter: {nameof(AudioClient_StreamCreatedAsync)}", guildId: _guild.Id);
 
                     var config = SpeechConfig.FromSubscription(Secrets.AzureSpeech.SubscriptionKey, Secrets.AzureSpeech.Region);
 
@@ -86,24 +86,24 @@ namespace MihuBot.Helpers
 
                     recognizer.SessionStarted += (s, e) =>
                     {
-                        Logger.DebugLog($"SessionStarted");
+                        Logger.DebugLog($"SessionStarted", guildId: _guild.Id);
                     };
 
                     recognizer.SessionStopped += (s, e) =>
                     {
-                        Logger.DebugLog($"SessionStopped");
+                        Logger.DebugLog($"SessionStopped", guildId: _guild.Id);
                     };
 
                     recognizer.Recognizing += (s, e) =>
                     {
-                        Logger.DebugLog($"Recognizing: Text={e.Result.Text}");
+                        Logger.DebugLog($"Recognizing: Text={e.Result.Text}", guildId: _guild.Id);
                     };
 
                     recognizer.Recognized += (s, e) =>
                     {
                         if (e.Result.Reason == ResultReason.RecognizedSpeech)
                         {
-                            Logger.DebugLog($"Recognized: Text={e.Result.Text}");
+                            Logger.DebugLog($"Recognized: Text={e.Result.Text}", guildId: _guild.Id);
                         }
                     };
 
@@ -117,7 +117,7 @@ namespace MihuBot.Helpers
                             reason += "\nErrorDetails: " + e.ErrorDetails;
                         }
 
-                        Logger.DebugLog($"Canceled: {reason}");
+                        Logger.DebugLog($"Canceled: {reason}", guildId: _guild.Id);
                     };
 
                     await recognizer.StartContinuousRecognitionAsync();
@@ -133,7 +133,7 @@ namespace MihuBot.Helpers
                     }
                     finally
                     {
-                        Logger.DebugLog(nameof(recognizer.StopContinuousRecognitionAsync));
+                        Logger.DebugLog(nameof(recognizer.StopContinuousRecognitionAsync), guildId: _guild.Id);
                         await recognizer.StopContinuousRecognitionAsync();
                     }
                 }
@@ -142,7 +142,7 @@ namespace MihuBot.Helpers
                     await Logger.Instance.DebugAsync(ex.ToString());
                 }
 
-                Logger.DebugLog($"Exit: {nameof(AudioClient_StreamCreatedAsync)}");
+                Logger.DebugLog($"Exit: {nameof(AudioClient_StreamCreatedAsync)}", guildId: _guild.Id);
             });
 
             return Task.CompletedTask;

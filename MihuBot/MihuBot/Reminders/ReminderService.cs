@@ -48,8 +48,9 @@ namespace MihuBot.Reminders
                 {
                     while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time < now)
                     {
-                        Logger.DebugLog($"Popping reminder from the heap {_remindersHeap.Top}");
-                        (entries ??= new List<ReminderEntry>()).Add(_remindersHeap.Pop());
+                        var entry = _remindersHeap.Pop();
+                        Log($"Popping reminder from the heap {entry}", entry);
+                        (entries ??= new List<ReminderEntry>()).Add(entry);
                     }
                 }
 
@@ -79,7 +80,7 @@ namespace MihuBot.Reminders
 
         public async ValueTask ScheduleAsync(ReminderEntry entry)
         {
-            Logger.DebugLog($"Setting reminder entry for {entry}");
+            Log($"Setting reminder entry for {entry}", entry);
 
             List<ReminderEntry> reminders = await _reminders.EnterAsync();
             try
@@ -95,5 +96,8 @@ namespace MihuBot.Reminders
                 _reminders.Exit();
             }
         }
+
+        private static void Log(string message, ReminderEntry entry) =>
+            Logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
     }
 }

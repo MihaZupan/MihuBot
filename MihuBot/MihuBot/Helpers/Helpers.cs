@@ -175,7 +175,7 @@ namespace MihuBot.Helpers
 
         public static async Task<IMessage[]> DangerousGetAllMessagesAsync(this ITextChannel channel, string auditReason)
         {
-            Logger.DebugLog($"Fetching all messages for {channel.Name} ({channel.GuildId}-{channel.Id})");
+            Logger.DebugLog($"Fetching all messages for {channel.Name}", guildId: channel.GuildId, channelId: channel.Id);
 
             var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: new RequestOptions()
             {

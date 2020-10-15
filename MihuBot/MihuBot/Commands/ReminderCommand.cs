@@ -213,13 +213,13 @@ namespace MihuBot.Commands
                     {
                         try
                         {
-                            Logger.DebugLog($"Running reminder {entry}");
+                            Log($"Running reminder {entry}", entry);
                             var channel = _discord.GetTextChannel(entry.GuildId, entry.ChannelId);
                             await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
                         }
                         catch (Exception ex)
                         {
-                            Logger.DebugLog($"{entry} - {ex}");
+                            Log($"{entry} - {ex}", entry);
                         }
                     });
                 }
@@ -233,5 +233,8 @@ namespace MihuBot.Commands
                 _reminderTimer.Change(1_000, Timeout.Infinite);
             }
         }
+
+        private static void Log(string message, ReminderEntry entry) =>
+            Logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
     }
 }

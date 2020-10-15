@@ -235,24 +235,31 @@ namespace MihuBot
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
 
-        public static void DebugLog(string message) => Instance.Log(new LogEvent(message));
+        public static void DebugLog(string debugMessage, SocketUserMessage message) =>
+            DebugLog(debugMessage, message?.Guild()?.Id ?? 0, message?.Channel.Id ?? 0, message?.Id ?? 0, message?.Author.Id ?? 0);
 
-        public async Task DebugAsync(string message, bool logOnly = false)
+        public static void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong authorId = 0)
         {
-            Log(new LogEvent(message));
+            Instance.Log(new LogEvent(EventType.DebugMessage, guildId, channelId, messageId)
+            {
+                Content = debugMessage,
+                UserID = authorId
+            });
+        }
 
-            if (logOnly)
-                return;
+        public async Task DebugAsync(string debugMessage, SocketUserMessage message = null)
+        {
+            DebugLog(debugMessage, message);
 
             lock (Console.Out)
-                Console.WriteLine("DEBUG: " + message);
+                Console.WriteLine("DEBUG: " + debugMessage);
 
             try
             {
-                if (message.Length >= 2000)
-                    message = message.Substring(0, 1995) + " ...";
+                if (debugMessage.Length >= 2000)
+                    debugMessage = debugMessage.Substring(0, 1995) + " ...";
 
-                await DebugTextChannel.SendMessageAsync(message);
+                await DebugTextChannel.SendMessageAsync(debugMessage);
             }
             catch { }
         }
@@ -325,7 +332,7 @@ RecipientAdded
         private Task LatencyUpdatedAsync(int before, int after)
         {
             if (before > 100 || after > 100)
-                Log(new LogEvent($"Latency updated: {before} => {after}"));
+                DebugLog($"Latency updated: {before} => {after}");
             return Task.CompletedTask;
         }
 
@@ -513,7 +520,7 @@ RecipientAdded
                             await stream.CopyToAsync(fs);
                         }
 
-                        DebugLog($"Downloaded {filePath}");
+                        DebugLog($"Downloaded {filePath}", userMessage);
 
                         FileArchivingChannel.Writer.TryWrite((filePath, Delete: true));
 
@@ -526,7 +533,9 @@ RecipientAdded
                                 .First();
 
                             string message = $"Space available: {drive.AvailableFreeSpace / 1024 / 1024} / {drive.TotalSize / 1024 / 1024} MB";
-                            await DebugAsync(message, logOnly: fileCount % 100 != 0);
+
+                            if (fileCount % 100 == 0) await DebugAsync(message, userMessage);
+                            else DebugLog(message, userMessage);
                         }
                     }
                     catch (Exception ex)
@@ -680,12 +689,6 @@ RecipientAdded
                 : this(type, channel)
             {
                 MessageID = messageId;
-            }
-
-            public LogEvent(string debugMessage)
-                : this(EventType.DebugMessage)
-            {
-                Content = debugMessage;
             }
 
             public ulong GuildID { get; set; }

@@ -12,13 +12,13 @@ namespace MihuBot
     {
         public readonly DiscordSocketClient Discord;
 
-        public readonly SocketMessage Message;
+        public readonly SocketUserMessage Message;
         public readonly string Content;
 
         public readonly bool IsMentioned;
         public readonly bool IsFromAdmin;
 
-        public MessageContext(DiscordSocketClient discord, SocketMessage message)
+        public MessageContext(DiscordSocketClient discord, SocketUserMessage message)
         {
             Discord = discord;
             Message = message;
@@ -47,6 +47,8 @@ namespace MihuBot
             await ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
         }
 
-        internal async Task DebugAsync(string message) => await Logger.Instance.DebugAsync(message);
+        internal async Task DebugAsync(string debugMessage) => await Logger.Instance.DebugAsync(debugMessage, Message);
+
+        internal void DebugLog(string debugMessage) => Logger.DebugLog(debugMessage, Message);
     }
 }

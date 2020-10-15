@@ -160,10 +160,10 @@ namespace MihuBot
                     return; // Ignore
             }
 
-            await HandleMessageAsync(message);
+            await HandleMessageAsync(userMessage);
         }
 
-        private async Task HandleMessageAsync(SocketMessage message)
+        private async Task HandleMessageAsync(SocketUserMessage message)
         {
             if (message.Content.Contains('\0'))
                 throw new InvalidOperationException("Null in text");

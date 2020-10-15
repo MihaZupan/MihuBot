@@ -73,7 +73,7 @@ namespace MihuBot
             }
         }
 
-        public CommandContext(DiscordSocketClient discord, SocketMessage message)
+        public CommandContext(DiscordSocketClient discord, SocketUserMessage message)
             : base(discord, message)
         {
             int index = Content.AsSpan().IndexOfAny(' ', '\r', '\n');
