@@ -75,7 +75,7 @@ namespace MihuBot
                 }
                 else if (reaction.Emote is Emote reactionEmote)
                 {
-                    if (reactionEmote.Id == 685587814330794040ul) // James emote
+                    if (reactionEmote.Id == Emotes.James.Id) // James emote
                     {
                         var userMessage = reaction.Message;
 

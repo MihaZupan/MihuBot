@@ -110,30 +110,34 @@ namespace MihuBot.Helpers
 
     public static class Emotes
     {
-        public static readonly Emote YesW           = Emote.Parse("<:yesW:726548253059055759>");
-        public static readonly Emote PudeesJammies  = Emote.Parse("<:pudeesJammies:686340394866573338>");
-        public static readonly Emote DarlBoop       = Emote.Parse("<:darlBoop:712494064087597106>");
-        public static readonly Emote DarlHearts     = Emote.Parse("<a:darlHearts:712496083334463528>");
-        public static readonly Emote DarlHuggers    = Emote.Parse("<:darlHUGERS:725199118619902006>");
-        public static readonly Emote DarlKiss       = Emote.Parse("<:darlKiss:712494206308057248>");
-        public static readonly Emote DarlBASS       = Emote.Parse("<a:darlBASS:560235665040867328>");
-        public static readonly Emote CreepyFace     = Emote.Parse("<:creepyface:708818227446284369>");
-        public static readonly Emote MonkaHmm       = Emote.Parse("<:monkaHmm:712494625390198856>");
-        public static readonly Emote Monkers        = Emote.Parse("<:MONKERS:715472497499176981>");
-        public static readonly Emote MonkaEZ        = Emote.Parse("<:EZ:712494500731158549>");
-        public static readonly Emote DarlPoke       = Emote.Parse("<:darlPoke:591174254372978689>");
-        public static readonly Emote DarlZoom       = Emote.Parse("<a:darlZoom:574377475115581440>");
-        public static readonly Emote DarlF          = Emote.Parse("<:darlF:629944838866993153>");
-        public static readonly Emote SenpaiLove     = Emote.Parse("<:senpaiLove:681560481214889999>");
-        public static readonly Emote PauseChamp     = Emote.Parse("<:PauseChamp:724041635821781002>");
-        public static readonly Emote PepePoint      = Emote.Parse("<:pepePoint:701207439273361408>");
-        public static readonly Emote EyesShaking    = Emote.Parse("<a:eyesShaking:719904795091009636>");
-        public static readonly Emote WeirdChamp     = Emote.Parse("<:WeirdChamp:715663367741898785>");
+        // DDs
+        public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
+        public static Emote DarlBoop { get; }       = Emote.Parse("<:darlBoop:765152659782631444>");
+        public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
+        public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
+        public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlZoom:574377475115581440>");
+        public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
+        public static Emote PudeesJammies { get; }  = Emote.Parse("<a:pudeesJammies:686340394866573338>");
+        public static Emote YesW { get; }           = Emote.Parse("<:yesW:726548253059055759>");
+        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlshyshy:758846620765913088>");
+
+        // Mihu
+        public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708818227446284369>");
+        public static Emote EyesShaking { get; }    = Emote.Parse("<a:eyesShaking:719904795091009636>");
+        public static Emote James { get; }          = Emote.Parse("<:james:685587814330794040>");
+        public static Emote PauseChamp { get; }     = Emote.Parse("<:PauseChamp:724041635821781002>");
+        public static Emote PepePoint { get; }      = Emote.Parse("<:pepePoint:701207439273361408>");
+        public static Emote WeirdChamp { get; }     = Emote.Parse("<:WeirdChamp:715663367741898785>");
+
+        // Liv
+        public static Emote SenpaiLove { get; }     = Emote.Parse("<:senpaiLove:681560481214889999>");
+
+        // Paul
+        public static Emote MonkaStab { get; }      = Emote.Parse("<:monkaStab:715603083345789088>");
+        public static Emote KermitUwU { get; }      = Emote.Parse("<:KermitUwU:716355675457847336>");
 
 
-        public static readonly IEmote ThumbsUp      = new Emoji("👍");
-
-        public static readonly Emote[] JamesEmotes = new Emote[]
+        public static readonly Emote[] JamesEmotes  = new Emote[]
         {
             Emote.Parse("<:james:685588058757791744>"),
             Emote.Parse("<:james:685588122939031569>"),
@@ -145,5 +149,7 @@ namespace MihuBot.Helpers
             Emote.Parse("<:james:694013527660167229>"),
             Emote.Parse("<:james:694013534878826526>")
         };
+
+        public static IEmote ThumbsUp { get; }      = new Emoji("👍");
     }
 }
