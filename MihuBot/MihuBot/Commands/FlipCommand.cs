@@ -20,7 +20,7 @@ namespace MihuBot.Commands
                 int heads = Rng.FlipCoins(count);
                 await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
             }
-            else if (ctx.ArgumentString.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 2)
+            else if (ctx.ArgumentString.Split('/', StringSplitOptions.RemoveEmptyEntries).Length > 1)
             {
                 var options = ctx.ArgumentString
                     .Split('/', StringSplitOptions.RemoveEmptyEntries)
@@ -29,10 +29,8 @@ namespace MihuBot.Commands
 
                 const string ZeroWidthSpace = "​";
 
-                string choice;
-                if (options[0].Contains(ZeroWidthSpace)) choice = options[0];
-                else if (options[1].Contains(ZeroWidthSpace)) choice = options[1];
-                else choice = Rng.Bool() ? options[0] : options[1];
+                string choice = options.FirstOrDefault(o => o.Contains(ZeroWidthSpace))
+                    ?? options.Random();
 
                 choice = choice.Replace(ZeroWidthSpace, "").Trim();
 

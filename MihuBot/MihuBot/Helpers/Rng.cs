@@ -13,6 +13,9 @@ namespace MihuBot.Helpers
 
         public static bool Chance(int oneInX)
         {
+            if (oneInX == 2)
+                return Bool();
+
             return Next(oneInX) == 0;
         }
 
