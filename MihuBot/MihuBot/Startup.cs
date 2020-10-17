@@ -13,6 +13,7 @@ using StackExchange.Redis;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Security.Claims;
 
 namespace MihuBot
 {
@@ -76,6 +77,13 @@ namespace MihuBot
             services.AddRazorPages();
             services.AddServerSideBlazor();
             services.AddControllers();
+
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy("Admin", policy =>
+                    policy.RequireAssertion(context =>
+                        context.User.IsAdmin()));
+            });
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

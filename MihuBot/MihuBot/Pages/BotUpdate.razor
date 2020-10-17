@@ -1,15 +1,12 @@
 ﻿@page "/bot-update"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "Admin")]
 @inject DiscordSocketClient discord
 @inject IHttpContextAccessor httpContextAccessor
 @inject IJSRuntime jsRuntime
 
-@if (httpContextAccessor.HttpContext.User.IsAdmin())
-{
-    <button class="btn-warning" @onclick="OnBotUpdateAsync">
-        <span class="oi oi-loop-circular" aria-hidden="true"></span> Update
-    </button>
-}
+<button class="btn-warning" @onclick="OnBotUpdateAsync">
+    <span class="oi oi-loop-circular" aria-hidden="true"></span> Update
+</button>
 
 @code
 {
