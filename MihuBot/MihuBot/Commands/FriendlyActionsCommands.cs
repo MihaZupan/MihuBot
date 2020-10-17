@@ -14,7 +14,7 @@ namespace MihuBot.Commands
         {
             "butt", "poke", "slap", "kick", "love", "kiss", "boop",
             "spank", "dropkickofftheturnbuckle", "tableflip", "spit",
-            "curbstomp", "smell", "laugh", "hiton", "uwu",
+            "curbstomp", "smell", "laugh", "hiton", "uwu", "beatup",
         };
 
         private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
@@ -26,10 +26,16 @@ namespace MihuBot.Commands
                 return;
             }
 
-            if ((ctx.Command == "spit" || ctx.Command == "curbstomp") &&
-                !(ctx.IsFromAdmin || ctx.AuthorId == KnownUsers.Sticky || ctx.AuthorId == KnownUsers.Ai || ctx.AuthorId == KnownUsers.Joster))
+            if (ctx.Command == "spit" || ctx.Command == "curbstomp" || ctx.Command == "beatup")
             {
-                return;
+                if (!ctx.IsFromAdmin &&
+                    ctx.AuthorId != KnownUsers.Sticky &&
+                    ctx.AuthorId != KnownUsers.Ai &&
+                    ctx.AuthorId != KnownUsers.Joster &&
+                    ctx.AuthorId != KnownUsers.Awescar)
+                {
+                    return;
+                }
             }
 
             if (ctx.Command == "smell")
@@ -100,6 +106,7 @@ namespace MihuBot.Commands
                 "laugh" => $"{Emotes.PepePoint} {target}", // TODO {Emotes.DarlClown}
                 "hiton" => $"Come here often, {target}? {Emotes.DarlShyShy}",
                 "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}", // TODO {Emotes.DarlUwU}
+                "beatup" => $"just beat up {target} {Emotes.EyesShaking}",
                 _ => null
             };
 
