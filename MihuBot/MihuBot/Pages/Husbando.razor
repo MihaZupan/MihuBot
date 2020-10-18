@@ -1,0 +1,41 @@
+﻿@page "/husbando"
+@attribute [Authorize(Policy = "Admin")]
+@using MihuBot.Husbando
+@inject DiscordSocketClient discord
+@inject IHusbandoService husbandoService
+
+<table class="table">
+    <thead class="thead-light">
+        <tr>
+            <th scope="col">Victim</th>
+            <th scope="col">Husbandos</th>
+            <th scope="col">Waifus</th>
+        </tr>
+    </thead>
+    @foreach (var entry in matches)
+    {
+        <tr>
+            <td scope="row">@(discord.GetUser(entry.Key)?.Username ?? "Jane Doe")</td>
+            <td>@string.Join(", ", entry.Value.Husbandos.Select(h => discord.GetUser(h)?.Username).Where(u => u != null))</td>
+            <td>@string.Join(", ", entry.Value.Waifus.Select(w => discord.GetUser(w)?.Username).Where(u => u != null))</td>
+        </tr>
+    }
+</table>
+
+@code {
+    KeyValuePair<ulong, (ulong[] Husbandos, ulong[] Waifus)>[] matches;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var users = await husbandoService.GetAllUsersAsync();
+
+        matches = new KeyValuePair<ulong, (ulong[], ulong[])>[users.Length];
+
+        for (int i = 0; i < users.Length; i++)
+        {
+            ulong user = users[i];
+            matches[i] = new KeyValuePair<ulong, (ulong[], ulong[])>(user,
+                (await husbandoService.GetAllMatchesAsync(true, user), await husbandoService.GetAllMatchesAsync(false, user)));
+        }
+    }
+}

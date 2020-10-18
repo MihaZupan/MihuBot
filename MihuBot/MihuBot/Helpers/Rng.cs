@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -13,14 +14,14 @@ namespace MihuBot.Helpers
 
         public static bool Chance(int oneInX)
         {
-            if (oneInX == 2)
-                return Bool();
-
             return Next(oneInX) == 0;
         }
 
         public static int Next(int mod)
         {
+            if (mod == 2)
+                return Bool() ? 0 : 1;
+
             if (mod <= 0)
                 throw new ArgumentOutOfRangeException(nameof(mod), "Must be > 0");
 
@@ -105,6 +106,11 @@ namespace MihuBot.Helpers
         public static T Random<T>(this T[] array)
         {
             return array[Next(array.Length)];
+        }
+
+        public static T Random<T>(this List<T> list)
+        {
+            return list[Next(list.Count)];
         }
 
         public static T RandomExcludingSelf<T>(this T[] choices, T self) where T : class

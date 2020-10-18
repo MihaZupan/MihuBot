@@ -1,6 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
-using StackExchange.Redis;
+using MihuBot.Husbando;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -11,11 +11,11 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
-        private readonly IConnectionMultiplexer _redis;
+        private readonly IHusbandoService _husbandoService;
 
-        public HusbandoAndWaifu(IConnectionMultiplexer redis)
+        public HusbandoAndWaifu(IHusbandoService husbandoService)
         {
-            _redis = redis;
+            _husbandoService = husbandoService;
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -43,8 +43,6 @@ namespace MihuBot.NonCommandHandlers
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
-                IDatabase redis = _redis.GetDatabase();
-
                 if (ctx.IsFromAdmin)
                 {
                     string[] parts = content.Split(' ');
@@ -56,7 +54,7 @@ namespace MihuBot.NonCommandHandlers
                             case "add":
                                 if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
                                 {
-                                    await redis.SetAddAsync(redisPrefix + argId1, argId2.ToString());
+                                    await _husbandoService.AddMatchAsync(husbando, argId1, argId2);
                                     return;
                                 }
                                 break;
@@ -64,24 +62,22 @@ namespace MihuBot.NonCommandHandlers
                             case "remove":
                                 if (parts.Length > 3 && ulong.TryParse(parts[3], out argId2))
                                 {
-                                    await redis.SetRemoveAsync(redisPrefix + argId1, argId2.ToString());
+                                    await _husbandoService.RemoveMatchAsync(husbando, argId1, argId2);
                                     return;
                                 }
                                 break;
 
                             case "list":
-                                ulong[] partners = (await redis.SetScanAsync(redisPrefix + argId1).ToArrayAsync())
-                                    .Select(p => ulong.Parse(p))
-                                    .ToArray();
+                                ulong[] partners = await _husbandoService.GetAllMatchesAsync(husbando, argId1);
                                 await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).Username))}\n```");
                                 return;
                         }
                     }
                 }
 
-                RedisValue partner = await redis.SetRandomMemberAsync(redisPrefix + ctx.AuthorId);
+                ulong? partner = await _husbandoService.TryGetRandomMatchAsync(husbando, ctx.AuthorId);
 
-                if (partner.IsNullOrEmpty || !ulong.TryParse(partner, out ulong partnerId))
+                if (!partner.HasValue)
                 {
                     if (Rng.Bool())
                     {
@@ -94,14 +90,11 @@ namespace MihuBot.NonCommandHandlers
                 }
                 else if (!all)
                 {
-                    await ctx.ReplyAsync(MentionUtils.MentionUser(partnerId));
+                    await ctx.ReplyAsync(MentionUtils.MentionUser(partner.Value));
                 }
                 else
                 {
-                    ulong[] partners = (await redis.SetScanAsync(redisPrefix + ctx.AuthorId).ToArrayAsync())
-                        .Select(p => ulong.Parse(p))
-                        .ToArray();
-
+                    ulong[] partners = await _husbandoService.GetAllMatchesAsync(husbando, ctx.AuthorId);
                     await ctx.ReplyAsync(string.Join(' ', partners.Select(p => MentionUtils.MentionUser(p))));
                 }
             }
