@@ -39,10 +39,10 @@ namespace MihuBot
                 if (typeof(CommandBase).IsAssignableFrom(type))
                 {
                     var instance = ActivatorUtilities.CreateInstance(services, type) as CommandBase;
-                    _commands.Add(instance.Command, instance);
+                    _commands.Add(instance.Command.ToLowerInvariant(), instance);
                     foreach (string alias in instance.Aliases)
                     {
-                        _commands.Add(alias, instance);
+                        _commands.Add(alias.ToLowerInvariant(), instance);
                     }
                     _nonCommandHandlers.Add(instance);
                 }
@@ -174,7 +174,7 @@ namespace MihuBot
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
                     var command = match.Value;
-                    var context = new CommandContext(_discord, message);
+                    var context = new CommandContext(_discord, message, match.Key);
 
                     if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                     {

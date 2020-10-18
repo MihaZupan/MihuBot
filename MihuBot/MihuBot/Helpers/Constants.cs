@@ -113,7 +113,7 @@ namespace MihuBot.Helpers
     {
         // TODO
         // DarlClown, DarlUwU, DarlHug
-        public static Emote DarlBoop { get; } = Emote.Parse("<:darlBoop:765152659782631444>");
+        public static Emote DarlBoop { get; }       = Emote.Parse("<:darlBoop:765152659782631444>");
 
         // DDs
         public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
