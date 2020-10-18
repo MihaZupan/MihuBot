@@ -2,17 +2,14 @@
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using MihuBot.Commands;
 using MihuBot.Helpers;
 using SharpCollections.Generic;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -92,79 +89,31 @@ namespace MihuBot
             }
         }
 
-        private async Task Client_MessageReceived(SocketMessage message)
+        private Task Client_MessageReceived(SocketMessage message)
         {
             if (!(message is SocketUserMessage userMessage))
-                return;
+                return Task.CompletedTask;
 
             if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
-                return;
-
-            if (message.Author.Id == KnownUsers.Miha && message.Attachments.Any())
-            {
-                Attachment mcFunction = message.Attachments.FirstOrDefault(a => a.Filename.EndsWith(".mcfunction", StringComparison.OrdinalIgnoreCase));
-
-                if (mcFunction != null)
-                {
-                    string functionsFile = await _http.GetStringAsync(mcFunction.Url);
-                    string[] functions = functionsFile
-                        .Replace('\r', '\n')
-                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                        .Where(f => f.Trim().Length > 0)
-                        .Select(f => "execute positioned as MihuBot run " + f)
-                        .ToArray();
-
-                    await message.ReplyAsync($"Running {functions.Length} commands");
-
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            StringBuilder sb = new StringBuilder();
-
-                            await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false");
-
-                            for (int i = 0; i < functions.Length; i += 100)
-                            {
-                                Task<string>[] tasks = functions
-                                    .AsMemory(i, Math.Min(100, functions.Length - i))
-                                    .ToArray()
-                                    .Select(f => McCommand.RunMinecraftCommandAsync(f))
-                                    .ToArray();
-
-                                await Task.WhenAll(tasks);
-
-                                foreach (var task in tasks)
-                                    sb.AppendLine(task.Result);
-                            }
-
-                            await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true");
-
-                            var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
-                            await message.Channel.SendFileAsync(ms, "responses.txt");
-                        }
-                        catch { }
-                    });
-                }
-            }
+                return Task.CompletedTask;
 
             if (message.Author.Id == KnownUsers.MihuBot)
-                return;
+                return Task.CompletedTask;
 
             if (guildChannel.Guild.Id == Guilds.DDs)
             {
                 if (guildChannel.Id == Channels.DDsGeneral)
-                    return; // Ignore
+                    return Task.CompletedTask; // Ignore
             }
 
-            await HandleMessageAsync(userMessage);
+            if (message.Content.Contains('\0'))
+                throw new InvalidOperationException("Null in text");
+
+            return HandleMessageAsync(userMessage);
         }
 
         private async Task HandleMessageAsync(SocketUserMessage message)
         {
-            if (message.Content.Contains('\0'))
-                throw new InvalidOperationException("Null in text");
-
             var content = message.Content.TrimStart();
 
             if (content.StartsWith('!') || content.StartsWith('/') || content.StartsWith('-'))
