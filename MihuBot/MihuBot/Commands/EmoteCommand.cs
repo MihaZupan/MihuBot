@@ -32,6 +32,7 @@ namespace MihuBot.Commands
             }
 
             var message = ctx.Channel.GetCachedMessages(ctx.Message, Direction.Before, limit: 10)
+                .OrderByDescending(m => m.Timestamp)
                 .FirstOrDefault(m => m.Attachments.Any());
 
             if (message != null && message.Attachments.Count == 1)
