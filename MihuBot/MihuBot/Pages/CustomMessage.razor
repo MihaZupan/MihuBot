@@ -1,0 +1,57 @@
+﻿@page "/custom-message"
+@attribute [Authorize(Policy = "Admin")]
+@inject DiscordSocketClient discord
+@inject IHttpContextAccessor httpContextAccessor
+
+<form @onsubmit="SendMessageAsync">
+    <div class="form-group">
+        <MihuBot.Components.ChannelPicker OnChannelSelected="@OnChannelSelected" OnChannelCleared="@OnChannelCleared" />
+
+        @if (textChannel != null)
+        {
+            <div class="form-group input-group mb-3">
+                <input @bind="currentValue" type="text" class="form-control" placeholder="Message" aria-label="Message" aria-describedby="basic-addon2">
+                <div class="input-group-append">
+                    <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
+                </div>
+            </div>
+        }
+
+        @if (exception != null)
+        {
+            <div class="alert alert-danger">@exception</div>
+        }
+    </div>
+</form>
+
+@code
+{
+    private string currentValue;
+    private string exception;
+    SocketTextChannel textChannel;
+
+    private void OnChannelSelected(SocketTextChannel channel)
+    {
+        textChannel = channel;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnChannelCleared() => OnChannelSelected(null);
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrEmpty(currentValue))
+            return;
+
+        try
+        {
+            string message = currentValue;
+            currentValue = null;
+            await textChannel.SendMessageAsync(message.Trim());
+        }
+        catch (Exception ex)
+        {
+            exception = ex.ToString();
+        }
+    }
+}

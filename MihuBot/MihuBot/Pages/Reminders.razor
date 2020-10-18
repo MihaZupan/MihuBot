@@ -37,17 +37,11 @@
     DateTime lastUpdateTime = DateTime.UtcNow;
     IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
     System.Threading.Timer timer;
-    ulong? userId;
+    ulong userId;
 
     protected override async Task OnInitializedAsync()
     {
-        if (!httpContextAccessor.HttpContext.User.TryGetUserId(out ulong userId))
-        {
-            this.userId = null;
-            return;
-        }
-
-        this.userId = userId;
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
         await UpdateRemindersAsync();
 
         timer = new System.Threading.Timer(_ =>
@@ -67,13 +61,13 @@
 
     private async Task UpdateRemindersAsync()
     {
-        if (Constants.Admins.Contains(userId.Value))
+        if (Constants.Admins.Contains(userId))
         {
             reminders = await reminderService.GetAllRemindersAsync();
         }
         else
         {
-            reminders = await reminderService.GetRemindersForUserAsync(userId.Value);
+            reminders = await reminderService.GetRemindersForUserAsync(userId);
         }
     }
 

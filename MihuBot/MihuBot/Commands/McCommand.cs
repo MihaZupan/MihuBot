@@ -71,7 +71,7 @@ namespace MihuBot.Commands
 
             static async Task ReCreateMinecraftRCONAsync()
             {
-                McRCON = await MinecraftRCON.ConnectAsync(Secrets.MinecraftServerAddress, password: Secrets.MinecraftRconPassword);
+                McRCON = await MinecraftRCON.ConnectAsync(Secrets.Minecraft.ServerAddress, password: Secrets.Minecraft.RconPassword);
             }
         }
     }

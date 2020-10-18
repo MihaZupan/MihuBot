@@ -82,7 +82,7 @@ namespace MihuBot.Helpers
 
     public static class KnownUsers
     {
-        public const ulong MihuBot      = 710370560596770856ul;
+        public const ulong MihuBot      = Secrets.Discord.BotId;
 
         // Admins
         public const ulong Miha         = 162569877087977480ul;

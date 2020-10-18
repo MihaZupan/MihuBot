@@ -22,6 +22,14 @@ namespace MihuBot.Helpers
                 && Constants.Admins.Contains(userId);
         }
 
+        public static ulong GetUserId(this ClaimsPrincipal claims)
+        {
+            if (claims.TryGetUserId(out ulong userId))
+                return userId;
+
+            throw new Exception("Failed to get user id");
+        }
+
         public static bool TryGetUserId(this ClaimsPrincipal claims, out ulong userId)
         {
             string id = claims.FindFirst(ClaimTypes.NameIdentifier)?.Value;

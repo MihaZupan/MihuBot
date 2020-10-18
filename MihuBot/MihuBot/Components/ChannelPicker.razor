@@ -1,0 +1,71 @@
+﻿@attribute [Authorize]
+@inject DiscordSocketClient discord
+@inject IHttpContextAccessor httpContextAccessor
+@inject IJSRuntime jsRuntime
+
+<div class="dropdown form-group">
+    <button class="form-control btn btn-primary dropdown-toggle" type="button" id="guildsDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+        @(selectedGuild?.Name ?? "Select guild")
+    </button>
+    <div class="dropdown-menu" aria-labelledby="guildsDropdown">
+        @foreach (var guild in guilds)
+        {
+            <button @onclick="() => { selectedGuild = guild; SetChannel(null); }"
+                    class="dropdown-item" type="button">
+                @guild.Name
+            </button>
+        }
+    </div>
+</div>
+
+@if (selectedGuild != null)
+{
+    <div class="dropdown form-group">
+        <button class="form-control btn btn-primary dropdown-toggle" type="button" id="channelsDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            @(selectedChannel?.Name ?? "Select channel")
+        </button>
+        <div class="dropdown-menu" aria-labelledby="channelsDropdown">
+            @foreach (var channel in selectedGuild.TextChannels)
+            {
+                <button @onclick="() => SetChannel(channel)"
+                        class="dropdown-item" type="button">
+                    @channel.Name
+                </button>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Action<SocketTextChannel> OnChannelSelected { get; set; }
+
+    [Parameter]
+    public Action OnChannelCleared { get; set; }
+
+    IReadOnlyCollection<SocketGuild> guilds;
+    SocketGuild selectedGuild;
+    SocketTextChannel selectedChannel;
+
+    protected override void OnInitialized()
+    {
+        ulong userId = httpContextAccessor.HttpContext.User.GetUserId();
+        guilds = discord.GetUser(userId).MutualGuilds;
+    }
+
+    private void SetChannel(SocketTextChannel channel)
+    {
+        if (selectedChannel != channel)
+        {
+            selectedChannel = channel;
+            if (channel is null)
+            {
+                OnChannelCleared();
+            }
+            else
+            {
+                OnChannelSelected(channel);
+            }
+        }
+    }
+}

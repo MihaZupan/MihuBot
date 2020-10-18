@@ -269,14 +269,14 @@ namespace MihuBot
 
             _discord.ReactionAdded += Client_ReactionAdded;
 
+            await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
+            await _discord.StartAsync();
+
+            await onConnectedTcs.Task;
+            await onReadyTcs.Task;
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
-                await _discord.StartAsync();
-
-                await onConnectedTcs.Task;
-                await onReadyTcs.Task;
-
                 await Logger.Instance.DebugAsync("Beep boop. I'm back!");
 
                 await _discord.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);

@@ -13,7 +13,6 @@ using StackExchange.Redis;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
-using System.Security.Claims;
 
 namespace MihuBot
 {
@@ -40,7 +39,7 @@ namespace MihuBot
             var http = new HttpClient();
             services.AddSingleton(http);
 
-            services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect($"{Secrets.RedisDatabaseAddress},password={Secrets.RedisDatabasePassword}"));
+            services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect($"{Secrets.Redis.DatabaseAddress},password={Secrets.Redis.DatabasePassword}"));
 
             var discord = new DiscordSocketClient(
                 new DiscordSocketConfig()
@@ -102,7 +101,9 @@ namespace MihuBot
             app.UseStaticFiles();
 
             app.UseRouting();
+
             app.UseAuthentication();
+            app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>
             {

@@ -10,6 +10,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -150,7 +151,10 @@ namespace MihuBot
                     if (resetLogFiles)
                     {
                         await JsonLogStream.DisposeAsync();
-                        FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
+                        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                        {
+                            FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
+                        }
                     }
                 }
 
