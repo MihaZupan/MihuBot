@@ -56,7 +56,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.Author.IsAdminFor(Guilds.DDs))
+            if (!ctx.IsFromAdmin)
                 return;
 
             string action = ctx.Arguments.FirstOrDefault()?.ToLowerInvariant();

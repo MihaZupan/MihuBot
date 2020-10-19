@@ -102,15 +102,15 @@ namespace MihuBot.Helpers
             return (channel as SocketGuildChannel)?.Guild;
         }
 
-        public static bool IsAdminFor(this SocketUser user, ulong guild)
+        public static bool IsAdmin(this SocketUser user)
         {
-            return Constants.Admins.Contains(user.Id) || (Constants.GuildMods.TryGetValue(guild, out var guildMods) && guildMods.Contains(user.Id));
+            return Constants.Admins.Contains(user.Id);
         }
 
         public static bool AuthorIsAdmin(this SocketMessage message)
         {
             var guild = message.Guild();
-            return guild != null && message.Author.IsAdminFor(guild.Id);
+            return guild != null && message.Author.IsAdmin();
         }
 
         public static bool AuthorHasSafePermissions(this SocketMessage message)

@@ -12,7 +12,7 @@
             <th scope="col">Waifus</th>
         </tr>
     </thead>
-    @foreach (var entry in matches)
+    @foreach (var entry in matches.OrderBy(m => m.Key))
     {
         <tr>
             <td scope="row">@(discord.GetUser(entry.Key)?.Username ?? "Jane Doe")</td>
@@ -26,6 +26,11 @@
     KeyValuePair<ulong, (ulong[] Husbandos, ulong[] Waifus)>[] matches;
 
     protected override async Task OnInitializedAsync()
+    {
+        await UpdateAsync();
+    }
+
+    private async Task UpdateAsync()
     {
         var users = await husbandoService.GetAllUsersAsync();
 

@@ -17,26 +17,6 @@ namespace MihuBot.Helpers
             KnownUsers.Doomi,
         };
 
-        public static readonly Dictionary<ulong, HashSet<ulong>> GuildMods = new Dictionary<ulong, HashSet<ulong>>
-        {
-            {
-                Guilds.DDs,
-                new HashSet<ulong> { KnownUsers.Angelo, }
-            },
-            {
-                Guilds.Paul,
-                new HashSet<ulong> { KnownUsers.PaulK, }
-            },
-            {
-                Guilds.LiverGang,
-                new HashSet<ulong> { KnownUsers.Angelo, KnownUsers.Liv }
-            },
-            {
-                Guilds.Arisas,
-                new HashSet<ulong> { KnownUsers.Arisa, }
-            },
-        };
-
         public const string VCDefaultVolume = "0.25";
 
         public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
@@ -66,6 +46,7 @@ namespace MihuBot.Helpers
         public const ulong Arisas       = 417794764029820939ul;
         public const ulong Brandons     = 478637384347549713ul;
         public const ulong Dreamlings   = 612032458258644992ul;
+        public const ulong TheWaddle    = 509232675001991169ul;
     }
 
     public static class Channels

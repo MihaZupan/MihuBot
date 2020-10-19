@@ -127,16 +127,6 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                if (!Constants.Admins.Contains(ctx.AuthorId))
-                {
-                    HashSet<ulong> guildIds = Constants.GuildMods
-                        .Where(gm => gm.Value.Contains(ctx.AuthorId))
-                        .Select(gm => gm.Key)
-                        .ToHashSet();
-
-                    predicates.Add(le => guildIds.Contains(le.GuildID));
-                }
-
                 if (fromFilters.Count != 0)
                 {
                     predicates.Add(le => fromFilters.Contains(le.UserID));
