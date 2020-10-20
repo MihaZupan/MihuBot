@@ -614,6 +614,28 @@ RecipientAdded
             };
         }
 
+        public sealed class AttachmentModel
+        {
+            public ulong Id { get; set; }
+            public string Filename { get; set; }
+            public string Url { get; set; }
+            public string ProxyUrl { get; set; }
+            public int Size { get; set; }
+            public int? Height { get; set; }
+            public int? Width { get; set; }
+
+            public static AttachmentModel FromAttachment(Attachment attachment) => new AttachmentModel()
+            {
+                Id = attachment.Id,
+                Filename = attachment.Filename,
+                Url = attachment.Url,
+                ProxyUrl = attachment.ProxyUrl,
+                Size = attachment.Size,
+                Height = attachment.Height,
+                Width = attachment.Width
+            };
+        }
+
         public enum EventType
         {
             MessageReceived = 1,
@@ -664,7 +686,7 @@ RecipientAdded
             public LogEvent(EventType type, SocketUserMessage message)
                 : this(type, message.Guild()?.Id ?? 0, message.Channel.Id, message.Id)
             {
-                if (type == EventType.MessageReceived || type == EventType.MessageUpdated)
+                if (type == EventType.MessageReceived || type == EventType.MessageUpdated || type == EventType.FileReceived)
                 {
                     Content = message.Content?.Trim(TrimChars);
 
@@ -680,7 +702,7 @@ RecipientAdded
             public LogEvent(SocketUserMessage message, Attachment attachment)
                 : this(EventType.FileReceived, message)
             {
-                Attachment = attachment;
+                Attachment = AttachmentModel.FromAttachment(attachment);
             }
 
             public LogEvent(EventType type, IChannel channel)
@@ -702,7 +724,7 @@ RecipientAdded
             public ulong UserID { get; set; }
             public string Content { get; set; }
             public string Embeds { get; set; }
-            public Attachment Attachment { get; set; }
+            public AttachmentModel Attachment { get; set; }
             public LogEmote Emote { get; set; }
             public string Emoji { get; set; }
             public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
