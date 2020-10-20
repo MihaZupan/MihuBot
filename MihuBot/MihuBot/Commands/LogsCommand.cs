@@ -170,7 +170,7 @@ namespace MihuBot.Commands
                 if (raw)
                 {
                     stream = new MemoryStream();
-                    var writer = new Utf8JsonWriter(stream);
+                    var writer = new Utf8JsonWriter(stream, new JsonWriterOptions() { Indented = false, SkipValidation = true });
                     foreach (var log in logs)
                     {
                         JsonSerializer.Serialize(writer, log, JsonOptions);
