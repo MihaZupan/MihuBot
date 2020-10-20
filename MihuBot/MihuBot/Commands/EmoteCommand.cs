@@ -32,14 +32,13 @@ namespace MihuBot.Commands
             }
 
             const int Limit = 10;
-            var messages = await ctx.Channel.GetMessagesAsync(ctx.Message, Direction.Before, Limit).ToArrayAsync();
-
-            var message = messages
+            IMessage[] messages = (await ctx.Channel.GetMessagesAsync(Limit).ToArrayAsync())
                 .SelectMany(i => i)
+                .Where(m => m.Attachments.Any())
                 .OrderByDescending(m => m.Timestamp)
-                .FirstOrDefault(m => m.Attachments.Any());
+                .ToArray();
 
-            if (message != null && message.Attachments.Count == 1)
+            foreach (IMessage message in messages)
             {
                 var attachment = message.Attachments.Single();
                 string extension = Path.GetExtension(attachment.Filename).ToLowerInvariant();
@@ -67,6 +66,8 @@ namespace MihuBot.Commands
 
                         var emote = await ctx.Discord.GetGuild(guildId).CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempPath));
                         await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
+
+                        break;
                     }
                     finally
                     {
