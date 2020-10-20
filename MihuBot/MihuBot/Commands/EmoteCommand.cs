@@ -31,7 +31,11 @@ namespace MihuBot.Commands
                 return;
             }
 
-            var message = ctx.Channel.GetCachedMessages(ctx.Message, Direction.Before, limit: 10)
+            const int Limit = 10;
+            var messages = await ctx.Channel.GetMessagesAsync(ctx.Message, Direction.Before, Limit).ToArrayAsync();
+
+            var message = messages
+                .SelectMany(i => i)
                 .OrderByDescending(m => m.Timestamp)
                 .FirstOrDefault(m => m.Attachments.Any());
 
