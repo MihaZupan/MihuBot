@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -12,6 +13,9 @@ namespace MihuBot.Commands
     public sealed class LogsCommand : CommandBase
     {
         public override string Command => "logs";
+
+        private static ReadOnlySpan<byte> NewLineByte => new[] { (byte)'\n' };
+        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -30,10 +34,16 @@ namespace MihuBot.Commands
             {
                 var predicates = new List<Predicate<Logger.LogEvent>>();
 
-                if (!ctx.ArgumentLines[0].Equals("all", StringComparison.OrdinalIgnoreCase))
+                if (!ctx.ArgumentLines[0].Contains("all", StringComparison.OrdinalIgnoreCase))
                 {
-                    predicates.Add(el => el.Type == Logger.EventType.MessageReceived || el.Type == Logger.EventType.MessageUpdated);
+                    predicates.Add(el =>
+                        el.Type == Logger.EventType.MessageReceived ||
+                        el.Type == Logger.EventType.MessageUpdated ||
+                        el.Type == Logger.EventType.MessageDeleted ||
+                        el.Type == Logger.EventType.FileReceived);
                 }
+
+                bool raw = ctx.ArgumentLines[0].Contains("raw", StringComparison.OrdinalIgnoreCase);
 
                 bool afterSet = false, beforeSet = false, lastSet = false;
 
@@ -150,23 +160,43 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                StringBuilder sb = new StringBuilder();
-
-                foreach (var log in logs)
-                {
-                    log.ToString(sb, ctx.Discord);
-                    sb.Append('\n');
-                }
-
-                var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
-
-                if (ms.Length > 4 * 1024 * 1024)
+                if (logs.Length > 10_000)
                 {
                     await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
                     return;
                 }
 
-                await ctx.Channel.SendFileAsync(ms, "Logs.txt");
+                Stream stream;
+                if (raw)
+                {
+                    stream = new MemoryStream();
+                    var writer = new Utf8JsonWriter(stream);
+                    foreach (var log in logs)
+                    {
+                        JsonSerializer.Serialize(writer, log, JsonOptions);
+                        writer.Flush();
+                        stream.Write(NewLineByte);
+                    }
+                    stream.Position = 0;
+                }
+                else
+                {
+                    StringBuilder sb = new StringBuilder();
+                    foreach (var log in logs)
+                    {
+                        log.ToString(sb, ctx.Discord);
+                        sb.Append('\n');
+                    }
+                    stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+                }
+
+                if (stream.Length > 4 * 1024 * 1024)
+                {
+                    await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
+                    return;
+                }
+
+                await ctx.Channel.SendFileAsync(stream, "Logs.txt");
             }
         }
 
