@@ -81,6 +81,7 @@ namespace MihuBot.Commands
             else if (rig)
             {
                 _riggedRng.TryAdd(ctx.AuthorId, rngUser.Id);
+                await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                 return;
             }
 

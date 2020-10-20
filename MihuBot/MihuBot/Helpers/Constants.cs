@@ -94,10 +94,10 @@ namespace MihuBot.Helpers
     {
         // TODO
         // DarlClown, DarlUwU, DarlHug
-        public static Emote DarlBoop { get; }       = Emote.Parse("<:darlBoop:765152659782631444>");
 
         // DDs
         public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
+        public static Emote DarlBoop { get; }       = Emote.Parse("<:dbp:767763877697945630>");
         public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
         public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
         public static Emote DarlPatPat { get; }     = Emote.Parse("<a:darlPatPat:760596696090279937>");
