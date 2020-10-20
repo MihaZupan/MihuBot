@@ -14,7 +14,6 @@ namespace MihuBot.Commands
     {
         public override string Command => "logs";
 
-        private static ReadOnlySpan<byte> NewLineByte => new[] { (byte)'\n' };
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -166,29 +165,22 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                Stream stream;
-                if (raw)
+                StringBuilder sb = new StringBuilder();
+
+                foreach (var log in logs)
                 {
-                    stream = new MemoryStream();
-                    var writer = new Utf8JsonWriter(stream, new JsonWriterOptions() { Indented = false, SkipValidation = true });
-                    foreach (var log in logs)
+                    if (raw)
                     {
-                        JsonSerializer.Serialize(writer, log, JsonOptions);
-                        writer.Flush();
-                        stream.Write(NewLineByte);
+                        sb.Append(JsonSerializer.Serialize(log, JsonOptions));
                     }
-                    stream.Position = 0;
-                }
-                else
-                {
-                    StringBuilder sb = new StringBuilder();
-                    foreach (var log in logs)
+                    else
                     {
                         log.ToString(sb, ctx.Discord);
-                        sb.Append('\n');
                     }
-                    stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+                    sb.Append('\n');
                 }
+
+                var stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
 
                 if (stream.Length > 4 * 1024 * 1024)
                 {
