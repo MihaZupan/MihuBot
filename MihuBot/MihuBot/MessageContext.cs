@@ -53,5 +53,8 @@ namespace MihuBot
             DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
 
         internal void DebugLog(string debugMessage) => Logger.DebugLog(debugMessage, Message);
+
+        internal void DebugLog(Exception ex, string extraDebugInfo = "") =>
+            DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
     }
 }
