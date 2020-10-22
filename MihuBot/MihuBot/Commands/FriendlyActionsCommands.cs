@@ -65,6 +65,27 @@ namespace MihuBot.Commands
                 {
                     rngUser = ctx.Discord.GetUser(userId);
                 }
+                else if (ctx.Arguments.Length > 1 || (!at && !rig))
+                {
+                    string pattern = ctx.Arguments[0];
+
+                    var users = await ctx.Channel.GetUsersAsync().ToArrayAsync();
+                    var matches = users
+                        .SelectMany(i => i)
+                        .Where(u =>
+                            u.Username.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                            (ctx.Guild.GetUser(u.Id)?.Nickname?.Contains(pattern, StringComparison.OrdinalIgnoreCase) ?? false))
+                        .ToArray();
+
+                    if (matches.Length == 1)
+                    {
+                        rngUser = matches[0];
+                    }
+                    else if (matches.Length > 1)
+                    {
+                        rngUser = matches.Where(u => u.Id != ctx.AuthorId).ToArray().Random();
+                    }
+                }
             }
 
             if (rngUser is null)
