@@ -99,7 +99,7 @@ namespace MihuBot
             if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                 return Task.CompletedTask;
 
-            if (message.Author.Id == KnownUsers.MihuBot)
+            if (message.Author.IsBot)
                 return Task.CompletedTask;
 
             if (guildChannel.Guild.Id == Guilds.DDs)
