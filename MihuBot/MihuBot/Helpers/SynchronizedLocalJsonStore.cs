@@ -48,7 +48,7 @@ namespace MihuBot.Helpers
         public async Task<T> EnterAsync()
         {
             await _asyncLock.WaitAsync();
-            Logger.DebugLog($"Entered {_jsonPath}");
+            // Logger.DebugLog($"Entered {_jsonPath}");
             return _value;
         }
 
@@ -58,11 +58,11 @@ namespace MihuBot.Helpers
 
             if (newJson == _previousJson)
             {
-                Logger.DebugLog($"Exiting {_jsonPath}, no changes");
+                // Logger.DebugLog($"Exiting {_jsonPath}, no changes");
             }
             else
             {
-                Logger.DebugLog($"Exiting {_jsonPath}, saving changes");
+                // Logger.DebugLog($"Exiting {_jsonPath}, saving changes");
                 _previousJson = newJson;
                 File.WriteAllText(_jsonPath, newJson);
             }

@@ -37,8 +37,7 @@ namespace MihuBot
                     .PersistDataToDirectory(certDir, "certpass123");
             }
 
-            var http = new HttpClient();
-            services.AddSingleton(http);
+            services.AddSingleton<HttpClient>();
 
             services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect($"{Secrets.Redis.DatabaseAddress},password={Secrets.Redis.DatabasePassword}"));
 
@@ -50,7 +49,7 @@ namespace MihuBot
                 });
             services.AddSingleton(discord);
 
-            services.AddSingleton(new Logger(http, discord));
+            services.AddSingleton<Logger>();
 
             services.AddSingleton<IReminderService, ReminderService>();
 
@@ -90,6 +89,8 @@ namespace MihuBot
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
+
+
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();

@@ -18,12 +18,14 @@ namespace MihuBot.Commands
     {
         public override string Command => "birthdays";
 
+        private readonly Logger _logger;
         private readonly TeamUpClient _teamUpClient;
         private readonly SynchronizedLocalJsonStore<List<BirthdayEntry>> _birthdayEntries =
             new SynchronizedLocalJsonStore<List<BirthdayEntry>>("BirthdayEntries.json");
 
-        public BirthdaysCommand(HttpClient httpClient)
+        public BirthdaysCommand(HttpClient httpClient, Logger logger)
         {
+            _logger = logger;
             _teamUpClient = new TeamUpClient(
                 httpClient,
                 Secrets.TeamUp.APIKey,
@@ -470,7 +472,7 @@ namespace MihuBot.Commands
             {
                 SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
 
-                messages = (await channel.DangerousGetAllMessagesAsync($"Birthdays command ran by {ctx.Author.Username}"))
+                messages = (await channel.DangerousGetAllMessagesAsync(_logger, $"Birthdays command ran by {ctx.Author.Username}"))
                     .Select(m => SimpleMessageModel.FromMessage(m))
                     .ToArray();
 

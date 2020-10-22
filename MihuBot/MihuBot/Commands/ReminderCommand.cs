@@ -111,12 +111,14 @@ namespace MihuBot.Commands
 
         private readonly DiscordSocketClient _discord;
         private readonly IReminderService _reminderService;
+        private readonly Logger _logger;
         private readonly Timer _reminderTimer;
 
-        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService)
+        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, Logger logger)
         {
             _discord = discord;
             _reminderService = reminderService;
+            _logger = logger;
             _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
         }
 
@@ -226,7 +228,7 @@ namespace MihuBot.Commands
             }
             catch (Exception ex)
             {
-                Logger.DebugLog(ex.ToString());
+                _logger.DebugLog(ex.ToString());
             }
             finally
             {
@@ -234,7 +236,7 @@ namespace MihuBot.Commands
             }
         }
 
-        private static void Log(string message, ReminderEntry entry) =>
-            Logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
+        private void Log(string message, ReminderEntry entry) =>
+            _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
     }
 }

@@ -19,14 +19,16 @@ namespace MihuBot
     {
         private readonly HttpClient _http;
         private readonly DiscordSocketClient _discord;
+        private readonly Logger _logger;
 
         private readonly CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
         private readonly List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
 
-        public MihuBotService(IServiceProvider services, HttpClient httpClient, DiscordSocketClient discord)
+        public MihuBotService(IServiceProvider services, HttpClient httpClient, DiscordSocketClient discord, Logger logger)
         {
             _http = httpClient;
             _discord = discord;
+            _logger = logger;
 
             foreach (var type in Assembly
                 .GetExecutingAssembly()
@@ -123,7 +125,7 @@ namespace MihuBot
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
                     var command = match.Value;
-                    var context = new CommandContext(_discord, message, match.Key);
+                    var context = new CommandContext(_discord, message, match.Key, _logger);
 
                     if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                     {
@@ -147,7 +149,7 @@ namespace MihuBot
             }
             else
             {
-                var messageContext = new MessageContext(_discord, message);
+                var messageContext = new MessageContext(_discord, message, _logger);
 
                 foreach (var handler in _nonCommandHandlers)
                 {
@@ -226,7 +228,7 @@ namespace MihuBot
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                await Logger.Instance.DebugAsync("Beep boop. I'm back!");
+                await _logger.DebugAsync("Beep boop. I'm back!");
 
                 await _discord.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
             }
@@ -253,7 +255,7 @@ namespace MihuBot
 
                     if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                     {
-                        await Logger.Instance.OnShutdownAsync();
+                        await _logger.OnShutdownAsync();
                     }
                 }
                 finally

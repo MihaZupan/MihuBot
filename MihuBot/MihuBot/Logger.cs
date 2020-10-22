@@ -21,8 +21,6 @@ namespace MihuBot
 {
     public sealed class Logger
     {
-        public static Logger Instance { get; private set; }
-
         private const string LogsRoot = "logs/";
         private const string FilesRoot = LogsRoot + "files/";
 
@@ -41,8 +39,9 @@ namespace MihuBot
         private string JsonLogPath;
         private DateTime LogDate;
 
-        private readonly BlobContainerClient BlobContainerClient;
         private readonly Channel<(string FilePath, bool Delete)> FileArchivingChannel;
+        private readonly BlobContainerClient BlobContainerClient =
+            new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
 
         public async Task OnShutdownAsync()
         {
@@ -56,16 +55,25 @@ namespace MihuBot
 
         private async Task ChannelReaderTaskAsync()
         {
+            const int QueueSize = 100_000;
+            List<LogEvent> events = new List<LogEvent>(128);
             while (await LogChannel.Reader.WaitToReadAsync())
             {
+                while (events.Count < QueueSize && LogChannel.Reader.TryRead(out LogEvent logEvent))
+                {
+                    events.Add(logEvent);
+                }
+
                 await LogSemaphore.WaitAsync();
-                while (LogChannel.Reader.TryRead(out LogEvent logEvent))
+                foreach (LogEvent logEvent in events)
                 {
                     await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
                     await JsonLogStream.WriteAsync(NewLineByte);
                 }
                 await JsonLogStream.FlushAsync();
                 LogSemaphore.Release();
+
+                events.Clear();
 
                 if (DateTime.UtcNow.Date != LogDate)
                 {
@@ -239,12 +247,12 @@ namespace MihuBot
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
 
-        public static void DebugLog(string debugMessage, SocketUserMessage message) =>
+        public void DebugLog(string debugMessage, SocketUserMessage message) =>
             DebugLog(debugMessage, message?.Guild()?.Id ?? 0, message?.Channel.Id ?? 0, message?.Id ?? 0, message?.Author.Id ?? 0);
 
-        public static void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong authorId = 0)
+        public void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong authorId = 0)
         {
-            Instance.Log(new LogEvent(EventType.DebugMessage, guildId, channelId, messageId)
+            Log(new LogEvent(EventType.DebugMessage, guildId, channelId, messageId)
             {
                 Content = debugMessage,
                 UserID = authorId
@@ -277,8 +285,6 @@ namespace MihuBot
             _http = httpClient;
             _discord = discord;
 
-            Instance ??= this;
-
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
 
@@ -287,10 +293,9 @@ namespace MihuBot
             createLogStreamsTask.GetAwaiter().GetResult();
 
             LogChannel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions() { SingleReader = true });
-            Task.Run(ChannelReaderTaskAsync);
-
-            BlobContainerClient = new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
             FileArchivingChannel = Channel.CreateUnbounded<(string, bool)>(new UnboundedChannelOptions() { SingleReader = true });
+
+            Task.Run(ChannelReaderTaskAsync);
             Task.Run(FileArchivingTaskAsync);
 
             _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));

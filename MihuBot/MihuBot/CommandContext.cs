@@ -73,8 +73,8 @@ namespace MihuBot
             }
         }
 
-        public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command)
-            : base(discord, message)
+        public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger)
+            : base(discord, message, logger)
         {
             Command = command;
         }

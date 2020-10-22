@@ -10,6 +10,8 @@ namespace MihuBot
 {
     public class MessageContext
     {
+        private readonly Logger _logger;
+
         public readonly DiscordSocketClient Discord;
 
         public readonly SocketUserMessage Message;
@@ -18,8 +20,9 @@ namespace MihuBot
         public readonly bool IsMentioned;
         public readonly bool IsFromAdmin;
 
-        public MessageContext(DiscordSocketClient discord, SocketUserMessage message)
+        public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
         {
+            _logger = logger;
             Discord = discord;
             Message = message;
             Content = message.Content.Trim();
@@ -47,12 +50,12 @@ namespace MihuBot
             await ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
         }
 
-        internal async Task DebugAsync(string debugMessage) => await Logger.Instance.DebugAsync(debugMessage, Message);
+        internal async Task DebugAsync(string debugMessage) => await _logger.DebugAsync(debugMessage, Message);
 
         internal Task DebugAsync(Exception ex, string extraDebugInfo = "") =>
             DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
 
-        internal void DebugLog(string debugMessage) => Logger.DebugLog(debugMessage, Message);
+        internal void DebugLog(string debugMessage) => _logger.DebugLog(debugMessage, Message);
 
         internal void DebugLog(Exception ex, string extraDebugInfo = "") =>
             DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");

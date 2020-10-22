@@ -16,6 +16,13 @@ namespace MihuBot.Commands
 
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
 
+        private readonly Logger _logger;
+
+        public LogsCommand(Logger logger)
+        {
+            _logger = logger;
+        }
+
         public override async Task ExecuteAsync(CommandContext ctx)
         {
             if (!ctx.IsFromAdmin)
@@ -23,11 +30,9 @@ namespace MihuBot.Commands
 
             bool reset = ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase);
 
-            Logger logger = Logger.Instance;
-
             if (ctx.ArgumentLines.Length == 0 || reset)
             {
-                await logger.SendLogFilesAsync(logger.LogsReportsTextChannel, resetLogFiles: reset);
+                await _logger.SendLogFilesAsync(_logger.LogsReportsTextChannel, resetLogFiles: reset);
             }
             else
             {
@@ -151,7 +156,7 @@ namespace MihuBot.Commands
                     predicates.Add(le => inChannelFilters.Contains(le.ChannelID));
                 }
 
-                Logger.LogEvent[] logs = await logger.GetLogsAsync(after, before, predicates.ToArray().All);
+                Logger.LogEvent[] logs = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
 
                 if (logs.Length == 0)
                 {

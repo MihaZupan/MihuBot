@@ -181,9 +181,9 @@ namespace MihuBot.Helpers
             return users.Random();
         }
 
-        public static async Task<IMessage[]> DangerousGetAllMessagesAsync(this ITextChannel channel, string auditReason)
+        public static async Task<IMessage[]> DangerousGetAllMessagesAsync(this ITextChannel channel, Logger logger, string auditReason)
         {
-            Logger.DebugLog($"Fetching all messages for {channel.Name}", guildId: channel.GuildId, channelId: channel.Id);
+            logger.DebugLog($"Fetching all messages for {channel.Name}", guildId: channel.GuildId, channelId: channel.Id);
 
             var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: new RequestOptions()
             {

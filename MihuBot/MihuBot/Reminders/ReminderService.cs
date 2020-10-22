@@ -15,9 +15,12 @@ namespace MihuBot.Reminders
         private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders =
             new SynchronizedLocalJsonStore<List<ReminderEntry>>("Reminders.json");
 
-        public ReminderService()
+        private readonly Logger _logger;
+
+        public ReminderService(Logger logger)
         {
-            Logger.DebugLog($"Initializing {nameof(ReminderService)}");
+            _logger = logger;
+            _logger.DebugLog($"Initializing {nameof(ReminderService)}");
 
             List<ReminderEntry> reminders = _reminders.QueryAsync(i => i).GetAwaiter().GetResult();
 
@@ -72,7 +75,7 @@ namespace MihuBot.Reminders
             }
             catch (Exception ex)
             {
-                Logger.DebugLog(ex.ToString());
+                _logger.DebugLog(ex.ToString());
             }
 
             return entries ?? (IEnumerable<ReminderEntry>)Array.Empty<ReminderEntry>();
@@ -97,7 +100,7 @@ namespace MihuBot.Reminders
             }
         }
 
-        private static void Log(string message, ReminderEntry entry) =>
-            Logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
+        private void Log(string message, ReminderEntry entry) =>
+            _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
     }
 }
