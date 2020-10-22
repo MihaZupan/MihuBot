@@ -59,6 +59,15 @@ namespace MihuBot.Commands
                 }
 
                 if (url is null &&
+                    message.Content.StartsWith("https://cdn.discordapp.com/", StringComparison.OrdinalIgnoreCase) &&
+                    !message.Content.Contains(' ') &&
+                    Uri.TryCreate(message.Content, UriKind.Absolute, out _))
+                {
+                    url = message.Content;
+                    extension = Path.GetExtension(message.Content.Split('/').Last());
+                }
+
+                if (url is null &&
                     message.Content.StartsWith("https://tenor.com/view/", StringComparison.OrdinalIgnoreCase) &&
                     message.Content.Contains("-gif-", StringComparison.OrdinalIgnoreCase) &&
                     long.TryParse(message.Content.Split('-').Last(), out long id))
@@ -80,6 +89,7 @@ namespace MihuBot.Commands
                 if (url is null)
                     continue;
 
+                extension = extension.ToLowerInvariant();
                 string attachmentTempPath = Path.GetTempFileName() + extension;
                 string convertedFileTempPath = Path.GetTempFileName() + extension;
                 try
