@@ -58,7 +58,7 @@ namespace MihuBot.Commands
             {
                 if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@") && ctx.Arguments[0].EndsWith('>'))
                 {
-                    rngUser = ctx.Message.MentionedUsers.First();
+                    rngUser = ctx.Message.MentionedUsers.ToArray().Random();
                     at |= ctx.IsFromAdmin;
                 }
                 else if (ulong.TryParse(ctx.Arguments[0], out ulong userId))
@@ -77,14 +77,14 @@ namespace MihuBot.Commands
                             (ctx.Guild.GetUser(u.Id)?.Nickname?.Contains(pattern, StringComparison.OrdinalIgnoreCase) ?? false))
                         .ToArray();
 
-                    if (matches.Length == 1)
-                    {
-                        rngUser = matches[0];
-                    }
-                    else if (matches.Length > 1)
-                    {
-                        rngUser = matches.Where(u => u.Id != ctx.AuthorId).ToArray().Random();
-                    }
+                    if (matches.Length > 1)
+                        matches = matches.Where(u => u.Id != ctx.AuthorId).ToArray();
+
+                    if (matches.Length > 1)
+                        matches = matches.Where(u => u.Id != KnownUsers.Miha).ToArray();
+
+                    if (matches.Length > 0)
+                        rngUser = matches.Random();
                 }
             }
 

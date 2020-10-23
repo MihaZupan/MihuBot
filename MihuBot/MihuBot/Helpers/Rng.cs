@@ -105,11 +105,27 @@ namespace MihuBot.Helpers
 
         public static T Random<T>(this T[] array)
         {
+            if (array.Length < 2)
+            {
+                if (array.Length == 0)
+                    throw new ArgumentException("Array is empty", nameof(array));
+
+                return array[0];
+            }
+
             return array[Next(array.Length)];
         }
 
         public static T Random<T>(this List<T> list)
         {
+            if (list.Count < 2)
+            {
+                if (list.Count == 0)
+                    throw new ArgumentException("List is empty", nameof(list));
+
+                return list[0];
+            }
+
             return list[Next(list.Count)];
         }
 
