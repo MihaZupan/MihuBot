@@ -126,8 +126,8 @@ namespace MihuBot.Commands
 
                 await Task.Delay(TimeSpan.FromSeconds(3));
 
-                IUser winner = Rng.Bool() ? duel.UserOne : duel.UserTwo;
-                await ctx.ReplyAsync($"{winner} won! {Emotes.WeeHypers}");
+                SocketGuildUser winner = Rng.Bool() ? duel.UserOne : duel.UserTwo;
+                await ctx.ReplyAsync($"{winner.GetName()} won! {Emotes.WeeHypers}");
             }
             finally
             {
