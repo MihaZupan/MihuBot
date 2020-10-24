@@ -63,6 +63,9 @@
         guilds = discord.GetUser(userId).MutualGuilds
             .Where(g => GuildFilter(g, g.GetUser(userId)))
             .ToArray();
+
+        if (guilds.Length == 1)
+            selectedGuild = guilds.Single();
     }
 
     private void SetChannel(SocketTextChannel channel)

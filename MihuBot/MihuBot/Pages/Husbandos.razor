@@ -1,8 +1,9 @@
 ﻿@page "/husbandos"
-@attribute [Authorize(Policy = "Admin")]
+@attribute [Authorize]
 @using MihuBot.Husbando
 @inject DiscordSocketClient discord
 @inject IHusbandoService husbandoService
+@inject IHttpContextAccessor httpContextAccessor
 
 <table class="table">
     <thead class="thead-light">
@@ -24,15 +25,19 @@
 
 @code {
     KeyValuePair<ulong, (ulong[] Husbandos, ulong[] Waifus)>[] matches;
+    ulong userId;
 
     protected override async Task OnInitializedAsync()
     {
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
         await UpdateAsync();
     }
 
     private async Task UpdateAsync()
     {
-        var users = await husbandoService.GetAllUsersAsync();
+        var users = Constants.Admins.Contains(userId)
+            ? await husbandoService.GetAllUsersAsync()
+            : new ulong[] { userId };
 
         matches = new KeyValuePair<ulong, (ulong[], ulong[])>[users.Length];
 
