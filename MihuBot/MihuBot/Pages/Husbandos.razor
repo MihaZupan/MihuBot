@@ -16,9 +16,9 @@
     @foreach (var entry in matches.OrderBy(m => m.Key))
     {
         <tr>
-            <td scope="row">@(discord.GetUser(entry.Key)?.Username ?? "Jane Doe")</td>
-            <td>@string.Join(", ", entry.Value.Husbandos.Select(h => discord.GetUser(h)?.Username).Where(u => u != null))</td>
-            <td>@string.Join(", ", entry.Value.Waifus.Select(w => discord.GetUser(w)?.Username).Where(u => u != null))</td>
+            <td scope="row">@(discord.GetUser(entry.Key)?.GetName() ?? "Jane Doe")</td>
+            <td>@string.Join(", ", entry.Value.Husbandos.Select(h => discord.GetUser(h)?.GetName()).Where(u => u != null))</td>
+            <td>@string.Join(", ", entry.Value.Waifus.Select(w => discord.GetUser(w)?.GetName()).Where(u => u != null))</td>
         </tr>
     }
 </table>

@@ -37,7 +37,7 @@ namespace MihuBot.Commands
 
             EmbedBuilder pollEmbed = new EmbedBuilder()
                 .WithColor(r: 0, g: 255, b: 0)
-                .WithAuthor(ctx.Author.Username, ctx.Author.GetAvatarUrl());
+                .WithAuthor(ctx.Author.GetName(), ctx.Author.GetAvatarUrl());
 
             StringBuilder embedValue = new StringBuilder();
 

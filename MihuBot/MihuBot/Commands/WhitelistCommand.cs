@@ -43,7 +43,7 @@ namespace MihuBot.Commands
 
                         string FormatLine(ulong userId, string username)
                         {
-                            string discordUsername = ctx.Discord.GetUser(userId).Username;
+                            string discordUsername = ctx.Discord.GetUser(userId).GetName();
 
                             return username.PadRight(17, ' ') + discordUsername.Substring(0, Math.Min(discordUsername.Length, 20));
                         }
@@ -56,7 +56,7 @@ namespace MihuBot.Commands
                             await McCommand.RunMinecraftCommandAsync("whitelist remove " + username);
                             await McCommand.RunMinecraftCommandAsync("kick " + username);
 
-                            await ctx.ReplyAsync($"Removed {ctx.Discord.GetUser(id).Username} ({username}) from the whitelist", mention: true);
+                            await ctx.ReplyAsync($"Removed {ctx.Discord.GetUser(id).GetName()} ({username}) from the whitelist", mention: true);
                         }
                         else
                         {
@@ -81,7 +81,7 @@ namespace MihuBot.Commands
                         : $"{Emotes.PauseChamp}";
 
                     await ctx.ReplyAsync($"Sorry, it looks like you're not subscribed to at least one of the Dreamling Gang owners. You can find more information here: {info}", mention: true);
-                    await ctx.DebugAsync($"{ctx.Author.Username} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to be a subscriber");
+                    await ctx.DebugAsync($"{ctx.Author.GetName()} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to be a subscriber");
                     return;
                 }
 

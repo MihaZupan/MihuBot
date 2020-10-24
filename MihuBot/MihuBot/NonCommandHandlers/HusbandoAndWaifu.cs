@@ -69,7 +69,7 @@ namespace MihuBot.NonCommandHandlers
 
                             case "list":
                                 ulong[] partners = await _husbandoService.GetAllMatchesAsync(husbando, argId1);
-                                await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).Username))}\n```");
+                                await ctx.ReplyAsync($"```\n{string.Join('\n', partners.Select(p => ctx.Discord.GetUser(p).GetName()))}\n```");
                                 return;
                         }
                     }

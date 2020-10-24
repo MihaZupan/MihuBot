@@ -106,7 +106,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            string target = at ? MentionUtils.MentionUser(rngUser.Id) : rngUser.Username;
+            string target = at ? MentionUtils.MentionUser(rngUser.Id) : rngUser.GetName();
 
             bool targetIsAuthor = rngUser.Id == ctx.AuthorId;
 
@@ -140,7 +140,7 @@ namespace MihuBot.Commands
                     "laugh" => string.Empty,
                     "hiton" => string.Empty,
                     "uwu" => string.Empty,
-                    _ => $"{ctx.Author.Username} "
+                    _ => $"{ctx.Author.GetName()} "
                 };
 
                 await ctx.ReplyAsync($"{prefix}{reply}");

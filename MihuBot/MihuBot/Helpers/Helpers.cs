@@ -27,6 +27,11 @@ namespace MihuBot.Helpers
             return name;
         }
 
+        public static string GetName(this IUser user)
+        {
+            return (user as SocketGuildUser)?.GetName() ?? user.Username;
+        }
+
         public static bool IsAdmin(this ClaimsPrincipal claims)
         {
             return claims.TryGetUserId(out ulong userId)
