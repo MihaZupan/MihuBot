@@ -62,32 +62,36 @@ namespace MihuBot.Helpers
             }
         }
 
-        public bool TryPeek(MessageContext ctx)
+        public bool TryPeek(ulong userId)
         {
             return _timings is null
-                || (_adminOverride && ctx.IsFromAdmin)
-                || !_timings.TryGetValue(ctx.AuthorId, out UserTimings timings)
+                || (_adminOverride && Constants.Admins.Contains(userId))
+                || !_timings.TryGetValue(userId, out UserTimings timings)
                 || timings.Ticks != timings.TryGetNext(_cooldown, DateTime.UtcNow.Ticks).Ticks;
         }
 
-        public bool TryEnter(MessageContext ctx) => TryEnter(ctx, out _, out _);
+        public bool TryEnter(ulong userId) => TryEnter(userId, out _, out _);
 
-        public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn)
+        public bool TryEnter(ulong userId, out TimeSpan cooldown, out bool shouldWarn)
         {
             cooldown = TimeSpan.Zero;
             shouldWarn = false;
 
-            if (_timings is null || (_adminOverride && ctx.IsFromAdmin))
+            if (_timings is null)
+                return true;
+
+            bool isAdmin = Constants.Admins.Contains(userId);
+            if (isAdmin && _adminOverride)
                 return true;
 
             long cooldownTicks = _cooldown;
             long currentTicks = DateTime.UtcNow.Ticks;
 
             UserTimings newValue = _timings.AddOrUpdate(
-                ctx.AuthorId,
+                userId,
                 (_, state) => new UserTimings(state.Current, state.InitialTolerance, state.InitialTolerance),
                 (_, previous, state) => previous.TryGetNext(state.Cooldown, state.Current),
-                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (short)((ctx.IsFromAdmin ? 5 : 1) * _cooldownTolerance)));
+                (Current: currentTicks, Cooldown: cooldownTicks, InitialTolerance: (short)((isAdmin ? 5 : 1) * _cooldownTolerance)));
 
             if (newValue.Ticks == currentTicks)
             {

@@ -33,7 +33,7 @@ namespace MihuBot.NonCommandHandlers
             async Task StinkyHandler(MessageContext ctx)
             {
                 if (ctx.Guild.Id == Guilds.DDs && Rng.Chance(25) &&
-                    _stinkyGlobalTracker.TryEnter(state => state._stinkyUserTracker.TryEnter(state.ctx), (_stinkyUserTracker, ctx)))
+                    _stinkyGlobalTracker.TryEnter(state => state._stinkyUserTracker.TryEnter(state.AuthorId), (_stinkyUserTracker, ctx.AuthorId)))
                 {
                     await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
                 }

@@ -25,7 +25,9 @@
             @(selectedChannel?.Name ?? "Select channel")
         </button>
         <div class="dropdown-menu" aria-labelledby="channelsDropdown">
-            @foreach (var channel in selectedGuild.TextChannels.OrderBy(c => c.Position))
+            @foreach (var channel in selectedGuild.TextChannels
+                .Where(c => ChannelFilter(c, selectedGuild.GetUser(userId)))
+                .OrderBy(c => c.Position))
             {
                 <button @onclick="() => SetChannel(channel)"
                         class="dropdown-item" type="button">
@@ -43,14 +45,24 @@
     [Parameter]
     public Action OnChannelCleared { get; set; }
 
-    IReadOnlyCollection<SocketGuild> guilds;
+    [Parameter]
+    public Func<SocketGuild, SocketGuildUser, bool> GuildFilter { get; set; } = delegate { return true; };
+
+    [Parameter]
+    public Func<SocketTextChannel, SocketGuildUser, bool> ChannelFilter { get; set; } = delegate { return true; };
+
+
+    ulong userId;
+    SocketGuild[] guilds;
     SocketGuild selectedGuild;
     SocketTextChannel selectedChannel;
 
     protected override void OnInitialized()
     {
-        ulong userId = httpContextAccessor.HttpContext.User.GetUserId();
-        guilds = discord.GetUser(userId).MutualGuilds;
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
+        guilds = discord.GetUser(userId).MutualGuilds
+            .Where(g => GuildFilter(g, g.GetUser(userId)))
+            .ToArray();
     }
 
     private void SetChannel(SocketTextChannel channel)

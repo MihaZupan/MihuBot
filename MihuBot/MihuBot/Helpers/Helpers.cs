@@ -1,7 +1,6 @@
 ﻿using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
-using Microsoft.AspNetCore.Components.Authorization;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -20,6 +19,13 @@ namespace MihuBot.Helpers
         {
             return claims.TryGetUserId(out ulong userId)
                 && Constants.Admins.Contains(userId);
+        }
+
+        public static bool CanSendMessagesToChannel(this SocketTextChannel channel, ulong userId)
+        {
+            SocketGuildUser guildUser = channel.Guild.GetUser(userId);
+            return guildUser != null
+                && guildUser.GetPermissions(channel).SendMessages;
         }
 
         public static ulong GetUserId(this ClaimsPrincipal claims)

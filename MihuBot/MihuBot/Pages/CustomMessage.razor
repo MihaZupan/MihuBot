@@ -5,7 +5,12 @@
 
 <form @onsubmit="SendMessageAsync">
     <div class="form-group">
-        <MihuBot.Components.ChannelPicker OnChannelSelected="@OnChannelSelected" OnChannelCleared="@OnChannelCleared" />
+        <MihuBot.Components.ChannelPicker
+            OnChannelSelected="@OnChannelSelected"
+            OnChannelCleared="@OnChannelCleared"
+            ChannelFilter="(channel, user) =>
+                           channel.CanSendMessagesToChannel(user.Id) &&
+                           channel.CanSendMessagesToChannel(KnownUsers.MihuBot)" />
 
         @if (textChannel != null)
         {

@@ -1,0 +1,72 @@
+﻿@page "/kiss-a-homie"
+@attribute [Authorize]
+@inject DiscordSocketClient discord
+@inject IHttpContextAccessor httpContextAccessor
+
+<form>
+    <div class="form-group">
+        <MihuBot.Components.ChannelPicker
+            OnChannelSelected="@OnChannelSelected"
+            OnChannelCleared="@OnChannelCleared"
+            ChannelFilter="(channel, user) =>
+                            channel.CanSendMessagesToChannel(user.Id) &&
+                            channel.CanSendMessagesToChannel(KnownUsers.MihuBot)" />
+
+        @if (textChannel != null)
+        {
+            <div class="form-group input-group mb-3">
+                <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
+            </div>
+        }
+
+        @if (exception != null)
+        {
+            <div class="alert alert-danger">@exception</div>
+        }
+    </div>
+</form>
+
+@code
+{
+    private static readonly CooldownTracker _cooldown = new CooldownTracker(TimeSpan.FromHours(1), 0, adminOverride: true);
+
+    private string exception;
+    private SocketTextChannel textChannel;
+    private ulong userId;
+
+    protected override void OnInitialized()
+    {
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
+    }
+
+    private void OnChannelSelected(SocketTextChannel channel)
+    {
+        textChannel = channel;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnChannelCleared() => OnChannelSelected(null);
+
+    private async Task SendMessageAsync()
+    {
+        if (!_cooldown.TryEnter(userId, out var cooldown, out _))
+        {
+            exception = $"Please wait {(int)Math.Ceiling(cooldown.TotalSeconds)} more seconds";
+            return;
+        }
+        else
+        {
+            exception = null;
+        }
+
+        try
+        {
+            SocketGuildUser user = textChannel.GetUser(userId);
+            await textChannel.SendMessageAsync($"{user.Nickname ?? user.Username} wants to {Emotes.KissAHomie}");
+        }
+        catch (Exception ex)
+        {
+            exception = ex.ToString();
+        }
+    }
+}

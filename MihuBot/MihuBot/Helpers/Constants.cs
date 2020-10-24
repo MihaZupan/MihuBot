@@ -111,6 +111,7 @@ namespace MihuBot.Helpers
         public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708818227446284369>");
         public static Emote EyesShaking { get; }    = Emote.Parse("<a:eyesShaking:719904795091009636>");
         public static Emote James { get; }          = Emote.Parse("<:james:685587814330794040>");
+        public static Emote KissAHomie { get; }     = Emote.Parse("<a:KissAHomie:769335184750805003>");
         public static Emote PauseChamp { get; }     = Emote.Parse("<:PauseChamp:724041635821781002>");
         public static Emote PepePoint { get; }      = Emote.Parse("<:pepePoint:701207439273361408>");
         public static Emote WeirdChamp { get; }     = Emote.Parse("<:WeirdChamp:715663367741898785>");

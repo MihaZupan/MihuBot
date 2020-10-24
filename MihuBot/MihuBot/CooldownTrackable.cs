@@ -22,13 +22,13 @@ namespace MihuBot
         }
 
         public bool TryPeek(MessageContext ctx) =>
-            _cooldownTracker.TryPeek(ctx);
+            _cooldownTracker.TryPeek(ctx.AuthorId);
 
         public bool TryEnter(MessageContext ctx) =>
-            _cooldownTracker.TryEnter(ctx);
+            _cooldownTracker.TryEnter(ctx.AuthorId);
 
         public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn) =>
-            _cooldownTracker.TryEnter(ctx, out cooldown, out shouldWarn);
+            _cooldownTracker.TryEnter(ctx.AuthorId, out cooldown, out shouldWarn);
 
         public async Task<bool> TryEnterOrWarnAsync(MessageContext ctx)
         {
