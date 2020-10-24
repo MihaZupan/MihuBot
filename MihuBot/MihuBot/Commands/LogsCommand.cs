@@ -52,8 +52,7 @@ namespace MihuBot.Commands
                 bool afterSet = false, beforeSet = false, lastSet = false;
 
                 var fromFilters = new List<ulong>();
-                var inGuildFilters = new List<ulong>();
-                var inChannelFilters = new List<ulong>();
+                var inFilters = new List<ulong>();
 
                 DateTime after = new DateTime(2000, 1, 1);
                 DateTime before = new DateTime(3000, 1, 1);
@@ -123,14 +122,10 @@ namespace MihuBot.Commands
                         continue;
                     }
 
-                    var inMatch = Regex.Match(line, @"^in:? (\d+?)(?:[^\d](\d+?))?$", RegexOptions.IgnoreCase);
-                    if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong guildId))
+                    var inMatch = Regex.Match(line, @"^in:? (\d+?)$", RegexOptions.IgnoreCase);
+                    if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong id))
                     {
-                        inGuildFilters.Add(guildId);
-                        if (inMatch.Groups[2].Success && ulong.TryParse(inMatch.Groups[2].Value, out ulong channelId))
-                        {
-                            inChannelFilters.Add(channelId);
-                        }
+                        inFilters.Add(id);
                         continue;
                     }
                 }
@@ -146,14 +141,9 @@ namespace MihuBot.Commands
                     predicates.Add(le => fromFilters.Contains(le.UserID));
                 }
 
-                if (inGuildFilters.Count != 0)
+                if (inFilters.Count != 0)
                 {
-                    predicates.Add(le => inGuildFilters.Contains(le.GuildID));
-                }
-
-                if (inChannelFilters.Count != 0)
-                {
-                    predicates.Add(le => inChannelFilters.Contains(le.ChannelID));
+                    predicates.Add(le => inFilters.Contains(le.GuildID) || inFilters.Contains(le.ChannelID));
                 }
 
                 Logger.LogEvent[] logs = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
