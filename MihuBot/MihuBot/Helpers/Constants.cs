@@ -98,6 +98,7 @@ namespace MihuBot.Helpers
         // DDs
         public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
         public static Emote DarlBoop { get; }       = Emote.Parse("<:dbp:767763877697945630>");
+        public static Emote DarlFighting { get; }   = Emote.Parse("<a:darlFighting:758118026523967529>");
         public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
         public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
         public static Emote DarlPatPat { get; }     = Emote.Parse("<a:darlPatPat:760596696090279937>");
@@ -105,6 +106,7 @@ namespace MihuBot.Helpers
         public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlZoom:574377475115581440>");
         public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
         public static Emote PudeesJammies { get; }  = Emote.Parse("<a:pudeesJammies:686340394866573338>");
+        public static Emote WeeHypers { get; }      = Emote.Parse("<a:WeeHypers:758118343210434603>");
         public static Emote YesW { get; }           = Emote.Parse("<:yesW:726548253059055759>");
 
         // Mihu

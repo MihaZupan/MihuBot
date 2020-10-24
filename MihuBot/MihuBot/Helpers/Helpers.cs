@@ -15,6 +15,18 @@ namespace MihuBot.Helpers
 {
     public static class Helpers
     {
+        public static string GetName(this SocketGuildUser user)
+        {
+            string name = user.Nickname ?? user.Username;
+
+            int splitIndex = name.IndexOf('|');
+
+            if (splitIndex != -1)
+                name = name.Substring(splitIndex + 1).Trim();
+
+            return name;
+        }
+
         public static bool IsAdmin(this ClaimsPrincipal claims)
         {
             return claims.TryGetUserId(out ulong userId)

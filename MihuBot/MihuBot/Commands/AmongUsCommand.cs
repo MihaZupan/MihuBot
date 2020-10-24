@@ -67,7 +67,7 @@ namespace MihuBot.Commands
                     case 4:
                         await SendEmbedAsync(ctx, "RENAMED",
                             "Everyone gets renamed. Called a person by their real name? Drink!\n" +
-                            $"```{string.Join('\n', pairs.Select(p => $"{GetName(p.First)} chooses an IGN for {GetName(p.Second)}"))}```");
+                            $"```{string.Join('\n', pairs.Select(p => $"{p.First.GetName()} chooses an IGN for {p.Second.GetName()}"))}```");
                         break;
 
                     default:
@@ -97,7 +97,7 @@ namespace MihuBot.Commands
                     case 5:
                         string name = players.Any(u => u.Id == KnownUsers.James)
                             ? "James"
-                            : name = GetName(players.Random());
+                            : name = players.Random().GetName();
 
                         await SendEmbedAsync(ctx,
                             $"{name.ToUpperInvariant()}{((name[^1] | 0x20) == 's' ? "'" : "'s")} CURSE",
@@ -192,19 +192,9 @@ namespace MihuBot.Commands
                     embed: embed);
             }
 
-            static string GetName(SocketGuildUser user)
-            {
-                string name = user.Nickname ?? user.Username;
-
-                if (name.Contains('|'))
-                    name = name.Substring(name.IndexOf('|') + 1).Trim();
-
-                return name;
-            }
-
             static string GetNamePairs((SocketGuildUser First, SocketGuildUser Second)[] pairs, string separator)
             {
-                return string.Join('\n', pairs.Select(p => $"{GetName(p.First)}{separator}{GetName(p.Second)}"));
+                return string.Join('\n', pairs.Select(p => $"{p.First.GetName()}{separator}{p.Second.GetName()}"));
             }
         }
     }

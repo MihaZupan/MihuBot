@@ -33,7 +33,7 @@ namespace MihuBot
         public ISocketMessageChannel Channel => Message.Channel;
         public SocketGuild Guild => Message.Guild();
 
-        public SocketUser Author => Message.Author;
+        public SocketGuildUser Author => (SocketGuildUser)Message.Author;
         public ulong AuthorId => Author.Id;
 
         public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false)

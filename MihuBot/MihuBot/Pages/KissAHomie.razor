@@ -67,7 +67,7 @@
         {
             SocketGuildUser user = textChannel.GetUser(userId);
             progress = "Sending ...";
-            await textChannel.SendMessageAsync($"{user.Nickname ?? user.Username} wants to {Emotes.KissAHomie}");
+            await textChannel.SendMessageAsync($"{user.GetName()} wants to {Emotes.KissAHomie}");
             progress = "Sent";
         }
         catch (Exception ex)
