@@ -37,10 +37,11 @@ namespace MihuBot
                 {
                     try
                     {
+                        string text = message.Message;
                         if ((message.IsBroadcaster || message.IsModerator) &&
-                            message.Message.StartsWith("!add ", StringComparison.OrdinalIgnoreCase))
+                            text.StartsWith("!add ", StringComparison.OrdinalIgnoreCase))
                         {
-                            string toAdd = message.Message.Substring(5).Trim();
+                            string toAdd = text.Substring(5).Trim();
                             _logger.DebugLog($"Twitch: Adding {toAdd} to the list. Requested by {message.Username}");
                             await _discord.GetTextChannel(Guilds.Mihu, Channels.TwitchAddLogs).SendMessageAsync(toAdd);
                             _client.SendMessage(message.Channel, $"{toAdd} darlG");
@@ -58,6 +59,7 @@ namespace MihuBot
         {
             _client.Connect();
             Task.Run(ChannelReaderTaskAsync);
+            _client.SendMessage(Secrets.Twitch.ChannelName, "Beep boop");
             return Task.CompletedTask;
         }
 
