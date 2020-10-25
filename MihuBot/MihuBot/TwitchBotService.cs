@@ -51,6 +51,10 @@ namespace MihuBot
                     {
                         await _logger.DebugAsync(ex.ToString());
                     }
+                    finally
+                    {
+                        _logger.DebugLog(message.RawIrcMessage);
+                    }
                 }
             }
         }
@@ -59,7 +63,6 @@ namespace MihuBot
         {
             _client.Connect();
             Task.Run(ChannelReaderTaskAsync);
-            _client.SendMessage(Secrets.Twitch.ChannelName, "Beep boop");
             return Task.CompletedTask;
         }
 
