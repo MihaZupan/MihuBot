@@ -12,6 +12,7 @@ using MihuBot.Husbando;
 using MihuBot.Reminders;
 using StackExchange.Redis;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 
@@ -37,7 +38,11 @@ namespace MihuBot
                     .PersistDataToDirectory(certDir, "certpass123");
             }
 
-            services.AddSingleton<HttpClient>();
+            var httpClient = new HttpClient(new HttpClientHandler()
+            {
+                AutomaticDecompression = DecompressionMethods.All
+            });
+            services.AddSingleton(httpClient);
 
             services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect($"{Secrets.Redis.DatabaseAddress},password={Secrets.Redis.DatabasePassword}"));
 
@@ -50,6 +55,8 @@ namespace MihuBot
             services.AddSingleton(discord);
 
             services.AddSingleton<Logger>();
+
+            services.AddSingleton<StreamerSongListClient>();
 
             services.AddSingleton<IReminderService, ReminderService>();
 
