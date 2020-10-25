@@ -57,6 +57,8 @@ namespace MihuBot
 
             services.AddHostedService<MihuBotService>();
 
+            services.AddHostedService<TwitchBotService>();
+
             services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
