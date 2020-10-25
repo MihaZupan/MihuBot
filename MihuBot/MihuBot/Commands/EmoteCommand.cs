@@ -89,6 +89,9 @@ namespace MihuBot.Commands
                 if (url is null)
                     continue;
 
+                if (extension.Contains('?'))
+                    extension = extension.Split('?')[0];
+
                 extension = extension.ToLowerInvariant();
                 string attachmentTempPath = Path.GetTempFileName() + extension;
                 string convertedFileTempPath = Path.GetTempFileName() + extension;
