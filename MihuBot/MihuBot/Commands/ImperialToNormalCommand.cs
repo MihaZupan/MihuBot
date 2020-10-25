@@ -16,7 +16,7 @@ namespace MihuBot.Commands
             bool imperialToNormal = ctx.Command == "imperialtonormal";
 
             string[] parts = ctx.ArgumentString.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 1)
+            if (parts.Length == 0)
                 return;
 
             var quantifierMatch = Regex.Match(ctx.ArgumentString, @"^-?[\d\.,]*");
