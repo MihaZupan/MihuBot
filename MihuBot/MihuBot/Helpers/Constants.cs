@@ -15,6 +15,7 @@ namespace MihuBot.Helpers
             KnownUsers.Jaeger,
             KnownUsers.Jordan,
             KnownUsers.Doomi,
+            KnownUsers.Darling,
         };
 
         public const string VCDefaultVolume = "0.25";
@@ -73,6 +74,7 @@ namespace MihuBot.Helpers
         public const ulong Jaeger       = 145719024544645120ul;
         public const ulong Jordan       = 236455327535464458ul;
         public const ulong Doomi        = 238754130233917440ul;
+        public const ulong Darling      = 399843400041365516ul;
 
         public const ulong Liv          = 244637014547234816ul;
         public const ulong CurtIs       = 237788815626862593ul;
