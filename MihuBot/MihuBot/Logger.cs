@@ -765,7 +765,7 @@ RecipientAdded
                     builder.Append(": ");
                     AppendChannelName(builder, client, GuildID, ChannelID);
 
-                    if (Content != null)
+                    if (Content != null && Type != EventType.FileReceived)
                     {
                         if (UserID != default)
                         {
