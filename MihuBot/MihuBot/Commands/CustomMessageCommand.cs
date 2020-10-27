@@ -13,7 +13,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!await ctx.RequirePermissionAsync("custommessage"))
                 return;
 
             string[] lines = ctx.Content.Split('\n');

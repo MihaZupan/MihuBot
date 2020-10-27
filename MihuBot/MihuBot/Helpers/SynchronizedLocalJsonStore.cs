@@ -32,6 +32,8 @@ namespace MihuBot.Helpers
             _asyncLock = new SemaphoreSlim(1, 1);
         }
 
+        public T DangerousGetValue() => _value;
+
         public async ValueTask<TResult> QueryAsync<TResult>(Func<T, TResult> selector)
         {
             await _asyncLock.WaitAsync();

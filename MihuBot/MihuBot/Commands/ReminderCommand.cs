@@ -14,13 +14,13 @@ namespace MihuBot.Commands
     public sealed class ReminderCommand : CommandBase
     {
         public override string Command => "reminder";
-        public override string[] Aliases => new[] { "remind", "remindme" };
+        public override string[] Aliases => new[] { "remind", "reminders", "remindme" };
 
         protected override TimeSpan Cooldown => TimeSpan.FromSeconds(30);
         protected override int CooldownToleranceCount => 2;
 
         private static readonly Regex _reminderRegex = new Regex(
-            @"^remind(?:er|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
+            @"^remind(?:ers?|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             TimeSpan.FromSeconds(2));
 

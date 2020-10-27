@@ -1,12 +1,16 @@
 ﻿using Discord.WebSocket;
 using MihuBot.Helpers;
+using MihuBot.Permissions;
 using System;
+using System.Threading.Tasks;
 
 namespace MihuBot
 {
     public sealed class CommandContext : MessageContext
     {
         public readonly string Command;
+
+        private readonly IPermissionsService _permissions;
 
         private string[] _arguments;
         public string[] Arguments
@@ -73,10 +77,33 @@ namespace MihuBot
             }
         }
 
-        public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger)
+        public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger, IPermissionsService permissions)
             : base(discord, message, logger)
         {
             Command = command;
+            _permissions = permissions;
         }
+
+        public ValueTask<bool> RequirePermissionAsync(string permission)
+        {
+            if (HasPermission(permission))
+            {
+                return new ValueTask<bool>(true);
+            }
+            else
+            {
+                return WarnAsync(this, permission);
+
+                static async ValueTask<bool> WarnAsync(CommandContext ctx, string permission)
+                {
+                    ctx.DebugLog($"Missing permission {permission}");
+                    await ctx.ReplyAsync($"Missing permission `{permission}`", mention: true);
+                    return false;
+                }
+            }
+        }
+
+        public bool HasPermission(string permission) =>
+            _permissions.HasPermission(permission, AuthorId);
     }
 }

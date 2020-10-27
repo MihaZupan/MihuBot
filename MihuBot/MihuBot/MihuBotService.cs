@@ -3,6 +3,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
+using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System;
 using System.Collections.Generic;
@@ -20,15 +21,17 @@ namespace MihuBot
         private readonly HttpClient _http;
         private readonly DiscordSocketClient _discord;
         private readonly Logger _logger;
+        private readonly IPermissionsService _permissions;
 
         private readonly CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
         private readonly List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
 
-        public MihuBotService(IServiceProvider services, HttpClient httpClient, DiscordSocketClient discord, Logger logger)
+        public MihuBotService(IServiceProvider services, HttpClient httpClient, DiscordSocketClient discord, Logger logger, IPermissionsService permissions)
         {
             _http = httpClient;
             _discord = discord;
             _logger = logger;
+            _permissions = permissions;
 
             foreach (var type in Assembly
                 .GetExecutingAssembly()
@@ -125,7 +128,7 @@ namespace MihuBot
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
                     var command = match.Value;
-                    var context = new CommandContext(_discord, message, match.Key, _logger);
+                    var context = new CommandContext(_discord, message, match.Key, _logger, _permissions);
 
                     if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                     {

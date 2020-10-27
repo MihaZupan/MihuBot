@@ -23,7 +23,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin || ctx.Arguments.Length == 0 || ctx.Arguments.Length > 2)
+            if (!await ctx.RequirePermissionAsync("emote") || ctx.Arguments.Length == 0 || ctx.Arguments.Length > 2)
                 return;
 
             ulong guildId = Guilds.PrivateLogs;

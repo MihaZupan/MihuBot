@@ -11,7 +11,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!(ctx.IsFromAdmin || ctx.AuthorId == KnownUsers.Brandon))
+            if (!await ctx.RequirePermissionAsync("mc"))
                 return;
 
             try

@@ -1,7 +1,8 @@
 ﻿@page "/custom-message"
-@attribute [Authorize(Policy = "Admin")]
+@attribute [Authorize]
 @inject DiscordSocketClient discord
 @inject IHttpContextAccessor httpContextAccessor
+@inject IPermissionsService permissions
 
 <form @onsubmit="SendMessageAsync">
     <div class="form-group">
@@ -31,9 +32,15 @@
 
 @code
 {
+    private ulong userId;
     private string currentValue;
     private string exception;
-    SocketTextChannel textChannel;
+    private SocketTextChannel textChannel;
+
+    protected override void OnInitialized()
+    {
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
+    }
 
     private void OnChannelSelected(SocketTextChannel channel)
     {
@@ -52,7 +59,15 @@
         {
             string message = currentValue;
             currentValue = null;
-            await textChannel.SendMessageAsync(message.Trim());
+
+            if (permissions.HasPermission("custommessage", userId))
+            {
+                await textChannel.SendMessageAsync(message.Trim());
+            }
+            else
+            {
+                exception = "Missing permission: custommessage";
+            }
         }
         catch (Exception ex)
         {

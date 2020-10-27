@@ -22,7 +22,7 @@ namespace MihuBot.Reminders
             _logger = logger;
             _logger.DebugLog($"Initializing {nameof(ReminderService)}");
 
-            List<ReminderEntry> reminders = _reminders.QueryAsync(i => i).GetAwaiter().GetResult();
+            List<ReminderEntry> reminders = _reminders.DangerousGetValue();
 
             foreach (var reminder in reminders)
                 _remindersHeap.Push(reminder);

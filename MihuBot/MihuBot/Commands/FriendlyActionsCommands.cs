@@ -28,14 +28,8 @@ namespace MihuBot.Commands
 
             if (ctx.Command == "spit" || ctx.Command == "curbstomp" || ctx.Command == "beatup")
             {
-                if (!ctx.IsFromAdmin &&
-                    ctx.AuthorId != KnownUsers.Sticky &&
-                    ctx.AuthorId != KnownUsers.Ai &&
-                    ctx.AuthorId != KnownUsers.Joster &&
-                    ctx.AuthorId != KnownUsers.Awescar)
-                {
+                if (!ctx.HasPermission($"friendlyactions.{ctx.Command}"))
                     return;
-                }
             }
 
             if (ctx.Command == "smell")
@@ -46,10 +40,18 @@ namespace MihuBot.Commands
 
             bool at = false, rig = false;
 
-            if (ctx.IsFromAdmin && ctx.Arguments.Length > 0)
+            if (ctx.Arguments.Length > 0)
             {
                 at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
+                if (at && !await ctx.RequirePermissionAsync("friendlyactions.at"))
+                    return;
+            }
+
+            if (ctx.Arguments.Length > 1)
+            {
                 rig = ctx.Arguments[^1].Equals("rig", StringComparison.OrdinalIgnoreCase);
+                if (rig && !await ctx.RequirePermissionAsync("friendlyactions.rig"))
+                    return;
             }
 
             IUser rngUser = null;
@@ -59,7 +61,7 @@ namespace MihuBot.Commands
                 if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@") && ctx.Arguments[0].EndsWith('>'))
                 {
                     rngUser = ctx.Message.MentionedUsers.ToArray().Random();
-                    at |= ctx.IsFromAdmin;
+                    at = ctx.HasPermission("friendlyactions.at");
                 }
                 else if (ulong.TryParse(ctx.Arguments[0], out ulong userId))
                 {

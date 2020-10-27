@@ -13,8 +13,8 @@ namespace MihuBot.Commands
             if (!ctx.IsFromAdmin)
                 return;
 
-            var guild = ctx.Guild;
-            await ctx.ReplyAsync("I listen to:\n" + string.Join(", ", guild.Users.Where(u => u.IsAdmin()).Select(a => a.GetName())));
+            await ctx.ReplyAsync("I listen to:\n" +
+                string.Join(", ", ctx.Guild.Users.Where(u => u.IsAdmin()).Select(a => a.GetName())));
         }
     }
 }

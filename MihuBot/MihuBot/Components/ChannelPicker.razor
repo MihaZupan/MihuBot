@@ -60,7 +60,7 @@
     protected override void OnInitialized()
     {
         userId = httpContextAccessor.HttpContext.User.GetUserId();
-        guilds = discord.GetUser(userId).MutualGuilds
+        guilds = (discord.GetUser(userId)?.MutualGuilds ?? Array.Empty<SocketGuild>())
             .Where(g => GuildFilter(g, g.GetUser(userId)))
             .ToArray();
 

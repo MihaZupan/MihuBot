@@ -136,23 +136,6 @@ namespace MihuBot.Helpers
             return guild != null && message.Author.IsAdmin();
         }
 
-        public static bool AuthorHasSafePermissions(this SocketMessage message)
-        {
-            var guild = message.Guild();
-
-            if (guild is null || guild.Id != Guilds.DDs)
-                return false;
-
-            var user = message.Author;
-
-            return user.Id == KnownUsers.Conor
-                || user.Id == KnownUsers.Sticky
-                || user.Id == KnownUsers.Sfae
-                || user.Id == KnownUsers.CurtIs
-                || user.Id == KnownUsers.Christian
-                || user.Id == KnownUsers.Maric;
-        }
-
         public static bool All<T>(this Predicate<T>[] predicates, T value)
         {
             foreach (var predicate in predicates)

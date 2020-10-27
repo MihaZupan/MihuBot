@@ -12,7 +12,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!(ctx.IsFromAdmin || ctx.Message.AuthorHasSafePermissions()))
+            if (!await ctx.RequirePermissionAsync("poll"))
                 return;
 
             string[] parts = StringHelpers.TrySplitQuotedArgumentString(ctx.ArgumentString, out string error);

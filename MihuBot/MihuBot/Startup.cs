@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
 using MihuBot.Husbando;
+using MihuBot.Permissions;
 using MihuBot.Reminders;
 using StackExchange.Redis;
 using System.IO;
@@ -57,6 +58,8 @@ namespace MihuBot
             services.AddSingleton<Logger>();
 
             services.AddSingleton<StreamerSongListClient>();
+
+            services.AddSingleton<IPermissionsService, PermissionsService>();
 
             services.AddSingleton<IReminderService, ReminderService>();
 

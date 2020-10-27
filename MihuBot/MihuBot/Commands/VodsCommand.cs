@@ -25,7 +25,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!await ctx.RequirePermissionAsync("vods"))
                 return;
 
             if (!ctx.Arguments.Any())

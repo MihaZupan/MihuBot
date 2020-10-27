@@ -10,7 +10,10 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (ctx.IsFromAdmin && ctx.IsMentioned)
+            if (!await ctx.RequirePermissionAsync(ctx.Command))
+                return;
+
+            if (ctx.IsMentioned)
             {
                 if (ctx.Command == "update")
                 {

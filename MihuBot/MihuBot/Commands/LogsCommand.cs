@@ -25,7 +25,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!await ctx.RequirePermissionAsync("logs"))
                 return;
 
             bool reset = ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase);

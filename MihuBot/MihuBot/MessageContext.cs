@@ -18,7 +18,6 @@ namespace MihuBot
         public readonly string Content;
 
         public readonly bool IsMentioned;
-        public readonly bool IsFromAdmin;
 
         public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
         {
@@ -27,11 +26,12 @@ namespace MihuBot
             Message = message;
             Content = message.Content.Trim();
             IsMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
-            IsFromAdmin = message.AuthorIsAdmin();
         }
 
         public ISocketMessageChannel Channel => Message.Channel;
         public SocketGuild Guild => Message.Guild();
+
+        public bool IsFromAdmin => Constants.Admins.Contains(AuthorId);
 
         public SocketGuildUser Author => (SocketGuildUser)Message.Author;
         public ulong AuthorId => Author.Id;

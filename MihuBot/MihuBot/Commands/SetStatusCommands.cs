@@ -11,7 +11,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!await ctx.RequirePermissionAsync("setstatus"))
                 return;
 
             string name = ctx.ArgumentString, streamUrl = null;
