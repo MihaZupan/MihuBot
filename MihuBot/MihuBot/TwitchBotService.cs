@@ -71,6 +71,10 @@ namespace MihuBot
                         {
                             _client.SendMessage(message.Channel, "@xJoster");
                         }
+                        else if (text.Contains("penis", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _client.SendMessage(message.Channel, "YEP");
+                        }
                         else if (text.StartsWith("!merch", StringComparison.OrdinalIgnoreCase))
                         {
                             _client.SendMessage(message.Channel, "https://streamlabs.com/darleeng/merch");
