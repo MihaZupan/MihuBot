@@ -237,7 +237,10 @@ namespace MihuBot
                     {
                         await _discord.DownloadUsersAsync(_discord.Guilds);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.DebugLog(ex.ToString());
+                    }
                 });
 
                 await _logger.DebugAsync("Beep boop. I'm back!");
