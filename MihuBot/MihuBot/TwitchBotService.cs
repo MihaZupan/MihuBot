@@ -29,6 +29,13 @@ namespace MihuBot
             _client.Initialize(credentials, Secrets.Twitch.ChannelName);
 
             _client.OnMessageReceived += (s, e) => _messageChannel.Writer.TryWrite(e.ChatMessage);
+            _client.OnJoinedChannel += (s, e) =>
+            {
+                if (e.Channel.Equals(Secrets.Twitch.ChannelName, StringComparison.OrdinalIgnoreCase))
+                {
+                    _client.SendMessage(e.Channel, "Beep boop darlBoop");
+                }
+            };
         }
 
         private async Task ChannelReaderTaskAsync()
@@ -55,6 +62,14 @@ namespace MihuBot
                                 string artist = toAdd.Substring(byIndex + 4).Trim();
                                 await _songListClient.TryAddSongAsync(title, artist);
                             }
+                        }
+                        else if (text.Contains("stinky", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _client.SendMessage(message.Channel, "@Goldenqt");
+                        }
+                        else if (text.StartsWith("!merch", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _client.SendMessage(message.Channel, "https://streamlabs.com/darleeng/merch");
                         }
                     }
                     catch (Exception ex)
