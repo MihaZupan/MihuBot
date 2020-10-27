@@ -8,7 +8,6 @@ namespace MihuBot.Commands
     public sealed class ImperialToNormalCommand : CommandBase
     {
         public override string Command => "imperialtonormal";
-
         public override string[] Aliases => new[] { "normaltoimperial" };
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -85,6 +84,11 @@ namespace MihuBot.Commands
                         conversion = v => v * 0.2641720524m;
                         format = "gallon";
                         appendS = true;
+                        break;
+
+                    case "c": case "celsius":
+                        conversion = v => (v * 1.8m) + 32;
+                        format = " fahrenheit";
                         break;
                 }
             }
