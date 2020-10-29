@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using MihuBot.Email;
 using MihuBot.Helpers;
 using MihuBot.Husbando;
 using MihuBot.Permissions;
@@ -60,6 +61,8 @@ namespace MihuBot
             services.AddSingleton<StreamerSongListClient>();
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
+
+            services.AddSingleton<IEmailService, EmailService>();
 
             services.AddSingleton<IReminderService, ReminderService>();
 
