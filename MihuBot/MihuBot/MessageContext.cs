@@ -36,12 +36,12 @@ namespace MihuBot
         public SocketGuildUser Author => (SocketGuildUser)Message.Author;
         public ulong AuthorId => Author.Id;
 
-        public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false, AllowedMentions allowedMentions = null)
+        public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false, bool suppressMentions = false)
         {
             if (mention)
                 text = MentionUtils.MentionUser(AuthorId) + " " + text;
 
-            return await Channel.SendMessageAsync(text, allowedMentions: allowedMentions);
+            return await Channel.SendMessageAsync(text, allowedMentions: suppressMentions ? AllowedMentions.None : null);
         }
 
         public async Task WarnCooldownAsync(TimeSpan cooldown)

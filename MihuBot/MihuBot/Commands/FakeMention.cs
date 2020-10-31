@@ -18,7 +18,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            await ctx.ReplyAsync(MentionUtils.MentionUser(userId), allowedMentions: AllowedMentions.None);
+            await ctx.ReplyAsync(MentionUtils.MentionUser(userId), suppressMentions: true);
         }
     }
 }
