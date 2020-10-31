@@ -28,7 +28,7 @@ namespace MihuBot
             IsMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
         }
 
-        public ISocketMessageChannel Channel => Message.Channel;
+        public SocketTextChannel Channel => (SocketTextChannel)Message.Channel;
         public SocketGuild Guild => Message.Guild();
 
         public bool IsFromAdmin => Constants.Admins.Contains(AuthorId);
@@ -36,12 +36,12 @@ namespace MihuBot
         public SocketGuildUser Author => (SocketGuildUser)Message.Author;
         public ulong AuthorId => Author.Id;
 
-        public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false)
+        public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false, AllowedMentions allowedMentions = null)
         {
             if (mention)
                 text = MentionUtils.MentionUser(AuthorId) + " " + text;
 
-            return await Channel.SendMessageAsync(text);
+            return await Channel.SendMessageAsync(text, allowedMentions: allowedMentions);
         }
 
         public async Task WarnCooldownAsync(TimeSpan cooldown)

@@ -91,6 +91,7 @@ namespace MihuBot.Helpers
         public const ulong Brandon      = 138790549661417473ul;
         public const ulong Joster       = 105498799706759168ul;
         public const ulong Awescar      = 228363521077805068ul;
+        public const ulong Richard      = 136981443497689088ul;
     }
 
     public static class Emotes

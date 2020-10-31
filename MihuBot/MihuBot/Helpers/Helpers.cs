@@ -95,7 +95,7 @@ namespace MihuBot.Helpers
             await message.Channel.SendMessageAsync(mention ? string.Concat(MentionUtils.MentionUser(message.Author.Id), " ", text) : text);
         }
 
-        public static async Task<RestUserMessage> SendTextFileAsync(this ISocketMessageChannel channel, string name, string content)
+        public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)
         {
             byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));
             try
@@ -108,6 +108,17 @@ namespace MihuBot.Helpers
             {
                 ArrayPool<byte>.Shared.Return(bytes);
             }
+        }
+
+        public static Task<RestUserMessage> SendFileAsync(this SocketTextChannel channel, Stream stream, string filename, string text = null, bool isTTS = false, Embed embed = null, RequestOptions options = null, bool isSpoiler = false)
+        {
+            return channel.SendFileAsync(stream, filename, text, isTTS, embed, options, isSpoiler);
+        }
+
+        public static IAsyncEnumerable<IReadOnlyCollection<IUser>> GetUsersAsync(this SocketTextChannel channel, CacheMode mode = CacheMode.AllowDownload, RequestOptions options = null)
+        {
+            // TODO: Why is this needed?
+            return ((IChannel)channel).GetUsersAsync(mode, options);
         }
 
         public static SocketTextChannel GetTextChannel(this DiscordSocketClient client, ulong guildId, ulong channelId)
