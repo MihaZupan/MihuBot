@@ -621,5 +621,89 @@
     "DiscordMessageId": 765791326649581568,
     "DiscordAuthorId": 412107993413320714,
     "TeamUpEventId": "810541981"
+  },
+  {
+    "Name": "The_OneCrow",
+    "Date": "2020-05-21T00:00:00",
+    "DiscordMessageId": 766124325237162034,
+    "DiscordAuthorId": 389997088404013057,
+    "TeamUpEventId": "811682257"
+  },
+  {
+    "Name": "ZH7690",
+    "Date": "2020-11-21T00:00:00",
+    "DiscordMessageId": 766411533022003211,
+    "DiscordAuthorId": 288434048106233858,
+    "TeamUpEventId": "811682323"
+  },
+  {
+    "Name": "OakMar",
+    "Date": "2020-09-18T00:00:00",
+    "DiscordMessageId": 766422768287744000,
+    "DiscordAuthorId": 493924776314667048,
+    "TeamUpEventId": "811682423"
+  },
+  {
+    "Name": "ajlderamos",
+    "Date": "2020-05-23T00:00:00",
+    "DiscordMessageId": 766462704814129162,
+    "DiscordAuthorId": 544495780560633868,
+    "TeamUpEventId": "811682509"
+  },
+  {
+    "Name": "hiderikanzaki12",
+    "Date": "2020-02-01T00:00:00",
+    "DiscordMessageId": 767628347970420737,
+    "DiscordAuthorId": 717150554488569927,
+    "TeamUpEventId": "819130396"
+  },
+  {
+    "Name": "Twitchie",
+    "Date": "2020-09-23T00:00:00",
+    "DiscordMessageId": 768825640349990932,
+    "DiscordAuthorId": 71869549292560384,
+    "TeamUpEventId": "819130400"
+  },
+  {
+    "Name": "Zer0_Design",
+    "Date": "2020-03-05T00:00:00",
+    "DiscordMessageId": 769383340741492736,
+    "DiscordAuthorId": 183858870727344128,
+    "TeamUpEventId": "819130636"
+  },
+  {
+    "Name": "el_VAB",
+    "Date": "2020-04-25T00:00:00",
+    "DiscordMessageId": 770019158842146826,
+    "DiscordAuthorId": 653992251743141901,
+    "TeamUpEventId": "819130719"
+  },
+  {
+    "Name": "Zaballa",
+    "Date": "2020-03-15T00:00:00",
+    "DiscordMessageId": 770580509192486932,
+    "DiscordAuthorId": 197983972842536960,
+    "TeamUpEventId": "819130828"
+  },
+  {
+    "Name": "Swathy",
+    "Date": "2020-06-22T00:00:00",
+    "DiscordMessageId": 770890494166827010,
+    "DiscordAuthorId": 746297542895075410,
+    "TeamUpEventId": "819130987"
+  },
+  {
+    "Name": "Evilcore",
+    "Date": "2020-10-24T00:00:00",
+    "DiscordMessageId": 771489101844578354,
+    "DiscordAuthorId": 294335356617359361,
+    "TeamUpEventId": "819131021"
+  },
+  {
+    "Name": "smallbirb1",
+    "Date": "2020-02-06T00:00:00",
+    "DiscordMessageId": 771531375215771718,
+    "DiscordAuthorId": 353963286477144075,
+    "TeamUpEventId": "819131055"
   }
 ]
