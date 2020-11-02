@@ -29,7 +29,7 @@ namespace MihuBot.Commands
             TimeSpan.FromSeconds(5));
 
         private static readonly Regex _reminderMentionRegex = new Regex(
-            @"(<#?@?!?&?\d+>)(?: that)? ?(.+?)$",
+            @"(<#?@?!?&?\d+>) ?(?:to|that)? ?(.+?)$",
             RegexOptions.IgnoreCase);
 
         private static bool TryParseRemindTime(string time, out DateTime dateTime)
