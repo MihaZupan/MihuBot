@@ -136,6 +136,14 @@ namespace MihuBot.Helpers
             return (channel as SocketGuildChannel)?.Guild;
         }
 
+        public static bool MentionsAny(this SocketUserMessage message)
+        {
+            return message.MentionedUsers.Any()
+                || message.MentionedRoles.Any()
+                || message.MentionedChannels.Any()
+                || message.MentionedEveryone;
+        }
+
         public static bool IsAdmin(this SocketUser user)
         {
             return Constants.Admins.Contains(user.Id);

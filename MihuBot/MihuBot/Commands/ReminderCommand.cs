@@ -4,7 +4,6 @@ using MihuBot.Helpers;
 using MihuBot.Reminders;
 using System;
 using System.Globalization;
-using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +27,10 @@ namespace MihuBot.Commands
             @"(?:and )?(\d*?(?:[\.,]\d+)?|a|an)? ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             TimeSpan.FromSeconds(5));
+
+        private static readonly Regex _reminderMentionRegex = new Regex(
+            @"(<#?@?!?&?\d+>)(?: that)? ?(.+?)$",
+            RegexOptions.IgnoreCase);
 
         private static bool TryParseRemindTime(string time, out DateTime dateTime)
         {
@@ -126,28 +129,15 @@ namespace MihuBot.Commands
         {
             if (!ctx.Content.Contains("remind", StringComparison.OrdinalIgnoreCase)
                 || !TryPeek(ctx)
-                || (!ctx.IsFromAdmin &&
-                    (ctx.Message.MentionedChannels.Any()
-                    || ctx.Message.MentionedRoles.Any()
-                    || ctx.Message.MentionedUsers.Any(u => u.Id != KnownUsers.MihuBot))))
+                || (!ctx.IsFromAdmin && ctx.Message.MentionsAny()))
             {
                 return Task.CompletedTask;
-            }
-
-            string content = ctx.Content;
-
-            if (ctx.IsMentioned)
-            {
-                if (!content.StartsWith("@MihuBot", StringComparison.OrdinalIgnoreCase))
-                    return Task.CompletedTask;
-
-                content = content.Substring("@MihuBot".Length);
             }
 
             Match match;
             try
             {
-                match = _reminderRegex.Match(content.Trim());
+                match = _reminderRegex.Match(ctx.Content);
             }
             catch (RegexMatchTimeoutException)
             {
@@ -181,7 +171,7 @@ namespace MihuBot.Commands
             }
 
             if (!match.Success
-                || (!ctx.IsFromAdmin && (ctx.Message.MentionedChannels.Any() || ctx.Message.MentionedRoles.Any() || ctx.Message.MentionedUsers.Any()))
+                || (!ctx.IsFromAdmin && ctx.Message.MentionsAny())
                 || !TryParseRemindTime(match.Groups[2].Value, out DateTime reminderTime))
             {
                 await ctx.ReplyAsync("Usage: `!remind me to do stuff and things in some time`");
@@ -217,7 +207,14 @@ namespace MihuBot.Commands
                         {
                             Log($"Running reminder {entry}", entry);
                             var channel = _discord.GetTextChannel(entry.GuildId, entry.ChannelId);
-                            await channel.SendMessageAsync($"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}");
+
+                            Match match = _reminderMentionRegex.Match(entry.Message);
+
+                            string message = match.Success
+                                ? $"{match.Groups[1].Value} {match.Groups[2].Value}"
+                                : $"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}";
+
+                            await channel.SendMessageAsync(message);
                         }
                         catch (Exception ex)
                         {
