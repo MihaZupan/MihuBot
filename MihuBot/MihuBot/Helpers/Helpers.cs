@@ -155,6 +155,36 @@ namespace MihuBot.Helpers
             return guild != null && message.Author.IsAdmin();
         }
 
+        public static bool TryGetFirst<T>(this IEnumerable<T> entities, ulong id, out T entity)
+            where T : class, ISnowflakeEntity
+        {
+            foreach (var e in entities)
+            {
+                if (e.Id == id)
+                {
+                    entity = e;
+                    return true;
+                }
+            }
+
+            entity = null;
+            return false;
+        }
+
+        public static bool Any<T>(this IEnumerable<T> entities, ulong id)
+            where T : class, ISnowflakeEntity
+        {
+            foreach (var e in entities)
+            {
+                if (e.Id == id)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public static bool All<T>(this Predicate<T>[] predicates, T value)
         {
             foreach (var predicate in predicates)

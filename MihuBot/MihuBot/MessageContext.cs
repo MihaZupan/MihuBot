@@ -17,7 +17,7 @@ namespace MihuBot
         public readonly SocketUserMessage Message;
         public readonly string Content;
 
-        public readonly bool IsMentioned;
+        public bool IsMentioned => Message.MentionedUsers.Any(KnownUsers.MihuBot) || Message.MentionedRoles.Any(r => r.Name == "MihuBot");
 
         public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
         {
@@ -25,7 +25,6 @@ namespace MihuBot
             Discord = discord;
             Message = message;
             Content = message.Content.Trim();
-            IsMentioned = message.MentionedUsers.Any(u => u.Id == KnownUsers.MihuBot) || message.MentionedRoles.Any(r => r.Name == "MihuBot");
         }
 
         public SocketTextChannel Channel => (SocketTextChannel)Message.Channel;
