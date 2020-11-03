@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
 {
-    public sealed class AtVoiceChat : INonCommandHandler
+    public sealed class AtVoiceChat : NonCommandHandler
     {
-        public Task HandleAsync(MessageContext ctx)
+        public override Task HandleAsync(MessageContext ctx)
         {
             if (ctx.IsFromAdmin &&
                 ctx.Content.StartsWith('@') &&
