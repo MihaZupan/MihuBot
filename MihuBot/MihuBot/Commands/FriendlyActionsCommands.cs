@@ -15,6 +15,7 @@ namespace MihuBot.Commands
             "butt", "poke", "slap", "kick", "love", "kiss", "boop",
             "spank", "dropkickofftheturnbuckle", "tableflip", "spit",
             "curbstomp", "smell", "laugh", "hiton", "uwu", "beatup",
+            "beatupandtakelunchmoney",
         };
 
         private readonly ConcurrentDictionary<ulong, ulong> _riggedRng = new ConcurrentDictionary<ulong, ulong>();
@@ -131,6 +132,7 @@ namespace MihuBot.Commands
                 "hiton" => $"Come here often, {target}? {Emotes.DarlShyShy}",
                 "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}", // TODO {Emotes.DarlUwU}
                 "beatup" => $"just beat up {target} {Emotes.EyesShaking}",
+                "beatupandtakelunchmoney" => $"just beat up {target} and took their lunch money {Emotes.EyesShaking}",
                 _ => null
             };
 
