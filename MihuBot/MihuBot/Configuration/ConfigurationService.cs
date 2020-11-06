@@ -9,7 +9,7 @@ namespace MihuBot.Configuration
     {
         private readonly Dictionary<ulong?, Dictionary<string, string>> _configuration;
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong?, Dictionary<string, string>>> _store;
-        private readonly ReaderWriterLockSlim _lock;
+        private readonly ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
 
         public ConfigurationService()
         {
@@ -27,7 +27,7 @@ namespace MihuBot.Configuration
             _configuration = _store.DangerousGetValue();
         }
 
-        public void Add(ulong? context, string key, string value)
+        public void Set(ulong? context, string key, string value)
         {
             _store.Enter();
             try

@@ -19,7 +19,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            const string Usage = "Usage: `!config [get/add/remove] context key`";
+            const string Usage = "Usage: `!config [get/set/remove] context key`";
 
             if (ctx.Arguments.Length < 3)
             {
@@ -60,7 +60,7 @@ namespace MihuBot.Commands
                     }
                     break;
 
-                case "add":
+                case "set":
                     if (await ctx.RequirePermissionAsync("configuration.write"))
                     {
                         if (ctx.Arguments.Length < 4)
@@ -69,7 +69,7 @@ namespace MihuBot.Commands
                             return;
                         }
 
-                        _configuration.Add(context, key, ctx.Arguments[3]);
+                        _configuration.Set(context, key, ctx.Arguments[3]);
                         await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                     }
                     break;

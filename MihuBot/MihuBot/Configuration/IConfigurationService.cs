@@ -4,7 +4,7 @@ namespace MihuBot.Configuration
 {
     public interface IConfigurationService
     {
-        void Add(ulong? context, string key, string value);
+        void Set(ulong? context, string key, string value);
 
         bool Remove(ulong? context, string key);
 
