@@ -58,6 +58,7 @@ namespace MihuBot.Helpers
         public const ulong Debug            = 719903263297896538ul;
         public const ulong LogText          = 750706839431413870ul;
         public const ulong LogReports       = 750736528661020781ul;
+        public const ulong Files            = 774147493319540736ul;
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;

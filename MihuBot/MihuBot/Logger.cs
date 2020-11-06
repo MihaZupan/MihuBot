@@ -39,7 +39,7 @@ namespace MihuBot
         private string JsonLogPath;
         private DateTime LogDate;
 
-        private readonly Channel<(string FilePath, bool Delete)> FileArchivingChannel;
+        private readonly Channel<(string FileName, string FilePath, SocketMessage Message, bool Delete)> FileArchivingChannel;
         private readonly BlobContainerClient BlobContainerClient =
             new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
 
@@ -84,11 +84,17 @@ namespace MihuBot
 
         private async Task FileArchivingTaskAsync()
         {
-            await foreach (var (FilePath, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
+            await foreach (var (FileName, FilePath, Message, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
             {
                 try
                 {
                     string extension = Path.GetExtension(FilePath)?.ToLowerInvariant();
+
+                    bool isImage =
+                        extension == ".jpg" ||
+                        extension == ".jpeg" ||
+                        extension == ".png" ||
+                        extension == ".gif";
 
                     AccessTier accessTier = extension switch
                     {
@@ -123,6 +129,23 @@ namespace MihuBot
                     if (Delete)
                     {
                         File.Delete(FilePath);
+                    }
+
+                    if (Message != null)
+                    {
+                        var embed = new EmbedBuilder()
+                            .WithAuthor(Message.Author.Username, Message.Author.GetAvatarUrl())
+                            .WithTimestamp(Message.Timestamp)
+                            .WithTitle($"**{Message.Guild().Name} - {Message.Channel.Name}**: *{FileName}*")
+                            .WithDescription(Message.GetJumpUrl())
+                            .WithUrl(blobClient.Uri.AbsoluteUri);
+
+                        if (isImage)
+                        {
+                            embed.WithImageUrl(blobClient.Uri.AbsoluteUri);
+                        }
+
+                        await LogsFilesTextChannel.SendMessageAsync(embed: embed.Build());
                     }
 
                     DebugLog($"Archived {FilePath}");
@@ -161,7 +184,7 @@ namespace MihuBot
                         await JsonLogStream.DisposeAsync();
                         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                         {
-                            FileArchivingChannel.Writer.TryWrite((JsonLogPath, Delete: false));
+                            FileArchivingChannel.Writer.TryWrite((Path.GetFileName(JsonLogPath), JsonLogPath, Message: null, Delete: false));
                         }
                     }
                 }
@@ -279,6 +302,7 @@ namespace MihuBot
         public SocketTextChannel DebugTextChannel => _discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
         public SocketTextChannel LogsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
         public SocketTextChannel LogsReportsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogReports);
+        public SocketTextChannel LogsFilesTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.Files);
 
         public Logger(HttpClient httpClient, DiscordSocketClient discord)
         {
@@ -293,7 +317,7 @@ namespace MihuBot
             createLogStreamsTask.GetAwaiter().GetResult();
 
             LogChannel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions() { SingleReader = true });
-            FileArchivingChannel = Channel.CreateUnbounded<(string, bool)>(new UnboundedChannelOptions() { SingleReader = true });
+            FileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketMessage, bool)>(new UnboundedChannelOptions() { SingleReader = true });
 
             Task.Run(ChannelReaderTaskAsync);
             Task.Run(FileArchivingTaskAsync);
@@ -531,7 +555,7 @@ RecipientAdded
 
                         DebugLog($"Downloaded {filePath}", userMessage);
 
-                        FileArchivingChannel.Writer.TryWrite((filePath, Delete: true));
+                        FileArchivingChannel.Writer.TryWrite((a.Filename, filePath, message, Delete: true));
 
                         int fileCount = Interlocked.Increment(ref _fileCounter);
 
