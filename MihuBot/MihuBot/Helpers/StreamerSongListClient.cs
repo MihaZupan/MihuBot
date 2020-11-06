@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using MihuBot.Configuration;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
 using System.Net.Http;
@@ -11,11 +12,13 @@ namespace MihuBot.Helpers
     public sealed class StreamerSongListClient
     {
         private readonly HttpClient _http;
+        private readonly IConfigurationService _configuration;
         private readonly Logger _logger;
 
-        public StreamerSongListClient(HttpClient httpClient, Logger logger)
+        public StreamerSongListClient(HttpClient httpClient, IConfigurationService configuration, Logger logger)
         {
             _http = httpClient;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -49,7 +52,11 @@ namespace MihuBot.Helpers
                 request.Headers.Add("sec-fetch-site", "same-site");
                 request.Headers.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.111 Safari/537.36");
                 request.Headers.Add("x-ssl-user-types", "mod");
-                request.Headers.Add("authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjgwNDQyLCJ1c2VybmFtZSI6Im1paGF6dXBhbiIsInN0cmVhbWVySWQiOm51bGwsImlhdCI6MTYwMjAwODMyOCwiZXhwIjoxNjA0NjAwMzI4LCJpc3MiOiJzdHJlYW1lcnNvbmdsaXN0LmNvbSJ9.XzjVIstusJJBkSUmc4Q3RkRvijLKY9uMAhTguBddRos");
+
+                if (_configuration.TryGet(null, "SongList.Bearer", out string bearer))
+                {
+                    request.Headers.Add("authorization", $"Bearer {bearer}");
+                }
 
                 using var response = await _http.SendAsync(request);
                 response.EnsureSuccessStatusCode();

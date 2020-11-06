@@ -82,7 +82,7 @@ namespace MihuBot
                     }
                     catch (Exception ex)
                     {
-                        await _logger.DebugAsync(ex.ToString());
+                        await _logger.DebugAsync($"{ex} for {message.Message} in {message.Channel} from {message.Username}");
                     }
                     finally
                     {
