@@ -12,9 +12,7 @@ namespace MihuBot.Helpers
             KnownUsers.Miha,
             KnownUsers.Caroline,
             KnownUsers.James,
-            KnownUsers.Jaeger,
             KnownUsers.Jordan,
-            KnownUsers.Doomi,
             KnownUsers.Darling,
         };
 
@@ -38,16 +36,17 @@ namespace MihuBot.Helpers
 
     public static class Guilds
     {
-        public const ulong Mihu         = 566925785563136020ul;
-        public const ulong PrivateLogs  = 750706593858977802ul;
-        public const ulong DDs          = 350658308878630914ul;
-        public const ulong Paul         = 715374946846769202ul;
-        public const ulong LiverGang    = 244642778024378368ul;
-        public const ulong DresDreamers = 495391858009309184ul;
-        public const ulong Arisas       = 417794764029820939ul;
-        public const ulong Brandons     = 478637384347549713ul;
-        public const ulong Dreamlings   = 612032458258644992ul;
-        public const ulong TheWaddle    = 509232675001991169ul;
+        public const ulong Mihu             = 566925785563136020ul;
+        public const ulong PrivateLogs      = 750706593858977802ul;
+        public const ulong DDs              = 350658308878630914ul;
+        public const ulong Paul             = 715374946846769202ul;
+        public const ulong LiverGang        = 244642778024378368ul;
+        public const ulong DresDreamers     = 495391858009309184ul;
+        public const ulong Arisas           = 417794764029820939ul;
+        public const ulong Brandons         = 478637384347549713ul;
+        public const ulong Dreamlings       = 612032458258644992ul;
+        public const ulong TheWaddle        = 509232675001991169ul;
+        public const ulong TheFragmentary   = 489465972772831233ul;
     }
 
     public static class Channels
