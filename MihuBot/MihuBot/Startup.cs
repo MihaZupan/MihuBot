@@ -13,6 +13,7 @@ using MihuBot.Helpers;
 using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
+using MihuBot.Weather;
 using StackExchange.Redis;
 using System.IO;
 using System.Net;
@@ -70,6 +71,8 @@ namespace MihuBot
             services.AddSingleton<IReminderService, ReminderService>();
 
             services.AddSingleton<IHusbandoService, HusbandoService>();
+
+            services.AddSingleton<IWeatherService, WeatherService>();
 
             services.AddHostedService<MihuBotService>();
 
