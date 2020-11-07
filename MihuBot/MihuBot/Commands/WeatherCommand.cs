@@ -36,6 +36,7 @@ namespace MihuBot.Commands
                 if (location is null)
                 {
                     await ctx.ReplyAsync("Please specify a location like `!weather Mars`");
+                    return;
                 }
             }
 
