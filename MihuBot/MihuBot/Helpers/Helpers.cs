@@ -38,11 +38,48 @@ namespace MihuBot.Helpers
                 && Constants.Admins.Contains(userId);
         }
 
-        public static bool CanSendMessagesToChannel(this SocketTextChannel channel, ulong userId)
+        public static bool HasWriteAccess(this SocketGuildChannel channel, ulong userId)
         {
             SocketGuildUser guildUser = channel.Guild.GetUser(userId);
-            return guildUser != null
-                && guildUser.GetPermissions(channel).SendMessages;
+            if (guildUser is null)
+                return false;
+
+            var permissions = guildUser.GetPermissions(channel);
+
+            if (channel is ITextChannel)
+            {
+                return permissions.SendMessages;
+            }
+            else if (channel is IVoiceChannel)
+            {
+                return permissions.Connect && permissions.Speak;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        public static bool HasReadAccess(this SocketGuildChannel channel, ulong userId)
+        {
+            SocketGuildUser guildUser = channel.Guild.GetUser(userId);
+            if (guildUser is null)
+                return false;
+
+            var permissions = guildUser.GetPermissions(channel);
+
+            if (channel is ITextChannel)
+            {
+                return permissions.ViewChannel;
+            }
+            else if (channel is IVoiceChannel)
+            {
+                return permissions.Connect;
+            }
+            else
+            {
+                return false;
+            }
         }
 
         public static ulong GetUserId(this ClaimsPrincipal claims)

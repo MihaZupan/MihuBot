@@ -146,6 +146,16 @@ namespace MihuBot.Commands
                     predicates.Add(le => inFilters.Contains(le.GuildID) || inFilters.Contains(le.ChannelID));
                 }
 
+                if (ctx.AuthorId != KnownUsers.Miha)
+                {
+                    HashSet<ulong> channels = ctx.Author.MutualGuilds
+                        .SelectMany(g => g.Channels)
+                        .Where(c => c.HasReadAccess(ctx.AuthorId))
+                        .Select(c => c.Id)
+                        .ToHashSet();
+                    predicates.Add(le => le.ChannelID == 0 || channels.Contains(le.ChannelID));
+                }
+
                 Logger.LogEvent[] logs = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
 
                 if (logs.Length == 0)

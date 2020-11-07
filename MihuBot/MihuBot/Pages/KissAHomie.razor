@@ -9,8 +9,8 @@
             OnChannelSelected="@OnChannelSelected"
             OnChannelCleared="@OnChannelCleared"
             ChannelFilter="(channel, user) =>
-                            channel.CanSendMessagesToChannel(user.Id) &&
-                            channel.CanSendMessagesToChannel(KnownUsers.MihuBot)" />
+                            channel.HasWriteAccess(user.Id) &&
+                            channel.HasWriteAccess(KnownUsers.MihuBot)" />
 
         @if (textChannel != null)
         {
