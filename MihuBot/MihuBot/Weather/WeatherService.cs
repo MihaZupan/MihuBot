@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
@@ -34,8 +35,12 @@ namespace MihuBot.Weather
                 Country = response.Sys.Country,
                 Name = response.Name,
                 Timezone = response.Timezone,
+                Description = response.Weather.First().Description,
+                IconUrl = $"http://openweathermap.org/img/wn/{response.Weather.First().Icon}@2x.png",
             };
         }
+
+#pragma warning disable CS0649
 
         [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
         private class OpenWeatherModel
@@ -104,5 +109,7 @@ namespace MihuBot.Weather
                 public int Sunset;
             }
         }
+
+#pragma warning restore
     }
 }

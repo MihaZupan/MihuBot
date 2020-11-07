@@ -13,5 +13,8 @@
         public double Pressure;
         public double Humidity;
         public double WindSpeed;
+
+        public string Description;
+        public string IconUrl;
     }
 }

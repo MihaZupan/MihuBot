@@ -1,4 +1,5 @@
-﻿using MihuBot.Helpers;
+﻿using Discord;
+using MihuBot.Helpers;
 using MihuBot.Weather;
 using System;
 using System.Collections.Generic;
@@ -52,7 +53,24 @@ namespace MihuBot.Commands
 
             location = weather.Name;
 
-            await ctx.ReplyAsync($"Weather in {location}: {weather.FeelsLike:N1} °C / {ToFahrenheit(weather.FeelsLike):N1} F");
+            Color color = weather.FeelsLike switch
+            {
+                var temp when temp < -10 => new Color(255, 255, 255),
+                var temp when temp < 0   => new Color(0, 255, 197),
+                var temp when temp < 10  => new Color(0, 255, 154),
+                var temp when temp < 20  => new Color(235, 255, 0),
+                var temp when temp < 30  => new Color(241, 187, 0),
+                var temp when temp < 40  => new Color(255, 142, 0),
+                _ => new Color(255, 0, 0)
+            };
+
+            var embed = new EmbedBuilder()
+                .WithTitle($"Weather in {location}")
+                .WithDescription($"Currently: {weather.Description}\nTemperature: {weather.FeelsLike:N1} °C / {ToFahrenheit(weather.FeelsLike):N1} F")
+                .WithThumbnailUrl(weather.IconUrl)
+                .WithColor(color);
+
+            await ctx.Channel.SendMessageAsync(embed: embed.Build());
 
             if (!saved)
             {
