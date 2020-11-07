@@ -87,5 +87,25 @@ namespace MihuBot.Helpers
             error = null;
             return parts.ToArray();
         }
+
+        public static string SplitFirstTrimmed(this string source, char separator)
+        {
+            int index = source.AsSpan().IndexOf(separator);
+
+            if (index == -1)
+                return source.Trim();
+
+            return source.AsSpan(0, index).Trim().ToString();
+        }
+
+        public static string SplitLastTrimmed(this string source, char separator)
+        {
+            int index = source.AsSpan().LastIndexOf(separator);
+
+            if (index == -1)
+                return source.Trim();
+
+            return source.AsSpan(index + 1).Trim().ToString();
+        }
     }
 }

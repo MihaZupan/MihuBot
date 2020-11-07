@@ -13,6 +13,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -42,6 +43,11 @@ namespace MihuBot
         private readonly Channel<(string FileName, string FilePath, SocketMessage Message, bool Delete)> FileArchivingChannel;
         private readonly BlobContainerClient BlobContainerClient =
             new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
+
+        private readonly FileBackedHashSet _cdnLinksHashSet = new FileBackedHashSet("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
+        private static readonly Regex _cdnLinksRegex = new Regex(
+            @"https:\/\/cdn\.discordapp\.com\/[^\s]+",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         public async Task OnShutdownAsync()
         {
@@ -531,7 +537,7 @@ RecipientAdded
                 });
             }
 
-            if (message.Author.Id != KnownUsers.MihuBot && message.Attachments.Any())
+            if (message.Author.Id != KnownUsers.MihuBot)
             {
                 foreach (var attachment in message.Attachments)
                 {
@@ -545,6 +551,30 @@ RecipientAdded
                             attachment.Id,
                             attachment.Filename,
                             userMessage);
+                    });
+                }
+
+                const string CdnLinkPrefix = "https://cdn.discordapp.com/";
+                if (message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    _ = Task.Run(() =>
+                    {
+                        foreach (Match match in _cdnLinksRegex.Matches(message.Content))
+                        {
+                            var url = match.Value;
+                            if (Uri.TryCreate(url, UriKind.Absolute, out _) && _cdnLinksHashSet.TryAdd(url.Substring(CdnLinkPrefix.Length)))
+                            {
+                                Task.Run(async () =>
+                                {
+                                    await DownloadFileAsync(
+                                        url,
+                                        (message.EditedTimestamp ?? message.Timestamp).UtcDateTime,
+                                        message.Id,
+                                        url.SplitLastTrimmed('/'),
+                                        userMessage);
+                                });
+                            }
+                        }
                     });
                 }
             }

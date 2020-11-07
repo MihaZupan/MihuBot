@@ -64,13 +64,13 @@ namespace MihuBot.Commands
                     Uri.TryCreate(message.Content, UriKind.Absolute, out _))
                 {
                     url = message.Content;
-                    extension = Path.GetExtension(message.Content.Split('/').Last());
+                    extension = Path.GetExtension(message.Content.SplitLastTrimmed('/'));
                 }
 
                 if (url is null &&
                     message.Content.StartsWith("https://tenor.com/view/", StringComparison.OrdinalIgnoreCase) &&
                     message.Content.Contains("-gif-", StringComparison.OrdinalIgnoreCase) &&
-                    long.TryParse(message.Content.Split('-').Last(), out long id))
+                    long.TryParse(message.Content.SplitLastTrimmed('-'), out long id))
                 {
                     try
                     {
@@ -89,9 +89,7 @@ namespace MihuBot.Commands
                 if (url is null)
                     continue;
 
-                if (extension.Contains('?'))
-                    extension = extension.Split('?')[0];
-
+                extension = extension.SplitFirstTrimmed('?');
                 extension = extension.ToLowerInvariant();
                 string attachmentTempPath = Path.GetTempFileName() + extension;
                 string convertedFileTempPath = Path.GetTempFileName() + extension;

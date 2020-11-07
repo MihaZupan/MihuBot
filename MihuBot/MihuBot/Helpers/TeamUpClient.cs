@@ -113,6 +113,6 @@ namespace MihuBot.Helpers.TeamUp
         public int[] SubcalendarIds;
         public string Rrule;
 
-        public string RecurringId => Id?.Split('-').First();
+        public string RecurringId => Id?.SplitFirstTrimmed('-');
     }
 }
