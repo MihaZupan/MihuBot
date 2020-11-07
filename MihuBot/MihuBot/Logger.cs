@@ -512,18 +512,18 @@ RecipientAdded
             return Task.CompletedTask;
         }
 
-        private async Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null)
+        private Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null)
         {
             if (!(message is SocketUserMessage userMessage))
-                return;
+                return Task.CompletedTask;
 
             if (!(userMessage.Channel is SocketGuildChannel channel))
-                return;
+                return Task.CompletedTask;
 
             if (message.Author.Id == KnownUsers.MihuBot && channel.Guild.Id == Guilds.PrivateLogs && channel.Id == Channels.LogText)
-                return;
+                return Task.CompletedTask;
 
-            if (!string.IsNullOrWhiteSpace(message.Content) && !message.Content.Contains('\0'))
+            if (!string.IsNullOrWhiteSpace(message.Content))
             {
                 Log(new LogEvent(previousId is null ? EventType.MessageReceived : EventType.MessageUpdated, userMessage)
                 {
@@ -536,46 +536,57 @@ RecipientAdded
                 foreach (var attachment in message.Attachments)
                 {
                     Log(new LogEvent(userMessage, attachment));
+
+                    Task.Run(async () =>
+                    {
+                        await DownloadFileAsync(
+                            attachment.Url,
+                            (message.EditedTimestamp ?? message.Timestamp).UtcDateTime,
+                            attachment.Id,
+                            attachment.Filename,
+                            userMessage);
+                    });
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private async Task DownloadFileAsync(string url, DateTime time, ulong id, string fileName, SocketUserMessage message)
+        {
+            try
+            {
+                var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+
+                string filePath = $"{FilesRoot}{time.ToISODateTime()}_{id}_{fileName}";
+
+                using (FileStream fs = File.OpenWrite(filePath))
+                {
+                    using Stream stream = await response.Content.ReadAsStreamAsync();
+                    await stream.CopyToAsync(fs);
                 }
 
-                await Task.WhenAll(message.Attachments.Select(a => Task.Run(async () =>
+                DebugLog($"Downloaded {filePath}", message);
+
+                FileArchivingChannel.Writer.TryWrite((fileName, filePath, message, Delete: true));
+
+                int fileCount = Interlocked.Increment(ref _fileCounter);
+
+                if (fileCount % 10 == 0)
                 {
-                    try
-                    {
-                        var response = await _http.GetAsync(a.Url, HttpCompletionOption.ResponseHeadersRead);
+                    var drive = DriveInfo.GetDrives()
+                        .OrderByDescending(d => d.TotalSize)
+                        .First();
 
-                        string timeString = (message.EditedTimestamp ?? message.Timestamp).UtcDateTime.ToISODateTime();
-                        string filePath = $"{FilesRoot}{timeString}_{a.Id}_{a.Filename}";
+                    string spaceMessage = $"Space available: {drive.AvailableFreeSpace / 1024 / 1024} / {drive.TotalSize / 1024 / 1024} MB";
 
-                        using (FileStream fs = File.OpenWrite(filePath))
-                        {
-                            using Stream stream = await response.Content.ReadAsStreamAsync();
-                            await stream.CopyToAsync(fs);
-                        }
-
-                        DebugLog($"Downloaded {filePath}", userMessage);
-
-                        FileArchivingChannel.Writer.TryWrite((a.Filename, filePath, message, Delete: true));
-
-                        int fileCount = Interlocked.Increment(ref _fileCounter);
-
-                        if (fileCount % 10 == 0)
-                        {
-                            var drive = DriveInfo.GetDrives()
-                                .OrderByDescending(d => d.TotalSize)
-                                .First();
-
-                            string message = $"Space available: {drive.AvailableFreeSpace / 1024 / 1024} / {drive.TotalSize / 1024 / 1024} MB";
-
-                            if (fileCount % 100 == 0) await DebugAsync(message, userMessage);
-                            else DebugLog(message, userMessage);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-                })).ToArray());
+                    if (fileCount % 100 == 0) await DebugAsync(spaceMessage, message);
+                    else DebugLog(spaceMessage, message);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLog(ex.ToString(), message);
             }
         }
 
