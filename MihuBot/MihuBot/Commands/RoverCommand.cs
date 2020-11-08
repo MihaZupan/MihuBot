@@ -10,7 +10,7 @@ namespace MihuBot.Commands
         public override string Command => "rover";
 
         protected override int CooldownToleranceCount => 0;
-        protected override TimeSpan Cooldown => TimeSpan.FromDays(5);
+        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(5);
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
