@@ -539,9 +539,17 @@ RecipientAdded
 
             if (message.Author.Id != KnownUsers.MihuBot)
             {
+                const string CdnLinkPrefix = "https://cdn.discordapp.com/";
+
                 foreach (var attachment in message.Attachments)
                 {
                     Log(new LogEvent(userMessage, attachment));
+
+                    if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
+                        !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
+                    {
+                        continue;
+                    }
 
                     Task.Run(async () =>
                     {
@@ -554,7 +562,6 @@ RecipientAdded
                     });
                 }
 
-                const string CdnLinkPrefix = "https://cdn.discordapp.com/";
                 if (message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
                 {
                     _ = Task.Run(() =>
