@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
+using MihuBot.Permissions;
 using MihuBot.Reminders;
 using System;
 using System.Globalization;
@@ -114,13 +115,17 @@ namespace MihuBot.Commands
 
         private readonly DiscordSocketClient _discord;
         private readonly IReminderService _reminderService;
+        private readonly IPermissionsService _permissions;
         private readonly Logger _logger;
         private readonly Timer _reminderTimer;
 
-        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, Logger logger)
+        private const string MentionPermission = "reminders.mention";
+
+        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, IPermissionsService permissions, Logger logger)
         {
             _discord = discord;
             _reminderService = reminderService;
+            _permissions = permissions;
             _logger = logger;
             _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
         }
@@ -129,7 +134,7 @@ namespace MihuBot.Commands
         {
             if (!ctx.Content.Contains("remind", StringComparison.OrdinalIgnoreCase)
                 || !TryPeek(ctx)
-                || (!ctx.IsFromAdmin && ctx.Message.MentionsAny()))
+                || (ctx.Message.MentionsAny() && !_permissions.HasPermission(MentionPermission, ctx.AuthorId)))
             {
                 return Task.CompletedTask;
             }
@@ -171,7 +176,7 @@ namespace MihuBot.Commands
             }
 
             if (!match.Success
-                || (!ctx.IsFromAdmin && ctx.Message.MentionsAny())
+                || (ctx.Message.MentionsAny() && !ctx.HasPermission(MentionPermission))
                 || !TryParseRemindTime(match.Groups[2].Value, out DateTime reminderTime))
             {
                 await ctx.ReplyAsync("Usage: `!remind me to do stuff and things in some time`");
