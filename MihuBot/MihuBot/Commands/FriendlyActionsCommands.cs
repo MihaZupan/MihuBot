@@ -85,7 +85,25 @@ namespace MihuBot.Commands
                         matches = matches.Where(u => u.Id != KnownUsers.Miha).ToArray();
 
                     if (matches.Length > 0)
+                    {
+                        if (matches.Length > 1)
+                        {
+                            var closerMatches = matches
+                                .Where(u =>
+                                    u.Username.Split().Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                                    (ctx.Guild.GetUser(u.Id)?.Nickname?.Split().Contains(pattern, StringComparison.OrdinalIgnoreCase) ?? false))
+                                .ToArray();
+
+                            if (closerMatches.Length > 0)
+                                matches = closerMatches;
+                        }
+
                         rngUser = matches.Random();
+                    }
+                    else
+                    {
+                        await ctx.ReplyAsync($"Wh{Emotes.OmegaLUL}", mention: true);
+                    }
                 }
             }
 
