@@ -103,6 +103,7 @@ namespace MihuBot.Commands
                     else
                     {
                         await ctx.ReplyAsync($"Wh{Emotes.OmegaLUL}", mention: true);
+                        return;
                     }
                 }
             }
