@@ -15,7 +15,7 @@ namespace MihuBot.Commands
         public override async Task ExecuteAsync(CommandContext ctx)
         {
             ulong user = new[] { KnownUsers.Adi, KnownUsers.Joster, KnownUsers.Jordan }.Random();
-            await ctx.ReplyAsync(MentionUtils.MentionUser(user));
+            await ctx.ReplyAsync(MentionUtils.MentionUser(user), suppressMentions: user != KnownUsers.Adi);
         }
     }
 }

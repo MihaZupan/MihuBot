@@ -14,7 +14,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Joster));
+            await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Joster), suppressMentions: true);
         }
     }
 }

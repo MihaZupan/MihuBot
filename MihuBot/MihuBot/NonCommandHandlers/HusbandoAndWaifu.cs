@@ -81,7 +81,7 @@ namespace MihuBot.NonCommandHandlers
                 {
                     if (Rng.Bool())
                     {
-                        await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
+                        await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan), suppressMentions: true);
                     }
                     else
                     {

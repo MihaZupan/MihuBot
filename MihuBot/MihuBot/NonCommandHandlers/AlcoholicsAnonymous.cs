@@ -32,7 +32,7 @@ namespace MihuBot.NonCommandHandlers
             async Task HandleAsyncCore()
             {
                 var alcoholics = Alcoholics.Where(a => a != ctx.AuthorId);
-                await ctx.ReplyAsync(string.Join(' ', alcoholics.Select(a => MentionUtils.MentionUser(a))));
+                await ctx.ReplyAsync(string.Join(' ', alcoholics.Select(a => MentionUtils.MentionUser(a))), suppressMentions: true);
             }
         }
     }

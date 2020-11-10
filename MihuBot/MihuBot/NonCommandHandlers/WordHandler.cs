@@ -35,7 +35,7 @@ namespace MihuBot.NonCommandHandlers
                 if (ctx.Guild.Id == Guilds.DDs && Rng.Chance(50) &&
                     _stinkyGlobalTracker.TryEnter(state => state._stinkyUserTracker.TryEnter(state.AuthorId), (_stinkyUserTracker, ctx.AuthorId)))
                 {
-                    await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan));
+                    await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan), suppressMentions: true);
                 }
             }
         }

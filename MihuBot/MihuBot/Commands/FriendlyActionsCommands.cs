@@ -43,8 +43,7 @@ namespace MihuBot.Commands
 
             if (ctx.Arguments.Length > 0)
             {
-                at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase)
-                    && ctx.HasPermission("friendlyactions.at");
+                at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
             }
 
             if (ctx.Arguments.Length > 1)
@@ -60,7 +59,7 @@ namespace MihuBot.Commands
                 if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@") && ctx.Arguments[0].EndsWith('>'))
                 {
                     rngUser = ctx.Message.MentionedUsers.ToArray().Random();
-                    at = ctx.HasPermission("friendlyactions.at");
+                    at = true;
                 }
                 else if (ulong.TryParse(ctx.Arguments[0], out ulong userId))
                 {
@@ -164,7 +163,7 @@ namespace MihuBot.Commands
                     _ => $"{ctx.Author.GetName()} "
                 };
 
-                await ctx.ReplyAsync($"{prefix}{reply}");
+                await ctx.ReplyAsync($"{prefix}{reply}", suppressMentions: at);
             }
         }
     }

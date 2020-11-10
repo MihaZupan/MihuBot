@@ -23,7 +23,7 @@ namespace MihuBot.NonCommandHandlers
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
-                await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Joster));
+                await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Joster), suppressMentions: true);
             }
         }
     }
