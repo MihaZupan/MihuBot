@@ -1,0 +1,20 @@
+﻿using Discord;
+using MihuBot.Helpers;
+using System;
+using System.Threading.Tasks;
+
+namespace MihuBot.Commands
+{
+    public sealed class SalmonCommand : CommandBase
+    {
+        public override string Command => "salmon";
+
+        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(5);
+        protected override int CooldownToleranceCount => 5;
+
+        public override async Task ExecuteAsync(CommandContext ctx)
+        {
+            await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Joster));
+        }
+    }
+}
