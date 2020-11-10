@@ -43,16 +43,14 @@ namespace MihuBot.Commands
 
             if (ctx.Arguments.Length > 0)
             {
-                at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase);
-                if (at && !await ctx.RequirePermissionAsync("friendlyactions.at"))
-                    return;
+                at = ctx.Arguments[^1].Equals("at", StringComparison.OrdinalIgnoreCase)
+                    && ctx.HasPermission("friendlyactions.at");
             }
 
             if (ctx.Arguments.Length > 1)
             {
-                rig = ctx.Arguments[^1].Equals("rig", StringComparison.OrdinalIgnoreCase);
-                if (rig && !await ctx.RequirePermissionAsync("friendlyactions.rig"))
-                    return;
+                rig = ctx.Arguments[^1].Equals("rig", StringComparison.OrdinalIgnoreCase)
+                    && ctx.HasPermission("friendlyactions.rig");
             }
 
             IUser rngUser = null;
