@@ -71,26 +71,15 @@ namespace MihuBot.Helpers
         public const ulong Miha         = 162569877087977480ul;
         public const ulong Caroline     = 340562834658295821ul;
         public const ulong James        = 91680709588045824ul;
-        public const ulong Jaeger       = 145719024544645120ul;
         public const ulong Jordan       = 236455327535464458ul;
-        public const ulong Doomi        = 238754130233917440ul;
         public const ulong Darling      = 399843400041365516ul;
 
-        public const ulong Liv          = 244637014547234816ul;
         public const ulong CurtIs       = 237788815626862593ul;
         public const ulong Christian    = 397254656025427968ul;
-        public const ulong Arisa        = 417794401721384960ul;
-        public const ulong Angelo       = 326082313257484288ul;
         public const ulong Gradravin    = 235218831247671297ul;
         public const ulong PaulK        = 267771172962304000ul;
-        public const ulong Maric        = 399032007138476032ul;
-        public const ulong Conor        = 533609249394130947ul;
         public const ulong Sticky       = 162050931326713857ul;
-        public const ulong Sfae         = 224015634206425088ul;
-        public const ulong Ai           = 359549469680730114ul;
-        public const ulong Brandon      = 138790549661417473ul;
         public const ulong Joster       = 105498799706759168ul;
-        public const ulong Awescar      = 228363521077805068ul;
         public const ulong Richard      = 136981443497689088ul;
         public const ulong Adi          = 360977915975958537ul;
     }
