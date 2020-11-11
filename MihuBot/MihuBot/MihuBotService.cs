@@ -8,7 +8,6 @@ using SharpCollections.Generic;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -18,7 +17,6 @@ namespace MihuBot
 {
     public class MihuBotService : IHostedService
     {
-        private readonly HttpClient _http;
         private readonly DiscordSocketClient _discord;
         private readonly Logger _logger;
         private readonly IPermissionsService _permissions;
@@ -26,9 +24,8 @@ namespace MihuBot
         private readonly CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
         private readonly List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
 
-        public MihuBotService(IServiceProvider services, HttpClient httpClient, DiscordSocketClient discord, Logger logger, IPermissionsService permissions)
+        public MihuBotService(IServiceProvider services, DiscordSocketClient discord, Logger logger, IPermissionsService permissions)
         {
-            _http = httpClient;
             _discord = discord;
             _logger = logger;
             _permissions = permissions;
@@ -203,11 +200,11 @@ namespace MihuBot
                 else throw new InvalidOperationException(handler.GetType().FullName);
             }
 
-            TaskCompletionSource<object> onConnectedTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Connected += () => { onConnectedTcs.TrySetResult(null); return Task.CompletedTask; };
+            var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _discord.Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
 
-            TaskCompletionSource<object> onReadyTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Ready += () => { onReadyTcs.TrySetResult(null); return Task.CompletedTask; };
+            var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _discord.Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
 
             _discord.MessageReceived += async message =>
             {
@@ -249,13 +246,13 @@ namespace MihuBot
             }
         }
 
-        private TaskCompletionSource<object> _stopTcs;
+        private TaskCompletionSource _stopTcs;
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
             var tcs = Interlocked.CompareExchange(
                 ref _stopTcs,
-                new TaskCompletionSource<object>(TaskContinuationOptions.RunContinuationsAsynchronously),
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
                 null);
 
             if (tcs is null)
@@ -275,7 +272,7 @@ namespace MihuBot
                 }
                 finally
                 {
-                    _stopTcs.SetResult(null);
+                    _stopTcs.SetResult();
                 }
             }
             else

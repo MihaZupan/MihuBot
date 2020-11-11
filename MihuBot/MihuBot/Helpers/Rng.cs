@@ -5,6 +5,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Threading;
 
 namespace MihuBot.Helpers
 {
@@ -42,7 +43,7 @@ namespace MihuBot.Helpers
             while (value != 0)
             {
                 ulong updated = ((value & LengthMask) - LengthOne) | ((value & RngBitsMask) >> 1);
-                ulong newValue = PreNet5Compat.InterlockedCompareExchange(ref _rngBoolCache, updated, value);
+                ulong newValue = Interlocked.CompareExchange(ref _rngBoolCache, updated, value);
 
                 if (value == newValue)
                     return (newValue & 1) == 1;

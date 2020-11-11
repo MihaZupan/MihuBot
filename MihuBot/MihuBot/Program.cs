@@ -56,8 +56,8 @@ namespace MihuBot
                     webBuilder.UseStartup<Startup>();
                 });
 
-        internal static readonly TaskCompletionSource<object> BotStopTCS =
-            new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal static readonly TaskCompletionSource BotStopTCS =
+            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private static int _updating = 0;
 
@@ -73,7 +73,7 @@ namespace MihuBot
             updateProcess.StartInfo.WorkingDirectory = Environment.CurrentDirectory;
             updateProcess.Start();
 
-            BotStopTCS.TrySetResult(null);
+            BotStopTCS.TrySetResult();
         }
     }
 }

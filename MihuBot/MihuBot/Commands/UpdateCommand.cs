@@ -22,7 +22,7 @@ namespace MihuBot.Commands
                 else if (ctx.AuthorId == KnownUsers.Miha)
                 {
                     await ctx.ReplyAsync("Stopping ...");
-                    Program.BotStopTCS.TrySetResult(null);
+                    Program.BotStopTCS.TrySetResult();
                 }
             }
         }
