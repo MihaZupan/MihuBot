@@ -1,5 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
+using MihuBot.Permissions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,13 +17,28 @@ namespace MihuBot.NonCommandHandlers
             KnownUsers.James,
             KnownUsers.Christian,
             KnownUsers.PaulK,
-            KnownUsers.Sticky
+            KnownUsers.Sticky,
+            KnownUsers.Ryboh,
+            KnownUsers.Joster,
         };
+
+        private readonly IPermissionsService _permissions;
+
+        public AlcoholicsAnonymous(IPermissionsService permissions)
+        {
+            _permissions = permissions;
+        }
 
         public override Task HandleAsync(MessageContext ctx)
         {
-            if ((ctx.IsFromAdmin || Alcoholics.Contains(ctx.AuthorId)) &&
-                ctx.Content.StartsWith("@alcoholics", StringComparison.OrdinalIgnoreCase))
+            if (!ctx.Content.StartsWith("@alcoholics", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.CompletedTask;
+            }
+
+            if (ctx.IsFromAdmin ||
+                Alcoholics.Contains(ctx.AuthorId) ||
+                _permissions.HasPermission("alcoholics", ctx.AuthorId))
             {
                 return HandleAsyncCore();
             }
@@ -31,7 +47,12 @@ namespace MihuBot.NonCommandHandlers
 
             async Task HandleAsyncCore()
             {
-                var alcoholics = Alcoholics.Where(a => a != ctx.AuthorId);
+                var alcoholics = Alcoholics
+                    .Where(a => a != ctx.AuthorId)
+                    .ToArray();
+
+                Rng.Shuffle(alcoholics);
+
                 await ctx.ReplyAsync(string.Join(' ', alcoholics.Select(a => MentionUtils.MentionUser(a))), suppressMentions: true);
             }
         }

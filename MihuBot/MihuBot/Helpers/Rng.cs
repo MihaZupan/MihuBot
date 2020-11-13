@@ -179,5 +179,10 @@ namespace MihuBot.Helpers
                 array[k] = temp;
             }
         }
+
+        public static void Shuffle<T>(T[] array)
+        {
+            FisherYatesShuffle(array);
+        }
     }
 }
