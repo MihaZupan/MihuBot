@@ -10,7 +10,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (ctx.AuthorId != KnownUsers.Moo)
+            if (ctx.HasPermission("beatupmoo"))
             {
                 await ctx.ReplyAsync($"{MentionUtils.MentionUser(KnownUsers.Moo)} just got beat up {Emotes.PepePoint}", suppressMentions: true);
             }
