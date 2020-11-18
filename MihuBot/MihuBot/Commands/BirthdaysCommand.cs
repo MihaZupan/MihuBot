@@ -58,7 +58,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (!ctx.IsFromAdmin)
+            if (!await ctx.RequirePermissionAsync("birthdays"))
                 return;
 
             string action = ctx.Arguments.FirstOrDefault()?.ToLowerInvariant();
