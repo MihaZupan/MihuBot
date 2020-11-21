@@ -13,10 +13,26 @@ namespace MihuBot.Commands
     {
         public override string Command => "duel";
 
-        private readonly Dictionary<ulong, Duel> _channelDuels = new Dictionary<ulong, Duel>();
+        private readonly Dictionary<ulong, Duel> _channelDuels = new ();
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int, int)>> _leaderboard = new("DuelsLeaderboard.json");
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
+            if (ctx.Arguments.Length == 1 && ctx.Arguments[0].Equals("leaderboard", StringComparison.OrdinalIgnoreCase))
+            {
+                var top10 =
+                    (await _leaderboard.QueryAsync(l => l.ToArray()))
+                    .OrderByDescending(l => (float)l.Value.Item1 / (l.Value.Item1 + l.Value.Item2))
+                    .ThenBy(l => l.Value.Item1)
+                    .Take(10)
+                    .ToArray();
+
+                var lines = top10.Select(t => $"{ctx.Discord.GetUser(t.Key).GetName(),-16} {t.Value.Item1}/{t.Value.Item1 + t.Value.Item2}");
+                await ctx.ReplyAsync($"```\n{string.Join('\n', lines)}\n```");
+
+                return;
+            }
+
             var (target, error) = await TryGetTargetAsync(ctx);
 
             Duel duel;
@@ -126,8 +142,22 @@ namespace MihuBot.Commands
 
                 await Task.Delay(TimeSpan.FromSeconds(3));
 
-                SocketGuildUser winner = Rng.Bool() ? duel.UserOne : duel.UserTwo;
+                var (winner, looser) = Rng.Bool() ? (duel.UserOne, duel.UserTwo) : (duel.UserTwo, duel.UserOne);
                 await ctx.ReplyAsync($"{winner.GetName()} won! {Emotes.WeeHypers}");
+
+                var leaderboard = await _leaderboard.EnterAsync();
+                try
+                {
+                    leaderboard.TryGetValue(winner.Id, out var score);
+                    leaderboard[winner.Id] = (score.Item1 + 1, score.Item2);
+
+                    leaderboard.TryGetValue(looser.Id, out score);
+                    leaderboard[looser.Id] = (score.Item1, score.Item2 + 1);
+                }
+                finally
+                {
+                    _leaderboard.Exit();
+                }
             }
             finally
             {
