@@ -22,7 +22,7 @@ namespace MihuBot.Commands
             {
                 var top10 =
                     (await _leaderboard.QueryAsync(l => l.ToArray()))
-                    .OrderByDescending(l => (float)l.Value.Item1 / (l.Value.Item1 + l.Value.Item2))
+                    .OrderByDescending(l => ((float)l.Value.Item1 * l.Value.Item1) / (l.Value.Item1 + l.Value.Item2))
                     .ThenBy(l => l.Value.Item1)
                     .Take(10)
                     .ToArray();
