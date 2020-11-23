@@ -1,5 +1,6 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using MihuBot.Configuration;
 using MihuBot.Helpers;
 using System;
 using System.Collections.Generic;
@@ -15,6 +16,13 @@ namespace MihuBot.Commands
 
         private readonly Dictionary<ulong, Duel> _channelDuels = new ();
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int, int)>> _leaderboard = new("DuelsLeaderboard.json");
+
+        private readonly IConfigurationService _configuration;
+
+        public DuelCommand(IConfigurationService configuration)
+        {
+            _configuration = configuration;
+        }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -136,13 +144,13 @@ namespace MihuBot.Commands
             {
                 await ctx.ReplyAsync($"{duel.UserOne.GetName()} is going up against {duel.UserTwo.GetName()} {Emotes.DarlFighting}");
 
-                await Task.Delay(TimeSpan.FromSeconds(5));
+                await Task.Delay(TimeSpan.FromSeconds(3));
 
                 await ctx.ReplyAsync($"Something interesting happened {Emotes.DarlFighting}");
 
-                await Task.Delay(TimeSpan.FromSeconds(3));
+                await Task.Delay(TimeSpan.FromSeconds(2));
 
-                var (winner, looser) = Rng.Bool() ? (duel.UserOne, duel.UserTwo) : (duel.UserTwo, duel.UserOne);
+                var (winner, looser) = duel.ChooseWinner(_configuration);
                 await ctx.ReplyAsync($"{winner.GetName()} won! {Emotes.WeeHypers}");
 
                 var leaderboard = await _leaderboard.EnterAsync();
@@ -176,6 +184,47 @@ namespace MihuBot.Commands
             {
                 UserOne = userOne;
                 UserTwo = userTwo;
+            }
+
+            public (SocketGuildUser winner, SocketGuildUser looser) ChooseWinner(IConfigurationService configuration)
+            {
+                const int OneInX = 1000;
+
+                SocketGuildUser winner = null;
+
+                if (configuration.TryGet(null, $"Duels.{UserOne.Id}", out string chanceOne) |
+                    configuration.TryGet(null, $"Duels.{UserTwo.Id}", out string chanceTwo))
+                {
+                    int? oddsOne = chanceOne != null && int.TryParse(chanceOne, out int oddsOneValue) && oddsOneValue >= 0 && oddsOneValue <= OneInX
+                        ? oddsOneValue : null;
+
+                    int? oddsTwo = chanceTwo != null && int.TryParse(chanceTwo, out int oddsTwoValue) && oddsTwoValue >= 0 && oddsTwoValue <= OneInX
+                        ? oddsTwoValue : null;
+
+                    if (oddsOne != oddsTwo && (oddsOne.HasValue || oddsTwo.HasValue))
+                    {
+                        if (oddsOne.HasValue && oddsTwo.HasValue)
+                        {
+                            double ratio = oddsOne.Value / (double)(oddsOne.Value + oddsTwo.Value);
+
+                            winner = ratio != 0 && (ratio == 1 || Rng.Next(OneInX * OneInX) <= ratio * (OneInX * OneInX))
+                                ? UserOne : UserTwo;
+                        }
+                        else
+                        {
+                            int odds = oddsOne ?? oddsTwo.Value;
+
+                            winner = odds > 0 && (odds == OneInX || Rng.Next(OneInX) < odds)
+                                ? (oddsOne.HasValue ? UserOne : UserTwo)
+                                : (oddsOne.HasValue ? UserTwo : UserOne);
+                        }
+                    }
+                }
+
+                if (winner is null)
+                    winner = Rng.Bool() ? UserOne : UserTwo;
+
+                return (winner, UserOne == winner ? UserTwo : UserOne);
             }
         }
     }

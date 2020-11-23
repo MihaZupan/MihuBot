@@ -26,7 +26,7 @@ namespace MihuBot.Helpers
             if (mod <= 0)
                 throw new ArgumentOutOfRangeException(nameof(mod), "Must be > 0");
 
-            Span<byte> buffer = stackalloc byte[mod <= 1000 ? 4 : 16];
+            Span<byte> buffer = stackalloc byte[mod <= 1000 ? 4 : 8];
             RandomNumberGenerator.Fill(buffer);
             var number = new BigInteger(buffer, isUnsigned: true);
 
