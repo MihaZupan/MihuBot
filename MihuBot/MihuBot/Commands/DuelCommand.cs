@@ -203,18 +203,24 @@ namespace MihuBot.Commands
 
                     if (oddsOne != oddsTwo && (oddsOne.HasValue || oddsTwo.HasValue))
                     {
-                        if (oddsOne.HasValue && oddsTwo.HasValue)
+                        if (oddsOne == OneInX || oddsTwo == 0)
+                        {
+                            winner = UserOne;
+                        }
+                        else if (oddsTwo == OneInX || oddsOne == 0)
+                        {
+                            winner = UserTwo;
+                        }
+                        else if (oddsOne.HasValue && oddsTwo.HasValue)
                         {
                             double ratio = oddsOne.Value / (double)(oddsOne.Value + oddsTwo.Value);
 
-                            winner = ratio != 0 && (ratio == 1 || Rng.Next(OneInX * OneInX) <= ratio * (OneInX * OneInX))
+                            winner = Rng.Next(OneInX * OneInX) <= ratio * (OneInX * OneInX)
                                 ? UserOne : UserTwo;
                         }
                         else
                         {
-                            int odds = oddsOne ?? oddsTwo.Value;
-
-                            winner = odds > 0 && (odds == OneInX || Rng.Next(OneInX) < odds)
+                            winner = Rng.Next(OneInX) < (oddsOne ?? oddsTwo.Value)
                                 ? (oddsOne.HasValue ? UserOne : UserTwo)
                                 : (oddsOne.HasValue ? UserTwo : UserOne);
                         }
