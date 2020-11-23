@@ -187,6 +187,20 @@ namespace MihuBot
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _discord.Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
+
+            var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _discord.Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
+
+            _discord.ReactionAdded += Client_ReactionAdded;
+
+            await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
+            await _discord.StartAsync();
+
+            await onConnectedTcs.Task;
+            await onReadyTcs.Task;
+
             foreach (var handler in _nonCommandHandlers)
             {
                 if (handler is CommandBase commandBase)
@@ -200,12 +214,6 @@ namespace MihuBot
                 else throw new InvalidOperationException(handler.GetType().FullName);
             }
 
-            var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
-
-            var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
-
             _discord.MessageReceived += async message =>
             {
                 try
@@ -217,14 +225,6 @@ namespace MihuBot
                     Console.WriteLine(ex);
                 }
             };
-
-            _discord.ReactionAdded += Client_ReactionAdded;
-
-            await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
-            await _discord.StartAsync();
-
-            await onConnectedTcs.Task;
-            await onReadyTcs.Task;
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {

@@ -61,6 +61,7 @@ namespace MihuBot.Helpers
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;
+        public const ulong DuelsTexts       = 780506349414121503ul;
     }
 
     public static class KnownUsers

@@ -12,16 +12,65 @@ namespace MihuBot.Commands
 {
     public sealed class DuelCommand : CommandBase
     {
+        private sealed class DuelScript
+        {
+            public readonly bool? FirstWins;
+            public readonly string[] Messages;
+
+            public DuelScript(string script)
+            {
+                Messages = script
+                    .Trim()
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .Where(l => l.Length != 0)
+                    .ToArray();
+
+                FirstWins = Messages[^1].Contains("P1", StringComparison.Ordinal) ? true
+                    : Messages[^1].Contains("P2", StringComparison.Ordinal) ? false
+                    : null;
+            }
+        }
+
         public override string Command => "duel";
 
         private readonly Dictionary<ulong, Duel> _channelDuels = new ();
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int Wins, int Losses)>> _leaderboard = new("DuelsLeaderboard.json");
 
+        private readonly DiscordSocketClient _discord;
         private readonly IConfigurationService _configuration;
 
-        public DuelCommand(IConfigurationService configuration)
+        private List<DuelScript> _scripts;
+
+        public DuelCommand(DiscordSocketClient discord, IConfigurationService configuration)
         {
+            _discord = discord;
             _configuration = configuration;
+        }
+
+        public override async Task InitAsync()
+        {
+            await LoadScriptsAsync();
+        }
+
+        private async Task LoadScriptsAsync()
+        {
+            var scripts = new List<DuelScript>();
+
+            await foreach (var messages in _discord.GetTextChannel(Guilds.Mihu, Channels.DuelsTexts).GetMessagesAsync())
+            {
+                foreach (var message in messages)
+                {
+                    foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var script = text.Trim();
+                        if (script.Length > 0)
+                            scripts.Add(new DuelScript(script));
+                    }
+                }
+            }
+
+            _scripts = scripts;
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -40,6 +89,16 @@ namespace MihuBot.Commands
                 var lines = top10.Select(t => $"{ctx.Discord.GetUser(t.Key).GetName(),-16} {t.Value.Wins}/{t.Value.Wins + t.Value.Losses}");
                 await ctx.ReplyAsync($"```\n{string.Join('\n', lines)}\n```");
 
+                return;
+            }
+
+            if (ctx.Arguments.Length == 1 && ctx.Arguments[0].Equals("reload-scripts", StringComparison.OrdinalIgnoreCase))
+            {
+                if (await ctx.RequirePermissionAsync("duel.reload-scripts"))
+                {
+                    await LoadScriptsAsync();
+                    await ctx.ReplyAsync($"Loaded {_scripts.Count} scripts");
+                }
                 return;
             }
 
@@ -144,16 +203,29 @@ namespace MihuBot.Commands
         {
             try
             {
-                await ctx.ReplyAsync($"{duel.UserOne.GetName()} is going up against {duel.UserTwo.GetName()} {Emotes.DarlFighting}");
-
-                await Task.Delay(TimeSpan.FromSeconds(3));
-
-                await ctx.ReplyAsync($"Something interesting happened {Emotes.DarlFighting}");
-
-                await Task.Delay(TimeSpan.FromSeconds(2));
-
                 var (winner, looser) = duel.ChooseWinner(_configuration);
-                await ctx.ReplyAsync($"{winner.GetName()} won! {Emotes.WeeHypers}");
+
+                bool firstWins = winner == duel.UserOne;
+                var script = (firstWins
+                        ? _scripts.Where(s => s.FirstWins is null || s.FirstWins.Value == true)
+                        : _scripts.Where(s => s.FirstWins is null || s.FirstWins.Value == false))
+                    .ToArray()
+                    .Random();
+
+                foreach (string messageFormat in script.Messages)
+                {
+                    string message = messageFormat
+                        .Replace("P1", duel.UserOne.GetName(), StringComparison.OrdinalIgnoreCase)
+                        .Replace("P2", duel.UserTwo.GetName(), StringComparison.OrdinalIgnoreCase)
+                        .Replace("(Name)", winner.GetName(), StringComparison.OrdinalIgnoreCase);
+
+                    await ctx.ReplyAsync(message);
+
+                    if (!ReferenceEquals(messageFormat, script.Messages[^1]))
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2));
+                    }
+                }
 
                 var leaderboard = await _leaderboard.EnterAsync();
                 try
