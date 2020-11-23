@@ -33,13 +33,52 @@ namespace MihuBot.Configuration
             _globalConfiguration = _globalStore.DangerousGetValue();
         }
 
-        public void Set(ulong? context, string key, string value)
+        private void EnterWriteLock(ulong? context)
         {
-            _store.Enter();
+            if (context.HasValue)
+            {
+                _store.Enter();
+            }
+            else
+            {
+                _globalStore.Enter();
+            }
+
             try
             {
                 _lock.EnterWriteLock();
+            }
+            catch
+            {
+                _lock.ExitWriteLock();
+                throw;
+            }
+        }
 
+        private void ExitWriteLock(ulong? context)
+        {
+            try
+            {
+                _lock.ExitWriteLock();
+            }
+            finally
+            {
+                if (context.HasValue)
+                {
+                    _store.Exit();
+                }
+                else
+                {
+                    _globalStore.Exit();
+                }
+            }
+        }
+
+        public void Set(ulong? context, string key, string value)
+        {
+            EnterWriteLock(context);
+            try
+            {
                 Dictionary<string, string> configuration;
                 if (context.HasValue)
                 {
@@ -55,18 +94,15 @@ namespace MihuBot.Configuration
             }
             finally
             {
-                _lock.ExitWriteLock();
-                _store.Exit();
+                ExitWriteLock(context);
             }
         }
 
         public bool Remove(ulong? context, string key)
         {
-            _store.Enter();
+            EnterWriteLock(context);
             try
             {
-                _lock.EnterWriteLock();
-
                 Dictionary<string, string> configuration;
                 if (context.HasValue)
                 {
@@ -90,8 +126,7 @@ namespace MihuBot.Configuration
             }
             finally
             {
-                _lock.ExitWriteLock();
-                _store.Exit();
+                ExitWriteLock(context);
             }
         }
 
