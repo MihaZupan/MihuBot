@@ -14,13 +14,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            if (ctx.Arguments.Length > 0 && int.TryParse(ctx.Arguments[0], out int count) && count > 0)
-            {
-                count = Math.Min(1024, count);
-                int heads = Rng.FlipCoins(count);
-                await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
-            }
-            else if (ctx.ArgumentString.Split('/', StringSplitOptions.RemoveEmptyEntries).Length > 1)
+            if (ctx.ArgumentString.Split('/', StringSplitOptions.RemoveEmptyEntries).Length > 1)
             {
                 var options = ctx.ArgumentString
                     .Split('/', StringSplitOptions.RemoveEmptyEntries)
@@ -35,6 +29,12 @@ namespace MihuBot.Commands
                 choice = choice.Replace(ZeroWidthSpace, "").Trim();
 
                 await ctx.ReplyAsync(choice, mention: true);
+            }
+            else if (ctx.Arguments.Length > 0 && int.TryParse(ctx.Arguments[0], out int count) && count > 0)
+            {
+                count = Math.Min(1024, count);
+                int heads = Rng.FlipCoins(count);
+                await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
             }
             else
             {
