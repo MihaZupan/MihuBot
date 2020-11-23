@@ -15,7 +15,7 @@ namespace MihuBot.Commands
         public override string Command => "duel";
 
         private readonly Dictionary<ulong, Duel> _channelDuels = new ();
-        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int, int)>> _leaderboard = new("DuelsLeaderboard.json");
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int Wins, int Losses)>> _leaderboard = new("DuelsLeaderboard.json");
 
         private readonly IConfigurationService _configuration;
 
@@ -28,14 +28,16 @@ namespace MihuBot.Commands
         {
             if (ctx.Arguments.Length == 1 && ctx.Arguments[0].Equals("leaderboard", StringComparison.OrdinalIgnoreCase))
             {
+                const int PlacementMinimum = 10;
+
                 var top10 =
-                    (await _leaderboard.QueryAsync(l => l.ToArray()))
-                    .OrderByDescending(l => ((float)l.Value.Item1 * l.Value.Item1) / (l.Value.Item1 + l.Value.Item2))
-                    .ThenBy(l => l.Value.Item1)
-                    .Take(10)
+                    (await _leaderboard.QueryAsync(l => l.Where(u => u.Value.Wins > PlacementMinimum).ToArray()))
+                    .OrderByDescending(l => l.Value.Wins / (double)(l.Value.Wins + l.Value.Losses))
+                    .ThenBy(l => l.Value.Wins)
+                    .Take(15)
                     .ToArray();
 
-                var lines = top10.Select(t => $"{ctx.Discord.GetUser(t.Key).GetName(),-16} {t.Value.Item1}/{t.Value.Item1 + t.Value.Item2}");
+                var lines = top10.Select(t => $"{ctx.Discord.GetUser(t.Key).GetName(),-16} {t.Value.Wins}/{t.Value.Wins + t.Value.Losses}");
                 await ctx.ReplyAsync($"```\n{string.Join('\n', lines)}\n```");
 
                 return;
@@ -157,10 +159,10 @@ namespace MihuBot.Commands
                 try
                 {
                     leaderboard.TryGetValue(winner.Id, out var score);
-                    leaderboard[winner.Id] = (score.Item1 + 1, score.Item2);
+                    leaderboard[winner.Id] = (score.Wins + 1, score.Losses);
 
                     leaderboard.TryGetValue(looser.Id, out score);
-                    leaderboard[looser.Id] = (score.Item1, score.Item2 + 1);
+                    leaderboard[looser.Id] = (score.Wins, score.Losses + 1);
                 }
                 finally
                 {
