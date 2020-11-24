@@ -137,8 +137,6 @@ namespace MihuBot.Commands
             {
                 try
                 {
-                    simulations = Math.Max(simulations, 100_000);
-
                     int firstCount = 0;
                     for (int i = 0; i < simulations; i++)
                     {
