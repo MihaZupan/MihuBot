@@ -81,7 +81,7 @@ namespace MihuBot.Commands
 
                 var top10 =
                     (await _leaderboard.QueryAsync(l => l.Where(u => u.Value.Wins > PlacementMinimum).ToArray()))
-                    .OrderByDescending(l => l.Value.Wins / (double)(l.Value.Wins + l.Value.Losses))
+                    .OrderByDescending(l => (1 + (0.0001 * l.Value.Wins)) * (l.Value.Wins / (double)(l.Value.Wins + l.Value.Losses)))
                     .ThenBy(l => l.Value.Wins)
                     .Take(15)
                     .ToArray();
@@ -137,7 +137,7 @@ namespace MihuBot.Commands
             {
                 try
                 {
-                    simulations = Math.Max(simulations, 10_000);
+                    simulations = Math.Max(simulations, 100_000);
 
                     int firstCount = 0;
                     for (int i = 0; i < simulations; i++)
