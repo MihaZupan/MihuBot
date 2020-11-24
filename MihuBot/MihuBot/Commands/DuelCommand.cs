@@ -128,7 +128,41 @@ namespace MihuBot.Commands
                 return;
             }
 
-            await StartDuelAsync(ctx, duel);
+
+            if (ctx.Arguments.Length > 2
+                && ctx.Arguments[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(ctx.Arguments[2], out int simulations)
+                && simulations > 1
+                && ctx.HasPermission("duel.simulate"))
+            {
+                try
+                {
+                    simulations = Math.Max(simulations, 10_000);
+
+                    int firstCount = 0;
+                    for (int i = 0; i < simulations; i++)
+                    {
+                        if (duel.ChooseWinner(_configuration).winner == duel.UserOne)
+                        {
+                            firstCount++;
+                        }
+                    }
+
+                    await RegisterWinsLossesAsync(duel.UserOne.Id, duel.UserTwo.Id, firstCount, simulations - firstCount);
+                    await ctx.ReplyAsync($"{duel.UserOne.GetName()} won {firstCount} times, {duel.UserTwo.GetName()} won {simulations - firstCount} times");
+                }
+                finally
+                {
+                    lock (_channelDuels)
+                    {
+                        _channelDuels.Remove(ctx.Channel.Id);
+                    }
+                }
+            }
+            else
+            {
+                await StartDuelAsync(ctx, duel);
+            }
         }
 
         private async Task<(SocketGuildUser Target, string Error)> TryGetTargetAsync(CommandContext ctx)
@@ -227,19 +261,7 @@ namespace MihuBot.Commands
                     }
                 }
 
-                var leaderboard = await _leaderboard.EnterAsync();
-                try
-                {
-                    leaderboard.TryGetValue(winner.Id, out var score);
-                    leaderboard[winner.Id] = (score.Wins + 1, score.Losses);
-
-                    leaderboard.TryGetValue(looser.Id, out score);
-                    leaderboard[looser.Id] = (score.Wins, score.Losses + 1);
-                }
-                finally
-                {
-                    _leaderboard.Exit();
-                }
+                await RegisterWinsLossesAsync(winner.Id, looser.Id, 1, 0);
             }
             finally
             {
@@ -247,6 +269,23 @@ namespace MihuBot.Commands
                 {
                     _channelDuels.Remove(ctx.Channel.Id);
                 }
+            }
+        }
+
+        private async Task RegisterWinsLossesAsync(ulong first, ulong second, int firstWins, int secondWins)
+        {
+            var leaderboard = await _leaderboard.EnterAsync();
+            try
+            {
+                leaderboard.TryGetValue(first, out var score);
+                leaderboard[first] = (score.Wins + firstWins, score.Losses + secondWins);
+
+                leaderboard.TryGetValue(second, out score);
+                leaderboard[second] = (score.Wins + secondWins, score.Losses + firstWins);
+            }
+            finally
+            {
+                _leaderboard.Exit();
             }
         }
 
