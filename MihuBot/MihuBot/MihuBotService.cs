@@ -57,7 +57,7 @@ namespace MihuBot
         {
             try
             {
-                if (!(reaction.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
+                if (reaction.Channel is not SocketGuildChannel guildChannel || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                     return;
 
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
@@ -93,10 +93,10 @@ namespace MihuBot
 
         private Task Client_MessageReceived(SocketMessage message)
         {
-            if (!(message is SocketUserMessage userMessage))
+            if (message is not SocketUserMessage userMessage)
                 return Task.CompletedTask;
 
-            if (!(userMessage.Channel is SocketGuildChannel guildChannel) || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
+            if (userMessage.Channel is not SocketGuildChannel guildChannel || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
                 return Task.CompletedTask;
 
             if (message.Author.IsBot)
@@ -105,6 +105,11 @@ namespace MihuBot
             if (guildChannel.Guild.Id == Guilds.DDs)
             {
                 if (guildChannel.Id == Channels.DDsGeneral)
+                    return Task.CompletedTask; // Ignore
+            }
+            else if (guildChannel.Guild.Id == Guilds.RetirementHome)
+            {
+                if (guildChannel.Id != Channels.RetirementHomeWhitelist)
                     return Task.CompletedTask; // Ignore
             }
 
@@ -124,6 +129,9 @@ namespace MihuBot
 
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
+                    if (message.Guild().Id == Guilds.RetirementHome && (match.Key != "whitelist" && match.Key != "mc"))
+                        return; // Ignore everything except whitelist/mc for Retirement Home
+
                     var command = match.Value;
                     var context = new CommandContext(_discord, message, match.Key, _logger, _permissions);
 
@@ -149,6 +157,9 @@ namespace MihuBot
             }
             else
             {
+                if (message.Guild().Id == Guilds.RetirementHome)
+                    return;
+
                 var messageContext = new MessageContext(_discord, message, _logger);
 
                 foreach (var handler in _nonCommandHandlers)

@@ -156,7 +156,7 @@ namespace MihuBot.Helpers
             catch { }
         }
 
-        public static async Task<MinecraftRCON> ConnectAsync(string hostname, string password, int port = 25575)
+        public static async Task<MinecraftRCON> ConnectAsync(string hostname, int port, string password)
         {
             TcpClient tcp = new TcpClient();
 

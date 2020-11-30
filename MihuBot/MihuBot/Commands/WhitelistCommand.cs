@@ -11,15 +11,17 @@ namespace MihuBot.Commands
     {
         public override string Command => "whitelist";
 
-        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(3);
+        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(5);
+        protected override int CooldownToleranceCount => 3;
 
-        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelist =
-            new SynchronizedLocalJsonStore<Dictionary<ulong, string>>("whitelist.json");
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelistDreamlings = new ("whitelist.json");
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelistRetirementHome = new("whitelist-retirement.json");
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            var entries = await _whitelist.EnterAsync();
-
+            bool isDreamlings = ctx.Guild.Id != Guilds.RetirementHome;
+            var jsonStore = isDreamlings ? _whitelistDreamlings : _whitelistRetirementHome;
+            var entries = await jsonStore.EnterAsync();
             try
             {
                 const string ValidCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
@@ -57,8 +59,8 @@ namespace MihuBot.Commands
                     if (ulong.TryParse(ctx.Arguments[1], out ulong id) && entries.TryGetValue(id, out string username))
                     {
                         entries.Remove(id);
-                        await McCommand.RunMinecraftCommandAsync("whitelist remove " + username);
-                        await McCommand.RunMinecraftCommandAsync("kick " + username);
+                        await McCommand.RunMinecraftCommandAsync("whitelist remove " + username, isDreamlings);
+                        await McCommand.RunMinecraftCommandAsync("kick " + username, isDreamlings);
 
                         await ctx.ReplyAsync($"Removed {ctx.Discord.GetUser(id).GetName()} ({username}) from the whitelist", mention: true);
                     }
@@ -75,17 +77,30 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                if (!ctx.Author.IsDreamlingsSubscriber(ctx.Discord))
+                if (isDreamlings)
                 {
-                    ulong guild = ctx.Guild.Id;
-                    string info = guild == Guilds.DDs ? MentionUtils.MentionChannel(733694462189895693ul)
-                        : guild == Guilds.LiverGang ? MentionUtils.MentionChannel(736348370880299068ul)
-                        : guild == Guilds.DresDreamers ? MentionUtils.MentionChannel(733787275313283133ul)
-                        : $"{Emotes.PauseChamp}";
+                    if (!ctx.Author.IsDreamlingsSubscriber(ctx.Discord))
+                    {
+                        ulong guild = ctx.Guild.Id;
+                        string info = guild == Guilds.DDs ? MentionUtils.MentionChannel(733694462189895693ul)
+                            : guild == Guilds.LiverGang ? MentionUtils.MentionChannel(736348370880299068ul)
+                            : guild == Guilds.DresDreamers ? MentionUtils.MentionChannel(733787275313283133ul)
+                            : $"{Emotes.PauseChamp}";
 
-                    await ctx.ReplyAsync($"Sorry, it looks like you're not subscribed to at least one of the Dreamling Gang owners. You can find more information here: {info}", mention: true);
-                    await ctx.DebugAsync($"{ctx.Author.GetName()} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to be a subscriber");
-                    return;
+                        await ctx.ReplyAsync($"Sorry, it looks like you're not subscribed to at least one of the Dreamling Gang owners. You can find more information here: {info}", mention: true);
+                        await ctx.DebugAsync($"{ctx.Author.GetName()} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to be a subscriber");
+                        return;
+                    }
+                }
+                else
+                {
+                    if (!ctx.Author.Roles.Any(r => r.Id == 567755549668671488ul) && // Grandchildren
+                        !ctx.Author.Roles.Any(r => r.Id == 610730893601931268ul))   // PensionFund
+                    {
+                        await ctx.ReplyAsync("You must have the Grandchildren or Pension Fund role (make sure your Twitch account is synced to Discord if you're subbed)", mention: true);
+                        await ctx.DebugAsync($"{ctx.Author.GetName()} tried to add `{args}` to the whitelist in {MentionUtils.MentionChannel(ctx.Channel.Id)} but appears not to have the required roles");
+                        return;
+                    }
                 }
 
                 string existing = null;
@@ -106,16 +121,16 @@ namespace MihuBot.Commands
                 else if (entries.TryGetValue(ctx.AuthorId, out existing))
                 {
                     entries.Remove(ctx.AuthorId);
-                    await McCommand.RunMinecraftCommandAsync("whitelist remove " + existing);
-                    await McCommand.RunMinecraftCommandAsync("kick " + existing);
+                    await McCommand.RunMinecraftCommandAsync("whitelist remove " + existing, isDreamlings);
+                    await McCommand.RunMinecraftCommandAsync("kick " + existing, isDreamlings);
                 }
                 else existing = null;
 
-                await McCommand.RunMinecraftCommandAsync("whitelist add " + args);
+                await McCommand.RunMinecraftCommandAsync("whitelist add " + args, isDreamlings);
 
                 entries[ctx.AuthorId] = args;
 
-                await ctx.ReplyAsync($"Added {args} to the whitelist" + (existing is null ? "" : $" and removed {existing}"), mention: true);
+                await ctx.ReplyAsync($"Added `{args}` to the whitelist" + (existing is null ? "" : $" and removed `{existing}`"), mention: true);
             }
             catch (Exception ex)
             {
@@ -124,7 +139,7 @@ namespace MihuBot.Commands
             }
             finally
             {
-                _whitelist.Exit();
+                jsonStore.Exit();
             }
         }
     }

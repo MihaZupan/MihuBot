@@ -22,7 +22,7 @@ namespace MihuBot.Commands
                 }
                 else
                 {
-                    string commandResponse = await RunMinecraftCommandAsync(ctx.ArgumentString);
+                    string commandResponse = await RunMinecraftCommandAsync(ctx.ArgumentString, dreamlings: ctx.Guild.Id != Guilds.RetirementHome);
                     if (string.IsNullOrEmpty(commandResponse))
                     {
                         await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
@@ -41,18 +41,21 @@ namespace MihuBot.Commands
         }
 
 
-        internal static MinecraftRCON McRCON;
+        internal static MinecraftRCON McRCON_Dreamlings;
+        internal static MinecraftRCON McRCON_RetirementHome;
 
-        internal static async Task<string> RunMinecraftCommandAsync(string command, bool isRetry = false)
+        internal static async Task<string> RunMinecraftCommandAsync(string command, bool dreamlings, bool isRetry = false)
         {
             try
             {
-                if (McRCON is null || McRCON.Invalid)
+                MinecraftRCON Rcon() => dreamlings ? McRCON_Dreamlings : McRCON_RetirementHome;
+
+                if (Rcon() is null || Rcon().Invalid)
                 {
-                    await ReCreateMinecraftRCONAsync();
+                    await ReCreateMinecraftRCONAsync(dreamlings);
                 }
 
-                string mcResponse = await McRCON.SendCommandAsync(command);
+                string mcResponse = await Rcon().SendCommandAsync(command);
                 // Console.WriteLine("MC: " + mcResponse);
                 return mcResponse;
             }
@@ -60,8 +63,8 @@ namespace MihuBot.Commands
             {
                 try
                 {
-                    await ReCreateMinecraftRCONAsync();
-                    return await RunMinecraftCommandAsync(command, isRetry: true);
+                    await ReCreateMinecraftRCONAsync(dreamlings);
+                    return await RunMinecraftCommandAsync(command, dreamlings, isRetry: true);
                 }
                 catch (Exception ex2)
                 {
@@ -69,9 +72,22 @@ namespace MihuBot.Commands
                 }
             }
 
-            static async Task ReCreateMinecraftRCONAsync()
+            static async Task ReCreateMinecraftRCONAsync(bool dreamlings)
             {
-                McRCON = await MinecraftRCON.ConnectAsync(Secrets.Minecraft.ServerAddress, password: Secrets.Minecraft.RconPassword);
+                if (dreamlings)
+                {
+                    McRCON_Dreamlings = await MinecraftRCON.ConnectAsync(
+                        Secrets.Minecraft.Dreamlings.ServerAddress,
+                        Secrets.Minecraft.Dreamlings.ServerRconPort,
+                        Secrets.Minecraft.Dreamlings.RconPassword);
+                }
+                else
+                {
+                    McRCON_RetirementHome = await MinecraftRCON.ConnectAsync(
+                        Secrets.Minecraft.RetirementHome.ServerAddress,
+                        Secrets.Minecraft.RetirementHome.ServerRconPort,
+                        Secrets.Minecraft.RetirementHome.RconPassword);
+                }
             }
         }
     }

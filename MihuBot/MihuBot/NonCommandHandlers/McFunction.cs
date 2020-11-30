@@ -48,14 +48,14 @@ namespace MihuBot.NonCommandHandlers
                     {
                         StringBuilder sb = new StringBuilder();
 
-                        await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false");
+                        await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback false", dreamlings: true);
 
                         for (int i = 0; i < functions.Length; i += 100)
                         {
                             Task<string>[] tasks = functions
                                 .AsMemory(i, Math.Min(100, functions.Length - i))
                                 .ToArray()
-                                .Select(f => McCommand.RunMinecraftCommandAsync(f))
+                                .Select(f => McCommand.RunMinecraftCommandAsync(f, dreamlings: true))
                                 .ToArray();
 
                             await Task.WhenAll(tasks);
@@ -64,7 +64,7 @@ namespace MihuBot.NonCommandHandlers
                                 sb.AppendLine(task.Result);
                         }
 
-                        await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true");
+                        await McCommand.RunMinecraftCommandAsync("gamerule sendCommandFeedback true", dreamlings: true);
 
                         var ms = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
                         await ctx.Channel.SendFileAsync(ms, "responses.txt");

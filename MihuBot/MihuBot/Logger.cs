@@ -520,10 +520,10 @@ RecipientAdded
 
         private Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null)
         {
-            if (!(message is SocketUserMessage userMessage))
+            if (message is not SocketUserMessage userMessage)
                 return Task.CompletedTask;
 
-            if (!(userMessage.Channel is SocketGuildChannel channel))
+            if (userMessage.Channel is not SocketGuildChannel channel)
                 return Task.CompletedTask;
 
             if (message.Author.Id == KnownUsers.MihuBot && channel.Guild.Id == Guilds.PrivateLogs && channel.Id == Channels.LogText)
@@ -545,6 +545,12 @@ RecipientAdded
                 {
                     Log(new LogEvent(userMessage, attachment));
 
+                    if (message.Guild().Id == Guilds.RetirementHome)
+                    {
+                        if (attachment.Size > 1024 * 1024 * 8) // 8 MB
+                            continue;
+                    }
+
                     if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                         !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
                     {
@@ -562,7 +568,8 @@ RecipientAdded
                     });
                 }
 
-                if (message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
+                if (message.Guild().Id != Guilds.RetirementHome &&
+                    message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
                 {
                     _ = Task.Run(() =>
                     {

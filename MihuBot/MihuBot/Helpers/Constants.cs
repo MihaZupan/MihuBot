@@ -47,6 +47,7 @@ namespace MihuBot.Helpers
         public const ulong Dreamlings       = 612032458258644992ul;
         public const ulong TheWaddle        = 509232675001991169ul;
         public const ulong TheFragmentary   = 489465972772831233ul;
+        public const ulong RetirementHome   = 357322948501045259ul;
     }
 
     public static class Channels
@@ -62,6 +63,8 @@ namespace MihuBot.Helpers
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;
         public const ulong DuelsTexts       = 780506349414121503ul;
+
+        public const ulong RetirementHomeWhitelist = 782770488233558016ul;
     }
 
     public static class KnownUsers
