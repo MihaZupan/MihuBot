@@ -372,7 +372,7 @@ RecipientAdded
         {
             if (beforeChannel is SocketGuildChannel before && afterChannel is SocketGuildChannel after)
             {
-                Log(new LogEvent(EventType.ChannelUpdated)
+                Log(new LogEvent(EventType.ChannelUpdated, after)
                 {
                     Content = $"{JsonSerializer.Serialize(ChannelModel.FromSocketChannel(before), JsonOptions)} => {JsonSerializer.Serialize(ChannelModel.FromSocketChannel(after), JsonOptions)}"
                 });
