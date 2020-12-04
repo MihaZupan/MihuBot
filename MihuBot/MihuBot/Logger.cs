@@ -332,7 +332,8 @@ namespace MihuBot
 
             discord.Log += Discord_LogAsync;
             discord.LatencyUpdated += LatencyUpdatedAsync;
-            discord.JoinedGuild += async guild => await DebugAsync($"Added to {guild.Name} ({guild.Id})");
+            discord.JoinedGuild += JoinedGuildAsync;
+            discord.LeftGuild += LeftGuildAsync;
             discord.MessageReceived += message => MessageReceivedAsync(message);
             discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
             discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
@@ -346,31 +347,205 @@ namespace MihuBot
             discord.UserLeft += UserLeftAsync;
             discord.UserJoined += UserJoinedAsync;
             discord.UserIsTyping += UserIsTypingAsync;
-            // discord.ChannelCreated
+            discord.UserUpdated += UserUpdatedAsync;
+            discord.GuildMemberUpdated += UserUpdatedAsync;
+            discord.CurrentUserUpdated += UserUpdatedAsync;
+            discord.ChannelCreated += ChannelCreatedAsync;
+            discord.ChannelUpdated += ChannelUpdatedAsync;
             discord.ChannelDestroyed += ChannelDestroyedAsync;
-            // discord.ChannelUpdated
-            // discord.GuildUpdated
-            // discord.RoleCreated
-            // discord.RoleDeleted
-            // discord.RoleUpdated
-            // discord.UserUpdated
-            // discord.GuildMemberUpdated
+            discord.RoleCreated += RoleCreatedAsync;
+            discord.RoleDeleted += RoleDeletedAsync;
+            discord.RoleUpdated += RoleUpdatedAsync;
+            discord.GuildAvailable += GuildAvailableAsync;
+            discord.GuildUnavailable += GuildUnavailableAsync;
+            discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
 
             /*
-LeftGuild
-GuildUnavailable
-GuildMembersDownloaded
+GuildUpdated
 VoiceServerUpdated
-CurrentUserUpdated
-GuildAvailable
 RecipientRemoved
 RecipientAdded
             */
         }
 
+        private Task ChannelUpdatedAsync(SocketChannel beforeChannel, SocketChannel afterChannel)
+        {
+            if (beforeChannel is SocketGuildChannel before && afterChannel is SocketGuildChannel after)
+            {
+                Log(new LogEvent(EventType.ChannelUpdated)
+                {
+                    Content = $"{JsonSerializer.Serialize(ChannelModel.FromSocketChannel(before), JsonOptions)} => {JsonSerializer.Serialize(ChannelModel.FromSocketChannel(after), JsonOptions)}"
+                });
+            }
+            return Task.CompletedTask;
+        }
+
+        private Task ChannelCreatedAsync(SocketChannel channel)
+        {
+            if (channel is SocketGuildChannel guildChannel)
+            {
+                Log(new LogEvent(EventType.ChannelCreated, guildChannel)
+                {
+                    Content = JsonSerializer.Serialize(ChannelModel.FromSocketChannel(guildChannel), JsonOptions)
+                });
+            }
+            return Task.CompletedTask;
+        }
+
+        private Task ChannelDestroyedAsync(SocketChannel channel)
+        {
+            if (channel is SocketGuildChannel guildChannel)
+            {
+                Log(new LogEvent(EventType.ChannelDestroyed, guildChannel)
+                {
+                    Content = JsonSerializer.Serialize(ChannelModel.FromSocketChannel(guildChannel), JsonOptions)
+                });
+            }
+            return Task.CompletedTask;
+        }
+
+        private Task RoleCreatedAsync(SocketRole role)
+        {
+            Log(new LogEvent(EventType.RoleCreated, role.Guild.Id)
+            {
+                Role = RoleModel.FromSocketRole(role)
+            });
+            return Task.CompletedTask;
+        }
+
+        private Task RoleDeletedAsync(SocketRole role)
+        {
+            Log(new LogEvent(EventType.RoleDeleted, role.Guild.Id)
+            {
+                Role = RoleModel.FromSocketRole(role)
+            });
+            return Task.CompletedTask;
+        }
+
+        private Task RoleUpdatedAsync(SocketRole before, SocketRole after)
+        {
+            Log(new LogEvent(EventType.RoleUpdated, after.Guild.Id)
+            {
+                Role = RoleModel.FromSocketRole(after)
+            });
+            return Task.CompletedTask;
+        }
+
+        private async Task JoinedGuildAsync(SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.JoinedGuild, guild.Id));
+            await DebugAsync($"Added to {guild.Name} ({guild.Id})");
+        }
+
+        private async Task LeftGuildAsync(SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.LeftGuild, guild.Id));
+            await DebugAsync($"Left {guild.Name} ({guild.Id})");
+        }
+
+        private Task GuildUnavailableAsync(SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.GuildUnavailable, guild.Id));
+            return Task.CompletedTask;
+        }
+
+        private Task GuildAvailableAsync(SocketGuild guild)
+        {
+            Log(new LogEvent(EventType.GuildAvailable, guild.Id));
+            return Task.CompletedTask;
+        }
+
+        private Task UserUpdatedAsync(SocketUser beforeUser, SocketUser afterUser)
+        {
+            var after = afterUser as SocketGuildUser;
+            ulong guildId = after?.Guild.Id ?? 0;
+
+            if (after != null)
+            {
+                var before = beforeUser as SocketGuildUser;
+
+                if (before?.Nickname != after.Nickname)
+                {
+                    Log(new LogEvent(EventType.UserNicknameChanged, guildId)
+                    {
+                        UserID = after.Id,
+                        Content = after.Nickname
+                    });
+                }
+
+                if (before is null || !before.Roles.SequenceIdEquals(after.Roles))
+                {
+                    if (before != null)
+                    {
+                        foreach (SocketRole beforeRole in before.Roles)
+                        {
+                            if (!after.Roles.Any(beforeRole.Id))
+                            {
+                                Log(new LogEvent(EventType.UserRoleRemoved, guildId)
+                                {
+                                    UserID = afterUser.Id,
+                                    Role = RoleModel.FromSocketRole(beforeRole)
+                                });
+                            }
+                        }
+                    }
+
+                    foreach (SocketRole afterRole in after.Roles)
+                    {
+                        if (before is null || !before.Roles.Any(afterRole.Id))
+                        {
+                            Log(new LogEvent(EventType.UserRoleAdded, guildId)
+                            {
+                                UserID = afterUser.Id,
+                                Role = RoleModel.FromSocketRole(afterRole)
+                            });
+                        }
+                    }
+                }
+            }
+
+            if (beforeUser is null || beforeUser.Username != afterUser.Username || beforeUser.DiscriminatorValue != afterUser.DiscriminatorValue)
+            {
+                Log(new LogEvent(EventType.UserUsernameOrDiscriminatorChanged, guildId)
+                {
+                    UserID = afterUser.Id,
+                    Content = $"{afterUser.Username}#{afterUser.Discriminator}"
+                });
+            }
+
+            if (beforeUser?.AvatarId != afterUser.AvatarId)
+            {
+                Log(new LogEvent(EventType.UserAvatarIdChanged, guildId)
+                {
+                    UserID = afterUser.Id,
+                    Content = afterUser.AvatarId
+                });
+            }
+
+            if (beforeUser is null ? afterUser.ActiveClients.Count != 0 : !beforeUser.ActiveClients.SetEquals(afterUser.ActiveClients))
+            {
+                Log(new LogEvent(EventType.UserActiveClientsChanged, guildId)
+                {
+                    UserID = afterUser.Id,
+                    Content = string.Join(' ', afterUser.ActiveClients)
+                });
+            }
+
+            if (beforeUser is null ? afterUser.Activities.Count != 0 : !beforeUser.Activities.SequenceEqual(afterUser.Activities))
+            {
+                Log(new LogEvent(EventType.UserActivitiesChanged, guildId)
+                {
+                    UserID = afterUser.Id,
+                    Content = JsonSerializer.Serialize(afterUser.Activities, JsonOptions)
+                });
+            }
+
+            return Task.CompletedTask;
+        }
+
         private Task LatencyUpdatedAsync(int before, int after)
         {
-            if (before > 100 || after > 100)
+            if (before != after && (before > 100 || after > 100))
                 DebugLog($"Latency updated: {before} => {after}");
             return Task.CompletedTask;
         }
@@ -381,12 +556,6 @@ RecipientAdded
             {
                 LogMessage = LogMessageModel.FromLogMessage(logMessage)
             });
-            return Task.CompletedTask;
-        }
-
-        private Task ChannelDestroyedAsync(SocketChannel channel)
-        {
-            Log(new LogEvent(EventType.ChannelDestroyed, channel));
             return Task.CompletedTask;
         }
 
@@ -720,6 +889,64 @@ RecipientAdded
             };
         }
 
+        public sealed class RoleModel
+        {
+            public ulong Id { get; set; }
+            public Color Color { get; set; }
+            public bool IsHoisted { get; set; }
+            public bool IsManaged { get; set; }
+            public bool IsMentionable { get; set; }
+            public string Name { get; set; }
+            public ulong Permissions { get; set; }
+            public int Position { get; set; }
+            public bool IsEveryone { get; set; }
+
+            public static RoleModel FromSocketRole(SocketRole role) => new RoleModel()
+            {
+                Id = role.Id,
+                Color = role.Color,
+                IsHoisted = role.IsHoisted,
+                IsManaged = role.IsManaged,
+                IsMentionable = role.IsMentionable,
+                Name = role.Name,
+                Permissions = role.Permissions.RawValue,
+                Position = role.Position,
+                IsEveryone = role.IsEveryone
+            };
+        }
+
+        private sealed class ChannelModel
+        {
+            public ulong Id { get; set; }
+            public string Name { get; set; }
+            public int Position { get; set; }
+            public OverwriteModel[] PermissionOverwrites { get; set; }
+
+            public static ChannelModel FromSocketChannel(SocketGuildChannel channel) => new()
+            {
+                Id = channel.Id,
+                Name = channel.Name,
+                Position = channel.Position,
+                PermissionOverwrites = channel.PermissionOverwrites.Select(o => OverwriteModel.FromOverwrite(o)).ToArray()
+            };
+        }
+
+        private struct OverwriteModel
+        {
+            public ulong TargetId { get; set; }
+            public PermissionTarget TargetType { get; set; }
+            public ulong AllowPermissions { get; set; }
+            public ulong DenyPermissions { get; set; }
+
+            public static OverwriteModel FromOverwrite(Overwrite overwrite) => new()
+            {
+                TargetId = overwrite.TargetId,
+                TargetType = overwrite.TargetType,
+                AllowPermissions = overwrite.Permissions.AllowValue,
+                DenyPermissions = overwrite.Permissions.DenyValue
+            };
+        }
+
         public enum EventType
         {
             MessageReceived = 1,
@@ -739,6 +966,22 @@ RecipientAdded
             UserLeftVoice,
             ChannelDestroyed,
             UserUnbanned,
+            UserNicknameChanged,
+            UserUsernameOrDiscriminatorChanged,
+            UserAvatarIdChanged,
+            UserActiveClientsChanged,
+            UserActivitiesChanged,
+            UserRoleAdded,
+            UserRoleRemoved,
+            GuildAvailable,
+            GuildUnavailable,
+            JoinedGuild,
+            LeftGuild,
+            RoleCreated,
+            RoleUpdated,
+            RoleDeleted,
+            ChannelCreated,
+            ChannelUpdated,
         }
 
         public sealed class LogEvent
@@ -813,6 +1056,7 @@ RecipientAdded
             public string Emoji { get; set; }
             public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
             public LogMessageModel LogMessage { get; set; }
+            public RoleModel Role { get; set; }
 
             public void ToString(StringBuilder builder, DiscordSocketClient client)
             {
@@ -836,170 +1080,108 @@ RecipientAdded
 
                 builder.Append(Type.ToString());
 
-                if (Type == EventType.MessageReceived ||
-                    Type == EventType.MessageUpdated ||
-                    Type == EventType.MessageDeleted ||
-                    Type == EventType.FileReceived)
+                SocketGuild guild = null;
+                if (GuildID != 0)
                 {
                     builder.Append(": ");
-                    AppendChannelName(builder, client, GuildID, ChannelID);
 
-                    if (Content != null && Type != EventType.FileReceived)
+                    guild = client.GetGuild(GuildID);
+                    if (guild is null)
                     {
-                        if (UserID != default)
-                        {
-                            builder.Append(" - ");
-                            AppendUsername(builder, client, UserID);
-                        }
-
-                        builder.Append(" - ");
-                        if (Content.AsSpan().IndexOfAny('\n', '\r') == -1)
-                        {
-                            builder.Append(Content);
-                        }
-                        else
-                        {
-                            builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
-                        }
+                        builder.Append(GuildID);
                     }
                     else
                     {
-                        if (UserID != default)
-                        {
-                            builder.Append(" - Author ");
-                            builder.Append(UserID);
-                        }
-
-                        if (Type == EventType.MessageDeleted && PreviousMessageID != default)
-                        {
-                            builder.Append(" - PreviousID ");
-                            builder.Append(PreviousMessageID);
-                        }
-
-                        builder.Append(" - Message ");
-                        builder.Append(MessageID);
-
-                        if (Type == EventType.FileReceived && Attachment != null)
-                        {
-                            builder.Append(" - File ");
-                            builder.Append(Attachment.Url);
-                            builder.Append(" - ");
-                            builder.Append(Attachment.Filename);
-                        }
+                        builder.Append(guild.Name);
                     }
                 }
-                else if (Type == EventType.DebugMessage)
+
+                if (ChannelID != 0)
                 {
-                    string content = Content;
+                    builder.Append(GuildID == 0 ? ": " : " - ");
 
-                    if (LogMessage != null)
+                    SocketGuildChannel channel = guild?.GetChannel(ChannelID);
+                    if (channel is null)
                     {
-                        content = JsonSerializer.Serialize(LogMessage, JsonOptions);
+                        builder.Append(ChannelID);
                     }
-
-                    if (content != null)
+                    else
                     {
-                        builder.Append(": ");
-                        builder.Append(content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                        builder.Append(channel.Name);
                     }
                 }
-                else if (Type == EventType.ReactionAdded || Type == EventType.ReactionRemoved || Type == EventType.ReactionsCleared)
-                {
-                    builder.Append(": ");
-                    AppendChannelName(builder, client, GuildID, ChannelID);
 
-                    if (UserID != default)
+                if (UserID != 0)
+                {
+                    builder.Append(" - ");
+                    string username = client.GetUser(UserID)?.Username;
+                    if (username is null)
                     {
-                        builder.Append(" - Author ");
                         builder.Append(UserID);
                     }
-
-                    if (Emoji != null)
+                    else
                     {
-                        builder.Append(" - Emoji ");
-                        builder.Append(Emoji);
-                    }
-
-                    if (Emote != null)
-                    {
-                        builder.Append(" - Emote ");
-                        builder.Append(Emote.Name);
-                        builder.Append(' ');
-                        builder.Append(Emote.Url);
+                        builder.Append(username);
                     }
                 }
-                else if (Type == EventType.UserJoined || Type == EventType.UserLeft || Type == EventType.UserBanned || Type == EventType.UserUnbanned)
+
+                if (PreviousMessageID != 0)
                 {
-                    builder.Append(": ");
-                    AppendGuildName(builder, client, GuildID);
-                    builder.Append(" - ");
-                    AppendUsername(builder, client, UserID);
+                    builder.Append(" - PreviousID ");
+                    builder.Append(PreviousMessageID);
                 }
-                else if (Type == EventType.UserIsTyping)
+
+                if (Content != null)
                 {
-                    builder.Append(": ");
-                    AppendChannelName(builder, client, GuildID, ChannelID);
                     builder.Append(" - ");
-                    AppendUsername(builder, client, UserID);
+                    if (Content.AsSpan().IndexOfAny('\n', '\r') == -1)
+                    {
+                        builder.Append(Content);
+                    }
+                    else
+                    {
+                        builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+                    }
                 }
-                else if (Type == EventType.VoiceStatusUpdated || Type == EventType.UserJoinedVoice || Type == EventType.UserLeftVoice)
+
+                if (Attachment != null)
                 {
-                    builder.Append(": ");
-                    AppendChannelName(builder, client, GuildID, ChannelID);
+                    builder.Append(" - File ");
+                    builder.Append(Attachment.Url);
                     builder.Append(" - ");
-                    AppendUsername(builder, client, UserID);
-                    builder.Append(" - ");
-                    builder.Append(VoiceStatusUpdated);
+                    builder.Append(Attachment.Filename);
                 }
-                else if (Type == EventType.ChannelDestroyed)
+
+                if (LogMessage != null)
                 {
                     builder.Append(": ");
-                    AppendChannelName(builder, client, GuildID, ChannelID);
+                    builder.Append(JsonSerializer.Serialize(LogMessage, JsonOptions));
+                }
+
+                if (Emoji != null)
+                {
+                    builder.Append(" - Emoji ");
+                    builder.Append(Emoji);
+                }
+
+                if (Emote != null)
+                {
+                    builder.Append(" - Emote ");
+                    builder.Append(Emote.Name);
+                    builder.Append(' ');
+                    builder.Append(Emote.Url);
+                }
+
+                if (Role != null)
+                {
+                    builder.Append(": ");
+                    builder.Append(JsonSerializer.Serialize(Role, JsonOptions));
                 }
 
                 static void AppendTwoDigits(StringBuilder builder, int value)
                 {
                     if (value < 10) builder.Append('0');
                     builder.Append(value);
-                }
-                static void AppendChannelName(StringBuilder builder, DiscordSocketClient client, ulong guildId, ulong channelId)
-                {
-                    string channelName = client.GetGuild(guildId)?.GetChannel(channelId)?.Name;
-
-                    if (channelName is null)
-                    {
-                        builder.Append(guildId);
-                        builder.Append(" - ");
-                        builder.Append(channelId);
-                    }
-                    else
-                    {
-                        builder.Append(channelName);
-                    }
-                }
-                static void AppendGuildName(StringBuilder builder, DiscordSocketClient client, ulong guildId)
-                {
-                    string guildName = client.GetGuild(guildId)?.Name;
-                    if (guildName is null)
-                    {
-                        builder.Append(guildId);
-                    }
-                    else
-                    {
-                        builder.Append(guildName);
-                    }
-                }
-                static void AppendUsername(StringBuilder builder, DiscordSocketClient client, ulong userId)
-                {
-                    string username = client.GetUser(userId)?.Username;
-                    if (username is null)
-                    {
-                        builder.Append(userId);
-                    }
-                    else
-                    {
-                        builder.Append(username);
-                    }
                 }
             }
         }

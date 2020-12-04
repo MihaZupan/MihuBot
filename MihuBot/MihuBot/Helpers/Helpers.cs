@@ -222,6 +222,41 @@ namespace MihuBot.Helpers
             return false;
         }
 
+        public static bool SequenceIdEquals<T>(this IEnumerable<T> first, IEnumerable<T> second)
+            where T : class, ISnowflakeEntity
+        {
+            if (ReferenceEquals(first, second))
+            {
+                return true;
+            }
+
+            if (first is ICollection<T> collection1 && second is ICollection<T> collection2)
+            {
+                if (collection1.Count != collection2.Count)
+                {
+                    return false;
+                }
+            }
+
+            using IEnumerator<T> e1 = first.GetEnumerator();
+            using IEnumerator<T> e2 = second.GetEnumerator();
+
+            while (e1.MoveNext())
+            {
+                if (!e2.MoveNext())
+                {
+                    return false;
+                }
+
+                if (e1.Current.Id != e2.Current.Id)
+                {
+                    return false;
+                }
+            }
+
+            return !e2.MoveNext();
+        }
+
         public static bool All<T>(this Predicate<T>[] predicates, T value)
         {
             foreach (var predicate in predicates)
