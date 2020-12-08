@@ -156,7 +156,30 @@ namespace MihuBot.Commands
                     predicates.Add(le => le.ChannelID == 0 || channels.Contains(le.ChannelID));
                 }
 
-                Logger.LogEvent[] logs = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
+                (Logger.LogEvent[] logs, (string Json, Exception Ex)[] errors) = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
+
+                if (errors.Length > 0)
+                {
+                    string separator = new('-', 50);
+
+                    StringBuilder errorBuilder = new();
+                    foreach (var byErrorMessage in errors.GroupBy(e => e.Ex.StackTrace))
+                    {
+                        errorBuilder.AppendLine(separator);
+                        errorBuilder.AppendLine(byErrorMessage.Key);
+                        foreach (var subGroup in byErrorMessage.GroupBy(e => e.Ex.InnerException?.Message ?? e.Ex.Message))
+                        {
+                            errorBuilder.AppendLine();
+                            errorBuilder.AppendLine(subGroup.Key);
+                            foreach (var (Json, _) in subGroup)
+                            {
+                                errorBuilder.AppendLine(Json);
+                            }
+                        }
+                    }
+
+                    await ctx.Channel.SendTextFileAsync("ParsingErrors.txt", errorBuilder.ToString());
+                }
 
                 if (logs.Length == 0)
                 {

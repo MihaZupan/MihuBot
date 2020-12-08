@@ -216,13 +216,13 @@ namespace MihuBot
             }
         }
 
-        public async Task<LogEvent[]> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
+        public async Task<(LogEvent[] Logs, (string Json, Exception Exception)[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
         {
             if (after >= before)
-                return Array.Empty<LogEvent>();
+                return (Array.Empty<LogEvent>(), Array.Empty<(string, Exception)>());
 
-            string afterString = after.Date.Subtract(TimeSpan.FromDays(2)).ToISODateTime();
-            string beforeString = before.Date.Add(TimeSpan.FromDays(2)).ToISODateTime();
+            string afterString = after.Date.Subtract(TimeSpan.FromHours(26)).ToISODateTime();
+            string beforeString = before.Date.Add(TimeSpan.FromHours(26)).ToISODateTime();
 
             string[] files = Directory.GetFiles(LogsRoot)
                 .OrderBy(file => file)
@@ -236,7 +236,8 @@ namespace MihuBot
                 })
                 .ToArray();
 
-            List<LogEvent> events = new List<LogEvent>();
+            List<LogEvent> events = new();
+            List<(string, Exception)> parsingErrors = new();
 
             await LogSemaphore.WaitAsync();
             try
@@ -257,7 +258,11 @@ namespace MihuBot
                         {
                             logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
                         }
-                        catch { continue; }
+                        catch (Exception ex)
+                        {
+                            parsingErrors.Add((line, ex));
+                            continue;
+                        }
 
                         if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
                         {
@@ -271,7 +276,7 @@ namespace MihuBot
                 LogSemaphore.Release();
             }
 
-            return events.ToArray();
+            return (events.ToArray(), parsingErrors.ToArray());
         }
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);

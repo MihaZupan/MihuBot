@@ -114,6 +114,19 @@ namespace MihuBot.Helpers
             }
         }
 
+        public static IEnumerable<TSource> Unique<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)
+        {
+            var hashSet = new HashSet<TKey>();
+
+            foreach (TSource element in source)
+            {
+                if (hashSet.Add(keySelector(element)))
+                {
+                    yield return element;
+                }
+            }
+        }
+
         public static IEnumerable<TElement> UniqueBy<TElement, TBy>(this IEnumerable<TElement> source, Func<TElement, TBy> selector)
         {
             var hashSet = new HashSet<TBy>();
