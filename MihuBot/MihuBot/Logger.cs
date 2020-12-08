@@ -62,7 +62,7 @@ namespace MihuBot
         private async Task ChannelReaderTaskAsync()
         {
             const int QueueSize = 100_000;
-            List<LogEvent> events = new List<LogEvent>(128);
+            List<LogEvent> events = new(128);
             while (await LogChannel.Reader.WaitToReadAsync())
             {
                 while (events.Count < QueueSize && LogChannel.Reader.TryRead(out LogEvent logEvent))
@@ -71,13 +71,43 @@ namespace MihuBot
                 }
 
                 await LogSemaphore.WaitAsync();
-                foreach (LogEvent logEvent in events)
+                try
                 {
-                    await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
-                    await JsonLogStream.WriteAsync(NewLineByte);
+                    try
+                    {
+                        foreach (LogEvent logEvent in events)
+                        {
+                            try
+                            {
+                                await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
+                            }
+                            catch (Exception ex)
+                            {
+                                try
+                                {
+                                    string json = Newtonsoft.Json.JsonConvert.SerializeObject(logEvent);
+                                    await JsonLogStream.WriteAsync(NewLineByte);
+                                    await JsonLogStream.WriteAsync(Encoding.UTF8.GetBytes(json));
+
+                                    DebugLog(json + ": " + ex.ToString());
+                                }
+                                catch { }
+                            }
+                            finally
+                            {
+                                await JsonLogStream.WriteAsync(NewLineByte);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        await JsonLogStream.FlushAsync();
+                    }
                 }
-                await JsonLogStream.FlushAsync();
-                LogSemaphore.Release();
+                finally
+                {
+                    LogSemaphore.Release();
+                }
 
                 events.Clear();
 
