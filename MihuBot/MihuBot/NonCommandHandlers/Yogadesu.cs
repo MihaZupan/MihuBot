@@ -1,4 +1,4 @@
-﻿using StackExchange.Redis;
+﻿using MihuBot.Helpers;
 using System;
 using System.Threading.Tasks;
 
@@ -8,12 +8,7 @@ namespace MihuBot.NonCommandHandlers
     {
         protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
 
-        private readonly IConnectionMultiplexer _redis;
-
-        public Yogadesu(IConnectionMultiplexer redis)
-        {
-            _redis = redis;
-        }
+        private readonly SynchronizedLocalJsonStore<Box<int>> _counter = new("Yogadesu.json");
 
         public override Task HandleAsync(MessageContext ctx)
         {
@@ -29,9 +24,18 @@ namespace MihuBot.NonCommandHandlers
                 if (!await TryEnterOrWarnAsync(ctx))
                     return;
 
-                int count = (int)await _redis.GetDatabase().StringIncrementAsync("counters-yogadesu");
-                count = Math.Min(count, 1024);
+                int count;
+                var counter = await _counter.EnterAsync();
+                try
+                {
+                    count = ++counter.Value;
+                }
+                finally
+                {
+                    _counter.Exit();
+                }
 
+                count = Math.Min(count, 1024);
                 await ctx.ReplyAsync($"Y{new string('o', count)}gades");
             }
         }

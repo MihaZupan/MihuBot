@@ -14,7 +14,6 @@ using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
-using StackExchange.Redis;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -47,8 +46,6 @@ namespace MihuBot
                 AutomaticDecompression = DecompressionMethods.All
             });
             services.AddSingleton(httpClient);
-
-            services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect($"{Secrets.Redis.DatabaseAddress},password={Secrets.Redis.DatabasePassword}"));
 
             var discord = new DiscordSocketClient(
                 new DiscordSocketConfig()

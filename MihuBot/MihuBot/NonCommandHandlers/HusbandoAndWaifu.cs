@@ -34,8 +34,6 @@ namespace MihuBot.NonCommandHandlers
 
             async Task HandleAsyncCore()
             {
-                string redisPrefix = waifu ? "waifu-" : "husbando-";
-
                 bool all = waifu
                     ? content.StartsWith("@waifus", StringComparison.OrdinalIgnoreCase)
                     : (content.StartsWith("@husbands", StringComparison.OrdinalIgnoreCase) || content.StartsWith("@husbandos", StringComparison.OrdinalIgnoreCase));
