@@ -115,7 +115,7 @@ namespace MihuBot
 
                 events.Clear();
 
-                if (DateTime.UtcNow.Date != LogDate)
+                if (DateTime.UtcNow.Subtract(LogDate) >= TimeSpan.FromHours(1))
                 {
                     await ResetLogFileAsync();
                 }
@@ -226,10 +226,9 @@ namespace MihuBot
                     }
                 }
 
-                DateTime utcNow = DateTime.UtcNow;
-                LogDate = utcNow.Date;
+                LogDate = DateTime.UtcNow;
 
-                JsonLogPath = Path.Combine(LogsRoot, utcNow.ToISODateTime() + ".json.br");
+                JsonLogPath = Path.Combine(LogsRoot, LogDate.ToISODateTime() + ".json.br");
 
                 Stream fileStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
 
@@ -324,29 +323,10 @@ namespace MihuBot
             static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LogEvent> events, List<Exception> parsingErrors, DateTime after, DateTime before, Predicate<LogEvent> predicate)
             {
                 Debug.Assert((int)Enum.GetValues<EventType>().Max() < 100);
-                Span<char> timeStampBuffer = stackalloc char[40];
 
                 var reader = new SequenceReader<byte>(buffer);
                 while (reader.TryReadTo(out ReadOnlySpan<byte> span, (byte)'\n'))
                 {
-                    if (span.Length < 50) continue;
-
-                    int index = span[21] == ':' ? 23 : 24;
-                    Debug.Assert(span[index - 1] == '"');
-
-                    ReadOnlySpan<byte> timeStamp = span.Slice(index);
-                    index = timeStamp.IndexOf((byte)'"');
-                    if (index == -1) continue;
-                    timeStamp = timeStamp.Slice(0, index);
-
-                    int length = Encoding.ASCII.GetChars(timeStamp, timeStampBuffer);
-
-                    if (!DateTime.TryParse(timeStampBuffer.Slice(0, length), out DateTime time))
-                        continue;
-
-                    if (after > time || before < time)
-                        continue;
-
                     LogEvent logEvent;
                     try
                     {
