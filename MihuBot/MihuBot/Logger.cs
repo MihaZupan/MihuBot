@@ -4,10 +4,13 @@ using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -32,20 +35,20 @@ namespace MihuBot
 
         private static readonly ReadOnlyMemory<byte> NewLineByte = new[] { (byte)'\n' };
         private static readonly char[] TrimChars = new[] { ' ', '\t', '\n', '\r' };
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
+        private static readonly JsonSerializerOptions JsonOptions = new() { IgnoreNullValues = true };
 
-        private readonly SemaphoreSlim LogSemaphore = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim LogSemaphore = new(1, 1);
         private readonly Channel<LogEvent> LogChannel;
-        private Stream JsonLogStream;
+        private BrotliStream JsonLogStream;
         private string JsonLogPath;
         private DateTime LogDate;
 
         private readonly Channel<(string FileName, string FilePath, SocketMessage Message, bool Delete)> FileArchivingChannel;
-        private readonly BlobContainerClient BlobContainerClient =
-            new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
+        private readonly BlobContainerClient BlobContainerClient = new(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
+        private readonly ConcurrentDictionary<string, TaskCompletionSource> FileArchivingCompletions = new();
 
-        private readonly FileBackedHashSet _cdnLinksHashSet = new FileBackedHashSet("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
-        private static readonly Regex _cdnLinksRegex = new Regex(
+        private readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
+        private static readonly Regex _cdnLinksRegex = new(
             @"https:\/\/cdn\.discordapp\.com\/[^\s]+",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -53,8 +56,8 @@ namespace MihuBot
         {
             try
             {
-                await SendLogFilesAsync(LogsReportsTextChannel, resetLogFiles: true);
-                await Task.Delay(1000);
+                Task uploadTask = await ResetLogFileAsync();
+                await Task.WhenAny(uploadTask, Task.Delay(TimeSpan.FromSeconds(15)));
             }
             catch { }
         }
@@ -102,6 +105,7 @@ namespace MihuBot
                     finally
                     {
                         await JsonLogStream.FlushAsync();
+                        await JsonLogStream.BaseStream.FlushAsync();
                     }
                 }
                 finally
@@ -113,7 +117,7 @@ namespace MihuBot
 
                 if (DateTime.UtcNow.Date != LogDate)
                 {
-                    await SendLogFilesAsync(LogsReportsTextChannel, resetLogFiles: true);
+                    await ResetLogFileAsync();
                 }
             }
         }
@@ -136,6 +140,7 @@ namespace MihuBot
                     {
                         ".txt" => AccessTier.Hot,
                         ".json" => AccessTier.Hot,
+                        ".br" => AccessTier.Hot,
                         ".html" => AccessTier.Hot,
                         ".jpg" => AccessTier.Cool,
                         ".jpeg" => AccessTier.Cool,
@@ -190,51 +195,45 @@ namespace MihuBot
                 {
                     DebugLog($"Failed to archive {FilePath}: {ex}");
                 }
+                finally
+                {
+                    if (FileArchivingCompletions.TryRemove(FilePath, out var tcs))
+                        tcs.TrySetResult();
+                }
             }
         }
 
-        public async Task SendLogFilesAsync(ITextChannel channel, bool resetLogFiles)
+        public async Task<Task> ResetLogFileAsync()
         {
+            TaskCompletionSource tcs = null;
             await LogSemaphore.WaitAsync();
             try
             {
                 if (JsonLogStream != null)
                 {
-                    const int SizeLimit = 4 * 1024 * 1024;
+                    await JsonLogStream.FlushAsync();
+                    await JsonLogStream.BaseStream.FlushAsync();
 
-                    string fileName = Path.GetFileNameWithoutExtension(JsonLogPath);
+                    await JsonLogStream.DisposeAsync();
 
-                    using var jsonFileStream = File.Open(JsonLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    if (jsonFileStream.Length <= SizeLimit)
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                     {
-                        await channel.SendFileAsync(jsonFileStream, fileName + ".json");
-                    }
-                    else
-                    {
-                        using var brotliStream = new BrotliStream(jsonFileStream, CompressionLevel.Optimal);
-                        await channel.SendFileAsync(brotliStream, fileName + ".json.br");
-                    }
+                        tcs = new TaskCompletionSource();
+                        if (!FileArchivingCompletions.TryAdd(JsonLogPath, tcs))
+                            tcs.TrySetResult();
 
-                    if (resetLogFiles)
-                    {
-                        await JsonLogStream.DisposeAsync();
-                        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                        {
-                            FileArchivingChannel.Writer.TryWrite((Path.GetFileName(JsonLogPath), JsonLogPath, Message: null, Delete: false));
-                        }
+                        FileArchivingChannel.Writer.TryWrite((Path.GetFileName(JsonLogPath), JsonLogPath, Message: null, Delete: false));
                     }
                 }
 
-                if (resetLogFiles)
-                {
-                    DateTime utcNow = DateTime.UtcNow;
-                    LogDate = utcNow.Date;
+                DateTime utcNow = DateTime.UtcNow;
+                LogDate = utcNow.Date;
 
-                    string timeString = utcNow.ToISODateTime();
+                JsonLogPath = Path.Combine(LogsRoot, utcNow.ToISODateTime() + ".json.br");
 
-                    JsonLogPath = Path.Combine(LogsRoot, timeString + ".json");
-                    JsonLogStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-                }
+                Stream fileStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+
+                JsonLogStream = new BrotliStream(fileStream, (CompressionLevel)4);
             }
             catch (Exception ex)
             {
@@ -244,61 +243,44 @@ namespace MihuBot
             {
                 LogSemaphore.Release();
             }
+
+            return tcs?.Task ?? Task.CompletedTask;
         }
 
-        public async Task<(LogEvent[] Logs, (string Json, Exception Exception)[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
+        public async Task<(LogEvent[] Logs, Exception[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
         {
             if (after >= before)
-                return (Array.Empty<LogEvent>(), Array.Empty<(string, Exception)>());
-
-            string afterString = after.Date.Subtract(TimeSpan.FromHours(26)).ToISODateTime();
-            string beforeString = before.Date.Add(TimeSpan.FromHours(26)).ToISODateTime();
-
-            string[] files = Directory.GetFiles(LogsRoot)
-                .OrderBy(file => file)
-                .Where(file =>
-                {
-                    if (!file.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-                        return false;
-
-                    string name = Path.GetFileNameWithoutExtension(file);
-                    return name.CompareTo(afterString) >= 0 && name.CompareTo(beforeString) <= 0;
-                })
-                .ToArray();
+                return (Array.Empty<LogEvent>(), Array.Empty<Exception>());
 
             List<LogEvent> events = new();
-            List<(string, Exception)> parsingErrors = new();
+            List<Exception> parsingErrors = new();
 
             await LogSemaphore.WaitAsync();
             try
             {
-                foreach (var file in files)
+                foreach (var file in GetLogFilesForDateRange(after, before))
                 {
-                    using var fs = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    using var reader = new StreamReader(fs);
+                    await using Stream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    await using Stream stream = file.EndsWith(".br", StringComparison.OrdinalIgnoreCase)
+                        ? new BrotliStream(fileStream, CompressionMode.Decompress)
+                        : fileStream;
 
-                    string line;
-                    while ((line = await reader.ReadLineAsync()) != null)
+                    PipeReader pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: 32 * 1024));
+
+                    while (true)
                     {
-                        if (string.IsNullOrWhiteSpace(line))
-                            continue;
+                        ReadResult result = await pipeReader.ReadAsync();
+                        ReadOnlySequence<byte> buffer = result.Buffer;
 
-                        LogEvent logEvent;
-                        try
-                        {
-                            logEvent = JsonSerializer.Deserialize<LogEvent>(line, JsonOptions);
-                        }
-                        catch (Exception ex)
-                        {
-                            parsingErrors.Add((line, ex));
-                            continue;
-                        }
+                        SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate);
 
-                        if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
-                        {
-                            events.Add(logEvent);
-                        }
+                        if (result.IsCompleted)
+                            break;
+
+                        pipeReader.AdvanceTo(position, buffer.End);
                     }
+
+                    await pipeReader.CompleteAsync();
                 }
             }
             finally
@@ -307,6 +289,82 @@ namespace MihuBot
             }
 
             return (events.ToArray(), parsingErrors.ToArray());
+
+            static string[] GetLogFilesForDateRange(DateTime after, DateTime before)
+            {
+                string afterString = after.Subtract(TimeSpan.FromHours(2)).ToISODateTime();
+                string beforeString = before.Add(TimeSpan.FromHours(2)).ToISODateTime();
+
+                string[] files = Directory.GetFiles(LogsRoot)
+                    .Where(file =>
+                        file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                        file.EndsWith(".json.br", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(file => file)
+                    .ToArray();
+
+                int startIndex = 0, endIndex;
+                for (endIndex = 0; endIndex < files.Length; endIndex++)
+                {
+                    string name = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(files[endIndex]));
+
+                    if (name.CompareTo(afterString) <= 0)
+                    {
+                        startIndex = endIndex;
+                    }
+
+                    if (name.CompareTo(beforeString) > 0)
+                    {
+                        break;
+                    }
+                }
+
+                return files.AsSpan(startIndex, endIndex - startIndex).ToArray();
+            }
+
+            static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LogEvent> events, List<Exception> parsingErrors, DateTime after, DateTime before, Predicate<LogEvent> predicate)
+            {
+                Debug.Assert((int)Enum.GetValues<EventType>().Max() < 100);
+                Span<char> timeStampBuffer = stackalloc char[40];
+
+                var reader = new SequenceReader<byte>(buffer);
+                while (reader.TryReadTo(out ReadOnlySpan<byte> span, (byte)'\n'))
+                {
+                    if (span.Length < 50) continue;
+
+                    int index = span[21] == ':' ? 23 : 24;
+                    Debug.Assert(span[index - 1] == '"');
+
+                    ReadOnlySpan<byte> timeStamp = span.Slice(index);
+                    index = timeStamp.IndexOf((byte)'"');
+                    if (index == -1) continue;
+                    timeStamp = timeStamp.Slice(0, index);
+
+                    int length = Encoding.ASCII.GetChars(timeStamp, timeStampBuffer);
+
+                    if (!DateTime.TryParse(timeStampBuffer.Slice(0, length), out DateTime time))
+                        continue;
+
+                    if (after > time || before < time)
+                        continue;
+
+                    LogEvent logEvent;
+                    try
+                    {
+                        logEvent = JsonSerializer.Deserialize<LogEvent>(span, JsonOptions);
+                    }
+                    catch (Exception ex)
+                    {
+                        parsingErrors.Add(ex);
+                        continue;
+                    }
+
+                    if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
+                    {
+                        events.Add(logEvent);
+                    }
+                }
+                return reader.Position;
+            }
         }
 
         private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
@@ -342,7 +400,6 @@ namespace MihuBot
 
         public SocketTextChannel DebugTextChannel => _discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
         public SocketTextChannel LogsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
-        public SocketTextChannel LogsReportsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogReports);
         public SocketTextChannel LogsFilesTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.Files);
 
         public Logger(HttpClient httpClient, DiscordSocketClient discord)
@@ -353,7 +410,7 @@ namespace MihuBot
             Directory.CreateDirectory(LogsRoot);
             Directory.CreateDirectory(FilesRoot);
 
-            Task createLogStreamsTask = SendLogFilesAsync(channel: null, resetLogFiles: true);
+            Task createLogStreamsTask = ResetLogFileAsync();
             Debug.Assert(createLogStreamsTask.IsCompletedSuccessfully);
             createLogStreamsTask.GetAwaiter().GetResult();
 
