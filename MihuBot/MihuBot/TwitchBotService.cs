@@ -71,13 +71,20 @@ namespace MihuBot
                         {
                             _client.SendMessage(message.Channel, "@xJoster");
                         }
-                        else if (text.Contains("penis", StringComparison.OrdinalIgnoreCase))
+                        else if (text.Contains("penis", StringComparison.OrdinalIgnoreCase)
+                            || text.Contains("cock", StringComparison.OrdinalIgnoreCase)
+                            || text.Contains("boobs", StringComparison.OrdinalIgnoreCase)
+                            || text.Contains("boobies", StringComparison.OrdinalIgnoreCase))
                         {
                             _client.SendMessage(message.Channel, "YEP");
                         }
                         else if (text.StartsWith("!merch", StringComparison.OrdinalIgnoreCase))
                         {
                             _client.SendMessage(message.Channel, "https://streamlabs.com/darleeng/merch");
+                        }
+                        else if (text.StartsWith("!aretheyreal", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _client.SendMessage(message.Channel, "She thiccc");
                         }
                     }
                     catch (Exception ex)
