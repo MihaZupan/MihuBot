@@ -76,7 +76,7 @@ namespace MihuBot
                             || text.Contains("boobs", StringComparison.OrdinalIgnoreCase)
                             || text.Contains("boobies", StringComparison.OrdinalIgnoreCase))
                         {
-                            _client.SendMessage(message.Channel, "YEP");
+                            _client.SendMessage(message.Channel, "YEPP");
                         }
                         else if (text.StartsWith("!merch", StringComparison.OrdinalIgnoreCase))
                         {
