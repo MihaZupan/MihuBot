@@ -57,6 +57,7 @@ namespace MihuBot.Commands
 
             var fromFilters = new List<ulong>();
             var inFilters = new List<ulong>();
+            HashSet<Logger.EventType> typeFilters = null;
 
             DateTime after = new DateTime(2000, 1, 1);
             DateTime before = new DateTime(3000, 1, 1);
@@ -132,6 +133,15 @@ namespace MihuBot.Commands
                     inFilters.Add(id);
                     continue;
                 }
+
+                var typeMatch = Regex.Match(line, @"^type:? (.*?)$", RegexOptions.IgnoreCase);
+                if (typeMatch.Success)
+                {
+                    var typeRegex = new Regex(typeMatch.Groups[1].Value, RegexOptions.IgnoreCase);
+                    typeFilters = Enum.GetValues<Logger.EventType>()
+                        .Where(et => typeRegex.IsMatch(et.ToString()))
+                        .ToHashSet();
+                }
             }
 
             if (after >= before)
@@ -148,6 +158,11 @@ namespace MihuBot.Commands
             if (inFilters.Count != 0)
             {
                 predicates.Add(le => inFilters.Contains(le.GuildID) || inFilters.Contains(le.ChannelID));
+            }
+
+            if (typeFilters != null)
+            {
+                predicates.Add(le => typeFilters.Contains(le.Type));
             }
 
             if (ctx.AuthorId != KnownUsers.Miha)
