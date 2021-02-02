@@ -325,10 +325,12 @@ namespace MihuBot.Helpers
         {
             logger.DebugLog($"Fetching all messages for {channel.Name}", guildId: channel.GuildId, channelId: channel.Id);
 
-            var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: new RequestOptions()
+            var options = string.IsNullOrWhiteSpace(auditReason) ? null : new RequestOptions()
             {
                 AuditLogReason = auditReason
-            });
+            };
+
+            var messagesSource = channel.GetMessagesAsync(limit: int.MaxValue, options: options);
 
             return (await messagesSource.ToArrayAsync())
                 .SelectMany(i => i)

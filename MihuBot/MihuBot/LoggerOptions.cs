@@ -18,7 +18,7 @@ namespace MihuBot
         public SocketTextChannel LogsTextChannel => Discord.GetTextChannel(_logsTextGuildId, _logsTextChannelId);
         public SocketTextChannel LogsFilesTextChannel => Discord.GetTextChannel(_logsFilesGuildId, _logsFilesChannelId);
 
-        public Predicate<SocketUserMessage> ShouldLogAttachments = _ => true;
+        public Predicate<SocketUserMessage> ShouldLogAttachments { get; set; } = _ => true;
 
         public LoggerOptions(InitializedDiscordClient discord, string logsRoot, string logPrefix,
             ulong debugGuildId, ulong debugChannelId,

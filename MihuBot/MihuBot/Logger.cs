@@ -52,6 +52,9 @@ namespace MihuBot
             @"https:\/\/cdn\.discordapp\.com\/[^\s]+",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private const ulong IgnoredListChannelId = 806065691689746432ul;
+        private static readonly ConcurrentDictionary<ulong, bool> _ignoredGuildsAndChannels = new();
+
         public async Task OnShutdownAsync()
         {
             try
@@ -377,6 +380,17 @@ namespace MihuBot
                 await Options.DebugTextChannel.SendMessageAsync(debugMessage);
             }
             catch { }
+        }
+
+        private bool ShouldLogAttachments(SocketUserMessage message)
+        {
+            if (_ignoredGuildsAndChannels.ContainsKey(message.Guild().Id))
+                return false;
+
+            if (_ignoredGuildsAndChannels.ContainsKey(message.Channel.Id))
+                return false;
+
+            return Options.ShouldLogAttachments(message);
         }
 
         public Logger(HttpClient httpClient, LoggerOptions options)
@@ -764,7 +778,7 @@ RecipientAdded
             if (userMessage.Channel is not SocketGuildChannel channel)
                 return Task.CompletedTask;
 
-            if (message.Author.Id == KnownUsers.MihuBot && channel.Guild.Id == Guilds.PrivateLogs && channel.Id == Channels.LogText)
+            if (channel.Id == Channels.LogText || channel.Id == 750706839431413870ul || channel.Id == Channels.Files)
                 return Task.CompletedTask;
 
             if (!string.IsNullOrWhiteSpace(message.Content))
@@ -783,7 +797,7 @@ RecipientAdded
                 {
                     Log(new LogEvent(userMessage, attachment));
 
-                    if (!Options.ShouldLogAttachments(userMessage))
+                    if (!ShouldLogAttachments(userMessage))
                         continue;
 
                     if (message.Guild().Id == Guilds.RetirementHome)
@@ -811,7 +825,7 @@ RecipientAdded
 
                 if (message.Guild().Id != Guilds.RetirementHome &&
                     message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
-                    Options.ShouldLogAttachments(userMessage))
+                    ShouldLogAttachments(userMessage))
                 {
                     _ = Task.Run(() =>
                     {
@@ -833,6 +847,29 @@ RecipientAdded
                         }
                     });
                 }
+            }
+
+            if (message.Channel.Id == IgnoredListChannelId || _ignoredGuildsAndChannels.IsEmpty)
+            {
+                _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        var channel = Discord.GetTextChannel(Guilds.PrivateLogs, IgnoredListChannelId);
+                        foreach (var message in await channel.DangerousGetAllMessagesAsync(this, auditReason: null))
+                        {
+                            foreach (var part in message.Content.NormalizeNewLines().Replace('\n', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                if (ulong.TryParse(part, out ulong id))
+                                {
+                                    _ignoredGuildsAndChannels.TryAdd(id, true);
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                });
             }
 
             return Task.CompletedTask;
