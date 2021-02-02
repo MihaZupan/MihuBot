@@ -13,19 +13,29 @@ namespace MihuBot.Commands
     public sealed class LogsCommand : CommandBase
     {
         public override string Command => "logs";
+        public override string[] Aliases => new[] { "plogs", "pvtlogs", "privatelogs" };
 
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions() { IgnoreNullValues = true };
+        private static readonly JsonSerializerOptions JsonOptions = new() { IgnoreNullValues = true };
 
         private readonly Logger _logger;
+        private readonly CustomLogger _customLogger;
 
-        public LogsCommand(Logger logger)
+        public LogsCommand(Logger logger, CustomLogger customLogger)
         {
             _logger = logger;
+            _customLogger = customLogger;
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
             if (!await ctx.RequirePermissionAsync("logs"))
+                return;
+
+            if (ctx.Command != Command && ctx.AuthorId != KnownUsers.Miha)
+                return;
+
+            var logger = ctx.Command == Command ? _logger : _customLogger.Logger;
+            if (logger is null)
                 return;
 
             if (ctx.ArgumentLines.Length == 0)
@@ -36,7 +46,7 @@ namespace MihuBot.Commands
 
             if (ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase))
             {
-                await _logger.ResetLogFileAsync();
+                await logger.ResetLogFileAsync();
                 return;
             }
 
@@ -59,8 +69,8 @@ namespace MihuBot.Commands
             var inFilters = new List<ulong>();
             HashSet<Logger.EventType> typeFilters = null;
 
-            DateTime after = new DateTime(2000, 1, 1);
-            DateTime before = new DateTime(3000, 1, 1);
+            var after = new DateTime(2000, 1, 1);
+            var before = new DateTime(3000, 1, 1);
 
             foreach (string line in ctx.ArgumentLines)
             {
@@ -175,7 +185,7 @@ namespace MihuBot.Commands
                 predicates.Add(le => le.ChannelID == 0 || channels.Contains(le.ChannelID));
             }
 
-            (Logger.LogEvent[] logs, Exception[] errors) = await _logger.GetLogsAsync(after, before, predicates.ToArray().All);
+            (Logger.LogEvent[] logs, Exception[] errors) = await logger.GetLogsAsync(after, before, predicates.ToArray().All);
 
             if (errors.Length > 0)
             {

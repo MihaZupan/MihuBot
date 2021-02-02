@@ -17,14 +17,14 @@ namespace MihuBot
 {
     public class MihuBotService : IHostedService
     {
-        private readonly DiscordSocketClient _discord;
+        private readonly InitializedDiscordClient _discord;
         private readonly Logger _logger;
         private readonly IPermissionsService _permissions;
 
         private readonly CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
         private readonly List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
 
-        public MihuBotService(IServiceProvider services, DiscordSocketClient discord, Logger logger, IPermissionsService permissions)
+        public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
         {
             _discord = discord;
             _logger = logger;
@@ -198,19 +198,7 @@ namespace MihuBot
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
-
-            var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _discord.Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
-
-            _discord.ReactionAdded += Client_ReactionAdded;
-
-            await _discord.LoginAsync(TokenType.Bot, Secrets.Discord.AuthToken);
-            await _discord.StartAsync();
-
-            await onConnectedTcs.Task;
-            await onReadyTcs.Task;
+            await _discord.EnsureInitializedAsync();
 
             foreach (var handler in _nonCommandHandlers)
             {
@@ -236,6 +224,8 @@ namespace MihuBot
                     Console.WriteLine(ex);
                 }
             };
+
+            _discord.ReactionAdded += Client_ReactionAdded;
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {

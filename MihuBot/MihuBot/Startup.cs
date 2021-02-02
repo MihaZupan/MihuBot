@@ -1,4 +1,5 @@
 using AspNet.Security.OAuth.Discord;
+using Discord;
 using Discord.WebSocket;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -47,15 +48,34 @@ namespace MihuBot
             });
             services.AddSingleton(httpClient);
 
-            var discord = new DiscordSocketClient(
-                new DiscordSocketConfig()
-                {
-                    MessageCacheSize = 1024 * 16,
-                    ConnectionTimeout = 30_000
-                });
+            var discordConfig = new DiscordSocketConfig()
+            {
+                MessageCacheSize = 1024 * 16,
+                ConnectionTimeout = 30_000
+            };
+
+            var discord = new InitializedDiscordClient(discordConfig, TokenType.Bot, Secrets.Discord.AuthToken);
             services.AddSingleton(discord);
+            services.AddSingleton<DiscordSocketClient>(discord);
+
+            services.AddSingleton(new LoggerOptions(
+                discord,
+                "logs", string.Empty,
+                Guilds.Mihu, Channels.Debug,
+                Guilds.PrivateLogs, Channels.LogText,
+                Guilds.PrivateLogs, Channels.Files));
 
             services.AddSingleton<Logger>();
+
+            var customLogger = new CustomLogger(httpClient,
+                new LoggerOptions(
+                    new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
+                    "pvt_logs", "Private_",
+                    Guilds.PrivateLogs, 806048964021190656ul,
+                    Guilds.PrivateLogs, 806049221631410186ul,
+                    Guilds.PrivateLogs, Channels.Files));
+            services.AddSingleton(customLogger);
+            services.AddHostedService(_ => customLogger);
 
             services.AddSingleton<StreamerSongListClient>();
 
@@ -107,8 +127,6 @@ namespace MihuBot
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-
-
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();

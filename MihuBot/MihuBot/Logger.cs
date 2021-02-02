@@ -25,11 +25,11 @@ namespace MihuBot
 {
     public sealed class Logger
     {
-        private const string LogsRoot = "logs/";
-        private const string FilesRoot = LogsRoot + "files/";
+        public readonly LoggerOptions Options;
 
         private readonly HttpClient _http;
-        private readonly DiscordSocketClient _discord;
+
+        private DiscordSocketClient Discord => Options.Discord;
 
         private int _fileCounter = 0;
 
@@ -47,7 +47,7 @@ namespace MihuBot
         private readonly BlobContainerClient BlobContainerClient = new(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
         private readonly ConcurrentDictionary<string, TaskCompletionSource> FileArchivingCompletions = new();
 
-        private readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
+        private static readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
         private static readonly Regex _cdnLinksRegex = new(
             @"https:\/\/cdn\.discordapp\.com\/[^\s]+",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -152,7 +152,7 @@ namespace MihuBot
                     };
 
                     string blobName = FilePath
-                        .Substring(LogsRoot.Length)
+                        .Substring(Options.LogsRoot.Length)
                         .Replace('/', '_')
                         .Replace('\\', '_');
 
@@ -186,7 +186,7 @@ namespace MihuBot
                             embed.WithImageUrl(blobClient.Uri.AbsoluteUri);
                         }
 
-                        await LogsFilesTextChannel.SendMessageAsync(embed: embed.Build());
+                        await Options.LogsFilesTextChannel.SendMessageAsync(embed: embed.Build());
                     }
 
                     DebugLog($"Archived {FilePath}");
@@ -228,7 +228,7 @@ namespace MihuBot
 
                 LogDate = DateTime.UtcNow;
 
-                JsonLogPath = Path.Combine(LogsRoot, LogDate.ToISODateTime() + ".json.br");
+                JsonLogPath = Path.Combine(Options.LogsRoot, Options.LogPrefix + LogDate.ToISODateTime() + ".json.br");
 
                 Stream fileStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
 
@@ -289,12 +289,12 @@ namespace MihuBot
 
             return (events.ToArray(), parsingErrors.ToArray());
 
-            static string[] GetLogFilesForDateRange(DateTime after, DateTime before)
+            string[] GetLogFilesForDateRange(DateTime after, DateTime before)
             {
                 string afterString = after.Subtract(TimeSpan.FromHours(2)).ToISODateTime();
                 string beforeString = before.Add(TimeSpan.FromHours(2)).ToISODateTime();
 
-                string[] files = Directory.GetFiles(LogsRoot)
+                string[] files = Directory.GetFiles(Options.LogsRoot)
                     .Where(file =>
                         file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
                         file.EndsWith(".json.br", StringComparison.OrdinalIgnoreCase))
@@ -305,6 +305,7 @@ namespace MihuBot
                 for (endIndex = 0; endIndex < files.Length; endIndex++)
                 {
                     string name = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(files[endIndex]));
+                    name = name.Substring(Options.LogPrefix.Length);
 
                     if (name.CompareTo(afterString) <= 0)
                     {
@@ -373,22 +374,18 @@ namespace MihuBot
                 if (debugMessage.Length >= 2000)
                     debugMessage = debugMessage.Substring(0, 1995) + " ...";
 
-                await DebugTextChannel.SendMessageAsync(debugMessage);
+                await Options.DebugTextChannel.SendMessageAsync(debugMessage);
             }
             catch { }
         }
 
-        public SocketTextChannel DebugTextChannel => _discord.GetTextChannel(Guilds.Mihu, Channels.Debug);
-        public SocketTextChannel LogsTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.LogText);
-        public SocketTextChannel LogsFilesTextChannel => _discord.GetTextChannel(Guilds.PrivateLogs, Channels.Files);
-
-        public Logger(HttpClient httpClient, DiscordSocketClient discord)
+        public Logger(HttpClient httpClient, LoggerOptions options)
         {
             _http = httpClient;
-            _discord = discord;
+            Options = options;
 
-            Directory.CreateDirectory(LogsRoot);
-            Directory.CreateDirectory(FilesRoot);
+            Directory.CreateDirectory(Options.LogsRoot);
+            Directory.CreateDirectory(Options.FilesRoot);
 
             Task createLogStreamsTask = ResetLogFileAsync();
             Debug.Assert(createLogStreamsTask.IsCompletedSuccessfully);
@@ -402,35 +399,35 @@ namespace MihuBot
 
             _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
-            discord.Log += Discord_LogAsync;
-            discord.LatencyUpdated += LatencyUpdatedAsync;
-            discord.JoinedGuild += JoinedGuildAsync;
-            discord.LeftGuild += LeftGuildAsync;
-            discord.MessageReceived += message => MessageReceivedAsync(message);
-            discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
-            discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
-            discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
-            discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
-            discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
-            discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
-            discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
-            discord.UserBanned += UserBannedAsync;
-            discord.UserUnbanned += UserUnbannedAsync;
-            discord.UserLeft += UserLeftAsync;
-            discord.UserJoined += UserJoinedAsync;
-            discord.UserIsTyping += UserIsTypingAsync;
-            discord.UserUpdated += UserUpdatedAsync;
-            discord.GuildMemberUpdated += UserUpdatedAsync;
-            discord.CurrentUserUpdated += UserUpdatedAsync;
-            discord.ChannelCreated += ChannelCreatedAsync;
-            discord.ChannelUpdated += ChannelUpdatedAsync;
-            discord.ChannelDestroyed += ChannelDestroyedAsync;
-            discord.RoleCreated += RoleCreatedAsync;
-            discord.RoleDeleted += RoleDeletedAsync;
-            discord.RoleUpdated += RoleUpdatedAsync;
-            discord.GuildAvailable += GuildAvailableAsync;
-            discord.GuildUnavailable += GuildUnavailableAsync;
-            discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
+            Discord.Log += Discord_LogAsync;
+            Discord.LatencyUpdated += LatencyUpdatedAsync;
+            Discord.JoinedGuild += JoinedGuildAsync;
+            Discord.LeftGuild += LeftGuildAsync;
+            Discord.MessageReceived += message => MessageReceivedAsync(message);
+            Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
+            Discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
+            Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
+            Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
+            Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
+            Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
+            Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
+            Discord.UserBanned += UserBannedAsync;
+            Discord.UserUnbanned += UserUnbannedAsync;
+            Discord.UserLeft += UserLeftAsync;
+            Discord.UserJoined += UserJoinedAsync;
+            Discord.UserIsTyping += UserIsTypingAsync;
+            Discord.UserUpdated += UserUpdatedAsync;
+            Discord.GuildMemberUpdated += UserUpdatedAsync;
+            Discord.CurrentUserUpdated += UserUpdatedAsync;
+            Discord.ChannelCreated += ChannelCreatedAsync;
+            Discord.ChannelUpdated += ChannelUpdatedAsync;
+            Discord.ChannelDestroyed += ChannelDestroyedAsync;
+            Discord.RoleCreated += RoleCreatedAsync;
+            Discord.RoleDeleted += RoleDeletedAsync;
+            Discord.RoleUpdated += RoleUpdatedAsync;
+            Discord.GuildAvailable += GuildAvailableAsync;
+            Discord.GuildUnavailable += GuildUnavailableAsync;
+            Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
 
             /*
 GuildUpdated
@@ -727,7 +724,7 @@ RecipientAdded
             {
                 UserID = reaction.UserId,
                 Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
-                Emoji = (reaction.Emote as Emoji).Name
+                Emoji = (reaction.Emote as Emoji)?.Name
             });
             return Task.CompletedTask;
         }
@@ -843,7 +840,7 @@ RecipientAdded
             {
                 var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
 
-                string filePath = $"{FilesRoot}{time.ToISODateTime()}_{id}_{fileName}";
+                string filePath = $"{Options.FilesRoot}{time.ToISODateTime()}_{id}_{fileName}";
 
                 using (FileStream fs = File.OpenWrite(filePath))
                 {

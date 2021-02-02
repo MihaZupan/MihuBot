@@ -102,7 +102,7 @@ namespace MihuBot
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _client.Connect();
-            Task.Run(ChannelReaderTaskAsync);
+            _ = Task.Run(ChannelReaderTaskAsync, CancellationToken.None);
             return Task.CompletedTask;
         }
 
