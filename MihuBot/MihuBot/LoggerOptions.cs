@@ -1,5 +1,6 @@
 ﻿using Discord.WebSocket;
 using MihuBot.Helpers;
+using System;
 
 namespace MihuBot
 {
@@ -16,6 +17,8 @@ namespace MihuBot
         public SocketTextChannel DebugTextChannel => Discord.GetTextChannel(_debugGuildId, _debugChannelId);
         public SocketTextChannel LogsTextChannel => Discord.GetTextChannel(_logsTextGuildId, _logsTextChannelId);
         public SocketTextChannel LogsFilesTextChannel => Discord.GetTextChannel(_logsFilesGuildId, _logsFilesChannelId);
+
+        public Predicate<SocketUserMessage> ShouldLogAttachments = _ => true;
 
         public LoggerOptions(InitializedDiscordClient discord, string logsRoot, string logPrefix,
             ulong debugGuildId, ulong debugChannelId,

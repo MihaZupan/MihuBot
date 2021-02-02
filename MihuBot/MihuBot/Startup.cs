@@ -73,7 +73,19 @@ namespace MihuBot
                     "pvt_logs", "Private_",
                     Guilds.PrivateLogs, 806048964021190656ul,
                     Guilds.PrivateLogs, 806049221631410186ul,
-                    Guilds.PrivateLogs, Channels.Files));
+                    Guilds.PrivateLogs, Channels.Files)
+                {
+                    ShouldLogAttachments = message =>
+                    {
+                        if (message.Guild()?.GetUser(Secrets.Discord.BotId) is not SocketGuildUser user)
+                            return true;
+
+                        if (message.Channel is not SocketTextChannel channel)
+                            return true;
+
+                        return !user.GetPermissions(channel).ViewChannel;
+                    }
+                });
             services.AddSingleton(customLogger);
             services.AddHostedService(_ => customLogger);
 

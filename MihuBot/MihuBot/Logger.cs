@@ -783,6 +783,9 @@ RecipientAdded
                 {
                     Log(new LogEvent(userMessage, attachment));
 
+                    if (!Options.ShouldLogAttachments(userMessage))
+                        continue;
+
                     if (message.Guild().Id == Guilds.RetirementHome)
                     {
                         if (attachment.Size > 1024 * 1024 * 8) // 8 MB
@@ -807,7 +810,8 @@ RecipientAdded
                 }
 
                 if (message.Guild().Id != Guilds.RetirementHome &&
-                    message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
+                    message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
+                    Options.ShouldLogAttachments(userMessage))
                 {
                     _ = Task.Run(() =>
                     {
