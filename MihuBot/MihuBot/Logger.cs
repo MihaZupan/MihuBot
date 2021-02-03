@@ -53,7 +53,7 @@ namespace MihuBot
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private const ulong IgnoredListChannelId = 806065691689746432ul;
-        private static readonly ConcurrentDictionary<ulong, bool> _ignoredGuildsAndChannels = new();
+        private static ConcurrentDictionary<ulong, bool> _ignoredGuildsAndChannels = new();
 
         public async Task OnShutdownAsync()
         {
@@ -384,7 +384,7 @@ namespace MihuBot
 
         private bool ShouldLogAttachments(SocketUserMessage message)
         {
-            if (_ignoredGuildsAndChannels.ContainsKey(message.Guild().Id))
+            if (message.Guild()?.Id is ulong guildId && _ignoredGuildsAndChannels.ContainsKey(guildId))
                 return false;
 
             if (_ignoredGuildsAndChannels.ContainsKey(message.Channel.Id))
@@ -775,11 +775,12 @@ RecipientAdded
             if (message is not SocketUserMessage userMessage)
                 return Task.CompletedTask;
 
-            if (userMessage.Channel is not SocketGuildChannel channel)
+            ulong channelId = message.Channel.Id;
+
+            if (channelId == Channels.LogText || channelId == 750706839431413870ul || channelId == Channels.Files)
                 return Task.CompletedTask;
 
-            if (channel.Id == Channels.LogText || channel.Id == 750706839431413870ul || channel.Id == Channels.Files)
-                return Task.CompletedTask;
+            bool isRetirementHome = message.Guild()?.Id == Guilds.RetirementHome;
 
             if (!string.IsNullOrWhiteSpace(message.Content))
             {
@@ -798,9 +799,9 @@ RecipientAdded
                     Log(new LogEvent(userMessage, attachment));
 
                     if (!ShouldLogAttachments(userMessage))
-                        continue;
+                        break;
 
-                    if (message.Guild().Id == Guilds.RetirementHome)
+                    if (isRetirementHome)
                     {
                         if (attachment.Size > 1024 * 1024 * 8) // 8 MB
                             continue;
@@ -823,7 +824,7 @@ RecipientAdded
                     });
                 }
 
-                if (message.Guild().Id != Guilds.RetirementHome &&
+                if (!isRetirementHome &&
                     message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                     ShouldLogAttachments(userMessage))
                 {
@@ -849,13 +850,16 @@ RecipientAdded
                 }
             }
 
-            if (message.Channel.Id == IgnoredListChannelId || _ignoredGuildsAndChannels.IsEmpty)
+            if (channelId == IgnoredListChannelId || _ignoredGuildsAndChannels.IsEmpty)
             {
                 _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
                 Task.Run(async () =>
                 {
                     try
                     {
+                        var ignored = new ConcurrentDictionary<ulong, bool>();
+                        _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
+
                         var channel = Discord.GetTextChannel(Guilds.PrivateLogs, IgnoredListChannelId);
                         foreach (var message in await channel.DangerousGetAllMessagesAsync(this, auditReason: null))
                         {
@@ -863,10 +867,12 @@ RecipientAdded
                             {
                                 if (ulong.TryParse(part, out ulong id))
                                 {
-                                    _ignoredGuildsAndChannels.TryAdd(id, true);
+                                    ignored.TryAdd(id, true);
                                 }
                             }
                         }
+
+                        _ignoredGuildsAndChannels = ignored;
                     }
                     catch { }
                 });
