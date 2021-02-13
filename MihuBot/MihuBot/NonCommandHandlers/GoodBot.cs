@@ -18,7 +18,7 @@ namespace MihuBot.NonCommandHandlers
 
             async Task HandleAsyncCore()
             {
-                await ctx.Message.AddReactionAsync(Emotes.DarlPatPat);
+                await ctx.Message.AddReactionAsync(Emotes.DarlHearts);
             }
         }
     }

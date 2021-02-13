@@ -22,7 +22,7 @@ namespace MihuBot.NonCommandHandlers
 
                 if (ctx.AuthorId == KnownUsers.Gradravin)
                 {
-                    await message.AddReactionAsync(Emotes.DarlBoop);
+                    await message.AddReactionAsync(Emotes.YesW);
                 }
 
                 if (ctx.AuthorId == KnownUsers.James)

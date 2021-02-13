@@ -95,14 +95,10 @@ namespace MihuBot.Helpers
         // DarlClown, DarlUwU, DarlHug
 
         // DDs
-        public static Emote DarlBASS { get; }       = Emote.Parse("<a:darlBASS:726548569833603104>");
-        public static Emote DarlBoop { get; }       = Emote.Parse("<:dbp:767763877697945630>");
-        public static Emote DarlFighting { get; }   = Emote.Parse("<a:darlFighting:758118026523967529>");
+        public static Emote DarlFighting { get; }   = Emote.Parse("<a:darlFighting:806975528942567484>");
         public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
-        public static Emote DarlKiss { get; }       = Emote.Parse("<:darlKiss:758117833275342848>");
-        public static Emote DarlPatPat { get; }     = Emote.Parse("<a:darlPatPat:760596696090279937>");
-        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlshyshy:758846620765913088>");
-        public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlZoom:574377475115581440>");
+        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlShyshy:807001178582810674>");
+        public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlsipzoom:646124538312261651>");
         public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
         public static Emote PudeesJammies { get; }  = Emote.Parse("<a:pudeesJammies:686340394866573338>");
         public static Emote WeeHypers { get; }      = Emote.Parse("<a:WeeHypers:758118343210434603>");
