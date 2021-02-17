@@ -83,6 +83,7 @@ namespace MihuBot.Commands
                     (await _leaderboard.QueryAsync(l => l.Where(u => u.Value.Wins > PlacementMinimum).ToArray()))
                     .OrderByDescending(l => (1 + (0.0001 * l.Value.Wins)) * (l.Value.Wins / (double)(l.Value.Wins + l.Value.Losses)))
                     .ThenBy(l => l.Value.Wins)
+                    .Where(l => ctx.Discord.GetUser(l.Key)?.GetName() is { })
                     .Take(15)
                     .ToArray();
 
