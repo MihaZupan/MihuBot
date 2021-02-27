@@ -350,7 +350,7 @@ namespace MihuBot
                         continue;
                     }
 
-                    if (logEvent.TimeStamp < after && logEvent.TimeStamp > before)
+                    if (logEvent.TimeStamp < after || logEvent.TimeStamp > before)
                     {
                         continue;
                     }
