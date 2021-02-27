@@ -68,6 +68,8 @@ namespace MihuBot.Commands
             var fromFilters = new List<ulong>();
             var inFilters = new List<ulong>();
             HashSet<Logger.EventType> typeFilters = null;
+            var containsFilters = new List<string>();
+            var regexFilters = new List<Regex>();
 
             var after = new DateTime(2000, 1, 1);
             var before = new DateTime(3000, 1, 1);
@@ -151,6 +153,21 @@ namespace MihuBot.Commands
                     typeFilters = Enum.GetValues<Logger.EventType>()
                         .Where(et => typeRegex.IsMatch(et.ToString()))
                         .ToHashSet();
+                    continue;
+                }
+
+                var containsMatch = Regex.Match(line, @"^contains:? (.*?)$", RegexOptions.IgnoreCase);
+                if (containsMatch.Success)
+                {
+                    containsFilters.Add(containsMatch.Groups[1].Value);
+                    continue;
+                }
+
+                var regexMatch = Regex.Match(line, @"^(?:regex|match|matches):? (.*?)$", RegexOptions.IgnoreCase);
+                if (regexMatch.Success)
+                {
+                    regexFilters.Add(new Regex(regexMatch.Groups[1].Value, RegexOptions.IgnoreCase | RegexOptions.Compiled));
+                    continue;
                 }
             }
 
@@ -185,7 +202,49 @@ namespace MihuBot.Commands
                 predicates.Add(le => le.ChannelID == 0 || channels.Contains(le.ChannelID));
             }
 
-            (Logger.LogEvent[] logs, Exception[] errors) = await logger.GetLogsAsync(after, before, predicates.ToArray().All);
+            if (regexFilters.Any())
+            {
+                var tempSb = new StringBuilder();
+                var filters = regexFilters.ToArray();
+
+                predicates.Add(le =>
+                {
+                    tempSb.Length = 0;
+                    le.ToString(tempSb, ctx.Discord);
+                    string toString = tempSb.ToString();
+
+                    foreach (var regex in filters)
+                    {
+                        if (!regex.IsMatch(toString))
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            }
+
+            RosBytePredicate rawJsonPredicate = null;
+            if (containsFilters.Any())
+            {
+                byte[][] containsBytesFilters = containsFilters
+                    .Select(cf => Encoding.UTF8.GetBytes(cf))
+                    .ToArray();
+
+                rawJsonPredicate = rawJson =>
+                {
+                    foreach (byte[] containsBytesFilter in containsBytesFilters)
+                    {
+                        if (rawJson.IndexOf(containsBytesFilter) == -1)
+                        {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+            };
+
+            (Logger.LogEvent[] logs, Exception[] errors) = await logger.GetLogsAsync(after, before, predicates.ToArray().All, rawJsonPredicate);
 
             if (errors.Length > 0)
             {

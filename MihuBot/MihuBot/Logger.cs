@@ -23,6 +23,8 @@ using System.Threading.Tasks;
 
 namespace MihuBot
 {
+    public delegate bool RosBytePredicate(ReadOnlySpan<byte> chars);
+
     public sealed class Logger
     {
         public readonly LoggerOptions Options;
@@ -249,13 +251,14 @@ namespace MihuBot
             return tcs?.Task ?? Task.CompletedTask;
         }
 
-        public async Task<(LogEvent[] Logs, Exception[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate)
+        public async Task<(LogEvent[] Logs, Exception[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate, RosBytePredicate rawJsonPredicate = null)
         {
             if (after >= before)
                 return (Array.Empty<LogEvent>(), Array.Empty<Exception>());
 
             List<LogEvent> events = new();
             List<Exception> parsingErrors = new();
+            rawJsonPredicate ??= delegate { return true; };
 
             await LogSemaphore.WaitAsync();
             try
@@ -274,7 +277,7 @@ namespace MihuBot
                         ReadResult result = await pipeReader.ReadAsync();
                         ReadOnlySequence<byte> buffer = result.Buffer;
 
-                        SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate);
+                        SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate, rawJsonPredicate);
 
                         if (result.IsCompleted)
                             break;
@@ -324,13 +327,18 @@ namespace MihuBot
                 return files.AsSpan(startIndex, endIndex - startIndex).ToArray();
             }
 
-            static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LogEvent> events, List<Exception> parsingErrors, DateTime after, DateTime before, Predicate<LogEvent> predicate)
+            static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LogEvent> events, List<Exception> parsingErrors, DateTime after, DateTime before, Predicate<LogEvent> predicate, RosBytePredicate rawJsonPredicate)
             {
                 Debug.Assert((int)Enum.GetValues<EventType>().Max() < 100);
 
                 var reader = new SequenceReader<byte>(buffer);
                 while (reader.TryReadTo(out ReadOnlySpan<byte> span, (byte)'\n'))
                 {
+                    if (!rawJsonPredicate(span))
+                    {
+                        continue;
+                    }
+
                     LogEvent logEvent;
                     try
                     {
@@ -342,7 +350,12 @@ namespace MihuBot
                         continue;
                     }
 
-                    if (logEvent.TimeStamp >= after && logEvent.TimeStamp <= before && predicate(logEvent))
+                    if (logEvent.TimeStamp < after && logEvent.TimeStamp > before)
+                    {
+                        continue;
+                    }
+
+                    if (predicate(logEvent))
                     {
                         events.Add(logEvent);
                     }
