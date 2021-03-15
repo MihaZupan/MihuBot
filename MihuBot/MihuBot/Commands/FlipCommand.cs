@@ -23,7 +23,10 @@ namespace MihuBot.Commands
 
                 const string ZeroWidthSpace = "​";
 
-                string choice = options.FirstOrDefault(o => o.Contains(ZeroWidthSpace))
+                string choice = options.FirstOrDefault(o => o.Contains(ZeroWidthSpace, StringComparison.Ordinal))
+                    ?? (options.Where(o => o.Contains("sleep", StringComparison.OrdinalIgnoreCase)).Count() == 1
+                        ? options.Single(o => o.Contains("sleep", StringComparison.OrdinalIgnoreCase))
+                        : null)
                     ?? options.Random();
 
                 choice = choice.Replace(ZeroWidthSpace, "").Trim();

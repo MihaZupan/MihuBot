@@ -65,26 +65,21 @@ namespace MihuBot
                         }
                         else if (text.Contains("stinky", StringComparison.OrdinalIgnoreCase))
                         {
-                            _client.SendMessage(message.Channel, "@Goldenqt");
+                            if (text.Equals("stinky", StringComparison.OrdinalIgnoreCase) ||
+                                text.Contains(" stinky", StringComparison.OrdinalIgnoreCase) ||
+                                text.Contains("stinky", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _client.SendMessage(message.Channel, "@Goldenqt");
+                            }
                         }
                         else if (text.Contains("salmon", StringComparison.OrdinalIgnoreCase))
                         {
                             _client.SendMessage(message.Channel, "@xJoster");
                         }
                         else if (text.Contains("penis", StringComparison.OrdinalIgnoreCase)
-                            || text.Contains("cock", StringComparison.OrdinalIgnoreCase)
-                            || text.Contains("boobs", StringComparison.OrdinalIgnoreCase)
-                            || text.Contains("boobies", StringComparison.OrdinalIgnoreCase))
+                            || text.Contains("cock", StringComparison.OrdinalIgnoreCase))
                         {
                             _client.SendMessage(message.Channel, "YEPP");
-                        }
-                        else if (text.StartsWith("!merch", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _client.SendMessage(message.Channel, "https://streamlabs.com/darleeng/merch");
-                        }
-                        else if (text.StartsWith("!aretheyreal", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _client.SendMessage(message.Channel, "She thiccc");
                         }
                     }
                     catch (Exception ex)
