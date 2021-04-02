@@ -863,9 +863,8 @@ RecipientAdded
                 }
             }
 
-            if (channelId == IgnoredListChannelId || _ignoredGuildsAndChannels.IsEmpty)
+            if (channelId == IgnoredListChannelId || (_ignoredGuildsAndChannels.IsEmpty && _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true)))
             {
-                _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
                 Task.Run(async () =>
                 {
                     try
