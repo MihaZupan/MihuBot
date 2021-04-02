@@ -96,7 +96,7 @@ namespace MihuBot.Helpers
 
         // DDs
         public static Emote DarlFighting { get; }   = Emote.Parse("<a:darlFighting:806975528942567484>");
-        public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:726548703888015401>");
+        public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:819656027367669791>");
         public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlShyshy:807001178582810674>");
         public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlsipzoom:646124538312261651>");
         public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
@@ -105,7 +105,7 @@ namespace MihuBot.Helpers
         public static Emote YesW { get; }           = Emote.Parse("<:yesW:726548253059055759>");
 
         // Mihu
-        public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708818227446284369>");
+        public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708844396791201833>");
         public static Emote EyesShaking { get; }    = Emote.Parse("<a:eyesShaking:719904795091009636>");
         public static Emote James { get; }          = Emote.Parse("<:james:685587814330794040>");
         public static Emote KissAHomie { get; }     = Emote.Parse("<a:KissAHomie:769335184750805003>");
