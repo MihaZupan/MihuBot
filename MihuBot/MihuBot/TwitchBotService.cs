@@ -36,6 +36,8 @@ namespace MihuBot
                     _client.SendMessage(e.Channel, "Beep boop darlBoop");
                 }
             };
+
+            _client.OnSendReceiveData += (s, e) => _logger.DebugLog($"{e.Direction} {e.Data}");
         }
 
         private async Task ChannelReaderTaskAsync()
