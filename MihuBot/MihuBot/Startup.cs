@@ -67,27 +67,30 @@ namespace MihuBot
 
             services.AddSingleton<Logger>();
 
-            var customLogger = new CustomLogger(httpClient,
-                new LoggerOptions(
-                    new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
-                    "pvt_logs", "Private_",
-                    Guilds.PrivateLogs, 806048964021190656ul,
-                    Guilds.PrivateLogs, 806049221631410186ul,
-                    Guilds.PrivateLogs, Channels.Files)
-                {
-                    ShouldLogAttachments = message =>
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var customLogger = new CustomLogger(httpClient,
+                    new LoggerOptions(
+                        new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
+                        "pvt_logs", "Private_",
+                        Guilds.PrivateLogs, 806048964021190656ul,
+                        Guilds.PrivateLogs, 806049221631410186ul,
+                        Guilds.PrivateLogs, Channels.Files)
                     {
-                        if (message.Guild()?.GetUser(Secrets.Discord.BotId) is not SocketGuildUser user)
-                            return true;
+                        ShouldLogAttachments = message =>
+                        {
+                            if (message.Guild()?.GetUser(Secrets.Discord.BotId) is not SocketGuildUser user)
+                                return true;
 
-                        if (message.Channel is not SocketTextChannel channel)
-                            return true;
+                            if (message.Channel is not SocketTextChannel channel)
+                                return true;
 
-                        return !user.GetPermissions(channel).ViewChannel;
-                    }
-                });
-            services.AddSingleton(customLogger);
-            services.AddHostedService(_ => customLogger);
+                            return !user.GetPermissions(channel).ViewChannel;
+                        }
+                    });
+                services.AddSingleton(customLogger);
+                services.AddHostedService(_ => customLogger);
+            }
 
             services.AddSingleton<StreamerSongListClient>();
 

@@ -20,10 +20,10 @@ namespace MihuBot.Commands
         private readonly Logger _logger;
         private readonly CustomLogger _customLogger;
 
-        public LogsCommand(Logger logger, CustomLogger customLogger)
+        public LogsCommand(Logger logger, IEnumerable<CustomLogger> customLogger)
         {
             _logger = logger;
-            _customLogger = customLogger;
+            _customLogger = customLogger.FirstOrDefault();
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
