@@ -897,7 +897,7 @@ RecipientAdded
         {
             try
             {
-                var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
 
                 string filePath = $"{Options.FilesRoot}{time.ToISODateTime()}_{id}_{fileName}";
 
@@ -913,7 +913,7 @@ RecipientAdded
 
                 int fileCount = Interlocked.Increment(ref _fileCounter);
 
-                if (fileCount % 10 == 0)
+                if (fileCount % 20 == 0)
                 {
                     var drive = DriveInfo.GetDrives()
                         .OrderByDescending(d => d.TotalSize)
