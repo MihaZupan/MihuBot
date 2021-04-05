@@ -1,4 +1,5 @@
 ﻿using Discord;
+using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
 using System.Collections.Generic;
@@ -47,6 +48,8 @@ namespace MihuBot.NonCommandHandlers
                     if (!colors.TryGetValue(ctx.Guild.Id, out var guildColors))
                         guildColors = colors[ctx.Guild.Id] = new GuildColors();
 
+                    SocketRole previousRole = null;
+
                     if (guildColors.Users.TryGetValue(ctx.AuthorId, out uint previousColor))
                     {
                         if (previousColor == newColor.RawValue)
@@ -56,18 +59,7 @@ namespace MihuBot.NonCommandHandlers
 
                         if (guildColors.Roles.TryGetValue(previousColor, out ulong previousRoleId))
                         {
-                            var previousRole = ctx.Guild.GetRole(previousRoleId);
-                            if (previousRole is not null)
-                            {
-                                if (guildColors.Users.ContainsValue(previousColor))
-                                {
-                                    await ctx.Author.RemoveRoleAsync(previousRole);
-                                }
-                                else
-                                {
-                                    await previousRole.DeleteAsync();
-                                }
-                            }
+                            previousRole = ctx.Guild.GetRole(previousRoleId);
                         }
                     }
 
@@ -85,6 +77,18 @@ namespace MihuBot.NonCommandHandlers
                     var role = ctx.Guild.GetRole(newRoleId);
 
                     await ctx.Author.AddRoleAsync(role);
+
+                    if (previousRole is not null)
+                    {
+                        if (guildColors.Users.ContainsValue(previousColor))
+                        {
+                            await ctx.Author.RemoveRoleAsync(previousRole);
+                        }
+                        else
+                        {
+                            await previousRole.DeleteAsync();
+                        }
+                    }
                 }
                 finally
                 {
