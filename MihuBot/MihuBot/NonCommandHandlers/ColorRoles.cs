@@ -55,8 +55,6 @@ namespace MihuBot.NonCommandHandlers
                         if (previousColor == newColor.RawValue)
                             return;
 
-                        guildColors.Users.Remove(ctx.AuthorId);
-
                         if (guildColors.Roles.TryGetValue(previousColor, out ulong previousRoleId))
                         {
                             previousRole = ctx.Guild.GetRole(previousRoleId);
@@ -68,7 +66,6 @@ namespace MihuBot.NonCommandHandlers
                     if (!guildColors.Roles.TryGetValue(newColor.RawValue, out ulong newRoleId))
                     {
                         string name = ctx.Content.ToUpperInvariant();
-
                         var createdRole = await ctx.Guild.CreateRoleAsync(name, color: newColor, isMentionable: false);
                         newRoleId = createdRole.Id;
                         guildColors.Roles.Add(newColor.RawValue, newRoleId);
