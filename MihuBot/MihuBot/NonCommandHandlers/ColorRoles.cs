@@ -87,6 +87,7 @@ namespace MihuBot.NonCommandHandlers
                         else
                         {
                             await previousRole.DeleteAsync();
+                            guildColors.Roles.Remove(previousColor);
                         }
                     }
                 }
