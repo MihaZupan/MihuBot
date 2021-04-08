@@ -146,5 +146,6 @@ namespace MihuBot.Helpers
         };
 
         public static IEmote ThumbsUp { get; }      = new Emoji("👍");
+        public static IEmote RedCross { get; }      = new Emoji("❌");
     }
 }

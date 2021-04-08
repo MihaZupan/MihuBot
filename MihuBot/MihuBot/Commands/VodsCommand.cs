@@ -20,8 +20,7 @@ namespace MihuBot.Commands
         public override string Command => "vods";
         public override string[] Aliases => new[] { "vod" };
 
-        private readonly BlobContainerClient BlobContainerClient =
-            new BlobContainerClient(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.VodsContainerName);
+        private readonly BlobContainerClient BlobContainerClient = new(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.VodsContainerName);
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -46,8 +45,7 @@ namespace MihuBot.Commands
             YoutubeDlMetadata metadata;
             try
             {
-                string youtubeDlJson = await RunProcessAndReadOutputAsync("youtube-dl", $"-j {link}");
-                metadata = JsonConvert.DeserializeObject<YoutubeDlMetadata>(youtubeDlJson);
+                metadata = await YoutubeDl.GetJsonAsync<YoutubeDlMetadata>(link);
             }
             catch (Exception ex)
             {
@@ -90,15 +88,7 @@ namespace MihuBot.Commands
 
                 if (selectedFormat.HttpHeaders != null)
                 {
-                    foreach (var header in selectedFormat.HttpHeaders)
-                    {
-                        argumentBuilder
-                            .Append("-headers \"")
-                            .Append(header.Key)
-                            .Append(": ")
-                            .Append(header.Value)
-                            .Append("\" ");
-                    }
+                    YoutubeDl.SerializeHeadersForCmd(argumentBuilder, selectedFormat.HttpHeaders);
                 }
 
                 argumentBuilder.Append("-i \"").Append(selectedFormat.Url).Append("\" ");
@@ -197,21 +187,6 @@ namespace MihuBot.Commands
 
                 return FormatId.CompareTo(other.FormatId);
             }
-        }
-
-        private static async Task<string> RunProcessAndReadOutputAsync(string name, string arguments)
-        {
-            using var proc = new Process();
-            proc.StartInfo.FileName = name;
-            proc.StartInfo.Arguments = arguments;
-            proc.StartInfo.UseShellExecute = false;
-            proc.StartInfo.RedirectStandardOutput = true;
-
-            proc.Start();
-
-            string output = await proc.StandardOutput.ReadToEndAsync();
-            proc.WaitForExit();
-            return output;
         }
     }
 }
