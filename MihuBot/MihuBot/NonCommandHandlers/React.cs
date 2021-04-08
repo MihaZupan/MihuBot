@@ -33,10 +33,9 @@ namespace MihuBot.NonCommandHandlers
                     var message = await cacheable.GetOrDownloadAsync();
 
                     if (message != null &&
-                        TryParseMessageLink(message.Content, out ulong guildId, out ulong channelId, out ulong messageId) &&
-                        Constants.GuildIDs.Contains(guildId))
+                        TryParseMessageLink(message.Content, out _, out ulong channelId, out ulong messageId))
                     {
-                        var linkedMessage = await _discord.GetTextChannel(guildId, channelId).GetMessageAsync(messageId);
+                        var linkedMessage = await _discord.GetTextChannel(channelId).GetMessageAsync(messageId);
                         await linkedMessage.AddReactionAsync(reaction.Emote);
                     }
                 }

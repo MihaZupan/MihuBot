@@ -57,7 +57,7 @@ namespace MihuBot.Commands
         {
             var scripts = new List<DuelScript>();
 
-            await foreach (var messages in _discord.GetTextChannel(Guilds.Mihu, Channels.DuelsTexts).GetMessagesAsync())
+            await foreach (var messages in _discord.GetTextChannel(Channels.DuelsTexts).GetMessagesAsync())
             {
                 foreach (var message in messages)
                 {

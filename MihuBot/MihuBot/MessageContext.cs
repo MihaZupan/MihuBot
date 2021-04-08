@@ -3,6 +3,7 @@ using Discord.Rest;
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -35,10 +36,17 @@ namespace MihuBot
         public SocketGuildUser Author => (SocketGuildUser)Message.Author;
         public ulong AuthorId => Author.Id;
 
+        public SocketGuildUser BotUser => Guild.GetUser(Discord.CurrentUser.Id);
+
         public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false, bool suppressMentions = false)
         {
             if (mention)
                 text = MentionUtils.MentionUser(AuthorId) + " " + text;
+
+            if (!BotUser.GetPermissions(Channel).SendMessages)
+            {
+                throw new Exception($"Missing permissions to send `{text}` in {Channel.Name}.");
+            }
 
             return await Channel.SendMessageAsync(text, allowedMentions: suppressMentions ? AllowedMentions.None : null);
         }

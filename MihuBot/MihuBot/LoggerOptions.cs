@@ -9,32 +9,24 @@ namespace MihuBot
         public readonly InitializedDiscordClient Discord;
         public readonly string LogsRoot, FilesRoot, LogPrefix;
 
-        private readonly ulong
-            _debugGuildId, _debugChannelId,
-            _logsTextGuildId, _logsTextChannelId,
-            _logsFilesGuildId, _logsFilesChannelId;
+        private readonly ulong _debugChannelId, _logsTextChannelId, _logsFilesChannelId;
 
-        public SocketTextChannel DebugTextChannel => Discord.GetTextChannel(_debugGuildId, _debugChannelId);
-        public SocketTextChannel LogsTextChannel => Discord.GetTextChannel(_logsTextGuildId, _logsTextChannelId);
-        public SocketTextChannel LogsFilesTextChannel => Discord.GetTextChannel(_logsFilesGuildId, _logsFilesChannelId);
+        public SocketTextChannel DebugTextChannel => Discord.GetTextChannel(_debugChannelId);
+        public SocketTextChannel LogsTextChannel => Discord.GetTextChannel(_logsTextChannelId);
+        public SocketTextChannel LogsFilesTextChannel => Discord.GetTextChannel(_logsFilesChannelId);
 
         public Predicate<SocketUserMessage> ShouldLogAttachments { get; set; } = _ => true;
 
         public LoggerOptions(InitializedDiscordClient discord, string logsRoot, string logPrefix,
-            ulong debugGuildId, ulong debugChannelId,
-            ulong logsTextGuildId, ulong logsTextChannelId,
-            ulong logsFilesGuildId, ulong logsFilesChannelId)
+            ulong debugChannelId, ulong logsTextChannelId, ulong logsFilesChannelId)
         {
             Discord = discord;
             LogsRoot = logsRoot.EndsWith('/') ? logsRoot : (logsRoot + '/');
             FilesRoot = LogsRoot + "files/";
             LogPrefix = logPrefix;
 
-            _debugGuildId = debugGuildId;
             _debugChannelId = debugChannelId;
-            _logsTextGuildId = logsTextGuildId;
             _logsTextChannelId = logsTextChannelId;
-            _logsFilesGuildId = logsFilesGuildId;
             _logsFilesChannelId = logsFilesChannelId;
         }
     }

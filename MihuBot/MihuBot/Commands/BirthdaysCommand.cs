@@ -44,7 +44,7 @@ namespace MihuBot.Commands
 
             async Task HandleAsyncCore()
             {
-                SocketTextChannel birthdayChannel = ctx.Discord.GetTextChannel(Guilds.Mihu, Channels.BirthdaysLog);
+                SocketTextChannel birthdayChannel = ctx.Discord.GetTextChannel(Channels.BirthdaysLog);
 
                 var message = ctx.Message;
 
@@ -470,7 +470,7 @@ namespace MihuBot.Commands
             }
             else
             {
-                SocketTextChannel channel = ctx.Discord.GetTextChannel(Guilds.DDs, Channels.DDsIntroductions);
+                SocketTextChannel channel = ctx.Discord.GetTextChannel(Channels.DDsIntroductions);
 
                 messages = (await channel.DangerousGetAllMessagesAsync(_logger, $"Birthdays command ran by {ctx.Author.Username}"))
                     .Select(m => SimpleMessageModel.FromMessage(m))

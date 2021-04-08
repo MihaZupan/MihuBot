@@ -1,7 +1,6 @@
 ﻿using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace MihuBot.Commands
@@ -19,36 +18,23 @@ namespace MihuBot.Commands
             string[] lines = ctx.Content.Split('\n');
             string[] headers = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-            if (headers.Length < 3)
+            if (headers.Length < 2)
             {
-                await ctx.ReplyAsync("Missing command arguments, try ```\n!message guildId channelId\nMessage text\n````");
+                await ctx.ReplyAsync("Missing command arguments, try ```\n!message channelId\nMessage text\n````");
                 return;
             }
 
-            if (!ulong.TryParse(headers[1], out ulong guildId) || !Constants.GuildIDs.Contains(guildId))
-            {
-                string guilds = string.Join('\n', Constants.GuildIDs.Select(id => id + ": " + ctx.Discord.GetGuild(id).Name));
-                await ctx.ReplyAsync("Invalid Guild ID. Try:\n```\n" + guilds + "\n```");
-                return;
-            }
-
-            if (!ulong.TryParse(headers[2], out ulong channelId))
+            if (!ulong.TryParse(headers[1], out ulong channelId))
             {
                 await ctx.ReplyAsync("Invalid channel ID format");
                 return;
             }
 
-            SocketGuild guild = ctx.Discord.GetGuild(guildId);
+            SocketTextChannel channel = ctx.Discord.GetTextChannel(channelId);
 
-            if (!(guild.TextChannels.FirstOrDefault(c => c.Id == channelId) is SocketTextChannel channel))
+            if (channel is null)
             {
-                string channels = string.Join('\n', guild.Channels.Select(c => c.Id + ":\t" + c.Name));
-                if (channels.Length > 500)
-                {
-                    channels = string.Concat(channels.AsSpan(0, channels.AsSpan(0, 496).LastIndexOf('\n')), " ...");
-                }
-
-                await ctx.ReplyAsync("Unknown channel. Try:\n```\n" + channels + "\n```");
+                await ctx.ReplyAsync("Unknown channel.");
                 return;
             }
 

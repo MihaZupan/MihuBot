@@ -171,9 +171,9 @@ namespace MihuBot.Helpers
             return ((IChannel)channel).GetUsersAsync(mode, options);
         }
 
-        public static SocketTextChannel GetTextChannel(this DiscordSocketClient client, ulong guildId, ulong channelId)
+        public static SocketTextChannel GetTextChannel(this DiscordSocketClient client, ulong channelId)
         {
-            return client.GetGuild(guildId)?.GetTextChannel(channelId);
+            return client.GetChannel(channelId) as SocketTextChannel;
         }
 
         public static SocketGuild Guild(this SocketMessage message)

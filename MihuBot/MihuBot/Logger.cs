@@ -872,7 +872,7 @@ RecipientAdded
                         var ignored = new ConcurrentDictionary<ulong, bool>();
                         _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
 
-                        var channel = Discord.GetTextChannel(Guilds.PrivateLogs, IgnoredListChannelId);
+                        var channel = Discord.GetTextChannel(IgnoredListChannelId);
                         foreach (var message in await channel.DangerousGetAllMessagesAsync(this, auditReason: null))
                         {
                             foreach (var part in message.Content.NormalizeNewLines().Replace('\n', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries))

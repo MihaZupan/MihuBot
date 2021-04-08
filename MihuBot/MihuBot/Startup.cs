@@ -61,9 +61,9 @@ namespace MihuBot
             services.AddSingleton(new LoggerOptions(
                 discord,
                 "logs", string.Empty,
-                Guilds.Mihu, Channels.Debug,
-                Guilds.PrivateLogs, Channels.LogText,
-                Guilds.PrivateLogs, Channels.Files));
+                Channels.Debug,
+                Channels.LogText,
+                Channels.Files));
 
             services.AddSingleton<Logger>();
 
@@ -73,9 +73,9 @@ namespace MihuBot
                     new LoggerOptions(
                         new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
                         "pvt_logs", "Private_",
-                        Guilds.PrivateLogs, 806048964021190656ul,
-                        Guilds.PrivateLogs, 806049221631410186ul,
-                        Guilds.PrivateLogs, Channels.Files)
+                        806048964021190656ul,
+                        806049221631410186ul,
+                        Channels.Files)
                     {
                         ShouldLogAttachments = message =>
                         {

@@ -27,9 +27,16 @@ namespace MihuBot.Commands
                 return;
 
             ulong guildId = Guilds.PrivateLogs;
-            if (ctx.Arguments.Length == 2 && !(ulong.TryParse(ctx.Arguments[1], out guildId) && Constants.GuildIDs.Contains(guildId)))
+            if (ctx.Arguments.Length == 2 && !ulong.TryParse(ctx.Arguments[1], out guildId))
             {
                 await ctx.ReplyAsync("Unrecognized guild");
+                return;
+            }
+
+            var guild = ctx.Discord.GetGuild(guildId);
+            if (guild is null || !ctx.BotUser.GuildPermissions.ManageEmojis)
+            {
+                await ctx.ReplyAsync("I don't have the permissions to do that");
                 return;
             }
 
@@ -107,7 +114,7 @@ namespace MihuBot.Commands
                     proc.Start();
                     proc.WaitForExit();
 
-                    var emote = await ctx.Discord.GetGuild(guildId).CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempPath));
+                    var emote = await guild.CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempPath));
                     await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
 
                     break;

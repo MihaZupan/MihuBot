@@ -57,9 +57,6 @@ namespace MihuBot
         {
             try
             {
-                if (reaction.Channel is not SocketGuildChannel guildChannel || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
-                    return;
-
                 if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
                 {
                     if (reaction.User.IsSpecified && reaction.User.Value.Id == KnownUsers.MihuBot)
@@ -96,7 +93,7 @@ namespace MihuBot
             if (message is not SocketUserMessage userMessage)
                 return Task.CompletedTask;
 
-            if (userMessage.Channel is not SocketGuildChannel guildChannel || !Constants.GuildIDs.Contains(guildChannel.Guild.Id))
+            if (userMessage.Channel is not SocketGuildChannel guildChannel)
                 return Task.CompletedTask;
 
             if (message.Author.IsBot)

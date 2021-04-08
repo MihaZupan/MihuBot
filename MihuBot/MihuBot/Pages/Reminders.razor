@@ -26,7 +26,7 @@
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
             <td>@GetRemainingTime(entry.Time)</td>
             <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
-            <td>@(discord.GetTextChannel(entry.GuildId, entry.ChannelId)?.Name ?? "N/A")</td>
+            <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
         </tr>
     }

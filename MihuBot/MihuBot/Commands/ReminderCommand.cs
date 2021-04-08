@@ -211,7 +211,7 @@ namespace MihuBot.Commands
                         try
                         {
                             Log($"Running reminder {entry}", entry);
-                            var channel = _discord.GetTextChannel(entry.GuildId, entry.ChannelId);
+                            var channel = _discord.GetTextChannel(entry.ChannelId);
 
                             Match match = _reminderMentionRegex.Match(entry.Message);
 

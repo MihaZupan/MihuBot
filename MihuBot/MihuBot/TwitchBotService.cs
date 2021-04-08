@@ -54,7 +54,7 @@ namespace MihuBot
                         {
                             string toAdd = text.Substring(5).Trim();
                             _logger.DebugLog($"Twitch: Adding {toAdd} to the list. Requested by {message.Username}");
-                            await _discord.GetTextChannel(Guilds.Mihu, Channels.TwitchAddLogs).SendMessageAsync(toAdd);
+                            await _discord.GetTextChannel(Channels.TwitchAddLogs).SendMessageAsync(toAdd);
                             _client.SendMessage(message.Channel, $"{toAdd} darlG");
 
                             int byIndex = toAdd.IndexOf(" by ", StringComparison.OrdinalIgnoreCase);
