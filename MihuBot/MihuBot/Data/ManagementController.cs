@@ -18,7 +18,7 @@ namespace MihuBot.Data
         }
 
         [HttpGet]
-        public void Deployed([FromQuery] uint runNumber, [FromQuery] string token)
+        public IActionResult Deployed([FromQuery] uint runNumber, [FromQuery] string token)
         {
             _logger.DebugLog($"Received a deployment request {runNumber} ({token?[Math.Min(3, token.Length)..]}...)");
 
@@ -26,6 +26,8 @@ namespace MihuBot.Data
             {
                 Task.Run(async () => await RunUpdateAsync(runNumber));
             }
+
+            return Ok();
         }
 
         private async Task RunUpdateAsync(uint runNumber)
