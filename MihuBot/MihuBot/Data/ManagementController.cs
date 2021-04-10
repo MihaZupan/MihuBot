@@ -20,9 +20,14 @@ namespace MihuBot.Data
         [HttpGet]
         public IActionResult Deployed([FromQuery] uint runNumber, [FromQuery] string token)
         {
-            _logger.DebugLog($"Received a deployment request {runNumber} ({token?[0..Math.Min(3, token.Length)]}...)");
+            _logger.DebugLog($"Received a deployment request {runNumber}");
 
-            if (CheckToken(_updateToken, token))
+            if (_updateToken is null)
+            {
+                _logger.DebugLog($"{nameof(_updateToken)} is null");
+            }
+
+            if (_updateToken is null || CheckToken(_updateToken, token))
             {
                 Task.Run(async () => await RunUpdateAsync(runNumber));
             }
