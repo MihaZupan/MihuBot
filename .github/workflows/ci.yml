@@ -16,7 +16,7 @@ jobs:
         dotnet-version: '6.0.100-preview.3.21202.5'
 
     - name: Dotnet restore
-      run: dotnet restore
+      run: dotnet restore MihuBot
 
     - name: Dotnet build
       run: dotnet build MihuBot
