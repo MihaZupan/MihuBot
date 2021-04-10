@@ -42,4 +42,4 @@ jobs:
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_KEY }}
         source: artifacts
-        target: "${{ secrets.PROD_UPDATE_PATH }}/${GITHUB_RUN_NUMBER}"
+        target: ${{ secrets.PROD_UPDATE_PATH }}/${{ github.run_number }}
