@@ -25,7 +25,7 @@ jobs:
     #  run: dotnet test MihuBot
 
     - name: Dotnet publish
-      run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained false -p:PublishSingleFile=true -o artifacts
+      run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts
 
     - name: Zip artifacts
       run: zip -r artifacts.zip artifacts
