@@ -427,7 +427,7 @@ namespace MihuBot.Commands
         }
 
         private DateTime _lastCacheRefresh = DateTime.MinValue;
-        private const string MessagesCachePath = "IntroductionsMessagesCache.json";
+        private static readonly string MessagesCachePath = $"{Constants.StateDirectory}/IntroductionsMessagesCache.json";
 
         private static bool TryGetNameAndBirthday(string content, out string name, out string birthday)
         {

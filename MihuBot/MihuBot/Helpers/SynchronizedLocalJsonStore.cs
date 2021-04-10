@@ -9,8 +9,6 @@ namespace MihuBot.Helpers
     public sealed class SynchronizedLocalJsonStore<T>
         where T : class, new()
     {
-        private const string JsonFolder = "JsonState";
-
         private readonly string _jsonPath;
         private readonly T _value;
         private readonly SemaphoreSlim _asyncLock;
@@ -18,13 +16,7 @@ namespace MihuBot.Helpers
 
         public SynchronizedLocalJsonStore(string jsonPath, Func<T, T> init = null)
         {
-            Directory.CreateDirectory(JsonFolder);
-            _jsonPath = $"{JsonFolder}/{jsonPath}";
-
-            if (File.Exists(jsonPath))
-            {
-                File.Move(jsonPath, _jsonPath);
-            }
+            _jsonPath = $"{Constants.StateDirectory}/{jsonPath}";
 
             if (File.Exists(_jsonPath))
             {

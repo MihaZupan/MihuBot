@@ -6,6 +6,8 @@ namespace MihuBot.Helpers
 {
     public static class Constants
     {
+        public static string StateDirectory => "State";
+
         //public static readonly HashSet<ulong> GuildIDs = new(typeof(Guilds).GetFields().Select(f => (ulong)f.GetRawConstantValue()));
         public static readonly HashSet<ulong> Admins = new()
         {

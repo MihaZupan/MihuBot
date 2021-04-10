@@ -12,6 +12,8 @@ namespace MihuBot.Helpers
 
         public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null)
         {
+            filePath = $"{Constants.StateDirectory}/{filePath}";
+
             if (File.Exists(filePath))
             {
                 string[] lines = File.ReadAllLines(filePath);

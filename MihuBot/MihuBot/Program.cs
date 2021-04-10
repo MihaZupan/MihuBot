@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
+using MihuBot.Helpers;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,6 +12,8 @@ namespace MihuBot
     {
         public static async Task Main(string[] args)
         {
+            Directory.CreateDirectory(Constants.StateDirectory);
+
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 Console.WriteLine(e.ExceptionObject);
