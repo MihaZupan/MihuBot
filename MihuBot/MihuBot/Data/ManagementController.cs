@@ -70,7 +70,7 @@ namespace MihuBot.Data
                     System.IO.File.Move(path, newPath);
                 }
 
-                Directory.Delete(currentUpdateDir);
+                Directory.Delete(currentUpdateDir, recursive: true);
 
                 await loggerTask;
 
