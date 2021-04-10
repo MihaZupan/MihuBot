@@ -44,3 +44,6 @@ jobs:
         source: artifacts
         target: ${{ secrets.PROD_UPDATE_PATH }}/${{ github.run_number }}
         strip_components: 1
+
+    - name: Notify VM of the deployment
+      run: wget "https://${{ secrets.HOST }}/Management/Deployed?runNumber=${{ github.run_number }}&token=${{ secrets.UPDATE_TOKEN }}"
