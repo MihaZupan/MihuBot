@@ -14,7 +14,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            string rover = Directory.GetFiles("Rovers").Random();
+            string rover = Directory.GetFiles($"{Constants.StateDirectory}/Rovers").Random();
             using FileStream fs = File.OpenRead(rover);
             await ctx.Channel.SendFileAsync(fs, "rover" + Path.GetExtension(rover));
         }
