@@ -60,7 +60,7 @@ namespace MihuBot
 
             services.AddSingleton(new LoggerOptions(
                 discord,
-                "logs", string.Empty,
+                $"{Constants.StateDirectory}/logs", string.Empty,
                 Channels.Debug,
                 Channels.LogText,
                 Channels.Files));
@@ -72,7 +72,7 @@ namespace MihuBot
                 var customLogger = new CustomLogger(httpClient,
                     new LoggerOptions(
                         new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
-                        "pvt_logs", "Private_",
+                        $"{Constants.StateDirectory}/pvt_logs", "Private_",
                         806048964021190656ul,
                         806049221631410186ul,
                         Channels.Files)
