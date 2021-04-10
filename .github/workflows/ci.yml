@@ -1,6 +1,9 @@
 name: ci
 
-on: push
+on:
+  push:
+    branches:
+      - master
 
 jobs:
   build:
@@ -15,8 +18,11 @@ jobs:
       with:
         dotnet-version: '6.0.100-preview.3.21202.5'
 
-    - name: Dotnet restore
-      run: dotnet restore MihuBot
+    - name: Dotnet build
+      run: dotnet build MihuBot -c Release
 
-    - name: Dotnet build (Release)
-      run: dotnet build MihuBot -c Release --no-restore
+    - name: Push to release branch
+      run: |
+        git config --global user.name ${GITHUB_ACTOR}
+        git config --global user.email 25307628+MihaZupan@users.noreply.github.com
+        git push origin master:release -f
