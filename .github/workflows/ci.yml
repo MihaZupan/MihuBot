@@ -41,5 +41,6 @@ jobs:
         fingerprint: ${{ secrets.FINGERPRINT }}
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_KEY }}
-        source: artifacts/*
+        source: artifacts
         target: ${{ secrets.PROD_UPDATE_PATH }}/${{ github.run_number }}
+        strip_components: 1
