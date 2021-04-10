@@ -58,7 +58,7 @@ namespace MihuBot.Data
 
                 if (Directory.GetFiles(nextUpdateDir).Length != 0)
                 {
-                    throw new Exception($"{currentUpdateDir} is not empty");
+                    throw new Exception($"{nextUpdateDir} is not empty");
                 }
 
                 Task loggerTask = _logger.DebugAsync($"Received a deployment notification for run {runNumber}");
