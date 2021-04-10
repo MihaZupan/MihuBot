@@ -28,13 +28,13 @@ jobs:
       run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained false -p:PublishSingleFile=true -o artifacts
 
     - name: Zip artifacts
-      run: zip -r "${GITHUB_SHA}.zip" artifacts
+      run: zip -r artifacts.zip artifacts
 
     - name: Copy to VM
       uses: appleboy/scp-action@master
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
-        password: ${{ secrets.PASSWORD }}
-        source: ${GITHUB_SHA}.zip"
+        key: ${{ secrets.SSH_KEY }}
+        source: artifacts.zip
         target: ${{ secrets.PROD_UPDATE_PATH }}
