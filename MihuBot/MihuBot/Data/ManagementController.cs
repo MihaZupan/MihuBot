@@ -66,6 +66,7 @@ namespace MihuBot.Data
                 foreach (string path in Directory.EnumerateFiles(currentUpdateDir, "*", SearchOption.AllDirectories))
                 {
                     string newPath = string.Concat(nextUpdateDir, path.AsSpan(currentUpdateDir.Length));
+                    Directory.CreateDirectory(Path.GetDirectoryName(newPath));
                     System.IO.File.Move(path, newPath);
                 }
 
