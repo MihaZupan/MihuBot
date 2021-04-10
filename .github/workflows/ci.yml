@@ -1,9 +1,6 @@
 name: ci
 
-on:
-  push:
-    branches:
-      - master
+on: push
 
 jobs:
   build:
@@ -18,11 +15,26 @@ jobs:
       with:
         dotnet-version: '6.0.100-preview.3.21202.5'
 
-    - name: Dotnet build
-      run: dotnet build MihuBot -c Release
+    - name: Dotnet restore
+      run: dotnet restore
 
-    - name: Push to release branch
-      run: |
-        git config --global user.name ${GITHUB_ACTOR}
-        git config --global user.email 25307628+MihaZupan@users.noreply.github.com
-        git push origin master:release -f
+    - name: Dotnet build
+      run: dotnet build MihuBot
+
+    #- name: Dotnet test
+    #  run: dotnet test MihuBot
+
+    - name: Dotnet publish
+      run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained false -p:PublishSingleFile=true -o artifacts
+
+    - name: Zip artifacts
+      run: zip -r "${GITHUB_SHA}.zip" artifacts
+
+    - name: Copy to VM
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        source: ${GITHUB_SHA}.zip"
+        target: ${{ secrets.PROD_UPDATE_PATH }}
