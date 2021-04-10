@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace MihuBot.Data
@@ -29,9 +30,48 @@ namespace MihuBot.Data
         {
             try
             {
-                await _logger.DebugAsync($"Received a deployment notification for run {runNumber}");
+                string currentDir = Environment.CurrentDirectory;
+                string nextUpdateDir = $"{currentDir}/next_update";
+                string updatesDir = $"{currentDir}/updates";
+                string currentUpdateDir = $"{updatesDir}/{runNumber}";
+
+                Directory.CreateDirectory(nextUpdateDir);
+
+                if (!Directory.Exists(currentUpdateDir))
+                {
+                    throw new Exception($"{currentUpdateDir} does not exist");
+                }
+
+                if (Directory.GetFiles(currentUpdateDir).Length == 0)
+                {
+                    throw new Exception($"{currentUpdateDir} is empty");
+                }
+
+                if (Directory.GetFiles(nextUpdateDir).Length != 0)
+                {
+                    throw new Exception($"{currentUpdateDir} is not empty");
+                }
+
+                Task loggerTask = _logger.DebugAsync($"Received a deployment notification for run {runNumber}");
+
+                foreach (string path in Directory.EnumerateFiles(currentUpdateDir, "*", SearchOption.AllDirectories))
+                {
+                    string newPath = string.Concat(nextUpdateDir, path.AsSpan(currentUpdateDir.Length));
+                    System.IO.File.Move(path, newPath);
+                }
+
+                Directory.Delete(currentUpdateDir);
+
+                Program.BotStopTCS.TrySetResult();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                try
+                {
+                    await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
+                }
+                catch { }
+            }
         }
 
         private static bool CheckToken(string expected, string actual)

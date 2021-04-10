@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using System;
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,12 +10,6 @@ namespace MihuBot
     {
         public static async Task Main(string[] args)
         {
-            if (args.Length > 0 && args[0] == "start")
-            {
-                StartUpdate();
-                return;
-            }
-
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 Console.WriteLine(e.ExceptionObject);
@@ -56,24 +49,6 @@ namespace MihuBot
                     webBuilder.UseStartup<Startup>();
                 });
 
-        internal static readonly TaskCompletionSource BotStopTCS =
-            new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        private static int _updating = 0;
-
-        internal static void StartUpdate()
-        {
-            if (Interlocked.Exchange(ref _updating, 1) != 0)
-                return;
-
-            using Process updateProcess = new Process();
-            updateProcess.StartInfo.FileName = "/bin/bash";
-            updateProcess.StartInfo.Arguments = "update.sh";
-            updateProcess.StartInfo.UseShellExecute = false;
-            updateProcess.StartInfo.WorkingDirectory = Environment.CurrentDirectory;
-            updateProcess.Start();
-
-            BotStopTCS.TrySetResult();
-        }
+        internal static readonly TaskCompletionSource BotStopTCS = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 }
