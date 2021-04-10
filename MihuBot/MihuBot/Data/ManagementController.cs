@@ -70,7 +70,21 @@ namespace MihuBot.Data
                     System.IO.File.Move(path, newPath);
                 }
 
-                Directory.Delete(currentUpdateDir, recursive: true);
+                const int Retries = 5;
+                for (int i = 1; i <= Retries; i++)
+                {
+                    try
+                    {
+                        Directory.Delete(currentUpdateDir, recursive: true);
+                        break;
+                    }
+                    catch (IOException ioex) when (i != Retries)
+                    {
+                        int retryAfter = 50 * (int)Math.Pow(2, i);
+                        _logger.DebugLog($"'{ioex.Message}' when trying to delete {currentUpdateDir}. Retrying in {retryAfter} ms");
+                        await Task.Delay(retryAfter);
+                    }
+                }
 
                 await loggerTask;
 
