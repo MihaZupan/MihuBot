@@ -15,8 +15,6 @@ namespace MihuBot.Commands
         public override string Command => "logs";
         public override string[] Aliases => new[] { "plogs", "pvtlogs", "privatelogs" };
 
-        private static readonly JsonSerializerOptions JsonOptions = new() { IgnoreNullValues = true };
-
         private readonly Logger _logger;
         private readonly CustomLogger _customLogger;
 
@@ -283,7 +281,7 @@ namespace MihuBot.Commands
             {
                 if (raw)
                 {
-                    sb.Append(JsonSerializer.Serialize(log, JsonOptions));
+                    sb.Append(JsonSerializer.Serialize(log, Logger.JsonOptions));
                 }
                 else
                 {

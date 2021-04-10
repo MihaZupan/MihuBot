@@ -16,6 +16,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Channels;
@@ -37,7 +38,7 @@ namespace MihuBot
 
         private static readonly ReadOnlyMemory<byte> NewLineByte = new[] { (byte)'\n' };
         private static readonly char[] TrimChars = new[] { ' ', '\t', '\n', '\r' };
-        private static readonly JsonSerializerOptions JsonOptions = new() { IgnoreNullValues = true };
+        internal static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
         private readonly SemaphoreSlim LogSemaphore = new(1, 1);
         private readonly Channel<LogEvent> LogChannel;

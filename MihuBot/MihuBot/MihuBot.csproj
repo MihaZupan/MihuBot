@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -10,7 +10,6 @@
     <PackageReference Include="Discord.Net" Version="2.3.1" />
     <PackageReference Include="LettuceEncrypt" Version="1.0.1" />
     <PackageReference Include="Markdig" Version="0.24.0" />
-    <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.16.0" />
     <PackageReference Include="SendGrid" Version="9.22.0" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="1.0.3" />
