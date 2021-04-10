@@ -20,6 +20,8 @@ namespace MihuBot.Data
         [HttpGet]
         public void Deployed([FromQuery] uint runNumber, [FromQuery] string token)
         {
+            _logger.DebugLog($"Received a deployment request {runNumber} ({token?[Math.Min(3, token.Length)..]}...)");
+
             if (CheckToken(_updateToken, token))
             {
                 Task.Run(async () => await RunUpdateAsync(runNumber));
@@ -61,6 +63,8 @@ namespace MihuBot.Data
                 }
 
                 Directory.Delete(currentUpdateDir);
+
+                await loggerTask;
 
                 Program.BotStopTCS.TrySetResult();
             }
