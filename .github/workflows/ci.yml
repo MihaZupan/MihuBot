@@ -27,13 +27,6 @@ jobs:
     - name: Dotnet publish
       run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts
 
-    - name: Cleanup artifacts (temporary)
-      run: |
-        cd artifacts
-        mv appsettings.json appsettings.json.tmp
-        rm *.json
-        mv appsettings.json.tmp appsettings.json
-
     - name: Copy to VM
       uses: appleboy/scp-action@master
       with:
