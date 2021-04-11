@@ -266,27 +266,34 @@ namespace MihuBot
             {
                 foreach (var file in GetLogFilesForDateRange(after, before))
                 {
-                    await using Stream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    await using Stream stream = file.EndsWith(".br", StringComparison.OrdinalIgnoreCase)
-                        ? new BrotliStream(fileStream, CompressionMode.Decompress)
-                        : fileStream;
-
-                    PipeReader pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: 32 * 1024));
-
-                    while (true)
+                    try
                     {
-                        ReadResult result = await pipeReader.ReadAsync();
-                        ReadOnlySequence<byte> buffer = result.Buffer;
+                        await using Stream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        await using Stream stream = file.EndsWith(".br", StringComparison.OrdinalIgnoreCase)
+                            ? new BrotliStream(fileStream, CompressionMode.Decompress)
+                            : fileStream;
 
-                        SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate, rawJsonPredicate);
+                        PipeReader pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: 32 * 1024));
 
-                        if (result.IsCompleted)
-                            break;
+                        while (true)
+                        {
+                            ReadResult result = await pipeReader.ReadAsync();
+                            ReadOnlySequence<byte> buffer = result.Buffer;
 
-                        pipeReader.AdvanceTo(position, buffer.End);
+                            SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate, rawJsonPredicate);
+
+                            if (result.IsCompleted)
+                                break;
+
+                            pipeReader.AdvanceTo(position, buffer.End);
+                        }
+
+                        await pipeReader.CompleteAsync();
                     }
-
-                    await pipeReader.CompleteAsync();
+                    catch (Exception ex)
+                    {
+                        parsingErrors.Add(new Exception($"Exception when parsing {file}", ex));
+                    }
                 }
             }
             finally
