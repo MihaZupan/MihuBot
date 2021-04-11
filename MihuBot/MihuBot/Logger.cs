@@ -2,6 +2,7 @@
 using Azure.Storage.Blobs.Models;
 using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using System;
 using System.Buffers;
@@ -47,7 +48,7 @@ namespace MihuBot
         private DateTime LogDate;
 
         private readonly Channel<(string FileName, string FilePath, SocketMessage Message, bool Delete)> FileArchivingChannel;
-        private readonly BlobContainerClient BlobContainerClient = new(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.DiscordContainerName);
+        private readonly BlobContainerClient BlobContainerClient;
         private readonly ConcurrentDictionary<string, TaskCompletionSource> FileArchivingCompletions = new();
 
         private static readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
@@ -414,10 +415,14 @@ namespace MihuBot
             return Options.ShouldLogAttachments(message);
         }
 
-        public Logger(HttpClient httpClient, LoggerOptions options)
+        public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
         {
             _http = httpClient;
             Options = options;
+
+            BlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString"],
+                "discord");
 
             Directory.CreateDirectory(Options.LogsRoot);
             Directory.CreateDirectory(Options.FilesRoot);

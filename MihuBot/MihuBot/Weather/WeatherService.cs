@@ -1,4 +1,4 @@
-﻿using MihuBot.Helpers;
+﻿using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System;
@@ -11,15 +11,17 @@ namespace MihuBot.Weather
     public sealed class WeatherService : IWeatherService
     {
         private readonly HttpClient _http;
+        private readonly string _apiKey;
 
-        public WeatherService(HttpClient httpClient)
+        public WeatherService(HttpClient httpClient, IConfiguration configuration)
         {
             _http = httpClient;
+            _apiKey = configuration["OpenWeather-ApiKey"];
         }
 
         public async Task<WeatherData> GetWeatherDataAsync(string location)
         {
-            string url = $"https://api.openweathermap.org/data/2.5/weather?q={Uri.EscapeDataString(location)}&units=metric&appid={Secrets.OpenWeather.ApiKey}";
+            string url = $"https://api.openweathermap.org/data/2.5/weather?q={Uri.EscapeDataString(location)}&units=metric&appid={_apiKey}";
             string json = await _http.GetStringAsync(url);
             OpenWeatherModel response = JsonConvert.DeserializeObject<OpenWeatherModel>(json);
 

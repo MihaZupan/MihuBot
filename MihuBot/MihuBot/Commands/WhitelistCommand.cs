@@ -1,4 +1,5 @@
 ﻿using Discord;
+using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using System;
 using System.Collections.Generic;
@@ -16,6 +17,12 @@ namespace MihuBot.Commands
 
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelistDreamlings = new ("whitelist.json");
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelistRetirementHome = new("whitelist-retirement.json");
+        private readonly IConfiguration _configuration;
+
+        public WhitelistCommand(IConfiguration configuration)
+        {
+            _configuration = configuration;
+        }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -59,8 +66,8 @@ namespace MihuBot.Commands
                     if (ulong.TryParse(ctx.Arguments[1], out ulong id) && entries.TryGetValue(id, out string username))
                     {
                         entries.Remove(id);
-                        await McCommand.RunMinecraftCommandAsync("whitelist remove " + username, isDreamlings);
-                        await McCommand.RunMinecraftCommandAsync("kick " + username, isDreamlings);
+                        await McCommand.RunMinecraftCommandAsync("whitelist remove " + username, isDreamlings, _configuration);
+                        await McCommand.RunMinecraftCommandAsync("kick " + username, isDreamlings, _configuration);
 
                         await ctx.ReplyAsync($"Removed {ctx.Discord.GetUser(id).GetName()} ({username}) from the whitelist", mention: true);
                     }
@@ -121,12 +128,12 @@ namespace MihuBot.Commands
                 else if (entries.TryGetValue(ctx.AuthorId, out existing))
                 {
                     entries.Remove(ctx.AuthorId);
-                    await McCommand.RunMinecraftCommandAsync("whitelist remove " + existing, isDreamlings);
-                    await McCommand.RunMinecraftCommandAsync("kick " + existing, isDreamlings);
+                    await McCommand.RunMinecraftCommandAsync("whitelist remove " + existing, isDreamlings, _configuration);
+                    await McCommand.RunMinecraftCommandAsync("kick " + existing, isDreamlings, _configuration);
                 }
                 else existing = null;
 
-                await McCommand.RunMinecraftCommandAsync("whitelist add " + args, isDreamlings);
+                await McCommand.RunMinecraftCommandAsync("whitelist add " + args, isDreamlings, _configuration);
 
                 entries[ctx.AuthorId] = args;
 

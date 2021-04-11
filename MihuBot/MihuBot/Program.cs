@@ -5,6 +5,9 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Azure.Identity;
+using Microsoft.Extensions.Configuration;
+using Azure.Core;
 
 namespace MihuBot
 {
@@ -47,6 +50,16 @@ namespace MihuBot
 
         public static IHostBuilder CreateHostBuilder(string[] args) =>
             Host.CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration((context, config) =>
+                {
+                    TokenCredential credential = new ChainedTokenCredential(
+                        new ManagedIdentityCredential(),
+                        new AzureCliCredential());
+
+                    config.AddAzureKeyVault(
+                        new Uri("https://mihubotkv.vault.azure.net/"),
+                        credential);
+                })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     webBuilder.UseUrls("http://*:80", "https://*:443");

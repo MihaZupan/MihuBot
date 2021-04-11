@@ -1,4 +1,5 @@
 ﻿using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
 using System;
@@ -12,26 +13,32 @@ namespace MihuBot
 {
     public sealed class TwitchBotService : IHostedService
     {
-        private readonly TwitchClient _client = new TwitchClient();
+        private readonly TwitchClient _client = new();
         private readonly Logger _logger;
         private readonly DiscordSocketClient _discord;
         private readonly StreamerSongListClient _songListClient;
         private readonly Channel<ChatMessage> _messageChannel =
             Channel.CreateUnbounded<ChatMessage>(new UnboundedChannelOptions() { SingleReader = true });
 
-        public TwitchBotService(Logger logger, DiscordSocketClient discord, StreamerSongListClient songListClient)
+        public TwitchBotService(Logger logger, DiscordSocketClient discord, StreamerSongListClient songListClient, IConfiguration configuration)
         {
             _logger = logger;
             _discord = discord;
             _songListClient = songListClient;
 
-            ConnectionCredentials credentials = new ConnectionCredentials(Secrets.Twitch.Username, Secrets.Twitch.AccessToken);
-            _client.Initialize(credentials, Secrets.Twitch.ChannelName);
+#if DEBUG
+            const string ChannelName = "MihaZupan";
+#else
+            const string ChannelName = "Darleeng";
+#endif
+
+            ConnectionCredentials credentials = new("MihaZupan", configuration["Twitch:AccessToken"]);
+            _client.Initialize(credentials, ChannelName);
 
             _client.OnMessageReceived += (s, e) => _messageChannel.Writer.TryWrite(e.ChatMessage);
             _client.OnJoinedChannel += (s, e) =>
             {
-                if (e.Channel.Equals(Secrets.Twitch.ChannelName, StringComparison.OrdinalIgnoreCase))
+                if (e.Channel.Equals(ChannelName, StringComparison.OrdinalIgnoreCase))
                 {
                     _client.SendMessage(e.Channel, "Beep boop darlBoop");
                 }

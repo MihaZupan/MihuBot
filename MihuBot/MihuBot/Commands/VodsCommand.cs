@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Discord.Rest;
+using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -20,7 +21,14 @@ namespace MihuBot.Commands
         public override string Command => "vods";
         public override string[] Aliases => new[] { "vod" };
 
-        private readonly BlobContainerClient BlobContainerClient = new(Secrets.AzureStorage.ConnectionString, Secrets.AzureStorage.VodsContainerName);
+        private readonly BlobContainerClient BlobContainerClient;
+
+        public VodsCommand(IConfiguration configuration)
+        {
+            BlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString"],
+                "vods");
+        }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {

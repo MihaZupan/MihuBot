@@ -1,4 +1,5 @@
 ﻿using Discord;
+using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using Newtonsoft.Json.Linq;
 using System;
@@ -15,10 +16,12 @@ namespace MihuBot.Commands
         public override string Command => "emote";
 
         private readonly HttpClient _http;
+        private readonly string _apiKey;
 
-        public EmoteCommand(HttpClient httpClient)
+        public EmoteCommand(HttpClient httpClient, IConfiguration configuration)
         {
             _http = httpClient;
+            _apiKey = configuration["Tenor:ApiKey"];
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -81,7 +84,7 @@ namespace MihuBot.Commands
                 {
                     try
                     {
-                        string tenorJson = await _http.GetStringAsync($"https://api.tenor.com/v1/gifs?ids={id}&media_filter=minimal&key={Secrets.Tenor.ApiKey}");
+                        string tenorJson = await _http.GetStringAsync($"https://api.tenor.com/v1/gifs?ids={id}&media_filter=minimal&key={_apiKey}");
                         url = JToken.Parse(tenorJson)["results"].First["media"].First["gif"]["url"].ToObject<string>();
                     }
                     catch (Exception ex)

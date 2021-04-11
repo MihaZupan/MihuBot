@@ -35,7 +35,7 @@ namespace MihuBot
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                DirectoryInfo certDir = new DirectoryInfo("/home/certs");
+                DirectoryInfo certDir = new("/home/certs");
                 certDir.Create();
 
                 services.AddLettuceEncrypt()
@@ -54,7 +54,15 @@ namespace MihuBot
                 ConnectionTimeout = 30_000
             };
 
-            var discord = new InitializedDiscordClient(discordConfig, TokenType.Bot, Secrets.Discord.AuthToken);
+            var discord = new InitializedDiscordClient(
+                discordConfig,
+                TokenType.Bot,
+#if DEBUG
+                Configuration["Discord:AuthToken-Dev"]
+#else
+                Configuration["Discord:AuthToken"]
+#endif
+                );
             services.AddSingleton(discord);
             services.AddSingleton<DiscordSocketClient>(discord);
 
@@ -71,7 +79,10 @@ namespace MihuBot
             {
                 var customLogger = new CustomLogger(httpClient,
                     new LoggerOptions(
-                        new InitializedDiscordClient(discordConfig, /* TokenType.User */0, Secrets.Discord.PrivateAuthToken),
+                        new InitializedDiscordClient(
+                            discordConfig,
+                            /* TokenType.User */ 0,
+                            Configuration["Discord:PrivateAuthToken"]),
                         $"{Constants.StateDirectory}/pvt_logs", "Private_",
                         806048964021190656ul,
                         806049221631410186ul,
@@ -79,7 +90,7 @@ namespace MihuBot
                     {
                         ShouldLogAttachments = message =>
                         {
-                            if (message.Guild()?.GetUser(Secrets.Discord.BotId) is not SocketGuildUser user)
+                            if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
                                 return true;
 
                             if (message.Channel is not SocketTextChannel channel)
@@ -87,7 +98,8 @@ namespace MihuBot
 
                             return !user.GetPermissions(channel).ViewChannel;
                         }
-                    });
+                    },
+                    Configuration);
                 services.AddSingleton(customLogger);
                 services.AddHostedService(_ => customLogger);
             }
@@ -119,8 +131,12 @@ namespace MihuBot
                 .AddCookie()
                 .AddDiscord(options =>
                 {
-                    options.ClientId = Secrets.Discord.ClientId;
-                    options.ClientSecret = Secrets.Discord.ClientSecret;
+                    options.ClientId = KnownUsers.MihuBot.ToString();
+#if DEBUG
+                    options.ClientSecret = Configuration["Discord:ClientSecret-Dev"];
+#else
+                    options.ClientSecret = Configuration["Discord:ClientSecret"];
+#endif
                     options.SaveTokens = true;
 
                     options.Scope.Add("guilds");

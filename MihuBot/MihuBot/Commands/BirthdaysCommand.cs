@@ -1,5 +1,6 @@
 ﻿using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using MihuBot.Helpers.TeamUp;
 using Newtonsoft.Json;
@@ -20,17 +21,16 @@ namespace MihuBot.Commands
 
         private readonly Logger _logger;
         private readonly TeamUpClient _teamUpClient;
-        private readonly SynchronizedLocalJsonStore<List<BirthdayEntry>> _birthdayEntries =
-            new SynchronizedLocalJsonStore<List<BirthdayEntry>>("BirthdayEntries.json");
+        private readonly SynchronizedLocalJsonStore<List<BirthdayEntry>> _birthdayEntries = new("BirthdayEntries.json");
 
-        public BirthdaysCommand(HttpClient httpClient, Logger logger)
+        public BirthdaysCommand(HttpClient httpClient, Logger logger, IConfiguration configuration)
         {
             _logger = logger;
             _teamUpClient = new TeamUpClient(
                 httpClient,
-                Secrets.TeamUp.APIKey,
-                Secrets.TeamUp.CalendarKey,
-                Secrets.TeamUp.SubCalendarId);
+                configuration["TeamUp:ApiKey"],
+                configuration["TeamUp:CalendarKey"],
+                configuration.GetValue<int>("TeamUp:SubCalendarId"));
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -510,6 +510,8 @@ namespace MihuBot.Commands
 
         private class BirthdayEntry
         {
+            private const string CalendarPublicKey = "ks6sktk26s43g8c5hw";
+
             public string Name;
             public DateTime Date;
             public ulong DiscordMessageId;
@@ -518,7 +520,7 @@ namespace MihuBot.Commands
 
             [JsonIgnore]
             public string EventLink =>
-                $"https://teamup.com/{Secrets.TeamUp.CalendarPublicKey}/events/{TeamUpEventId}-rid-{new DateTimeOffset(Date.Date).ToUnixTimeSeconds()}";
+                $"https://teamup.com/{CalendarPublicKey}/events/{TeamUpEventId}-rid-{new DateTimeOffset(Date.Date).ToUnixTimeSeconds()}";
         }
     }
 }

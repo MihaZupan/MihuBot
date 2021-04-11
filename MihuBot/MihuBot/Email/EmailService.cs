@@ -1,4 +1,5 @@
-﻿using MihuBot.Helpers;
+﻿using Microsoft.Extensions.Configuration;
+using MihuBot.Helpers;
 using SendGrid;
 using SendGrid.Helpers.Mail;
 using System;
@@ -12,9 +13,9 @@ namespace MihuBot.Email
         private readonly SendGridClient _emailClient;
         private readonly Logger _logger;
 
-        public EmailService(HttpClient httpClient, Logger logger)
+        public EmailService(HttpClient httpClient, Logger logger, IConfiguration configuration)
         {
-            _emailClient = new SendGridClient(httpClient, Secrets.SendGrid.ApiKey);
+            _emailClient = new SendGridClient(httpClient, configuration["SendGrid:ApiKey"]);
             _logger = logger;
         }
 
