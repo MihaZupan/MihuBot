@@ -16,7 +16,7 @@ namespace MihuBot.Weather
         public WeatherService(HttpClient httpClient, IConfiguration configuration)
         {
             _http = httpClient;
-            _apiKey = configuration["OpenWeather-ApiKey"];
+            _apiKey = configuration["OpenWeather:ApiKey"];
         }
 
         public async Task<WeatherData> GetWeatherDataAsync(string location)
