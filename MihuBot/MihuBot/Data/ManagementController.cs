@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -8,13 +9,13 @@ namespace MihuBot.Data
     [Route("[controller]/[action]")]
     public class ManagementController : ControllerBase
     {
-        private static readonly string _updateToken = Environment.GetEnvironmentVariable("UPDATE_TOKEN");
-
         private readonly Logger _logger;
+        private readonly string _updateToken;
 
-        public ManagementController(Logger logger)
+        public ManagementController(Logger logger, IConfiguration configuration)
         {
             _logger = logger;
+            _updateToken = configuration["UPDATE_TOKEN"];
         }
 
         [HttpGet]
