@@ -1,5 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
+using MihuBot.Permissions;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,11 +9,18 @@ namespace MihuBot.NonCommandHandlers
 {
     public sealed class AtVoiceChat : NonCommandHandler
     {
+        private readonly IPermissionsService _permissions;
+
+        public AtVoiceChat(IPermissionsService permissionsService)
+        {
+            _permissions = permissionsService;
+        }
+
         public override Task HandleAsync(MessageContext ctx)
         {
-            if (ctx.IsFromAdmin &&
-                ctx.Content.StartsWith('@') &&
+            if (ctx.Content.StartsWith('@') &&
                 ulong.TryParse(ctx.Content.AsSpan(1), out ulong id) &&
+                _permissions.HasPermission(nameof(AtVoiceChat), ctx.AuthorId) &&
                 ctx.Guild.VoiceChannels.TryGetFirst(id, out var vc))
             {
                 return HandleAsyncCore();
