@@ -75,14 +75,16 @@ namespace MihuBot
 
             services.AddSingleton<Logger>();
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || true)
             {
+                var privateDiscordClient = new InitializedDiscordClient(
+                    discordConfig,
+                    /* TokenType.User */ 0,
+                    Configuration["Discord:PrivateAuthToken"]);
+
                 var customLogger = new CustomLogger(httpClient,
                     new LoggerOptions(
-                        new InitializedDiscordClient(
-                            discordConfig,
-                            /* TokenType.User */ 0,
-                            Configuration["Discord:PrivateAuthToken"]),
+                        privateDiscordClient,
                         $"{Constants.StateDirectory}/pvt_logs", "Private_",
                         806048964021190656ul,
                         806049221631410186ul,
@@ -102,6 +104,8 @@ namespace MihuBot
                     Configuration);
                 services.AddSingleton(customLogger);
                 services.AddHostedService(_ => customLogger);
+
+                services.AddHostedService(_ => new PancakeFactory(privateDiscordClient));
             }
 
             services.AddSingleton<StreamerSongListClient>();
