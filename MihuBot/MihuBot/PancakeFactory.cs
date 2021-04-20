@@ -39,7 +39,12 @@ namespace MihuBot
                     return;
 
                 await channel.SendMessageAsync("p!work");
-                await channel.SendMessageAsync("p!deposit all");
+
+                if (Rng.Chance(4))
+                {
+                    await Task.Delay(2000);
+                    await channel.SendMessageAsync("p!deposit all");
+                }
             }
             catch (Exception ex)
             {
