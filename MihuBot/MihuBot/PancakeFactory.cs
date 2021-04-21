@@ -203,7 +203,13 @@ namespace MihuBot
                     {
                         try
                         {
+                            _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
                             await message.Channel.SendMessageAsync($"p!rob {MentionUtils.MentionUser(775418135300800513ul)}");
+                            if (await Task.WhenAny(_expectedMessageTcs.Task, Task.Delay(1000)) == _expectedMessageTcs.Task)
+                            {
+                                await message.Channel.SendMessageAsync("p!deposit all");
+                            }
+                            _expectedMessageTcs = null;
                         }
                         catch { }
                     }
