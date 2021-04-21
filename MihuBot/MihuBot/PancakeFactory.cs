@@ -1,4 +1,5 @@
-﻿using Discord.WebSocket;
+﻿using Discord;
+using Discord.WebSocket;
 using Markdig.Helpers;
 using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
@@ -93,7 +94,7 @@ namespace MihuBot
             await UpdateTriviaAnswersAsync(cancellationToken);
             await _discord.EnsureInitializedAsync();
             _discord.MessageReceived += OnMessageAsync;
-            _workTimer = new Timer(_ => Task.Run(OnWorkTimerAsync), null, TimeSpan.FromMinutes(1), Timeout.InfiniteTimeSpan);
+            _workTimer = new Timer(_ => Task.Run(OnWorkTimerAsync), null, TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
@@ -155,10 +156,8 @@ namespace MihuBot
                     }
                 }
 
-                if (_counter % 8 == 0)
+                if (_counter % 2 == 0)
                 {
-                    await Task.Delay(2000);
-
                     _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
 
                     await channel.SendMessageAsync("p!deposit all");
@@ -179,6 +178,36 @@ namespace MihuBot
             if (message.Author.Id == 239631525350604801ul && message.Channel.Id == Channels.DDsPancake)
             {
                 _expectedMessageTcs?.TrySetResult(message);
+
+                if (message.Channel.GetCachedMessages(2).Any(m => m.Author.Id == 775418135300800513ul))
+                {
+                    if (message.Content.Contains("Correct! You won"))
+                    {
+                        return RobAsync();
+                    }
+                    else if (message.Content.Contains("out of Pancorp Bank"))
+                    {
+                        int index = message.Content.IndexOf('\uDD5E');
+                        if (index != -1)
+                        {
+                            var remainder = message.Content.AsSpan(index + 1);
+                            index = remainder.IndexOf(' ');
+                            if (index != -1 && ulong.TryParse(remainder.Slice(0, index), out ulong value) && value >= 250)
+                            {
+                                return RobAsync();
+                            }
+                        }
+                    }
+
+                    async Task RobAsync()
+                    {
+                        try
+                        {
+                            await message.Channel.SendMessageAsync($"p!rob {MentionUtils.MentionUser(775418135300800513ul)}");
+                        }
+                        catch { }
+                    }
+                }
             }
 
             return Task.CompletedTask;
