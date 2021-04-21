@@ -3,12 +3,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using YoutubeExplode;
-using YoutubeExplode.Videos;
+using YoutubeExplode.Playlists;
 using YoutubeExplode.Videos.Streams;
 
 namespace MihuBot.Helpers
@@ -108,7 +107,7 @@ namespace MihuBot.Helpers
         }
 
 
-        public static readonly YoutubeClient Youtube = new YoutubeClient();
+        public static readonly YoutubeClient Youtube = new();
 
         public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus)
         {
@@ -154,7 +153,7 @@ namespace MihuBot.Helpers
         {
             try
             {
-                List<Video> videos = new List<Video>();
+                List<PlaylistVideo> videos = new();
                 await foreach (var video in Youtube.Playlists.GetVideosAsync(id))
                 {
                     videos.Add(video);
@@ -215,7 +214,7 @@ namespace MihuBot.Helpers
 
         public static IStreamInfo GetBestAudio(StreamManifest manifest, out string extension)
         {
-            var audioOnly = manifest.GetAudioOnly().WithHighestBitrate();
+            var audioOnly = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
 
             if (audioOnly != null)
             {
@@ -223,7 +222,7 @@ namespace MihuBot.Helpers
                 return audioOnly;
             }
 
-            var bestAudio = manifest.GetMuxed().OrderByDescending(a => a.Bitrate).FirstOrDefault();
+            var bestAudio = manifest.GetMuxedStreams().TryGetWithHighestBitrate();
 
             extension = bestAudio.Container.Name == "aac" ? ".aac" : ".vorbis";
             return bestAudio;

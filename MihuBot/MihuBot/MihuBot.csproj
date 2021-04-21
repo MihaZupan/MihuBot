@@ -14,11 +14,11 @@
     <PackageReference Include="Discord.Net" Version="2.3.1" />
     <PackageReference Include="LettuceEncrypt" Version="1.0.1" />
     <PackageReference Include="Markdig" Version="0.24.0" />
-    <PackageReference Include="SendGrid" Version="9.22.0" />
+    <PackageReference Include="SendGrid" Version="9.23.0" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="1.0.3" />
     <PackageReference Include="TwitchLib" Version="3.2.0" />
-    <PackageReference Include="YoutubeExplode" Version="5.1.9" />
+    <PackageReference Include="YoutubeExplode" Version="6.0.0" />
   </ItemGroup>
 
 </Project>
