@@ -105,7 +105,7 @@ namespace MihuBot
         {
             try
             {
-                var channel = _discord.GetTextChannel(Channels.DDsBotleeng);
+                var channel = _discord.GetTextChannel(Channels.DDsPancake);
                 if (channel is null)
                     return;
 
@@ -176,7 +176,7 @@ namespace MihuBot
 
         private Task OnMessageAsync(SocketMessage message)
         {
-            if (message.Author.Id == 239631525350604801ul && message.Channel.Id == Channels.DDsBotleeng)
+            if (message.Author.Id == 239631525350604801ul && message.Channel.Id == Channels.DDsPancake)
             {
                 _expectedMessageTcs?.TrySetResult(message);
             }
