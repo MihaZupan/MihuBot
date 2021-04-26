@@ -20,6 +20,7 @@ namespace MihuBot.Data
         }
 
         [HttpPost]
+        [RequestSizeLimit(256 * 1024 * 1024)]
         public async Task<IActionResult> Deployed([FromQuery] uint runNumber)
         {
             _logger.DebugLog($"Received a deployment request {runNumber}");
@@ -27,14 +28,15 @@ namespace MihuBot.Data
             if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
             {
                 _logger.DebugLog($"No X-Update-Token header received");
-                return Ok();
+                return Unauthorized();
             }
 
-            if (CheckToken(_updateToken, updateToken))
+            if (!CheckToken(_updateToken, updateToken))
             {
-                await RunUpdateAsync(runNumber);
+                return Unauthorized();
             }
 
+            await RunUpdateAsync(runNumber);
             return Ok();
         }
 
