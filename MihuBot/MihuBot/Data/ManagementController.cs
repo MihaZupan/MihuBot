@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Threading.Tasks;
 
 namespace MihuBot.Data
@@ -15,22 +16,23 @@ namespace MihuBot.Data
         public ManagementController(Logger logger, IConfiguration configuration)
         {
             _logger = logger;
-            _updateToken = configuration["UPDATE_TOKEN"];
+            _updateToken = configuration["UPDATE-TOKEN"];
         }
 
         [HttpGet]
-        public IActionResult Deployed([FromQuery] uint runNumber, [FromQuery] string token)
+        public async Task<IActionResult> Deployed([FromQuery] uint runNumber)
         {
             _logger.DebugLog($"Received a deployment request {runNumber}");
 
-            if (_updateToken is null)
+            if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
             {
-                _logger.DebugLog($"{nameof(_updateToken)} is null");
+                _logger.DebugLog($"No X-Update-Token header received");
+                return Ok();
             }
 
-            if (_updateToken is null || CheckToken(_updateToken, token))
+            if (CheckToken(_updateToken, updateToken))
             {
-                Task.Run(async () => await RunUpdateAsync(runNumber));
+                await RunUpdateAsync(runNumber);
             }
 
             return Ok();
@@ -42,52 +44,22 @@ namespace MihuBot.Data
             {
                 string currentDir = Environment.CurrentDirectory;
                 string nextUpdateDir = $"{currentDir}/next_update";
-                string updatesDir = $"{currentDir}/updates";
-                string currentUpdateDir = $"{updatesDir}/{runNumber}";
-
                 Directory.CreateDirectory(nextUpdateDir);
-
-                if (!Directory.Exists(currentUpdateDir))
-                {
-                    throw new Exception($"{currentUpdateDir} does not exist");
-                }
-
-                if (Directory.GetFiles(currentUpdateDir).Length == 0)
-                {
-                    throw new Exception($"{currentUpdateDir} is empty");
-                }
 
                 if (Directory.GetFiles(nextUpdateDir).Length != 0)
                 {
-                    throw new Exception($"{nextUpdateDir} is not empty");
+                    await _logger.DebugAsync($"{nextUpdateDir} is not empty");
+                    Directory.Delete(nextUpdateDir, true);
                 }
 
-                Task loggerTask = _logger.DebugAsync($"Received a deployment notification for run {runNumber}");
+                _logger.DebugLog($"Received a deployment notification for run {runNumber}");
 
-                foreach (string path in Directory.EnumerateFiles(currentUpdateDir, "*", SearchOption.AllDirectories))
+                using var archive = new ZipArchive(Request.Body, ZipArchiveMode.Read, true);
+                foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    string newPath = string.Concat(nextUpdateDir, path.AsSpan(currentUpdateDir.Length));
-                    Directory.CreateDirectory(Path.GetDirectoryName(newPath));
-                    System.IO.File.Move(path, newPath);
+                    _logger.DebugLog($"Extracting {entry.Name} for {runNumber}");
+                    entry.ExtractToFile(Path.Combine(nextUpdateDir, entry.Name));
                 }
-
-                const int Retries = 5;
-                for (int i = 1; i <= Retries; i++)
-                {
-                    try
-                    {
-                        Directory.Delete(currentUpdateDir, recursive: true);
-                        break;
-                    }
-                    catch (IOException ioex) when (i != Retries)
-                    {
-                        int retryAfter = 50 * (int)Math.Pow(2, i);
-                        _logger.DebugLog($"'{ioex.Message}' when trying to delete {currentUpdateDir}. Retrying in {retryAfter} ms");
-                        await Task.Delay(retryAfter);
-                    }
-                }
-
-                await loggerTask;
 
                 Program.BotStopTCS.TrySetResult();
             }
