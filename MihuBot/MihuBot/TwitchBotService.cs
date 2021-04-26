@@ -40,7 +40,8 @@ namespace MihuBot
             {
                 if (e.Channel.Equals(ChannelName, StringComparison.OrdinalIgnoreCase))
                 {
-                    _client.SendMessage(e.Channel, "Beep boop darlBoop");
+                    _logger.DebugLog($"Joined TwitchChannel {e.Channel}");
+                    //_client.SendMessage(e.Channel, "Beep boop darlBoop");
                 }
             };
 
