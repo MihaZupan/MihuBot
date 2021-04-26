@@ -37,5 +37,5 @@ jobs:
       uses: actions/upload-artifact@v2
       if: failure()
       with:
-        name: publish-${{ github.run_number }}.zip
+        name: publish-${{ github.run_number }}
         path: artifacts.zip

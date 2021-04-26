@@ -57,8 +57,19 @@ namespace MihuBot.Data
                 using var archive = new ZipArchive(Request.Body, ZipArchiveMode.Read, true);
                 foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    _logger.DebugLog($"Extracting {entry.Name} for {runNumber}");
-                    entry.ExtractToFile(Path.Combine(nextUpdateDir, entry.Name));
+                    const string Prefix = "artifacts/";
+
+                    if (!entry.FullName.StartsWith(Prefix))
+                    {
+                        await _logger.DebugAsync($"{entry.FullName} does not have a valid prefix");
+                        return;
+                    }
+
+                    string path = entry.FullName.Substring(Prefix.Length);
+                    string destinationPath = Path.GetFullPath(Path.Combine(nextUpdateDir, path));
+
+                    _logger.DebugLog($"Extracting {path} for {runNumber} to {destinationPath}");
+                    entry.ExtractToFile(Path.Combine(nextUpdateDir, destinationPath));
                 }
 
                 Program.BotStopTCS.TrySetResult();
