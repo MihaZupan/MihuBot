@@ -19,7 +19,7 @@ namespace MihuBot.Data
             _updateToken = configuration["UPDATE-TOKEN"];
         }
 
-        [HttpGet]
+        [HttpPost]
         public async Task<IActionResult> Deployed([FromQuery] uint runNumber)
         {
             _logger.DebugLog($"Received a deployment request {runNumber}");
