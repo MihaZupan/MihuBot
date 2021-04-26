@@ -40,6 +40,7 @@ namespace MihuBot.Data
 
         private async Task RunUpdateAsync(uint runNumber)
         {
+            string tempFilePath = Path.Combine(Path.GetTempPath(), $"{runNumber}.zip");
             try
             {
                 string currentDir = Environment.CurrentDirectory;
@@ -54,7 +55,13 @@ namespace MihuBot.Data
 
                 _logger.DebugLog($"Received a deployment notification for run {runNumber}");
 
-                using var archive = new ZipArchive(Request.Body, ZipArchiveMode.Read, true);
+                using (var tempFs = System.IO.File.OpenWrite(tempFilePath))
+                {
+                    await Request.Body.CopyToAsync(tempFs);
+                }
+
+                using var archiveFs = System.IO.File.OpenRead(tempFilePath);
+                using var archive = new ZipArchive(archiveFs, ZipArchiveMode.Read, true);
                 foreach (ZipArchiveEntry entry in archive.Entries)
                 {
                     const string Prefix = "artifacts/";
@@ -81,6 +88,10 @@ namespace MihuBot.Data
                     await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
                 }
                 catch { }
+            }
+            finally
+            {
+                System.IO.File.Delete(tempFilePath);
             }
         }
 
