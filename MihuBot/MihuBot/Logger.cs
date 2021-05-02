@@ -158,6 +158,11 @@ namespace MihuBot
                         _ => AccessTier.Archive
                     };
 
+                    if (accessTier == AccessTier.Archive && Message?.Guild()?.Id == Guilds.DDs)
+                    {
+                        accessTier = AccessTier.Cool;
+                    }
+
                     string blobName = FilePath
                         .Substring(Options.LogsRoot.Length)
                         .Replace('/', '_')

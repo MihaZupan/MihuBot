@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
-using System.IO.Compression;
 using System.Threading.Tasks;
 
 namespace MihuBot.Data
@@ -46,7 +45,6 @@ namespace MihuBot.Data
 
         private async Task RunUpdateAsync(uint runNumber)
         {
-            string tempFilePath = Path.Combine(Path.GetTempPath(), $"{runNumber}.zip");
             try
             {
                 string currentDir = Environment.CurrentDirectory;
@@ -61,28 +59,9 @@ namespace MihuBot.Data
 
                 _logger.DebugLog($"Received a deployment notification for run {runNumber}");
 
-                using (var tempFs = System.IO.File.OpenWrite(tempFilePath))
+                using (var tempFs = System.IO.File.OpenWrite(Path.Combine(nextUpdateDir, "artifacts.tar.gz")))
                 {
                     await Request.Body.CopyToAsync(tempFs);
-                }
-
-                using var archiveFs = System.IO.File.OpenRead(tempFilePath);
-                using var archive = new ZipArchive(archiveFs, ZipArchiveMode.Read, true);
-                foreach (ZipArchiveEntry entry in archive.Entries)
-                {
-                    const string Prefix = "artifacts/";
-
-                    if (!entry.FullName.StartsWith(Prefix))
-                    {
-                        await _logger.DebugAsync($"{entry.FullName} does not have a valid prefix");
-                        return;
-                    }
-
-                    string path = entry.FullName.Substring(Prefix.Length);
-                    string destinationPath = Path.GetFullPath(Path.Combine(nextUpdateDir, path));
-
-                    _logger.DebugLog($"Extracting {path} for {runNumber} to {destinationPath}");
-                    entry.ExtractToFile(Path.Combine(nextUpdateDir, destinationPath));
                 }
 
                 Program.BotStopTCS.TrySetResult();
@@ -94,10 +73,6 @@ namespace MihuBot.Data
                     await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
                 }
                 catch { }
-            }
-            finally
-            {
-                System.IO.File.Delete(tempFilePath);
             }
         }
 

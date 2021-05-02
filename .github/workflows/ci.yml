@@ -27,15 +27,15 @@ jobs:
     - name: Dotnet publish
       run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts
 
-    - name: Zip artifacts
-      run: zip -r artifacts.zip artifacts
+    - name: Compress artifacts
+      run: tar -cvzf artifacts.tar.gz artifacts
 
     - name: Upload to VM
-      run: "curl -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.zip \"https://${{ secrets.HOST }}/Management/Deployed\""
+      run: "curl -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.tar.gz \"https://${{ secrets.HOST }}/Management/Deployed\""
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       if: failure()
       with:
         name: publish-${{ github.run_number }}
-        path: artifacts.zip
+        path: artifacts.tar.gz
