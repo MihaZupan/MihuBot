@@ -21,7 +21,6 @@ namespace MihuBot
         private readonly SynchronizedLocalJsonStore<Dictionary<string, string>> _triviaAnswers = new("TriviaAnswers.json");
         private Timer _workTimer;
 
-        private int _counter;
         private TaskCompletionSource<SocketMessage> _expectedMessageTcs;
 
         public PancakeFactory(InitializedDiscordClient discord, HttpClient httpClient)
@@ -94,7 +93,7 @@ namespace MihuBot
             await UpdateTriviaAnswersAsync(cancellationToken);
             await _discord.EnsureInitializedAsync();
             _discord.MessageReceived += OnMessageAsync;
-            _workTimer = new Timer(_ => Task.Run(OnWorkTimerAsync), null, TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
+            _workTimer = new Timer(_ => Task.Run(OnWorkTimerAsync), null, TimeSpan.FromMinutes(10), Timeout.InfiniteTimeSpan);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
@@ -113,15 +112,7 @@ namespace MihuBot
                 if (!channel.GetUser(_discord.CurrentUser.Id).GetPermissions(channel).SendMessages)
                     return;
 
-                _counter++;
-
-                _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                await channel.SendMessageAsync("p!work");
-                await Task.WhenAny(_expectedMessageTcs.Task, Task.Delay(5000));
-                _expectedMessageTcs = null;
-
-                if (_counter % 2 == 0 && _triviaAnswers.DangerousGetValue().Count != 0)
+                if (_triviaAnswers.DangerousGetValue().Count != 0)
                 {
                     // Trivia
                     _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -141,7 +132,8 @@ namespace MihuBot
 
                         if (_triviaAnswers.DangerousGetValue().TryGetValue(question, out string answer))
                         {
-                            var answerOption = answers.FirstOrDefault(a => a.Contains(answer));
+                            var possibleAnswers = answers.Where(a => a.Contains(answer)).ToArray();
+                            string answerOption = possibleAnswers.FirstOrDefault(a => a.EndsWith(answer)) ?? possibleAnswers.FirstOrDefault();
                             if (answerOption is not null && answerOption[1].IsDigit())
                             {
                                 int answerNumber = answerOption[1] - '0';
@@ -151,21 +143,18 @@ namespace MihuBot
                                 await channel.SendMessageAsync($"{answerNumber}");
                                 await Task.WhenAny(_expectedMessageTcs.Task, Task.Delay(5000));
                                 _expectedMessageTcs = null;
+
+                                _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                                await channel.SendMessageAsync("p!deposit all");
+                                await Task.WhenAny(_expectedMessageTcs.Task, Task.Delay(5000));
+                                _expectedMessageTcs = null;
                             }
                         }
                     }
                 }
 
-                if (_counter % 2 == 0)
-                {
-                    _expectedMessageTcs = new TaskCompletionSource<SocketMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                    await channel.SendMessageAsync("p!deposit all");
-                    await Task.WhenAny(_expectedMessageTcs.Task, Task.Delay(5000));
-                    _expectedMessageTcs = null;
-                }
-
-                _workTimer.Change(TimeSpan.FromSeconds(303), Timeout.InfiniteTimeSpan);
+                _workTimer.Change(TimeSpan.FromSeconds(603), Timeout.InfiniteTimeSpan);
             }
             catch (Exception ex)
             {
