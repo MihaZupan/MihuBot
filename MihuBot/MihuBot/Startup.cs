@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
 using MihuBot.Helpers;
@@ -75,7 +76,7 @@ namespace MihuBot
 
             services.AddSingleton<Logger>();
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || true)
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
                 var privateDiscordClient = new InitializedDiscordClient(
                     discordConfig,
@@ -102,6 +103,7 @@ namespace MihuBot
                         }
                     },
                     Configuration);
+
                 services.AddSingleton(customLogger);
                 services.AddHostedService(_ => customLogger);
 
@@ -121,6 +123,8 @@ namespace MihuBot
             services.AddSingleton<IHusbandoService, HusbandoService>();
 
             services.AddSingleton<IWeatherService, WeatherService>();
+
+            services.AddSingleton<AudioService>();
 
             services.AddHostedService<MihuBotService>();
 

@@ -1,8 +1,10 @@
 ﻿using Discord.WebSocket;
+using MihuBot.Audio;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +14,7 @@ using YoutubeExplode.Videos.Streams;
 
 namespace MihuBot.Helpers
 {
-    static class YoutubeHelper
+    internal static class YoutubeHelper
     {
         public static bool TryParsePlaylistId(string playlistUrl, out string playlistId)
         {
@@ -108,6 +110,12 @@ namespace MihuBot.Helpers
 
 
         public static readonly YoutubeClient Youtube = new();
+        public static readonly StreamClient Streams = Youtube.Videos.Streams;
+
+        public static async Task<List<PlaylistVideo>> GetVideosAsync(string playlistId)
+        {
+            return await Youtube.Playlists.GetVideosAsync(playlistId).ToListAsync();
+        }
 
         public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus)
         {
@@ -120,20 +128,18 @@ namespace MihuBot.Helpers
                     return;
                 }
 
-                Console.WriteLine("Processing " + video.Title);
-
-                var bestAudio = GetBestAudio(await Youtube.Videos.Streams.GetManifestAsync(id), out string extension);
+                var bestAudio = GetBestAudio(await Streams.GetManifestAsync(id), out string extension);
 
                 string filePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + extension);
 
-                await Youtube.Videos.Streams.DownloadAsync(bestAudio, filePath);
+                await Streams.DownloadAsync(bestAudio, filePath);
 
                 string outputExtension = useOpus ? ".opus" : ".mp3";
                 string outFilePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + outputExtension);
 
                 try
                 {
-                    ConvertToOutput(filePath, outFilePath);
+                    await ConvertToAudioOutputAsync(filePath, outFilePath, bitrate: 128);
                     using FileStream fs = File.OpenRead(outFilePath);
                     await channel.SendFileAsync(fs, GetFileName(video.Title, outputExtension));
                 }
@@ -153,11 +159,7 @@ namespace MihuBot.Helpers
         {
             try
             {
-                List<PlaylistVideo> videos = new();
-                await foreach (var video in Youtube.Playlists.GetVideosAsync(id))
-                {
-                    videos.Add(video);
-                }
+                List<PlaylistVideo> videos = await GetVideosAsync(id);
 
                 Console.WriteLine("Processing playlist with " + videos.Count + " items");
 
@@ -185,13 +187,30 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static void ConvertToOutput(string sourcePath, string targetPath)
+        public static async Task ConvertToAudioOutputAsync(string sourcePath, string targetPath, int bitrate, CancellationToken cancellationToken = default)
         {
-            using Process ffmpeg = new Process();
-            ffmpeg.StartInfo.FileName = @"ffmpeg";
-            ffmpeg.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a 128k -vn \"{targetPath}\"";
-            ffmpeg.Start();
-            ffmpeg.WaitForExit();
+            using Process ffmpeg = new()
+            {
+                StartInfo = new ProcessStartInfo("ffmpeg")
+                {
+                    Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a {bitrate}k -vn \"{targetPath}\"",
+                    UseShellExecute = false
+                }
+            };
+
+            try
+            {
+                ffmpeg.Start();
+                await ffmpeg.WaitForExitAsync(cancellationToken);
+            }
+            catch
+            {
+                try
+                {
+                    ffmpeg.Kill();
+                }
+                catch { }
+            }
         }
 
         public static string GetFileName(string title, string extension)
