@@ -30,7 +30,7 @@ namespace MihuBot.NonCommandHandlers
                 CharHelper.TryParseHex(content[1], content[2], out int r) &&
                 CharHelper.TryParseHex(content[3], content[4], out int g) &&
                 CharHelper.TryParseHex(content[5], content[6], out int b) &&
-                (ctx.Guild.GetUser(ctx.Discord.CurrentUser.Id)?.GuildPermissions.ManageRoles ?? false))
+                ctx.GuildPermissions.ManageRoles)
             {
                 return HandleAsyncCore(new Color(r, g, b));
             }

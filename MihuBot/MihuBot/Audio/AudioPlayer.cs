@@ -35,7 +35,7 @@ namespace MihuBot.Audio
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            ChannelPermissions permissions = ctx.BotUser.GetPermissions(ctx.Channel);
+            ChannelPermissions permissions = ctx.ChannelPermissions;
 
             _audioService.TryGetAudioPlayer(ctx.Guild.Id, out AudioPlayer audioPlayer);
 

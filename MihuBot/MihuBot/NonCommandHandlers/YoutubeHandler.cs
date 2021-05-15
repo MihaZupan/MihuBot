@@ -9,7 +9,7 @@ namespace MihuBot.NonCommandHandlers
     {
         public override Task HandleAsync(MessageContext ctx)
         {
-            if (ctx.IsMentioned && ctx.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase))
+            if (ctx.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase) && ctx.IsMentioned)
             {
                 bool useOpus = ctx.Content.EndsWith(" opus", StringComparison.OrdinalIgnoreCase);
 

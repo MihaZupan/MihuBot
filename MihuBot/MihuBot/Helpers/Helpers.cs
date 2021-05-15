@@ -114,19 +114,6 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static IEnumerable<TSource> Unique<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)
-        {
-            var hashSet = new HashSet<TKey>();
-
-            foreach (TSource element in source)
-            {
-                if (hashSet.Add(keySelector(element)))
-                {
-                    yield return element;
-                }
-            }
-        }
-
         public static IEnumerable<TElement> UniqueBy<TElement, TBy>(this IEnumerable<TElement> source, Func<TElement, TBy> selector)
         {
             var hashSet = new HashSet<TBy>();
@@ -138,11 +125,6 @@ namespace MihuBot.Helpers
                     yield return element;
                 }
             }
-        }
-
-        public static async Task ReplyAsync(this SocketMessage message, string text, bool mention = false)
-        {
-            await message.Channel.SendMessageAsync(mention ? string.Concat(MentionUtils.MentionUser(message.Author.Id), " ", text) : text);
         }
 
         public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)

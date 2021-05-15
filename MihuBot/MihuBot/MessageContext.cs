@@ -3,7 +3,6 @@ using Discord.Rest;
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -18,7 +17,27 @@ namespace MihuBot
         public readonly SocketUserMessage Message;
         public readonly string Content;
 
-        public bool IsMentioned => Message.MentionedUsers.Any(KnownUsers.MihuBot) || Message.MentionedRoles.Any(r => r.Name == "MihuBot");
+        public bool IsMentioned
+        {
+            get
+            {
+                if (Message.MentionedUsers.Any(BotId))
+                {
+                    return true;
+                }
+
+                string name = BotUser.Username;
+                foreach (SocketRole role in Message.MentionedRoles)
+                {
+                    if (role.Name == name)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
 
         public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
         {
@@ -34,16 +53,19 @@ namespace MihuBot
         public bool IsFromAdmin => Constants.Admins.Contains(AuthorId);
 
         public SocketGuildUser Author => (SocketGuildUser)Message.Author;
-        public ulong AuthorId => Author.Id;
+        public ulong AuthorId => Message.Author.Id;
 
-        public SocketGuildUser BotUser => Guild.GetUser(Discord.CurrentUser.Id);
+        public ulong BotId => Discord.CurrentUser.Id;
+        public SocketGuildUser BotUser => Guild.GetUser(BotId);
+        public GuildPermissions GuildPermissions => BotUser.GuildPermissions;
+        public ChannelPermissions ChannelPermissions => BotUser.GetPermissions(Channel);
 
         public async Task<RestUserMessage> ReplyAsync(string text, bool mention = false, bool suppressMentions = false)
         {
             if (mention)
                 text = MentionUtils.MentionUser(AuthorId) + " " + text;
 
-            if (!BotUser.GetPermissions(Channel).SendMessages)
+            if (!ChannelPermissions.SendMessages)
             {
                 throw new Exception($"Missing permissions to send `{text}` in {Channel.Name}.");
             }

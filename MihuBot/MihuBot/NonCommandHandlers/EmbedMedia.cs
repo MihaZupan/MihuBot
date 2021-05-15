@@ -33,7 +33,7 @@ namespace MihuBot.NonCommandHandlers
         {
             if (ctx.Content.Equals("embed", StringComparison.OrdinalIgnoreCase) &&
                 TryEnter(ctx) &&
-                ctx.BotUser.GetPermissions(ctx.Channel).AttachFiles)
+                ctx.ChannelPermissions.AttachFiles)
             {
                 return HandleAsyncCore();
             }

@@ -37,7 +37,7 @@ namespace MihuBot.Commands
             }
 
             var guild = ctx.Discord.GetGuild(guildId);
-            if (guild is null || !ctx.BotUser.GuildPermissions.ManageEmojis)
+            if (guild is null || !ctx.GuildPermissions.ManageEmojis)
             {
                 await ctx.ReplyAsync("I don't have the permissions to do that");
                 return;
