@@ -127,6 +127,50 @@ namespace MihuBot.Helpers
             }
         }
 
+        public static bool OverwritesEqual(this IReadOnlyCollection<Overwrite> left, IReadOnlyCollection<Overwrite> right)
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+
+            if (left.Count != right.Count)
+            {
+                return false;
+            }
+
+            using IEnumerator<Overwrite> e1 = left.GetEnumerator();
+            using IEnumerator<Overwrite> e2 = right.GetEnumerator();
+
+            while (e1.MoveNext())
+            {
+                if (!e2.MoveNext())
+                {
+                    return false;
+                }
+
+                if (!e1.Current.OverwriteEquals(e2.Current))
+                {
+                    return false;
+                }
+            }
+
+            return !e2.MoveNext();
+        }
+
+        public static bool OverwriteEquals(this Overwrite left, Overwrite right)
+        {
+            return left.TargetId == right.TargetId &&
+                left.TargetType == right.TargetType &&
+                left.Permissions.AllowValue == right.Permissions.AllowValue &&
+                left.Permissions.DenyValue == right.Permissions.DenyValue;
+        }
+
+        public static string GetJumpUrl(this SocketGuildChannel channel)
+        {
+            return $"https://discord.com/channels/{channel.Guild.Id}/{channel.Id}";
+        }
+
         public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)
         {
             byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));

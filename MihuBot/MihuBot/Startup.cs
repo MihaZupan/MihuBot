@@ -87,7 +87,7 @@ namespace MihuBot
                     new LoggerOptions(
                         privateDiscordClient,
                         $"{Constants.StateDirectory}/pvt_logs", "Private_",
-                        806048964021190656ul,
+                        Channels.Debug,
                         806049221631410186ul,
                         Channels.Files)
                     {

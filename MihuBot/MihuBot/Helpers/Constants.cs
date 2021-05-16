@@ -58,7 +58,7 @@ namespace MihuBot.Helpers
         public const ulong DDsIntroductions = 374585088404488202ul;
         public const ulong DDsPancake       = 836483780965302292ul;
 
-        public const ulong Debug            = 719903263297896538ul;
+        public const ulong Debug            = 806048964021190656ul;
         public const ulong LogText          = 750706839431413870ul;
         public const ulong Files            = 774147493319540736ul;
 
@@ -153,6 +153,7 @@ namespace MihuBot.Helpers
         };
 
         public static IEmote ThumbsUp { get; }      = new Emoji("👍");
+        public static IEmote Checkmark { get; }     = new Emoji("✅");
         public static IEmote RedCross { get; }      = new Emoji("❌");
         public static IEmote QuestionMark { get; }  = new Emoji("❓");
     }
