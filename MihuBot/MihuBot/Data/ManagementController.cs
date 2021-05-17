@@ -50,16 +50,13 @@ namespace MihuBot.Data
                 string currentDir = Environment.CurrentDirectory;
                 string nextUpdateDir = $"{currentDir}/next_update";
                 Directory.CreateDirectory(nextUpdateDir);
+                string artifactsPath = Path.Combine(nextUpdateDir, "artifacts.tar.gz");
 
-                if (Directory.GetFiles(nextUpdateDir).Length != 0)
-                {
-                    await _logger.DebugAsync($"{nextUpdateDir} is not empty");
-                    Directory.Delete(nextUpdateDir, true);
-                }
+                System.IO.File.Delete(artifactsPath);
 
                 _logger.DebugLog($"Received a deployment notification for run {runNumber}");
 
-                using (var tempFs = System.IO.File.OpenWrite(Path.Combine(nextUpdateDir, "artifacts.tar.gz")))
+                using (var tempFs = System.IO.File.OpenWrite(artifactsPath))
                 {
                     await Request.Body.CopyToAsync(tempFs);
                 }
