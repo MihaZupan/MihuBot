@@ -44,6 +44,28 @@ namespace MihuBot
                     //_client.SendMessage(e.Channel, "Beep boop darlBoop");
                 }
             };
+            _client.OnDisconnected += (s, e) =>
+            {
+                Task.Run(async () =>
+                {
+                    Exception lastEx = null;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        try
+                        {
+                            _client.Connect();
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            lastEx = ex;
+                            await Task.Delay(TimeSpan.FromMilliseconds(500 * Math.Pow(2, i)));
+                        }
+                    }
+
+                    await _logger.DebugAsync($"Failed to reconnect: {lastEx}");
+                });
+            };
 
             _client.OnSendReceiveData += (s, e) => _logger.DebugLog($"{e.Direction} {e.Data}");
         }
@@ -115,6 +137,7 @@ namespace MihuBot
         public Task StopAsync(CancellationToken cancellationToken)
         {
             _client.Disconnect();
+            _messageChannel.Writer.TryComplete();
             return Task.CompletedTask;
         }
     }
