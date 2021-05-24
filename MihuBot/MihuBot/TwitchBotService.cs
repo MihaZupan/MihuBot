@@ -97,10 +97,11 @@ namespace MihuBot
                         }
                         else if (text.Contains("stinky", StringComparison.OrdinalIgnoreCase))
                         {
+                            text = text.Trim();
+
                             if (text.Equals("stinky", StringComparison.OrdinalIgnoreCase) ||
-                                text.Contains(" stinky ", StringComparison.OrdinalIgnoreCase) ||
-                                text.Equals(" stinky", StringComparison.OrdinalIgnoreCase) ||
-                                text.Equals("stinky ", StringComparison.OrdinalIgnoreCase))
+                                text.Contains(" stinky", StringComparison.OrdinalIgnoreCase) ||
+                                text.Contains("stinky ", StringComparison.OrdinalIgnoreCase))
                             {
                                 _client.SendMessage(message.Channel, "@Goldenqt");
                             }
