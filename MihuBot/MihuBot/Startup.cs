@@ -106,8 +106,6 @@ namespace MihuBot
 
                 services.AddSingleton(customLogger);
                 services.AddHostedService(_ => customLogger);
-
-                services.AddHostedService(_ => new PancakeFactory(privateDiscordClient, httpClient));
             }
 
             services.AddSingleton<StreamerSongListClient>();
