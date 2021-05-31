@@ -9,9 +9,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            string os = $"{RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})";
-            string rid = RuntimeInformation.RuntimeIdentifier;
-            await ctx.ReplyAsync($"`{RuntimeInformation.FrameworkDescription} on {os} - {rid}`");
+            await ctx.ReplyAsync($"`{RuntimeInformation.FrameworkDescription} on {RuntimeInformation.RuntimeIdentifier}`");
         }
     }
 }
