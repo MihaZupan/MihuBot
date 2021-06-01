@@ -30,7 +30,7 @@ namespace MihuBot.Commands
             init: d => new Dictionary<string, string>(d, StringComparer.OrdinalIgnoreCase));
         private readonly object _lock = new();
         private readonly List<ITwitchPubSub> _pubSubs = new();
-        private readonly Dictionary<string, Process> _processes = new();
+        private readonly Dictionary<string, Process> _processes = new(StringComparer.OrdinalIgnoreCase);
         private readonly Logger _logger;
         private readonly ITwitchAPI _twitchApi;
         private readonly BlobContainerClient _blobContainerClient;
@@ -198,6 +198,32 @@ namespace MihuBot.Commands
             pubSub.ListenToVideoPlayback(id);
 
             pubSub.Connect();
+
+            Task.Run(async () =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        bool alreadyArchiving;
+                        lock (_lock)
+                        {
+                            alreadyArchiving = _processes.ContainsKey(name);
+                        }
+
+                        if (!alreadyArchiving && await TryGetStreamAsync(id) is not null)
+                        {
+                            OnStreamUp(name, id);
+                        }
+                    }
+                    catch
+                    {
+                        await Task.Delay(TimeSpan.FromMinutes(10));
+                    }
+
+                    await Task.Delay(TimeSpan.FromMinutes(5));
+                }
+            });
         }
 
         public override async Task InitAsync()
