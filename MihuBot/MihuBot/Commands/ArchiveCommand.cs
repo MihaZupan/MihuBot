@@ -99,6 +99,12 @@ namespace MihuBot.Commands
             _logger.DebugLog($"{nameof(ArchiveCommand)}: {e.Data}");
         }
 
+        private async Task<Stream> TryGetStreamAsync(string id)
+        {
+            GetStreamsResponse response = await _twitchApi.Helix.Streams.GetStreamsAsync(userIds: new List<string> { id });
+            return response.Streams.FirstOrDefault();
+        }
+
         private void OnStreamUp(string channel, string id)
         {
             lock (_lock)
@@ -118,9 +124,7 @@ namespace MihuBot.Commands
                     DateTime start = DateTime.UtcNow;
                     while (start.AddMinutes(1) < DateTime.UtcNow)
                     {
-                        GetStreamsResponse response = await _twitchApi.Helix.Streams.GetStreamsAsync(userIds: new List<string> { id });
-
-                        if (response.Streams.Any())
+                        if (await TryGetStreamAsync(id) is not null)
                         {
                             break;
                         }
@@ -128,39 +132,42 @@ namespace MihuBot.Commands
                         await Task.Delay(TimeSpan.FromSeconds(5));
                     }
 
-                    await Task.Delay(TimeSpan.FromSeconds(10));
-
-                    BlobClient blobClient = _blobContainerClient.GetBlobClient($"{channel}/{DateTime.UtcNow:yyyyMMddHHmmss}.mp4");
-
                     string url = $"https://twitch.tv/{channel}";
 
-                    using var process = new Process()
+                    while (await TryGetStreamAsync(id) is not null)
                     {
-                        StartInfo = new ProcessStartInfo("youtube-dl")
+                        await Task.Delay(TimeSpan.FromSeconds(10));
+
+                        BlobClient blobClient = _blobContainerClient.GetBlobClient($"{channel}/{DateTime.UtcNow:yyyyMMddHHmmss}.mp4");
+
+                        using var process = new Process()
                         {
-                            Arguments = $"{url} -o -",
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true
+                            StartInfo = new ProcessStartInfo("youtube-dl")
+                            {
+                                Arguments = $"{url} -o -",
+                                UseShellExecute = false,
+                                RedirectStandardOutput = true
+                            }
+                        };
+
+                        lock (_lock)
+                        {
+                            _processes[channel] = process;
                         }
-                    };
 
-                    lock (_lock)
-                    {
-                        _processes[channel] = process;
+                        process.Start();
+
+                        await _logger.DebugAsync($"Starting archival of <{url}>");
+
+                        await blobClient.UploadAsync(process.StandardOutput.BaseStream, new BlobUploadOptions
+                        {
+                            AccessTier = AccessTier.Hot
+                        });
+
+                        await process.WaitForExitAsync();
+
+                        await _logger.DebugAsync($"Finished archiving <{blobClient.Uri.AbsoluteUri}>");
                     }
-
-                    process.Start();
-
-                    await _logger.DebugAsync($"Starting archival of <{url}>");
-
-                    await blobClient.UploadAsync(process.StandardOutput.BaseStream, new BlobUploadOptions
-                    {
-                        AccessTier = AccessTier.Hot
-                    });
-
-                    await process.WaitForExitAsync();
-
-                    await _logger.DebugAsync($"Finished archiving <{blobClient.Uri.AbsoluteUri}>");
                 }
                 catch (Exception ex)
                 {
