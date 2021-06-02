@@ -133,10 +133,11 @@ namespace MihuBot.Commands
                     }
 
                     string url = $"https://twitch.tv/{channel}";
+                    int i = 0;
 
                     while (await TryGetStreamAsync(id) is not null)
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(10));
+                        await Task.Delay(TimeSpan.FromSeconds(++i * 10));
 
                         BlobClient blobClient = _blobContainerClient.GetBlobClient($"{channel}/{DateTime.UtcNow:yyyyMMddHHmmss}.mp4");
 
