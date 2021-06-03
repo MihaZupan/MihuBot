@@ -9,12 +9,8 @@ namespace MihuBot.Reminders
 {
     internal sealed class ReminderService : IReminderService
     {
-        private readonly BinaryHeap<ReminderEntry> _remindersHeap =
-            new BinaryHeap<ReminderEntry>(32);
-
-        private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders =
-            new SynchronizedLocalJsonStore<List<ReminderEntry>>("Reminders.json");
-
+        private readonly BinaryHeap<ReminderEntry> _remindersHeap = new(32);
+        private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders = new("Reminders.json");
         private readonly Logger _logger;
 
         public ReminderService(Logger logger)
@@ -40,7 +36,7 @@ namespace MihuBot.Reminders
                 .ToArray());
         }
 
-        public async ValueTask<IEnumerable<ReminderEntry>> GetPendingRemindersAsync()
+        public async ValueTask<ICollection<ReminderEntry>> GetPendingRemindersAsync()
         {
             var now = DateTime.UtcNow;
             List<ReminderEntry> entries = null;
@@ -62,8 +58,14 @@ namespace MihuBot.Reminders
                     List<ReminderEntry> reminders = await _reminders.EnterAsync();
                     try
                     {
-                        foreach (var entry in entries)
-                            reminders.Remove(entry);
+                        for (int i = 0; i < entries.Count; i++)
+                        {
+                            if (!reminders.Remove(entries[i]))
+                            {
+                                entries.RemoveAt(i);
+                                i--;
+                            }
+                        }
                     }
                     finally
                     {
@@ -78,7 +80,7 @@ namespace MihuBot.Reminders
                 _logger.DebugLog(ex.ToString());
             }
 
-            return entries ?? (IEnumerable<ReminderEntry>)Array.Empty<ReminderEntry>();
+            return entries ?? (ICollection<ReminderEntry>)Array.Empty<ReminderEntry>();
         }
 
         public async ValueTask ScheduleAsync(ReminderEntry entry)
@@ -100,7 +102,20 @@ namespace MihuBot.Reminders
             }
         }
 
+        public async ValueTask<int> RemoveRemindersAsync(ReadOnlyMemory<ulong> toRemove)
+        {
+            List<ReminderEntry> reminders = await _reminders.EnterAsync();
+            try
+            {
+                return reminders.RemoveAll(r => toRemove.Span.Contains(r.MessageId));
+            }
+            finally
+            {
+                _reminders.Exit();
+            }
+        }
+
         private void Log(string message, ReminderEntry entry) =>
-            _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
+            _logger.DebugLog(message, entry.GuildId, entry.ChannelId, entry.MessageId, entry.AuthorId);
     }
 }

@@ -4,6 +4,7 @@ using MihuBot.Helpers;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -16,8 +17,8 @@ namespace MihuBot.Commands
         public override string Command => "reminder";
         public override string[] Aliases => new[] { "remind", "reminders", "remindme" };
 
-        protected override TimeSpan Cooldown => TimeSpan.FromSeconds(30);
-        protected override int CooldownToleranceCount => 2;
+        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
+        protected override int CooldownToleranceCount => 10;
 
         private static readonly Regex _reminderRegex = new Regex(
             @"^remind(?:ers?|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
@@ -133,6 +134,7 @@ namespace MihuBot.Commands
         public override Task HandleAsync(MessageContext ctx)
         {
             if (!ctx.Content.Contains("remind", StringComparison.OrdinalIgnoreCase)
+                || ctx.Content.Length > 256
                 || !TryPeek(ctx)
                 || (ctx.Message.MentionsAny() && !_permissions.HasPermission(MentionPermission, ctx.AuthorId)))
             {
@@ -162,28 +164,7 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            Match match;
-            try
-            {
-                match = _reminderRegex.Match(ctx.Content[1..]);
-            }
-            catch (RegexMatchTimeoutException rmte)
-            {
-                TryEnter(ctx);
-                await ctx.ReplyAsync("Failed to process the reminder in time");
-                await ctx.DebugAsync(rmte);
-                return;
-            }
-
-            if (!match.Success
-                || (ctx.Message.MentionsAny() && !ctx.HasPermission(MentionPermission))
-                || !TryParseRemindTime(match.Groups[2].Value, out DateTime reminderTime))
-            {
-                await ctx.ReplyAsync("Usage: `!remind me to do stuff and things in some time`");
-                return;
-            }
-
-            await ScheduleReminderAsync(ctx, match.Groups[1].Value, reminderTime);
+            await ctx.ReplyAsync("Usage: `remind me to slap Joster in 2 minutes`");
         }
 
         private async Task ScheduleReminderAsync(MessageContext ctx, string message, DateTime time)
@@ -204,26 +185,47 @@ namespace MihuBot.Commands
         {
             try
             {
-                foreach (ReminderEntry entry in await _reminderService.GetPendingRemindersAsync())
+                ICollection<ReminderEntry> reminders = await _reminderService.GetPendingRemindersAsync();
+
+                if (reminders.Count > 0)
                 {
                     _ = Task.Run(async () =>
                     {
-                        try
+                        foreach (ReminderEntry entry in reminders)
                         {
-                            Log($"Running reminder {entry}", entry);
-                            var channel = _discord.GetTextChannel(entry.ChannelId);
+                            try
+                            {
+                                Log($"Running reminder {entry}", entry);
+                                var channel = _discord.GetTextChannel(entry.ChannelId);
 
-                            Match match = _reminderMentionRegex.Match(entry.Message);
+                                if (channel is null)
+                                {
+                                    Log($"Failed to find the channel for {entry}", entry);
+                                    continue;
+                                }
 
-                            string message = match.Success
-                                ? $"{match.Groups[1].Value} {match.Groups[2].Value}"
-                                : $"{MentionUtils.MentionUser(entry.AuthorId)} {entry.Message}";
+                                Match match = _reminderMentionRegex.Match(entry.Message);
 
-                            await channel.SendMessageAsync(message);
-                        }
-                        catch (Exception ex)
-                        {
-                            Log($"{entry} - {ex}", entry);
+                                string mention = match.Success ? match.Groups[1].Value : MentionUtils.MentionUser(entry.AuthorId);
+
+                                IMessage message = await channel.GetMessageAsync(entry.MessageId);
+
+                                if (message is not null)
+                                {
+                                    await channel.SendMessageAsync(
+                                        mention,
+                                        messageReference: new MessageReference(message.Id, entry.ChannelId, entry.GuildId));
+                                }
+                                else
+                                {
+                                    string reminderMessage = match.Success ? match.Groups[2].Value : entry.Message;
+                                    await channel.SendMessageAsync($"{mention} {reminderMessage}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"{entry} - {ex}", entry);
+                            }
                         }
                     });
                 }

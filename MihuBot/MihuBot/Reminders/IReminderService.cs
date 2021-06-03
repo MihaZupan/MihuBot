@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace MihuBot.Reminders
@@ -9,8 +10,10 @@ namespace MihuBot.Reminders
 
         ValueTask<IEnumerable<ReminderEntry>> GetRemindersForUserAsync(ulong userId);
 
-        ValueTask<IEnumerable<ReminderEntry>> GetPendingRemindersAsync();
+        ValueTask<ICollection<ReminderEntry>> GetPendingRemindersAsync();
 
         ValueTask ScheduleAsync(ReminderEntry entry);
+
+        ValueTask<int> RemoveRemindersAsync(ReadOnlyMemory<ulong> reminders);
     }
 }

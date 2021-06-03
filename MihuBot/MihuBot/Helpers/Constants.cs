@@ -50,6 +50,7 @@ namespace MihuBot.Helpers
         public const ulong TheWaddle        = 509232675001991169ul;
         public const ulong TheFragmentary   = 489465972772831233ul;
         public const ulong RetirementHome   = 357322948501045259ul;
+        public const ulong DevBotOnlyTest   = 811117737866166312ul;
     }
 
     public static class Channels

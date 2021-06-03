@@ -9,6 +9,7 @@ namespace MihuBot.Reminders
         public string Message { get; set; }
         public ulong GuildId { get; set; }
         public ulong ChannelId { get; set; }
+        public ulong MessageId { get; set; }
         public ulong AuthorId { get; set; }
 
         // For serialization
@@ -20,6 +21,7 @@ namespace MihuBot.Reminders
             Message = message;
             GuildId = ctx.Guild.Id;
             ChannelId = ctx.Channel.Id;
+            MessageId = ctx.Message.Id;
             AuthorId = ctx.AuthorId;
         }
 

@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using TwitchLib.Api;
 using TwitchLib.Api.Core;
@@ -230,6 +231,11 @@ namespace MihuBot.Commands
         public override async Task InitAsync()
         {
             await Task.Yield();
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return;
+            }
 
             KeyValuePair<string, string>[] channels = await _channels.QueryAsync(c => c.ToArray());
             for (int i = 0; i < channels.Length; i++)
