@@ -49,7 +49,7 @@ namespace MihuBot
                 Task.Run(async () =>
                 {
                     Exception lastEx = null;
-                    for (int i = 0; i < 4; i++)
+                    for (int i = 0; i < 14; i++)
                     {
                         try
                         {
