@@ -187,6 +187,8 @@ namespace MihuBot.Commands
 
         private void StartListening(string name, string id)
         {
+            return;
+
             var pubSub = new TwitchPubSub();
             pubSub.OnLog += OnLog;
             pubSub.OnStreamUp += (_, _) => OnStreamUp(name, id);
