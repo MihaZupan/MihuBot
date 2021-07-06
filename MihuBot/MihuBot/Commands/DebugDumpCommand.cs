@@ -1,6 +1,6 @@
-﻿using Discord.WebSocket;
+﻿using Discord;
+using Discord.WebSocket;
 using MihuBot.Helpers;
-using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -34,7 +34,7 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                dump = SerializeChannel(channel);
+                dump = SerializeChannel(ctx.Discord, channel);
             }
             else
             {
@@ -44,33 +44,74 @@ namespace MihuBot.Commands
             await ctx.Channel.SendTextFileAsync($"{id}.txt", dump);
         }
 
-        private static string SerializeChannel(SocketChannel channel)
+        private static string SerializeChannel(DiscordSocketClient client, SocketChannel channel)
         {
             var sb = new StringBuilder();
 
-            IReadOnlyCollection<SocketGuildUser> users;
-
             if (channel is SocketTextChannel textChannel)
             {
-                sb.Append(textChannel.Name);
-                users = textChannel.Users;
+                sb.Append(channel.Id).AppendLine();
+                sb.AppendLine(textChannel.Name);
+                sb.AppendLine();
+
+                foreach (SocketUser user in textChannel.Users)
+                {
+                    sb.Append(user.Id.ToString().PadRight(21, ' ')).AppendLine(user.Username);
+                }
             }
             else if (channel is SocketVoiceChannel voiceChannel)
             {
-                sb.Append(voiceChannel.Name);
-                users = voiceChannel.Users;
+                sb.Append(channel.Id).AppendLine();
+                sb.AppendLine(voiceChannel.Name);
+                sb.AppendLine();
             }
             else
             {
                 return channel.GetType().FullName;
             }
 
-            sb.Append(" (").Append(channel.Id).AppendLine(")");
-            sb.AppendLine();
-
-            foreach (SocketUser user in users)
+            if (channel is not SocketGuildChannel guildChannel)
             {
-                sb.Append(user.Id.ToString().PadRight(21, ' ')).AppendLine(user.Username);
+                return sb.ToString();
+            }
+
+            SocketGuild guild = guildChannel.Guild;
+
+            foreach (Overwrite overwrite in guildChannel.PermissionOverwrites)
+            {
+                if (overwrite.TargetType == PermissionTarget.Role)
+                {
+                    sb.Append("Role ").Append(overwrite.TargetId);
+                    if (guild.GetRole(overwrite.TargetId) is SocketRole role)
+                    {
+                        sb.Append(" (").Append(role.Name).Append(')');
+                    }
+                }
+                else if (overwrite.TargetType == PermissionTarget.User)
+                {
+                    sb.Append("User ").Append(overwrite.TargetId);
+                    if (guild.GetUser(overwrite.TargetId) is SocketUser user)
+                    {
+                        sb.Append(" (").Append(user.Username).Append(')');
+                    }
+                }
+                sb.AppendLine();
+
+                sb.Append("Allow: ");
+                foreach (ChannelPermission allow in overwrite.Permissions.ToAllowList())
+                {
+                    sb.Append(allow).Append(' ');
+                }
+                sb.AppendLine();
+
+                sb.Append("Deny: ");
+                foreach (ChannelPermission deny in overwrite.Permissions.ToDenyList())
+                {
+                    sb.Append(deny).Append(' ');
+                }
+                sb.AppendLine();
+
+                sb.AppendLine();
             }
 
             return sb.ToString();
@@ -87,13 +128,13 @@ namespace MihuBot.Commands
 
             foreach (SocketTextChannel channel in guild.TextChannels)
             {
-                sb.Append("Text channel ").Append(channel.Name).Append(" (").Append(channel.Id).AppendLine(" )");
+                sb.Append("Text channel ").Append(channel.Id.ToString().PadRight(21, ' ')).AppendLine(channel.Name);
             }
             sb.AppendLine();
 
             foreach (SocketVoiceChannel channel in guild.VoiceChannels)
             {
-                sb.Append("Voice channel ").Append(channel.Name).Append(" (").Append(channel.Id).AppendLine(" )");
+                sb.Append("Voice channel ").Append(channel.Id.ToString().PadRight(21, ' ')).AppendLine(channel.Name);
             }
 
             return sb.ToString();
