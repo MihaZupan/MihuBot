@@ -22,7 +22,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            string dump;
+            var sb = new StringBuilder();
 
             SocketGuild guild = ctx.Discord.GetGuild(id);
             if (guild is null)
@@ -34,20 +34,44 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                dump = SerializeChannel(ctx.Discord, channel);
+                SerializeChannel(channel, sb);
+            }
+            else if (ctx.Arguments.Length >= 2 && ulong.TryParse(ctx.Arguments[1], out ulong secondId)
+                && guild.GetRole(secondId) is SocketRole role)
+            {
+                SerializeRole(role, sb);
             }
             else
             {
-                dump = SerializeGuild(guild);
+                SerializeGuild(guild, sb);
             }
 
-            await ctx.Channel.SendTextFileAsync($"{id}.txt", dump);
+            await ctx.Channel.SendTextFileAsync($"{id}.txt", sb.ToString());
         }
 
-        private static string SerializeChannel(DiscordSocketClient client, SocketChannel channel)
+        private static void SerializeRole(SocketRole role, StringBuilder sb)
         {
-            var sb = new StringBuilder();
+            sb.Append(role.Id).AppendLine();
+            sb.AppendLine(role.Name);
+            sb.AppendLine();
 
+            foreach (SocketUser member in role.Members)
+            {
+                sb.Append(member.Id.ToString().PadRight(21, ' ')).AppendLine(member.Username);
+            }
+
+            sb.AppendLine();
+
+            sb.AppendLine("Allow:");
+            foreach (ChannelPermission allow in role.Permissions.ToList())
+            {
+                sb.Append(allow).Append(' ');
+            }
+            sb.AppendLine();
+        }
+
+        private static void SerializeChannel(SocketChannel channel, StringBuilder sb)
+        {
             if (channel is SocketTextChannel textChannel)
             {
                 sb.Append(channel.Id).AppendLine();
@@ -67,15 +91,18 @@ namespace MihuBot.Commands
             }
             else
             {
-                return channel.GetType().FullName;
+                sb.AppendLine(channel.GetType().FullName);
+                return;
             }
 
             if (channel is not SocketGuildChannel guildChannel)
             {
-                return sb.ToString();
+                return;
             }
 
             SocketGuild guild = guildChannel.Guild;
+
+            sb.AppendLine();
 
             foreach (Overwrite overwrite in guildChannel.PermissionOverwrites)
             {
@@ -113,14 +140,10 @@ namespace MihuBot.Commands
 
                 sb.AppendLine();
             }
-
-            return sb.ToString();
         }
 
-        private static string SerializeGuild(SocketGuild guild)
+        private static void SerializeGuild(SocketGuild guild, StringBuilder sb)
         {
-            var sb = new StringBuilder();
-
             sb.Append(guild.Name).Append(" (").Append(guild.Id).AppendLine(")");
             sb.Append(guild.MemberCount).Append(" members");
             sb.AppendLine(guild.Description);
@@ -136,8 +159,6 @@ namespace MihuBot.Commands
             {
                 sb.Append("Voice channel ").Append(channel.Id.ToString().PadRight(21, ' ')).AppendLine(channel.Name);
             }
-
-            return sb.ToString();
         }
     }
 }
