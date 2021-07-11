@@ -3,7 +3,9 @@ using Discord.Rest;
 using Discord.WebSocket;
 using MihuBot.Helpers;
 using System;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace MihuBot
@@ -70,7 +72,17 @@ namespace MihuBot
                 throw new Exception($"Missing permissions to send `{text}` in {Channel.Name}.");
             }
 
-            return await Channel.SendMessageAsync(text, allowedMentions: suppressMentions ? AllowedMentions.None : null);
+            AllowedMentions mentions = suppressMentions ? AllowedMentions.None : null;
+            try
+            {
+                return await Channel.SendMessageAsync(text, allowedMentions: mentions);
+            }
+            catch (HttpRequestException hre) when (hre.InnerException is IOException)
+            {
+                await Task.Delay(100);
+
+                return await Channel.SendMessageAsync(text, allowedMentions: mentions);
+            }
         }
 
         public async Task WarnCooldownAsync(TimeSpan cooldown)
