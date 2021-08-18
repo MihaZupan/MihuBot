@@ -18,7 +18,7 @@ namespace MihuBot.Helpers
             KnownUsers.Darling,
         };
 
-        public const string VCDefaultVolume = "0.25";
+        public const string VCDefaultVolume = "0.26";
 
         public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
 
