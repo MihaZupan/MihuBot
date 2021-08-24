@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace MihuBot.Configuration
+﻿namespace MihuBot.Configuration
 {
     public interface IConfigurationService
     {

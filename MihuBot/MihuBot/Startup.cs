@@ -3,11 +3,6 @@ using Discord;
 using Discord.WebSocket;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
@@ -16,9 +11,7 @@ using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
-using System.IO;
 using System.Net;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 
 namespace MihuBot

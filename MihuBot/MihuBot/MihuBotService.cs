@@ -1,17 +1,10 @@
 ﻿using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
 using MihuBot.Permissions;
 using SharpCollections.Generic;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace MihuBot
 {
@@ -21,8 +14,8 @@ namespace MihuBot
         private readonly Logger _logger;
         private readonly IPermissionsService _permissions;
 
-        private readonly CompactPrefixTree<CommandBase> _commands = new CompactPrefixTree<CommandBase>(ignoreCase: true);
-        private readonly List<INonCommandHandler> _nonCommandHandlers = new List<INonCommandHandler>();
+        private readonly CompactPrefixTree<CommandBase> _commands = new(ignoreCase: true);
+        private readonly List<INonCommandHandler> _nonCommandHandlers = new();
 
         public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
         {

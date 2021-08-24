@@ -1,11 +1,6 @@
 ﻿using Discord.WebSocket;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
-using System;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 using TwitchLib.Client;
 using TwitchLib.Client.Models;
 

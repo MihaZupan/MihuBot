@@ -1,5 +1,4 @@
 ﻿using MihuBot.Helpers;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

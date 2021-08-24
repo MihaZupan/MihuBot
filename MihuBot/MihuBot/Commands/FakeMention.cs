@@ -1,5 +1,4 @@
 ﻿using Discord;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

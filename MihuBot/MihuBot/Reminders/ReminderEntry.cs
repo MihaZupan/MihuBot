@@ -1,5 +1,4 @@
 ﻿using MihuBot.Helpers;
-using System;
 
 namespace MihuBot.Reminders
 {

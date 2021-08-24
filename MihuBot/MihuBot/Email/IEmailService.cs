@@ -1,5 +1,4 @@
 ﻿using SendGrid;
-using System.Threading.Tasks;
 
 namespace MihuBot.Email
 {

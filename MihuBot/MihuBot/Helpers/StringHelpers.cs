@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers
 {
     public static class StringHelpers
     {

@@ -1,10 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
-using MihuBot.Helpers;
-using SendGrid;
+﻿using SendGrid;
 using SendGrid.Helpers.Mail;
-using System;
-using System.Net.Http;
-using System.Threading.Tasks;
 
 namespace MihuBot.Email
 {

@@ -1,9 +1,7 @@
 ﻿using Markdig;
 using MihuBot.Email;
 using MihuBot.Helpers;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

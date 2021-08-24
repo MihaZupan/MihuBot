@@ -1,6 +1,4 @@
-﻿using System.Threading.Tasks;
-
-namespace MihuBot.Weather
+﻿namespace MihuBot.Weather
 {
     public interface IWeatherService
     {

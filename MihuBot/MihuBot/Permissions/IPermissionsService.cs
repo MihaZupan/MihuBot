@@ -1,6 +1,4 @@
-﻿using System.Threading.Tasks;
-
-namespace MihuBot.Permissions
+﻿namespace MihuBot.Permissions
 {
     public interface IPermissionsService
     {

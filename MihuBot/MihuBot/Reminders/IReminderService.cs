@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-
-namespace MihuBot.Reminders
+﻿namespace MihuBot.Reminders
 {
     public interface IReminderService
     {

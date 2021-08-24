@@ -1,10 +1,5 @@
 ﻿using Discord;
-using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

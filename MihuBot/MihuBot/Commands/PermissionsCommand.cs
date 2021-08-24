@@ -1,5 +1,4 @@
 ﻿using MihuBot.Permissions;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

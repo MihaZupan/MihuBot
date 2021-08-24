@@ -2,26 +2,18 @@
 using Azure.Storage.Blobs.Models;
 using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
-using System;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Compression;
 using System.IO.Pipelines;
-using System.Linq;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 
 namespace MihuBot
 {

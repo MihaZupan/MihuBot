@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public abstract class CommandBase : CooldownTrackable, INonCommandHandler
     {

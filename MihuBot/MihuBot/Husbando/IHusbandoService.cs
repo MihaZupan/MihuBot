@@ -1,6 +1,4 @@
-﻿using System.Threading.Tasks;
-
-namespace MihuBot.Husbando
+﻿namespace MihuBot.Husbando
 {
     public interface IHusbandoService
     {

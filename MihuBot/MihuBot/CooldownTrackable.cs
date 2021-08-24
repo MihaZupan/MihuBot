@@ -1,6 +1,4 @@
 ﻿using MihuBot.Helpers;
-using System;
-using System.Threading.Tasks;
 
 namespace MihuBot
 {

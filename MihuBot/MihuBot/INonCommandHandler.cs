@@ -1,6 +1,4 @@
-﻿using System.Threading.Tasks;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public interface INonCommandHandler
     {

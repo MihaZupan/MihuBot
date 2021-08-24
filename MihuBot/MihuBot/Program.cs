@@ -1,12 +1,5 @@
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.Hosting;
 using MihuBot.Helpers;
-using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using Azure.Identity;
-using Microsoft.Extensions.Configuration;
 using Azure.Core;
 
 namespace MihuBot

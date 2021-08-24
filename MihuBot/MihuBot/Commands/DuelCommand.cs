@@ -2,11 +2,7 @@
 using Discord.WebSocket;
 using MihuBot.Configuration;
 using MihuBot.Helpers;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

@@ -1,8 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

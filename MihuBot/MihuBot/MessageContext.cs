@@ -2,11 +2,6 @@
 using Discord.Rest;
 using Discord.WebSocket;
 using MihuBot.Helpers;
-using System;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Threading.Tasks;
 
 namespace MihuBot
 {

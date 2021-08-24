@@ -1,8 +1,6 @@
 ﻿using Discord;
 using Discord.WebSocket;
 using MihuBot.Helpers;
-using System;
-using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
 {

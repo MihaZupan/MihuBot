@@ -1,11 +1,8 @@
 ﻿using MihuBot.Configuration;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
-using System;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace MihuBot.Helpers
 {

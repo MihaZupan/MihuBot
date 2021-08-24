@@ -1,7 +1,5 @@
 ﻿using MihuBot.Helpers;
-using System;
 using System.Numerics;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

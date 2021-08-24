@@ -1,9 +1,6 @@
-﻿using Discord;
-using Discord.WebSocket;
+﻿using Discord.WebSocket;
 using MihuBot.Helpers;
 using MihuBot.Permissions;
-using System;
-using System.Threading.Tasks;
 
 namespace MihuBot
 {

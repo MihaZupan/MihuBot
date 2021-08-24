@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
-
-namespace MihuBot.NonCommandHandlers
+﻿namespace MihuBot.NonCommandHandlers
 {
     public sealed class UwUOwOBeepBoop : NonCommandHandler
     {

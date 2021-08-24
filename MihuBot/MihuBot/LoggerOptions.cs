@@ -1,6 +1,5 @@
 ﻿using Discord.WebSocket;
 using MihuBot.Helpers;
-using System;
 
 namespace MihuBot
 {

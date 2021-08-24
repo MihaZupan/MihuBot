@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers
 {
     public sealed class SimpleCooldownTracker
     {

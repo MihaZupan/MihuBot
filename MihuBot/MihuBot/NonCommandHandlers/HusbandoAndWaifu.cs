@@ -1,9 +1,6 @@
 ﻿using Discord;
 using MihuBot.Helpers;
 using MihuBot.Husbando;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace MihuBot.NonCommandHandlers
 {

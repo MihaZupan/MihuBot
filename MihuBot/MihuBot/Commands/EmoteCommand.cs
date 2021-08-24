@@ -1,13 +1,7 @@
 ﻿using Discord;
-using Microsoft.Extensions.Configuration;
 using MihuBot.Helpers;
 using Newtonsoft.Json.Linq;
-using System;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Threading.Tasks;
 
 namespace MihuBot.Commands
 {

@@ -1,8 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using MihuBot.Helpers;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using MihuBot.Helpers;
 
 namespace MihuBot.Commands
 {
