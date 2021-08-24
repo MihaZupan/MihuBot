@@ -100,7 +100,7 @@ namespace MihuBot.Commands
             _logger.DebugLog($"{nameof(ArchiveCommand)}: {e.Data}");
         }
 
-        private async Task<Stream> TryGetStreamAsync(string id)
+        private async Task<TwitchLib.Api.Helix.Models.Streams.GetStreams.Stream> TryGetStreamAsync(string id)
         {
             GetStreamsResponse response = await _twitchApi.Helix.Streams.GetStreamsAsync(userIds: new List<string> { id });
             return response.Streams.FirstOrDefault();

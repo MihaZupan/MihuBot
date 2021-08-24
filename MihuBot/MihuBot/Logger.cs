@@ -450,11 +450,11 @@ namespace MihuBot
             Discord.LeftGuild += LeftGuildAsync;
             Discord.MessageReceived += message => MessageReceivedAsync(message);
             Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
-            Discord.MessageDeleted += (cacheable, channel) => MessageDeletedAsync(cacheable.Id, channel);
+            Discord.MessageDeleted += MessageDeletedAsync;
             Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
             Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
             Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
-            Discord.ReactionsCleared += (cacheable, channel) => ReactionsClearedAsync(cacheable.Id, channel);
+            Discord.ReactionsCleared += ReactionsClearedAsync;
             Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
             Discord.UserBanned += UserBannedAsync;
             Discord.UserUnbanned += UserUnbannedAsync;
@@ -462,7 +462,7 @@ namespace MihuBot
             Discord.UserJoined += UserJoinedAsync;
             Discord.UserIsTyping += UserIsTypingAsync;
             Discord.UserUpdated += UserUpdatedAsync;
-            Discord.GuildMemberUpdated += UserUpdatedAsync;
+            Discord.GuildMemberUpdated += (before, after) => UserUpdatedAsync(before.HasValue ? before.Value : null, after);
             Discord.CurrentUserUpdated += UserUpdatedAsync;
             Discord.ChannelCreated += ChannelCreatedAsync;
             Discord.ChannelUpdated += ChannelUpdatedAsync;
@@ -684,9 +684,9 @@ RecipientAdded
             return Task.CompletedTask;
         }
 
-        private Task UserIsTypingAsync(SocketUser user, ISocketMessageChannel channel)
+        private Task UserIsTypingAsync(Cacheable<IUser, ulong> user, Cacheable<IMessageChannel, ulong> channel)
         {
-            Log(new LogEvent(EventType.UserIsTyping, channel)
+            Log(new LogEvent(EventType.UserIsTyping, guildId: 0, channelId: channel.Id, messageId: 0)
             {
                 UserID = user.Id
             });
@@ -768,9 +768,9 @@ RecipientAdded
             return Task.CompletedTask;
         }
 
-        private Task ReactionsClearedAsync(ulong messageId, ISocketMessageChannel channel)
+        private Task ReactionsClearedAsync(Cacheable<IUserMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel)
         {
-            Log(new LogEvent(EventType.ReactionsCleared, channel.Guild()?.Id ?? 0, channel.Id, messageId));
+            Log(new LogEvent(EventType.ReactionsCleared, guildId: 0, channel.Id, message.Id));
             return Task.CompletedTask;
         }
 
@@ -796,19 +796,19 @@ RecipientAdded
             return Task.CompletedTask;
         }
 
-        private Task MessagesBulkDeletedAsync(IReadOnlyCollection<Cacheable<IMessage, ulong>> cacheables, ISocketMessageChannel channel)
+        private Task MessagesBulkDeletedAsync(IReadOnlyCollection<Cacheable<IMessage, ulong>> cacheables, Cacheable<IMessageChannel, ulong> channel)
         {
             foreach (var cacheable in cacheables)
             {
-                Log(new LogEvent(EventType.MessageDeleted, channel, cacheable.Id));
+                Log(new LogEvent(EventType.MessageDeleted, guildId: 0, channel.Id, cacheable.Id));
             }
 
             return Task.CompletedTask;
         }
 
-        private Task MessageDeletedAsync(ulong messageId, ISocketMessageChannel channel)
+        private Task MessageDeletedAsync(Cacheable<IMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel)
         {
-            Log(new LogEvent(EventType.MessageDeleted, channel, messageId));
+            Log(new LogEvent(EventType.MessageDeleted, guildId: 0, channel.Id, message.Id));
             return Task.CompletedTask;
         }
 
@@ -1246,12 +1246,6 @@ RecipientAdded
                 : this(type, (channel as SocketGuildChannel)?.Guild.Id ?? 0)
             {
                 ChannelID = channel.Id;
-            }
-
-            public LogEvent(EventType type, IChannel channel, ulong messageId)
-                : this(type, channel)
-            {
-                MessageID = messageId;
             }
 
             public ulong GuildID { get; set; }

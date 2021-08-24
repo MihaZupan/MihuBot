@@ -16,7 +16,7 @@ namespace MihuBot.NonCommandHandlers
             discord.ReactionAdded += Discord_ReactionAddedAsync;
         }
 
-        private Task Discord_ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheable, ISocketMessageChannel channel, SocketReaction reaction)
+        private Task Discord_ReactionAddedAsync(Cacheable<IUserMessage, ulong> cacheable, Cacheable<IMessageChannel, ulong> channel, SocketReaction reaction)
         {
             if (Constants.Admins.Contains(reaction.UserId) &&
                 DateTime.UtcNow - SnowflakeUtils.FromSnowflake(cacheable.Id) < TimeSpan.FromDays(7))
