@@ -25,7 +25,7 @@ namespace MihuBot.Commands
         {
             var response = await _http.GetAsync("https://cdn.discordapp.com/attachments/731612070843383871/731675070107353108/paul.png");
             var bytes = await response.Content.ReadAsByteArrayAsync();
-            SourceImage = Image.Load(bytes).CloneAs<Rgba32>();
+            SourceImage = SixLabors.ImageSharp.Image.Load(bytes).CloneAs<Rgba32>();
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)

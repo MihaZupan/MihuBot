@@ -47,6 +47,7 @@
         public const ulong TheFragmentary   = 489465972772831233ul;
         public const ulong RetirementHome   = 357322948501045259ul;
         public const ulong DevBotOnlyTest   = 811117737866166312ul;
+        public const ulong ComfyCove        = 841908886583246858ul;
     }
 
     public static class Channels

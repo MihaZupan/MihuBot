@@ -951,6 +951,11 @@ RecipientAdded
         {
             try
             {
+                if (after.Guild.Id != Guilds.DDs && after.Guild.Id != Guilds.ComfyCove)
+                {
+                    return;
+                }
+
                 bool updated = before is not null;
 
                 var embedBuilder = new EmbedBuilder()
