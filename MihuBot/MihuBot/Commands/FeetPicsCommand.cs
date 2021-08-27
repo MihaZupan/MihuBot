@@ -1,5 +1,4 @@
-﻿using MihuBot.Helpers;
-using SixLabors.ImageSharp;
+﻿using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace MihuBot.Commands

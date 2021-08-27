@@ -1,15 +1,10 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Discord;
-using Discord.WebSocket;
-using MihuBot.Helpers;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;

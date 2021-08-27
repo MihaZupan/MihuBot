@@ -1,7 +1,4 @@
-﻿using Discord.WebSocket;
-using MihuBot.Helpers;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public sealed class LoggerOptions
     {

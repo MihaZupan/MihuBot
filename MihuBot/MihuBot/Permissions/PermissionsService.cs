@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.Permissions
+﻿namespace MihuBot.Permissions
 {
     public sealed class PermissionsService : IPermissionsService
     {

@@ -1,8 +1,4 @@
-﻿using Discord;
-using Discord.WebSocket;
-using MihuBot.Configuration;
-using MihuBot.Helpers;
-using System.Diagnostics;
+﻿using MihuBot.Configuration;
 
 namespace MihuBot.Commands
 {

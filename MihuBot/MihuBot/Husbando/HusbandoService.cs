@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.Husbando
+﻿namespace MihuBot.Husbando
 {
     internal sealed class HusbandoService : IHusbandoService
     {

@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class StopCommand : CommandBase
     {

@@ -1,7 +1,4 @@
-﻿using Discord;
-using Discord.WebSocket;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public sealed class InitializedDiscordClient : DiscordSocketClient
     {

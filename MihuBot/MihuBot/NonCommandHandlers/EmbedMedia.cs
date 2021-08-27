@@ -1,6 +1,4 @@
-﻿using Discord.WebSocket;
-using MihuBot.Helpers;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System.Text.RegularExpressions;
 

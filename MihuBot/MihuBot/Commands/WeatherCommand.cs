@@ -1,6 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-using MihuBot.Weather;
+﻿using MihuBot.Weather;
 
 namespace MihuBot.Commands
 {

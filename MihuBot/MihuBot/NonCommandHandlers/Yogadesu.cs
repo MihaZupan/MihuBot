@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.NonCommandHandlers
+﻿namespace MihuBot.NonCommandHandlers
 {
     public sealed class Yogadesu : NonCommandHandler
     {

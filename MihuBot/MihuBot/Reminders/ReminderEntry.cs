@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.Reminders
+﻿namespace MihuBot.Reminders
 {
     public class ReminderEntry : IComparable<ReminderEntry>
     {

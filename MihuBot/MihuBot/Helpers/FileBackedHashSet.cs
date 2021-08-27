@@ -1,7 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text;
-
-namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers
 {
     public sealed class FileBackedHashSet
     {

@@ -1,7 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class SalmonCommand : CommandBase
     {

@@ -2,7 +2,6 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using System.Net.Http.Headers;
-using System.Text;
 
 namespace MihuBot.Helpers
 {

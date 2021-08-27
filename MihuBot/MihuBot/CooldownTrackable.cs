@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public abstract class CooldownTrackable
     {

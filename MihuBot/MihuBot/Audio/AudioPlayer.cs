@@ -1,13 +1,8 @@
-﻿using Discord;
-using Discord.Audio;
+﻿using Discord.Audio;
 using Discord.Rest;
-using Discord.WebSocket;
-using MihuBot.Helpers;
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Security.Cryptography;
-using System.Text;
 using YoutubeExplode.Common;
 using YoutubeExplode.Playlists;
 using YoutubeExplode.Videos;

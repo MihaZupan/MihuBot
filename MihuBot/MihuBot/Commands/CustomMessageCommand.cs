@@ -1,7 +1,4 @@
-﻿using Discord.WebSocket;
-using MihuBot.Helpers;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class CustomMessageCommand : CommandBase
     {

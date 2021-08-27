@@ -1,7 +1,5 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using MihuBot.Helpers;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using TwitchLib.Api;
 using TwitchLib.Api.Core;

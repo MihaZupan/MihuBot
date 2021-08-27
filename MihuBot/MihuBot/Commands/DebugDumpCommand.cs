@@ -1,9 +1,4 @@
-﻿using Discord;
-using Discord.WebSocket;
-using MihuBot.Helpers;
-using System.Text;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class DebugDumpCommand : CommandBase
     {

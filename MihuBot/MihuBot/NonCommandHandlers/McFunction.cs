@@ -1,7 +1,4 @@
-﻿using Discord;
-using MihuBot.Commands;
-using MihuBot.Helpers;
-using System.Text;
+﻿using MihuBot.Commands;
 
 namespace MihuBot.NonCommandHandlers
 {

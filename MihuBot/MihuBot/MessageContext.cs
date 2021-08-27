@@ -1,7 +1,4 @@
-﻿using Discord;
-using Discord.Rest;
-using Discord.WebSocket;
-using MihuBot.Helpers;
+﻿using Discord.Rest;
 
 namespace MihuBot
 {

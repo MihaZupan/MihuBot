@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers
 {
     public static class CharHelper
     {

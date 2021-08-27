@@ -1,6 +1,4 @@
-﻿using MihuBot.Helpers;
-
-namespace MihuBot.Configuration
+﻿namespace MihuBot.Configuration
 {
     public sealed class ConfigurationService : IConfigurationService
     {

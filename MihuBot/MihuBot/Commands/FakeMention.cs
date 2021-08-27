@@ -1,6 +1,4 @@
-﻿using Discord;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class FakeMention : CommandBase
     {

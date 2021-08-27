@@ -1,6 +1,4 @@
-﻿using Discord;
-using Discord.WebSocket;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
 namespace MihuBot.Helpers

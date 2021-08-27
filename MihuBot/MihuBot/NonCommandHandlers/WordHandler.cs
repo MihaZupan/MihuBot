@@ -1,6 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-using SharpCollections.Generic;
+﻿using SharpCollections.Generic;
 
 namespace MihuBot.NonCommandHandlers
 {

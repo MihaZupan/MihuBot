@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
-using System.Text;
 
 namespace MihuBot.Helpers
 {

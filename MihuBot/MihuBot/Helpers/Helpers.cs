@@ -1,9 +1,6 @@
-﻿using Discord;
-using Discord.Rest;
-using Discord.WebSocket;
+﻿using Discord.Rest;
 using System.Buffers;
 using System.Security.Claims;
-using System.Text;
 
 namespace MihuBot.Helpers
 {

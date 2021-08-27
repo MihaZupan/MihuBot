@@ -1,7 +1,4 @@
-﻿using Discord;
-using Discord.WebSocket;
-using MihuBot.Helpers;
-using MihuBot.Permissions;
+﻿using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;

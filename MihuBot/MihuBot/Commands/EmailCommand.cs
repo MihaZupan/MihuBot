@@ -1,6 +1,5 @@
 ﻿using Markdig;
 using MihuBot.Email;
-using MihuBot.Helpers;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands

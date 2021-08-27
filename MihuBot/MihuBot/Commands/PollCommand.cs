@@ -1,8 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-using System.Text;
-
-namespace MihuBot.Commands
+﻿namespace MihuBot.Commands
 {
     public sealed class PollCommand : CommandBase
     {

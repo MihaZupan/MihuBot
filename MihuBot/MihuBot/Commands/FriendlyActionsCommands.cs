@@ -1,6 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 
 namespace MihuBot.Commands
 {

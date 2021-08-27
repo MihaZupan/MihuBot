@@ -1,11 +1,8 @@
 ﻿using Azure.Storage.Blobs;
 using Discord.Rest;
-using MihuBot.Helpers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands

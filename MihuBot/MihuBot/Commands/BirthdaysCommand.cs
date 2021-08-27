@@ -1,9 +1,5 @@
-﻿using Discord;
-using Discord.WebSocket;
-using MihuBot.Helpers;
-using MihuBot.Helpers.TeamUp;
+﻿using MihuBot.Helpers.TeamUp;
 using Newtonsoft.Json;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands

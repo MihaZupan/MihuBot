@@ -1,17 +1,13 @@
 using AspNet.Security.OAuth.Discord;
-using Discord;
-using Discord.WebSocket;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
-using MihuBot.Helpers;
 using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
-using System.Net;
 using System.Runtime.InteropServices;
 
 namespace MihuBot

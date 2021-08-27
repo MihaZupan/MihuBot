@@ -1,6 +1,4 @@
-﻿using Discord;
-
-namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers
 {
     public static class Constants
     {

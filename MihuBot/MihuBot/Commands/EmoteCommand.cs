@@ -1,7 +1,4 @@
-﻿using Discord;
-using MihuBot.Helpers;
-using Newtonsoft.Json.Linq;
-using System.Diagnostics;
+﻿using Newtonsoft.Json.Linq;
 
 namespace MihuBot.Commands
 {
