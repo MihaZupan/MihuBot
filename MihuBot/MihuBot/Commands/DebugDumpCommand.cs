@@ -9,7 +9,7 @@
 
         public DebugDumpCommand(IEnumerable<CustomLogger> customLogger)
         {
-            _privateClient = customLogger.FirstOrDefault()?.Logger.Options.Discord;
+            _privateClient = customLogger.FirstOrDefault()?.Options.Discord;
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
