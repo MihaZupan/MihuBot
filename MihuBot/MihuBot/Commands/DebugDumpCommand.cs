@@ -3,6 +3,14 @@
     public sealed class DebugDumpCommand : CommandBase
     {
         public override string Command => "debugdump";
+        public override string[] Aliases => new[] { "pdebugdump" };
+
+        private readonly DiscordSocketClient _privateClient;
+
+        public DebugDumpCommand(IEnumerable<CustomLogger> customLogger)
+        {
+            _privateClient = customLogger.FirstOrDefault()?.Logger.Options.Discord;
+        }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
@@ -16,12 +24,15 @@
                 return;
             }
 
+            DiscordSocketClient discord = ctx.Command == "pdebugdump" ? _privateClient : null;
+            discord ??= ctx.Discord;
+
             var sb = new StringBuilder();
 
-            SocketGuild guild = ctx.Discord.GetGuild(id);
+            SocketGuild guild = discord.GetGuild(id);
             if (guild is null)
             {
-                SocketChannel channel = ctx.Discord.GetChannel(id);
+                SocketChannel channel = discord.GetChannel(id);
                 if (channel is null)
                 {
                     await ctx.ReplyAsync("Unknown ID");
