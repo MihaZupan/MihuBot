@@ -59,6 +59,7 @@
         public const ulong Debug            = 806048964021190656ul;
         public const ulong LogText          = 750706839431413870ul;
         public const ulong Files            = 774147493319540736ul;
+        public const ulong Email            = 880649603580559401ul;
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;
