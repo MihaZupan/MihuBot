@@ -53,7 +53,7 @@ namespace MihuBot.Audio
                         {
                             if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
                             {
-                                await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume);
+                                await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume / 100f);
                             }
                             else
                             {
@@ -207,7 +207,10 @@ namespace MihuBot.Audio
                 {
                     if (!settings.TryGetValue(guildId, out audioSettings))
                     {
-                        audioSettings = settings[guildId] = new();
+                        audioSettings = settings[guildId] = new()
+                        {
+                            UnderlyingStore = _audioSettings
+                        };
                     }
                 }
                 finally
