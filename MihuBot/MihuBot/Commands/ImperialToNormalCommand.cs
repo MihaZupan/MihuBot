@@ -34,7 +34,7 @@ namespace MihuBot.Commands
 
             Func<decimal, decimal> conversion = null;
             string format = null;
-            bool appendS = false;
+            bool appendS = true;
 
             if (imperialToNormal)
             {
@@ -47,24 +47,27 @@ namespace MihuBot.Commands
                     case "fahrenheit":
                         conversion = v => (v - 32) / 1.8m;
                         format = "°C";
+                        appendS = false;
                         break;
 
                     case "ft": case "feet":
                         conversion = v => v * 0.3048m;
                         format = "meter";
-                        appendS = true;
                         break;
 
                     case "i": case "inch": case "inchs": case "inches":
                         conversion = v => v * 0.0254m;
                         format = "meter";
-                        appendS = true;
                         break;
 
                     case "gln": case "glns": case "gallon": case "gallons":
                         conversion = v => v * 3.785411784m;
                         format = "liter";
-                        appendS = true;
+                        break;
+
+                    case "oz": case "ounces":
+                        conversion = v => v * 0.02957352965m;
+                        format = "liter";
                         break;
                 }
             }
@@ -75,18 +78,17 @@ namespace MihuBot.Commands
                     case "m": case "ms": case "mtr": case "mtrs": case "meter": case "meters":
                         conversion = v => v * 117.64705882353m;
                         format = "barleycorn";
-                        appendS = true;
                         break;
 
                     case "l": case "ltr": case "ltrs": case "liter": case "liters":
                         conversion = v => v * 0.2641720524m;
                         format = "gallon";
-                        appendS = true;
                         break;
 
                     case "c": case "celsius":
                         conversion = v => (v * 1.8m) + 32;
                         format = " fahrenheit";
+                        appendS = false;
                         break;
                 }
             }
