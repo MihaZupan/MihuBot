@@ -60,12 +60,13 @@ namespace MihuBot.Commands
                 _ => new Color(255, 0, 0)
             };
 
-            string temperature = $"{weather.FeelsLike:N1} °C / {ToFahrenheit(weather.FeelsLike):N1} F";
+            string temperature = $"{weather.Temp:N1} °C / {ToFahrenheit(weather.Temp):N1} F";
+            string feelsLike = $"{weather.FeelsLike:N1} °C / {ToFahrenheit(weather.FeelsLike):N1} F";
             string localTime = DateTime.UtcNow.AddSeconds(weather.Timezone).ToString("HH:mm (h:mm tt)");
 
             var embed = new EmbedBuilder()
-                .WithTitle($"Weather in {location}")
-                .WithDescription($"Currently: {weather.Description}\nTemperature: {temperature}\nLocal time: {localTime}")
+                .WithTitle($"{location} ({weather.Country})")
+                .WithDescription($"Currently: {weather.Description}\nTemperature: {temperature}\nFeels like: {feelsLike}\nLocal time: {localTime}")
                 .WithThumbnailUrl(weather.IconUrl)
                 .WithColor(color);
 
