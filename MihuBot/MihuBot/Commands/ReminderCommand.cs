@@ -205,6 +205,17 @@ namespace MihuBot.Commands
 
                                 if (message is not null)
                                 {
+                                    if (message.Reactions.Any(r => r.Key.Name == Emotes.ThumbsUp.Name && r.Value.ReactionCount > 1 && r.Value.ReactionCount <= 10))
+                                    {
+                                        var reactions = await message.GetReactionUsersAsync(Emotes.ThumbsUp, 15).ToArrayAsync();
+                                        var users = reactions.SelectMany(r => r).Where(r => !r.IsBot && r.Id != entry.AuthorId);
+                                        string extraMentions = string.Join(' ', users.Select(u => MentionUtils.MentionUser(u.Id)));
+                                        if (extraMentions.Length != 0)
+                                        {
+                                            mention = $"{mention} {extraMentions}";
+                                        }
+                                    }
+
                                     await channel.SendMessageAsync(
                                         mention,
                                         messageReference: new MessageReference(message.Id, entry.ChannelId, entry.GuildId));

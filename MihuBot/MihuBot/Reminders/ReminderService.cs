@@ -67,7 +67,7 @@ namespace MihuBot.Reminders
                         _reminders.Exit();
                     }
 
-                    entries.RemoveAll(r => now - r.Time > TimeSpan.FromSeconds(10));
+                    entries.RemoveAll(r => now - r.Time > TimeSpan.FromMinutes(1));
                 }
             }
             catch (Exception ex)
