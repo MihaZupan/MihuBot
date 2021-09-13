@@ -10,6 +10,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		..\.github\workflows\ci.yml = ..\.github\workflows\ci.yml
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LocalTesting", "LocalTesting\LocalTesting.csproj", "{1D518071-D1CE-4E1E-BB88-F6CD4931060A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +22,10 @@ Global
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1D518071-D1CE-4E1E-BB88-F6CD4931060A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1D518071-D1CE-4E1E-BB88-F6CD4931060A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1D518071-D1CE-4E1E-BB88-F6CD4931060A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1D518071-D1CE-4E1E-BB88-F6CD4931060A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
