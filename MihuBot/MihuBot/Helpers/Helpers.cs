@@ -399,7 +399,7 @@ namespace MihuBot.Helpers
 
             for (int i = 0; i < samples.Length; i++)
             {
-                samples[i] = (ushort)(samples[i] * multilpier);
+                samples[i] = (short)(samples[i] * multilpier);
             }
         }
     }
