@@ -33,7 +33,7 @@
                 response = "┬─┬ ノ( ゜-゜ノ)";
             }
 
-            if (response != null && TryEnter(ctx))
+            if (response != null && ctx.ChannelPermissions.SendMessages && TryEnter(ctx))
             {
                 return HandleAsyncCore();
             }
