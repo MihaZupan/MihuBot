@@ -476,7 +476,7 @@ namespace MihuBot.Audio
                 if (rawVolume != 1)
                 {
                     float volume = rawVolume * rawVolume;
-                    Helpers.Helpers.Multiply(MemoryMarshal.Cast<byte, ushort>(buffer.Slice(0, read).Span), volume);
+                    Helpers.Helpers.Multiply(MemoryMarshal.Cast<byte, short>(buffer.Span.Slice(0, read)), volume);
                 }
 
                 try

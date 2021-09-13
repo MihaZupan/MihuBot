@@ -391,7 +391,7 @@ namespace MihuBot.Helpers
             return false;
         }
 
-        public static void Multiply(Span<ushort> samples, float multilpier)
+        public static void Multiply(Span<short> samples, float multilpier)
         {
             Debug.Assert(multilpier >= 0 && multilpier <= 1);
 
