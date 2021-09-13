@@ -21,7 +21,7 @@ namespace MihuBot.Commands
         protected override int CooldownToleranceCount => 5;
 
         private readonly SynchronizedLocalJsonStore<Dictionary<string, string>> _channels = new("TwitchArchive_Channels.json",
-            init: d => new Dictionary<string, string>(d, StringComparer.OrdinalIgnoreCase));
+            init: (_, d) => new Dictionary<string, string>(d, StringComparer.OrdinalIgnoreCase));
         private readonly object _lock = new();
         private readonly List<ITwitchPubSub> _pubSubs = new();
         private readonly Dictionary<string, Process> _processes = new(StringComparer.OrdinalIgnoreCase);

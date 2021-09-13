@@ -10,7 +10,7 @@ namespace MihuBot.Helpers
         private readonly SemaphoreSlim _asyncLock;
         private string _previousJson;
 
-        public SynchronizedLocalJsonStore(string jsonPath, Func<T, T> init = null)
+        public SynchronizedLocalJsonStore(string jsonPath, Func<SynchronizedLocalJsonStore<T>, T, T> init = null)
         {
             _jsonPath = $"{Constants.StateDirectory}/{jsonPath}";
 
@@ -25,12 +25,12 @@ namespace MihuBot.Helpers
                 _value = new T();
             }
 
+            _asyncLock = new SemaphoreSlim(1, 1);
+
             if (init != null)
             {
-                _value = init(_value);
+                _value = init(this, _value);
             }
-
-            _asyncLock = new SemaphoreSlim(1, 1);
         }
 
         public T DangerousGetValue() => _value;
@@ -68,7 +68,7 @@ namespace MihuBot.Helpers
             return _value;
         }
 
-        public async Task<T> EnterAsync()
+        public async ValueTask<T> EnterAsync()
         {
             await _asyncLock.WaitAsync();
             // Logger.DebugLog($"Entered {_jsonPath}");

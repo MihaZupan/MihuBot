@@ -11,7 +11,7 @@
         public ConfigurationService()
         {
             _store = new SynchronizedLocalJsonStore<Dictionary<ulong, Dictionary<string, string>>>("Configuration.json",
-                dictionary =>
+                (_, dictionary) =>
                 {
                     var configuration = new Dictionary<ulong, Dictionary<string, string>>();
                     foreach (var entry in dictionary)
@@ -22,7 +22,7 @@
                 });
 
             _globalStore = new SynchronizedLocalJsonStore<Dictionary<string, string>>("GlobalConfiguration.json",
-                dictionary => new Dictionary<string, string>(dictionary, StringComparer.OrdinalIgnoreCase));
+                (_, dictionary) => new Dictionary<string, string>(dictionary, StringComparer.OrdinalIgnoreCase));
 
             _configuration = _store.DangerousGetValue();
             _globalConfiguration = _globalStore.DangerousGetValue();

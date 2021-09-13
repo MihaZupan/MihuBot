@@ -374,5 +374,33 @@ namespace MihuBot.Helpers
                 throw new TimeoutException($"Task timed out after {timeout}");
             }
         }
+
+        public static async Task<bool> TryDeleteAsync(this RestUserMessage message)
+        {
+            if (message.Channel is not SocketTextChannel textChannel ||
+                textChannel.GetUser(message.Author.Id)?.GetPermissions(textChannel).ManageMessages != false)
+            {
+                try
+                {
+                    await message.DeleteAsync();
+                    return true;
+                }
+                catch { }
+            }
+
+            return false;
+        }
+
+        public static void Multiply(Span<ushort> samples, float multilpier)
+        {
+            Debug.Assert(multilpier >= 0 && multilpier <= 1);
+
+            // TODO: Vectorize
+
+            for (int i = 0; i < samples.Length; i++)
+            {
+                samples[i] = (ushort)(samples[i] * multilpier);
+            }
+        }
     }
 }

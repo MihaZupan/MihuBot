@@ -2,6 +2,7 @@
 using Discord.Rest;
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using YoutubeExplode.Common;
 using YoutubeExplode.Playlists;
@@ -13,7 +14,7 @@ namespace MihuBot.Audio
     public sealed class AudioCommands : CommandBase
     {
         public override string Command => "mplay";
-        public override string[] Aliases => new[] { "pause", "unpause", "skip" };
+        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume" };
 
         private readonly AudioService _audioService;
 
@@ -28,7 +29,7 @@ namespace MihuBot.Audio
 
             _audioService.TryGetAudioPlayer(ctx.Guild.Id, out AudioPlayer audioPlayer);
 
-            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip")
+            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip" || ctx.Command == "volume")
             {
                 if (audioPlayer is not null)
                 {
@@ -48,6 +49,17 @@ namespace MihuBot.Audio
                         if (ctx.Command == "pause") audioPlayer.Pause();
                         else if (ctx.Command == "unpause") audioPlayer.Unpause();
                         else if (ctx.Command == "skip") await audioPlayer.MoveNextAsync();
+                        else if (ctx.Command == "volume")
+                        {
+                            if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
+                            {
+                                await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume);
+                            }
+                            else
+                            {
+                                await ctx.ReplyAsync("Please specify a volume like `!volume 50`", mention: true);
+                            }
+                        }
                     }
                     finally
                     {
@@ -106,8 +118,37 @@ namespace MihuBot.Audio
         }
     }
 
+    public sealed class GuildAudioSettings
+    {
+        [JsonIgnore]
+        public SynchronizedLocalJsonStore<Dictionary<ulong, GuildAudioSettings>> UnderlyingStore;
+
+        public float? Volume { get; set; }
+
+        public async Task ModifyAsync<T>(Action<GuildAudioSettings, T> modificationAction, T state)
+        {
+            await UnderlyingStore.EnterAsync();
+            try
+            {
+                modificationAction(this, state);
+            }
+            finally
+            {
+                UnderlyingStore.Exit();
+            }
+        }
+    }
+
     public class AudioService
     {
+        private readonly SynchronizedLocalJsonStore<Dictionary<ulong, GuildAudioSettings>> _audioSettings = new("AudioSettings.json", static (store, settings) =>
+        {
+            foreach (GuildAudioSettings guildSettings in settings.Values)
+            {
+                guildSettings.UnderlyingStore = store;
+            }
+            return settings;
+        });
         private readonly ConcurrentDictionary<ulong, AudioPlayer> _audioPlayers = new();
         private readonly Logger _logger;
 
@@ -121,15 +162,24 @@ namespace MihuBot.Audio
                     before.VoiceChannel is SocketVoiceChannel vc &&
                     TryGetAudioPlayer(vc.Guild.Id, out AudioPlayer player))
                 {
-                    if (after.VoiceChannel is null)
+                    _ = Task.Run(async () =>
                     {
-                        return player.DisposeAsync().AsTask();
-                    }
-                    else
-                    {
-                        // Moved between calls?
-                        return player.DisposeAsync().AsTask();
-                    }
+                        try
+                        {
+                            if (after.VoiceChannel is null)
+                            {
+                                await player.DisposeAsync();
+                            }
+                            else
+                            {
+                                // Moved between calls?
+                                await player.DisposeAsync();
+
+                                await after.VoiceChannel.DisconnectAsync();
+                            }
+                        }
+                        catch { }
+                    });
                 }
                 return Task.CompletedTask;
             };
@@ -151,7 +201,21 @@ namespace MihuBot.Audio
                     return audioPlayer;
                 }
 
-                audioPlayer = new AudioPlayer(client, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers);
+                GuildAudioSettings audioSettings;
+                var settings = await _audioSettings.EnterAsync();
+                try
+                {
+                    if (!settings.TryGetValue(guildId, out audioSettings))
+                    {
+                        audioSettings = settings[guildId] = new();
+                    }
+                }
+                finally
+                {
+                    _audioSettings.Exit();
+                }
+
+                audioPlayer = new AudioPlayer(client, audioSettings, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers);
                 if (_audioPlayers.TryAdd(guildId, audioPlayer))
                 {
                     await audioPlayer.JoinChannelAsync(voiceChannel);
@@ -170,6 +234,7 @@ namespace MihuBot.Audio
         public DiscordSocketClient Client { get; }
         public SocketGuild Guild { get; }
         public SocketVoiceChannel VoiceChannel { get; private set; }
+        public GuildAudioSettings AudioSettings { get; private set; }
 
         public SocketTextChannel LastTextChannel { get; set; }
 
@@ -187,9 +252,10 @@ namespace MihuBot.Audio
         private IAudioSource _currentAudioSource;
         private AudioOutStream _pcmStream;
 
-        public AudioPlayer(DiscordSocketClient client, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
+        public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
         {
             Client = client;
+            AudioSettings = audioSettings;
             _logger = logger;
             Guild = guild;
             LastTextChannel = lastTextChannel;
@@ -220,8 +286,12 @@ namespace MihuBot.Audio
 
         public bool Pause()
         {
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            return Interlocked.CompareExchange(ref _pausedCts, tcs, null) is null;
+            if (_pausedCts is null)
+            {
+                var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                return Interlocked.CompareExchange(ref _pausedCts, tcs, null) is null;
+            }
+            return false;
         }
 
         private async Task<bool> TryInit(IAudioSource audioSource)
@@ -255,14 +325,6 @@ namespace MihuBot.Audio
                 try
                 {
                     RestUserMessage lastSentMessage = _lastSentStatusMessage;
-                    if (lastSentMessage is not null)
-                    {
-                        if (lastSentMessage.Channel.Id != LastTextChannel.Id ||
-                            DateTime.UtcNow.Subtract(lastSentMessage.Timestamp.UtcDateTime) > TimeSpan.FromMinutes(5))
-                        {
-                            lastSentMessage = null;
-                        }
-                    }
 
                     string escapedTitle = audioSource.Description
                         .Replace("[", "\\[", StringComparison.Ordinal)
@@ -288,7 +350,7 @@ namespace MihuBot.Audio
 
                         if (lastSentMessage is not null)
                         {
-                            await lastSentMessage.DeleteAsync();
+                            await lastSentMessage.TryDeleteAsync();
                         }
                     }
                     else
@@ -407,6 +469,13 @@ namespace MihuBot.Audio
                     continue;
                 }
 
+                float rawVolume = AudioSettings.Volume.GetValueOrDefault(0.5f);
+                if (rawVolume != 1)
+                {
+                    float volume = rawVolume * rawVolume;
+                    Helpers.Helpers.Multiply(MemoryMarshal.Cast<byte, ushort>(buffer.Slice(0, read).Span), volume);
+                }
+
                 try
                 {
                     await _pcmStream.WriteAsync(buffer.Slice(0, read), _disposedCts.Token);
@@ -519,7 +588,7 @@ namespace MihuBot.Audio
 
             _process = new Process
             {
-                StartInfo = new ProcessStartInfo("ffmpeg", $"-hide_banner -loglevel warning -i \"{audioPath}\" -filter:a \"volume=0.5\" -ac 2 -f s16le -ar 48000 -")
+                StartInfo = new ProcessStartInfo("ffmpeg", $"-hide_banner -loglevel warning -i \"{audioPath}\" -ac 2 -f s16le -ar 48000 -")
                 {
                     RedirectStandardOutput = true,
                     UseShellExecute = false
@@ -682,20 +751,7 @@ namespace MihuBot.Audio
                 }, CancellationToken.None);
             }
 
-            if (cancellationToken.CanBeCanceled)
-            {
-                TaskCompletionSource cancelTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                using (cancellationToken.Register(static s => ((TaskCompletionSource)s).TrySetResult(), cancelTcs))
-                {
-                    await Task.WhenAny(task, cancelTcs.Task);
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return await task;
-                }
-            }
-            else
-            {
-                return await task;
-            }
+            return await task.WaitAsync(cancellationToken);
         }
     }
 }
