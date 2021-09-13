@@ -271,7 +271,7 @@ namespace MihuBot.Audio
             {
                 VoiceChannel = voiceChannel;
                 _audioClient = await voiceChannel.ConnectAsync(selfDeaf: true);
-                _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate, bufferMillis: 200, packetLoss: 0);
+                _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate, bufferMillis: 1000, packetLoss: 20);
 
                 _ = Task.Run(CopyAudioAsync);
             }
