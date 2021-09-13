@@ -472,7 +472,7 @@ namespace MihuBot.Audio
                     continue;
                 }
 
-                float rawVolume = AudioSettings.Volume.GetValueOrDefault(0.5f);
+                float rawVolume = AudioSettings.Volume.GetValueOrDefault(Constants.VCDefaultVolume);
                 if (rawVolume != 1)
                 {
                     float volume = rawVolume * rawVolume;
