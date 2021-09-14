@@ -14,7 +14,7 @@ namespace MihuBot.Audio
     public sealed class AudioCommands : CommandBase
     {
         public override string Command => "mplay";
-        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume" };
+        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume", "audiodebug" };
 
         private readonly AudioService _audioService;
 
@@ -29,7 +29,7 @@ namespace MihuBot.Audio
 
             _audioService.TryGetAudioPlayer(ctx.Guild.Id, out AudioPlayer audioPlayer);
 
-            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip" || ctx.Command == "volume")
+            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip" || ctx.Command == "volume" || ctx.Command == "audiodebug")
             {
                 if (audioPlayer is not null)
                 {
@@ -59,6 +59,12 @@ namespace MihuBot.Audio
                             {
                                 await ctx.ReplyAsync("Please specify a volume like `!volume 50`", mention: true);
                             }
+                        }
+                        else if (ctx.Command == "audiodebug")
+                        {
+                            var sb = new StringBuilder();
+                            await audioPlayer.DebugDumpAsync(sb);
+                            await ctx.Channel.SendTextFileAsync($"AudioDebug-{ctx.Guild.Id}.txt", sb.ToString());
                         }
                     }
                     finally
@@ -532,11 +538,57 @@ namespace MihuBot.Audio
                 _lock.Release();
             }
         }
+
+        public async Task DebugDumpAsync(StringBuilder sb)
+        {
+            await _lock.WaitAsync();
+            try
+            {
+                Property(sb, "VoiceChannel", VoiceChannel.Name);
+                Property(sb, "VC Bitrate", VoiceChannel.Bitrate.ToString());
+                Property(sb, "Volume", AudioSettings.Volume.ToString());
+                Property(sb, "QueueLength", QueueLength.ToString());
+
+                if (_currentAudioSource is not null)
+                {
+                    sb.AppendLine("Current audio source:");
+                    AudioSource(sb, _currentAudioSource);
+                }
+
+                foreach (IAudioSource audioSource in _audioSources)
+                {
+                    sb.AppendLine();
+                    AudioSource(sb, audioSource);
+                }
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            static void AudioSource(StringBuilder sb, IAudioSource audioSource)
+            {
+                Property(sb, nameof(audioSource.Requester), audioSource.Requester.Username);
+                Property(sb, nameof(audioSource.Url), audioSource.Url);
+                Property(sb, nameof(audioSource.ThumbnailUrl), audioSource.ThumbnailUrl);
+                Property(sb, nameof(audioSource.Remaining), audioSource.Remaining.ToString());
+                Property(sb, nameof(audioSource.Description), audioSource.Description);
+            }
+
+            static void Property(StringBuilder sb, string name, string value)
+            {
+                sb.Append(name);
+                sb.Append(": ");
+                sb.Append(' ', Math.Max(0, 15 - name.Length));
+                sb.Append(value);
+                sb.AppendLine();
+            }
+        }
     }
 
     public interface IAudioSource : IAsyncDisposable
     {
-        Task InitializeAsync(int? bitrateHint);
+        Task InitializeAsync(int? bitrateHintKbit);
 
         TimeSpan Remaining { get; }
 
@@ -567,7 +619,7 @@ namespace MihuBot.Audio
             _video = video;
         }
 
-        public async Task InitializeAsync(int? bitrateHint)
+        public async Task InitializeAsync(int? bitrateHintKbit)
         {
             _cts = new CancellationTokenSource();
 
@@ -579,7 +631,7 @@ namespace MihuBot.Audio
                 {
                     StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, _cts.Token);
                     IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(manifest, out _);
-                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHint.GetValueOrDefault(96), _cts.Token);
+                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit.GetValueOrDefault(96), _cts.Token);
                 }
                 catch
                 {
