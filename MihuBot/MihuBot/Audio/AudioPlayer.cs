@@ -14,13 +14,15 @@ namespace MihuBot.Audio
     public static class GlobalAudioSettings
     {
         public static int StreamBufferMs = 1000;
-        public static int PacketLoss = 30;
+        public static int PacketLoss = 0;
+        public static int MinBitrateKb = 96;
+        public static int MinBitrate => 96 * 1000;
     }
 
     public sealed class AudioCommands : CommandBase
     {
         public override string Command => "mplay";
-        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume", "audiodebug", "audiotempsettings" };
+        public override string[] Aliases => new[] { "pause", "unpause", "resume", "skip", "volume", "audiodebug", "audiotempsettings" };
 
         private readonly AudioService _audioService;
 
@@ -38,18 +40,20 @@ namespace MihuBot.Audio
             if (ctx.Command == "audiotempsettings")
             {
                 if (await ctx.RequirePermissionAsync(ctx.Command) &&
-                    ctx.Arguments.Length == 2 &&
+                    ctx.Arguments.Length == 3 &&
                     int.TryParse(ctx.Arguments[0], out int streamBufferMs) &&
-                    int.TryParse(ctx.Arguments[1], out int packetLoss))
+                    int.TryParse(ctx.Arguments[1], out int packetLoss) &&
+                    int.TryParse(ctx.Arguments[2], out int bitrateKbit))
                 {
                     GlobalAudioSettings.StreamBufferMs = streamBufferMs;
                     GlobalAudioSettings.PacketLoss = packetLoss;
+                    GlobalAudioSettings.MinBitrateKb = bitrateKbit;
                 }
 
                 return;
             }
 
-            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip" || ctx.Command == "volume" || ctx.Command == "audiodebug")
+            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "resume" || ctx.Command == "skip" || ctx.Command == "volume" || ctx.Command == "audiodebug")
             {
                 if (audioPlayer is not null)
                 {
@@ -67,7 +71,7 @@ namespace MihuBot.Audio
                     try
                     {
                         if (ctx.Command == "pause") audioPlayer.Pause();
-                        else if (ctx.Command == "unpause") audioPlayer.Unpause();
+                        else if (ctx.Command == "unpause" || ctx.Command == "resume") audioPlayer.Unpause();
                         else if (ctx.Command == "skip") await audioPlayer.MoveNextAsync();
                         else if (ctx.Command == "volume")
                         {
@@ -298,13 +302,11 @@ namespace MihuBot.Audio
                 VoiceChannel = voiceChannel;
                 _audioClient = await voiceChannel.ConnectAsync(selfDeaf: true);
 
-                int bitrate = voiceChannel.Bitrate;
+                int bitrate = Math.Max(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate);
                 int bufferMs = GlobalAudioSettings.StreamBufferMs;
                 int packetLoss = GlobalAudioSettings.PacketLoss;
 
-                _pcmStream = bufferMs <= 0
-                    ? _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, packetLoss)
-                    : _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
+                _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
 
                 _ = Task.Run(CopyAudioAsync);
             }
@@ -334,10 +336,11 @@ namespace MihuBot.Audio
         {
             try
             {
-                int? bitrate = VoiceChannel.Bitrate;
+                int bitrate = VoiceChannel.Bitrate;
                 if (bitrate % 1000 == 0) bitrate /= 1000;
                 else if (bitrate % 1024 == 0) bitrate /= 1024;
-                else bitrate = null;
+
+                bitrate = Math.Max(bitrate, GlobalAudioSettings.MinBitrateKb);
 
                 await audioSource.InitializeAsync(bitrate);
                 return true;
@@ -497,7 +500,10 @@ namespace MihuBot.Audio
                 {
                     read = await currentSource.ReadAsync(buffer, _disposedCts.Token);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    _logger.DebugLog(ex.ToString(), guildId: Guild.Id, channelId: VoiceChannel.Id);
+                }
 
                 if (read <= 0)
                 {
@@ -617,7 +623,7 @@ namespace MihuBot.Audio
 
     public interface IAudioSource : IAsyncDisposable
     {
-        Task InitializeAsync(int? bitrateHintKbit);
+        Task InitializeAsync(int bitrateHintKbit);
 
         TimeSpan? Remaining { get; }
 
@@ -650,7 +656,7 @@ namespace MihuBot.Audio
             _video = video;
         }
 
-        public async Task InitializeAsync(int? bitrateHintKbit)
+        public async Task InitializeAsync(int bitrateHintKbit)
         {
             _cts = new CancellationTokenSource();
 
@@ -662,7 +668,7 @@ namespace MihuBot.Audio
                 {
                     StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, _cts.Token);
                     IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(manifest, out _);
-                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit.GetValueOrDefault(96), _cts.Token);
+                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit, _cts.Token);
                 }
                 catch
                 {
