@@ -571,7 +571,7 @@ namespace MihuBot.Audio
                 Property(sb, nameof(audioSource.Requester), audioSource.Requester.Username);
                 Property(sb, nameof(audioSource.Url), audioSource.Url);
                 Property(sb, nameof(audioSource.ThumbnailUrl), audioSource.ThumbnailUrl);
-                Property(sb, nameof(audioSource.Remaining), audioSource.Remaining.ToString());
+                Property(sb, nameof(audioSource.Remaining), audioSource.Remaining?.ToString() ?? "N/A");
                 Property(sb, nameof(audioSource.Description), audioSource.Description);
             }
 
@@ -590,7 +590,7 @@ namespace MihuBot.Audio
     {
         Task InitializeAsync(int? bitrateHintKbit);
 
-        TimeSpan Remaining { get; }
+        TimeSpan? Remaining { get; }
 
         string Description { get; }
 
@@ -655,7 +655,7 @@ namespace MihuBot.Audio
             _ffmpegOutputStream = _process.StandardOutput.BaseStream;
         }
 
-        public TimeSpan Remaining => throw new NotImplementedException();
+        public TimeSpan? Remaining => null;
 
         public string Description => _video.Title;
 
