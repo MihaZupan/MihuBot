@@ -11,10 +11,16 @@ using YoutubeExplode.Videos.Streams;
 
 namespace MihuBot.Audio
 {
+    public static class GlobalAudioSettings
+    {
+        public static int StreamBufferMs = 1000;
+        public static int PacketLoss = 30;
+    }
+
     public sealed class AudioCommands : CommandBase
     {
         public override string Command => "mplay";
-        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume", "audiodebug" };
+        public override string[] Aliases => new[] { "pause", "unpause", "skip", "volume", "audiodebug", "audiotempsettings" };
 
         private readonly AudioService _audioService;
 
@@ -28,6 +34,20 @@ namespace MihuBot.Audio
             ChannelPermissions permissions = ctx.ChannelPermissions;
 
             _audioService.TryGetAudioPlayer(ctx.Guild.Id, out AudioPlayer audioPlayer);
+
+            if (ctx.Command == "audiotempsettings")
+            {
+                if (await ctx.RequirePermissionAsync(ctx.Command) &&
+                    ctx.Arguments.Length == 2 &&
+                    int.TryParse(ctx.Arguments[0], out int streamBufferMs) &&
+                    int.TryParse(ctx.Arguments[1], out int packetLoss))
+                {
+                    GlobalAudioSettings.StreamBufferMs = streamBufferMs;
+                    GlobalAudioSettings.PacketLoss = packetLoss;
+                }
+
+                return;
+            }
 
             if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "skip" || ctx.Command == "volume" || ctx.Command == "audiodebug")
             {
@@ -60,7 +80,7 @@ namespace MihuBot.Audio
                                 await ctx.ReplyAsync("Please specify a volume like `!volume 50`", mention: true);
                             }
                         }
-                        else if (ctx.Command == "audiodebug")
+                        else if (ctx.Command == "audiodebug" && await ctx.RequirePermissionAsync(ctx.Command))
                         {
                             var sb = new StringBuilder();
                             await audioPlayer.DebugDumpAsync(sb);
@@ -277,7 +297,14 @@ namespace MihuBot.Audio
             {
                 VoiceChannel = voiceChannel;
                 _audioClient = await voiceChannel.ConnectAsync(selfDeaf: true);
-                _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, voiceChannel.Bitrate, bufferMillis: 1000, packetLoss: 20);
+
+                int bitrate = voiceChannel.Bitrate;
+                int bufferMs = GlobalAudioSettings.StreamBufferMs;
+                int packetLoss = GlobalAudioSettings.PacketLoss;
+
+                _pcmStream = bufferMs <= 0
+                    ? _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, packetLoss)
+                    : _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
 
                 _ = Task.Run(CopyAudioAsync);
             }
@@ -551,6 +578,7 @@ namespace MihuBot.Audio
 
                 if (_currentAudioSource is not null)
                 {
+                    sb.AppendLine();
                     sb.AppendLine("Current audio source:");
                     AudioSource(sb, _currentAudioSource);
                 }
@@ -573,6 +601,7 @@ namespace MihuBot.Audio
                 Property(sb, nameof(audioSource.ThumbnailUrl), audioSource.ThumbnailUrl);
                 Property(sb, nameof(audioSource.Remaining), audioSource.Remaining?.ToString() ?? "N/A");
                 Property(sb, nameof(audioSource.Description), audioSource.Description);
+                audioSource.DebugDump(sb);
             }
 
             static void Property(StringBuilder sb, string name, string value)
@@ -601,6 +630,8 @@ namespace MihuBot.Audio
         SocketGuildUser Requester { get; }
 
         ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken);
+
+        void DebugDump(StringBuilder sb) { }
     }
 
     public sealed class YoutubeAudioSource : IAudioSource
@@ -691,6 +722,12 @@ namespace MihuBot.Audio
             catch { }
 
             return default;
+        }
+
+        public void DebugDump(StringBuilder sb)
+        {
+            sb.AppendLine($"TemporaryFile: {_temporaryFile ?? "N/A"}");
+            sb.AppendLine($"FFmpeg arguments: {_process?.StartInfo.Arguments ?? "N/A"}");
         }
     }
 
