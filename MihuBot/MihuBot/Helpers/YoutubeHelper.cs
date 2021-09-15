@@ -182,11 +182,16 @@ namespace MihuBot.Helpers
 
         public static async Task ConvertToAudioOutputAsync(string sourcePath, string targetPath, int bitrate, CancellationToken cancellationToken = default)
         {
+            await FFMpegConvertAsync(sourcePath, targetPath, $"-b:a {bitrate}k -vn", cancellationToken);
+        }
+
+        public static async Task FFMpegConvertAsync(string sourcePath, string targetPath, string arguments, CancellationToken cancellationToken = default)
+        {
             using Process ffmpeg = new()
             {
                 StartInfo = new ProcessStartInfo("ffmpeg")
                 {
-                    Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" -b:a {bitrate}k -vn \"{targetPath}\"",
+                    Arguments = $"-y -hide_banner -loglevel warning -i \"{sourcePath}\" {arguments} \"{targetPath}\"",
                     UseShellExecute = false
                 }
             };

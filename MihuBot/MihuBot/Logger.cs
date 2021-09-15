@@ -34,7 +34,8 @@ namespace MihuBot
         private string JsonLogPath;
         private DateTime LogDate;
 
-        private readonly Channel<(string FileName, string FilePath, SocketMessage Message, bool Delete)> FileArchivingChannel;
+        private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
+        private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message, bool Delete)> FileArchivingChannel;
         private readonly BlobContainerClient BlobContainerClient;
         private readonly ConcurrentDictionary<string, TaskCompletionSource> FileArchivingCompletions = new();
 
@@ -122,7 +123,7 @@ namespace MihuBot
             {
                 try
                 {
-                    string extension = Path.GetExtension(FilePath)?.ToLowerInvariant();
+                    string extension = Path.GetExtension(FilePath).ToLowerInvariant();
 
                     bool isImage =
                         extension == ".jpg" ||
@@ -188,16 +189,66 @@ namespace MihuBot
                         await Options.LogsFilesTextChannel.SendMessageAsync(embed: embed.Build());
                     }
 
-                    DebugLog($"Archived {FilePath}");
+                    DebugLog($"Archived {FilePath}", Message);
                 }
                 catch (Exception ex)
                 {
-                    DebugLog($"Failed to archive {FilePath}: {ex}");
+                    DebugLog($"Failed to archive {FilePath}: {ex}", Message);
                 }
                 finally
                 {
                     if (FileArchivingCompletions.TryRemove(FilePath, out var tcs))
                         tcs.TrySetResult();
+                }
+            }
+        }
+
+        private static readonly Dictionary<string, (string Ext, string Args)> ConvertableMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { ".jpg",   (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".jpeg",  (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".png",   (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".wav",   (".mp3",    "-b:a 192k") },
+        };
+
+        private async Task MediaFileArchivingTaskAsync()
+        {
+            await foreach (var (FileName, FilePath, Message) in MediaFileArchivingChannel.Reader.ReadAllAsync())
+            {
+                try
+                {
+                    (string ext, string args) = ConvertableMediaExtensions[Path.GetExtension(FilePath)];
+
+                    string oldPath = FilePath;
+                    string newPath = Path.ChangeExtension(oldPath, ext);
+                    string fileName = FileName;
+
+                    try
+                    {
+                        await YoutubeHelper.FFMpegConvertAsync(oldPath, newPath, $"-threads 1 {args}");
+                        fileName = Path.ChangeExtension(FileName, ext);
+                        DebugLog($"Converted {FileName} to {fileName} ({GetFileLengthKB(oldPath)} KB => {GetFileLengthKB(newPath)} KB)", Message);
+
+                        static long GetFileLengthKB(string filePath) => new FileInfo(filePath).Length / 1024;
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Failed to convert media {FilePath}: {ex}", Message);
+                        oldPath = newPath;
+                        newPath = FilePath;
+                    }
+
+                    try
+                    {
+                        File.Delete(oldPath);
+                    }
+                    catch { }
+
+                    FileArchivingChannel.Writer.TryWrite((fileName, newPath, Message, Delete: true));
+                }
+                catch (Exception ex)
+                {
+                    DebugLog($"Failed to archive media {FilePath}: {ex}", Message);
                 }
             }
         }
@@ -424,10 +475,12 @@ namespace MihuBot
             createLogStreamsTask.GetAwaiter().GetResult();
 
             LogChannel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions() { SingleReader = true });
-            FileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketMessage, bool)>(new UnboundedChannelOptions() { SingleReader = true });
+            MediaFileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage)>(new UnboundedChannelOptions() { SingleReader = true });
+            FileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage, bool)>(new UnboundedChannelOptions() { SingleReader = true });
 
             Task.Run(ChannelReaderTaskAsync);
             Task.Run(FileArchivingTaskAsync);
+            Task.Run(MediaFileArchivingTaskAsync);
 
             _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
 
@@ -830,12 +883,6 @@ RecipientAdded
                     if (!ShouldLogAttachments(userMessage))
                         break;
 
-                    if (isRetirementHome)
-                    {
-                        if (attachment.Size > 1024 * 1024 * 8) // 8 MB
-                            continue;
-                    }
-
                     if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                         !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
                     {
@@ -853,8 +900,7 @@ RecipientAdded
                     });
                 }
 
-                if (!isRetirementHome &&
-                    message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
+                if (message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                     ShouldLogAttachments(userMessage))
                 {
                     _ = Task.Run(() =>
@@ -925,7 +971,14 @@ RecipientAdded
 
                 DebugLog($"Downloaded {filePath}", message);
 
-                FileArchivingChannel.Writer.TryWrite((fileName, filePath, message, Delete: true));
+                if (ConvertableMediaExtensions.ContainsKey(Path.GetExtension(filePath)))
+                {
+                    MediaFileArchivingChannel.Writer.TryWrite((fileName, filePath, message));
+                }
+                else
+                {
+                    FileArchivingChannel.Writer.TryWrite((fileName, filePath, message, Delete: true));
+                }
 
                 int fileCount = Interlocked.Increment(ref _fileCounter);
 
