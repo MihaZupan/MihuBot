@@ -18,6 +18,7 @@
     <PackageReference Include="SendGrid" Version="9.24.2" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="1.0.3" />
+    <PackageReference Include="SpotifyAPI.Web" Version="6.2.1" />
     <PackageReference Include="TwitchLib" Version="3.2.0" />
     <PackageReference Include="YoutubeExplode" Version="6.0.5" />
   </ItemGroup>

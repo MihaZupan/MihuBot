@@ -1,6 +1,7 @@
 ﻿using Discord.Audio;
 using Discord.Rest;
 using Newtonsoft.Json;
+using SpotifyAPI.Web;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -22,13 +23,15 @@ namespace MihuBot.Audio
     public sealed class AudioCommands : CommandBase
     {
         public override string Command => "play";
-        public override string[] Aliases => new[] { "pause", "unpause", "resume", "skip", "volume", "audiodebug", "audiotempsettings" };
+        public override string[] Aliases => new[] { "p", "mplay", "pause", "unpause", "resume", "skip", "volume", "audiodebug", "audiotempsettings" };
 
         private readonly AudioService _audioService;
+        private readonly SpotifyClient _spotifyClient;
 
-        public AudioCommands(AudioService audioService)
+        public AudioCommands(AudioService audioService, SpotifyClient spotifyClient)
         {
             _audioService = audioService;
+            _spotifyClient = spotifyClient;
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -124,27 +127,84 @@ namespace MihuBot.Audio
                 if (ctx.Arguments.Length > 0)
                 {
                     string argument = ctx.Arguments[0];
-                    if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
+                    try
                     {
-                        List<PlaylistVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId);
-                        foreach (PlaylistVideo video in videos)
+                        if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
                         {
-                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            List<PlaylistVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId);
+                            foreach (PlaylistVideo video in videos)
+                            {
+                                await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            }
+                            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }
-                        await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                        else if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
+                        {
+                            Video video = await YoutubeHelper.GetVideoAsync(videoId);
+                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                        }
+                        else if (TryParseSpotifyPlaylistId(argument, out playlistId))
+                        {
+                            var page = await _spotifyClient.Playlists.GetItems(playlistId);
+
+                            bool foundAny = false;
+
+                            await foreach (FullTrack track in _spotifyClient.Paginate(page)
+                                .Select(t => t.Track)
+                                .OfType<FullTrack>())
+                            {
+                                var searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name);
+                                if (searchResult is not null)
+                                {
+                                    Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
+                                    await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+
+                                    if (!foundAny)
+                                    {
+                                        foundAny = true;
+                                        await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            await ctx.ReplyAsync("Sorry, I don't know that");
+                        }
                     }
-                    else if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
+                    catch (Exception ex)
                     {
-                        Video video = await YoutubeHelper.Youtube.Videos.GetAsync(videoId);
-                        await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
-                        await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
-                    }
-                    else
-                    {
-                        await ctx.ReplyAsync("Sorry, I don't know that");
+                        await ctx.DebugAsync(ex);
+                        await ctx.ReplyAsync($"Something went wrong :(\n`{ex.Message}`");
                     }
                 }
             }
+        }
+
+        private static bool TryParseSpotifyPlaylistId(string argument, out string playlistId)
+        {
+            playlistId = null;
+
+            if (!argument.Contains("spotify", StringComparison.OrdinalIgnoreCase) ||
+                !argument.Contains("playlist", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(argument, UriKind.Absolute, out Uri uri))
+            {
+                return false;
+            }
+
+            string path = uri.AbsolutePath;
+            if (!path.StartsWith("/playlist/", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            playlistId = path.Substring("/playlist/".Length);
+            return !playlistId.Contains('/');
         }
     }
 

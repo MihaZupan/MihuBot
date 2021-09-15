@@ -1,6 +1,8 @@
 ﻿using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Playlists;
+using YoutubeExplode.Search;
+using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
 namespace MihuBot.Helpers
@@ -236,6 +238,43 @@ namespace MihuBot.Helpers
 
             extension = bestAudio.Container.Name == "aac" ? ".aac" : ".vorbis";
             return bestAudio;
+        }
+
+        public static async Task<VideoSearchResult> TryFindSongAsync(string title, string artist)
+        {
+            try
+            {
+                string query = string.IsNullOrEmpty(artist) ? title : $"{artist} - {title}";
+                VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(3).ToArrayAsync();
+
+                if (results.Length != 0)
+                {
+                    var titleMatches = results.Where(r => r.Title.Contains(title, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (titleMatches.Length != 0)
+                    {
+                        results = titleMatches;
+                    }
+
+                    if (!string.IsNullOrEmpty(artist))
+                    {
+                        var artistMatches = results.Where(r => r.Title.Contains(artist, StringComparison.OrdinalIgnoreCase)).ToArray();
+                        if (artistMatches.Length != 0)
+                        {
+                            results = artistMatches;
+                        }
+                    }
+
+                    return results[0];
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        public static ValueTask<Video> GetVideoAsync(VideoId videoId, CancellationToken cancellationToken = default)
+        {
+            return Youtube.Videos.GetAsync(videoId, cancellationToken);
         }
     }
 }

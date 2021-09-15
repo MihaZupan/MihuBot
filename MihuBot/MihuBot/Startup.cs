@@ -8,6 +8,7 @@ using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
+using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
 
 namespace MihuBot
@@ -110,6 +111,11 @@ namespace MihuBot
             services.AddSingleton<IHusbandoService, HusbandoService>();
 
             services.AddSingleton<IWeatherService, WeatherService>();
+
+            services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
+                .WithAuthenticator(new ClientCredentialsAuthenticator(
+                    Configuration["Spotify:ClientId"],
+                    Configuration["Spotify:ClientSecret"]))));
 
             services.AddSingleton<AudioService>();
 
