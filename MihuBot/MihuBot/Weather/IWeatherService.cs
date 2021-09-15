@@ -2,6 +2,6 @@
 {
     public interface IWeatherService
     {
-        public Task<WeatherData> GetWeatherDataAsync(string location);
+        public Task<WeatherData> GetWeatherDataAsync(string location, long? cityId);
     }
 }

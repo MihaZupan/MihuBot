@@ -14,9 +14,15 @@ namespace MihuBot.Weather
             _apiKey = configuration["OpenWeather:ApiKey"];
         }
 
-        public async Task<WeatherData> GetWeatherDataAsync(string location)
+        public async Task<WeatherData> GetWeatherDataAsync(string location, long? cityId)
         {
-            string url = $"https://api.openweathermap.org/data/2.5/weather?q={Uri.EscapeDataString(location)}&units=metric&appid={_apiKey}";
+            if (location is null && cityId is null)
+            {
+                throw new ArgumentNullException(nameof(location));
+            }
+
+            string query = location is null ? $"id={cityId}" : $"q={Uri.EscapeDataString(location)}";
+            string url = $"https://api.openweathermap.org/data/2.5/weather?{query}&units=metric&appid={_apiKey}";
             string json = await _http.GetStringAsync(url);
             OpenWeatherModel response = JsonConvert.DeserializeObject<OpenWeatherModel>(json);
 
@@ -30,7 +36,8 @@ namespace MihuBot.Weather
                 Pressure = response.Main.Pressure,
                 WindSpeed = response.Wind.Speed,
                 Country = response.Sys.Country,
-                Name = response.Name,
+                CityName = response.Name,
+                CityId = response.Id,
                 Timezone = response.Timezone,
                 Description = response.Weather.First().Description,
                 IconUrl = $"http://openweathermap.org/img/wn/{response.Weather.First().Icon}@2x.png",
@@ -52,7 +59,7 @@ namespace MihuBot.Weather
             public int Dt;
             public SysModel Sys;
             public int Timezone;
-            public int Id;
+            public long Id;
             public string Name;
             public int Cod;
 

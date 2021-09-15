@@ -2,7 +2,8 @@
 {
     public sealed class WeatherData
     {
-        public string Name;
+        public string CityName;
+        public long CityId;
         public string Country;
         public int Timezone;
 

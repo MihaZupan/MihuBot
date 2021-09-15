@@ -38,7 +38,13 @@ namespace MihuBot.Commands
             WeatherData weather;
             try
             {
-                weather = await _weather.GetWeatherDataAsync(location);
+                string cityName = location;
+                if (long.TryParse(cityName, out long cityId))
+                {
+                    cityName = null;
+                }
+
+                weather = await _weather.GetWeatherDataAsync(cityName, cityId);
             }
             catch (Exception ex)
             {
@@ -46,8 +52,6 @@ namespace MihuBot.Commands
                 await ctx.ReplyAsync("Sorry, couldn't find that", mention: true);
                 return;
             }
-
-            location = weather.Name;
 
             Color color = weather.FeelsLike switch
             {
@@ -65,7 +69,7 @@ namespace MihuBot.Commands
             string localTime = DateTime.UtcNow.AddSeconds(weather.Timezone).ToString("HH:mm (h:mm tt)");
 
             var embed = new EmbedBuilder()
-                .WithTitle($"{location} ({weather.Country})")
+                .WithTitle($"{weather.CityName} ({weather.Country})")
                 .WithDescription($"Currently: {weather.Description}\nTemperature: {temperature}\nFeels like: {feelsLike}\nLocal time: {localTime}")
                 .WithThumbnailUrl(weather.IconUrl)
                 .WithColor(color);
@@ -77,7 +81,7 @@ namespace MihuBot.Commands
                 var locations = await _locations.EnterAsync();
                 try
                 {
-                    locations[ctx.AuthorId] = location;
+                    locations[ctx.AuthorId] = weather.CityId.ToString();
                 }
                 finally
                 {
