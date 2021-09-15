@@ -146,6 +146,9 @@ namespace MihuBot.Audio
                         }
                         else if (TryParseSpotifyPlaylistId(argument, out playlistId))
                         {
+                            await ctx.ReplyAsync("Spotify doesn't work just yet");
+                            return;
+
                             var page = await _spotifyClient.Playlists.GetItems(playlistId);
 
                             bool foundAny = false;
