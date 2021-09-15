@@ -14,7 +14,7 @@
             KnownUsers.Darling,
         };
 
-        public const float VCDefaultVolume = 0.45f;
+        public const float VCDefaultVolume = 0.30f;
 
         public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
 

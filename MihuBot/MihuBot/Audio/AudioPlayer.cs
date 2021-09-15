@@ -21,7 +21,7 @@ namespace MihuBot.Audio
 
     public sealed class AudioCommands : CommandBase
     {
-        public override string Command => "mplay";
+        public override string Command => "play";
         public override string[] Aliases => new[] { "pause", "unpause", "resume", "skip", "volume", "audiodebug", "audiotempsettings" };
 
         private readonly AudioService _audioService;
