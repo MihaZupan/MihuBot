@@ -151,7 +151,7 @@ namespace MihuBot
                         else
                         {
                             directory = "Discord/Logs/";
-                            fileName = "blobName";
+                            fileName = blobName;
                         }
 
                         directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
