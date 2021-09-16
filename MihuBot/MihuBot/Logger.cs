@@ -155,11 +155,20 @@ namespace MihuBot
                         }
 
                         directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
+                        fileName = $"{directory}{fileName}";
 
-                        await _nextCloudClient.CreateDirectoryAsync(directory);
+                        try
+                        {
+                            using FileStream fs = File.OpenRead(FilePath);
+                            await _nextCloudClient.UploadFileAsync(fileName, fs);
+                        }
+                        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                        {
+                            await _nextCloudClient.CreateDirectoryAsync(directory);
 
-                        using FileStream fs = File.OpenRead(FilePath);
-                        await _nextCloudClient.UploadFileAsync($"{directory}{fileName}", fs);
+                            using FileStream fs = File.OpenRead(FilePath);
+                            await _nextCloudClient.UploadFileAsync(fileName, fs);
+                        }
                     }
                     catch (Exception ex)
                     {
