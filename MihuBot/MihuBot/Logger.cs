@@ -172,7 +172,8 @@ namespace MihuBot
                         extension == ".jpg" ||
                         extension == ".jpeg" ||
                         extension == ".png" ||
-                        extension == ".gif";
+                        extension == ".gif" ||
+                        extension == ".webp";
 
                     AccessTier accessTier = extension switch
                     {
