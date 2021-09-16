@@ -5,6 +5,7 @@ using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
 using MihuBot.Husbando;
+using MihuBot.NextCloud;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
@@ -38,6 +39,12 @@ namespace MihuBot
                 AutomaticDecompression = DecompressionMethods.All
             });
             services.AddSingleton(httpClient);
+
+            var nextCloudClient = new NextCloudClient(httpClient,
+                Configuration["NextCloud:Server"],
+                Configuration["NextCloud:User"],
+                Configuration["NextCloud:Password"]);
+            services.AddSingleton(nextCloudClient);
 
             var discordConfig = new DiscordSocketConfig()
             {
@@ -92,6 +99,7 @@ namespace MihuBot
                             return !user.GetPermissions(channel).ViewChannel;
                         }
                     },
+                    nextCloudClient,
                     Configuration);
 
                 services.AddSingleton(customLogger);

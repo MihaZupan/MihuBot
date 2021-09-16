@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using MihuBot.NextCloud;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.IO.Compression;
@@ -19,6 +20,7 @@ namespace MihuBot
         public readonly LoggerOptions Options;
 
         private readonly HttpClient _http;
+        private readonly NextCloudClient _nextCloudClient;
 
         private DiscordSocketClient Discord => Options.Discord;
 
@@ -46,6 +48,14 @@ namespace MihuBot
 
         private const ulong IgnoredListChannelId = 806065691689746432ul;
         private static ConcurrentDictionary<ulong, bool> _ignoredGuildsAndChannels = new();
+
+        private static readonly Dictionary<string, (string Ext, string Args)> ConvertableMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            { ".jpg",   (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".jpeg",  (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".png",   (".webp",   "-pix_fmt yuv420p -q 75") },
+            { ".wav",   (".mp3",    "-b:a 192k") },
+        };
 
         public async Task OnShutdownAsync()
         {
@@ -123,6 +133,39 @@ namespace MihuBot
             {
                 try
                 {
+                    string blobName = FilePath
+                        .Substring(Options.LogsRoot.Length)
+                        .Replace('/', '_')
+                        .Replace('\\', '_');
+
+                    try
+                    {
+                        string directory;
+                        string fileName;
+
+                        if (blobName.StartsWith("files_", StringComparison.Ordinal))
+                        {
+                            directory = "Discord/Files/";
+                            fileName = blobName.Substring("files_".Length);
+                        }
+                        else
+                        {
+                            directory = "Discord/Logs/";
+                            fileName = "blobName";
+                        }
+
+                        directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
+
+                        await _nextCloudClient.CreateDirectoryAsync(directory);
+
+                        using FileStream fs = File.OpenRead(FilePath);
+                        await _nextCloudClient.UploadFileAsync($"{directory}{fileName}", fs);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLog($"Failed to archive {FilePath} to NextCloud: {ex}", Message);
+                    }
+
                     string extension = Path.GetExtension(FilePath).ToLowerInvariant();
 
                     bool isImage =
@@ -150,11 +193,6 @@ namespace MihuBot
                     {
                         accessTier = AccessTier.Cool;
                     }
-
-                    string blobName = FilePath
-                        .Substring(Options.LogsRoot.Length)
-                        .Replace('/', '_')
-                        .Replace('\\', '_');
 
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
@@ -202,14 +240,6 @@ namespace MihuBot
                 }
             }
         }
-
-        private static readonly Dictionary<string, (string Ext, string Args)> ConvertableMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
-        {
-            { ".jpg",   (".webp",   "-pix_fmt yuv420p -q 75") },
-            { ".jpeg",  (".webp",   "-pix_fmt yuv420p -q 75") },
-            { ".png",   (".webp",   "-pix_fmt yuv420p -q 75") },
-            { ".wav",   (".mp3",    "-b:a 192k") },
-        };
 
         private async Task MediaFileArchivingTaskAsync()
         {
@@ -458,10 +488,11 @@ namespace MihuBot
             return Options.ShouldLogAttachments(message);
         }
 
-        public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
+        public Logger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
         {
             _http = httpClient;
             Options = options;
+            _nextCloudClient = nextCloudClient;
 
             BlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString"],
