@@ -22,8 +22,10 @@ namespace MihuBot.Audio
 
     public sealed class AudioCommands : CommandBase
     {
-        public override string Command => "play";
-        public override string[] Aliases => new[] { "p", "mplay", "pause", "unpause", "resume", "skip", "volume", "audiodebug", "audiotempsettings" };
+        private static readonly string[] AvailableCommands = new[] { "p", "play", "pause", "unpause", "resume", "skip", "volume" };
+
+        public override string Command => "mplay";
+        public override string[] Aliases => AvailableCommands.Concat(new[] { "audiocommands", "audiodebug", "audiotempsettings" }).ToArray();
 
         private readonly AudioService _audioService;
         private readonly SpotifyClient _spotifyClient;
@@ -53,6 +55,12 @@ namespace MihuBot.Audio
                     GlobalAudioSettings.MinBitrateKb = bitrateKbit;
                 }
 
+                return;
+            }
+
+            if (ctx.Command == "mplay" || ctx.Command == "audiocommands")
+            {
+                await ctx.ReplyAsync($"I know of these: {string.Join(", ", AvailableCommands.Select(c => $"`!{c}`"))}");
                 return;
             }
 
