@@ -150,19 +150,21 @@
         private static void SerializeGuild(SocketGuild guild, StringBuilder sb)
         {
             sb.Append(guild.Name).Append(" (").Append(guild.Id).AppendLine(")");
-            sb.Append(guild.MemberCount).Append(" members");
+            sb.Append(guild.MemberCount).AppendLine(" members");
             sb.AppendLine(guild.Description);
             sb.AppendLine();
 
+            sb.AppendLine("Text channels:");
             foreach (SocketTextChannel channel in guild.TextChannels)
             {
-                sb.Append("Text channel ").Append(channel.Id.ToString().PadRight(21, ' ')).AppendLine(channel.Name);
+                sb.Append(channel.Id.ToString().PadRight(20, ' ')).AppendLine(channel.Name);
             }
             sb.AppendLine();
 
+            sb.AppendLine("Voice channels:");
             foreach (SocketVoiceChannel channel in guild.VoiceChannels)
             {
-                sb.Append("Voice channel ").Append(channel.Id.ToString().PadRight(21, ' ')).AppendLine(channel.Name);
+                sb.Append(channel.Id.ToString().PadRight(20, ' ')).AppendLine(channel.Name);
             }
         }
     }
