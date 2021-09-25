@@ -179,6 +179,11 @@ namespace MihuBot.Audio
                                 }
                             }
                         }
+                        else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString) is { } video)
+                        {
+                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                        }
                         else
                         {
                             await ctx.ReplyAsync("Sorry, I don't know that");

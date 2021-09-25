@@ -245,6 +245,28 @@ namespace MihuBot.Helpers
             return bestAudio;
         }
 
+        public static async Task<VideoSearchResult> TrySearchAsync(string query)
+        {
+            try
+            {
+                VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(5).ToArrayAsync();
+
+                if (results.Length != 0)
+                {
+                    var titleMatches = results.Where(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (titleMatches.Length != 0)
+                    {
+                        results = titleMatches;
+                    }
+
+                    return results[0];
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
         public static async Task<VideoSearchResult> TryFindSongAsync(string title, string artist)
         {
             try
