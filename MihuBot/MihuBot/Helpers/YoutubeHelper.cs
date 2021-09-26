@@ -107,9 +107,34 @@ namespace MihuBot.Helpers
         public static readonly YoutubeClient Youtube = new();
         public static readonly StreamClient Streams = Youtube.Videos.Streams;
 
-        public static async Task<List<PlaylistVideo>> GetVideosAsync(string playlistId)
+        public static async Task<List<IVideo>> GetVideosAsync(string playlistId, YouTubeService youtubeService = null)
         {
-            return await Youtube.Playlists.GetVideosAsync(playlistId).ToListAsync();
+            if (youtubeService is not null)
+            {
+                List<IVideo> videos = new();
+
+                string pageToken = "";
+                while (pageToken is not null)
+                {
+                    PlaylistItemsResource.ListRequest playlistItemsRequest = youtubeService.PlaylistItems.List("snippet");
+                    playlistItemsRequest.Id = playlistId;
+                    playlistItemsRequest.PageToken = pageToken;
+
+                    var response = await playlistItemsRequest.ExecuteAsync();
+                    pageToken = playlistItemsRequest.PageToken;
+
+                    foreach (var item in response.Items)
+                    {
+                        videos.Add(Transform(item));
+                    }
+                }
+
+                return videos;
+            }
+            else
+            {
+                return await Youtube.Playlists.GetVideosAsync(playlistId).Select(v => (IVideo)v).ToListAsync();
+            }
         }
 
         public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus)
@@ -150,11 +175,11 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus)
+        public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus, YouTubeService youtubeService = null)
         {
             try
             {
-                List<PlaylistVideo> videos = await GetVideosAsync(id);
+                List<IVideo> videos = await GetVideosAsync(id, youtubeService);
 
                 Console.WriteLine("Processing playlist with " + videos.Count + " items");
 
@@ -257,7 +282,6 @@ namespace MihuBot.Helpers
                     searchListRequest.Q = query;
                     searchListRequest.MaxResults = 5;
                     searchListRequest.Type = "video";
-                    searchListRequest.EventType = SearchResource.ListRequest.EventTypeEnum.Completed;
 
                     var searchListResponse = await searchListRequest.ExecuteAsync();
 
@@ -271,18 +295,7 @@ namespace MihuBot.Helpers
                             bestMatch = searchListResponse.Items.First();
                         }
 
-                        var snippet = bestMatch.Snippet;
-
-                        return new Video(bestMatch.Id.VideoId, snippet.Title,
-                            new Author(snippet.ChannelId, snippet.ChannelTitle),
-                            snippet.PublishedAt ?? new DateTime(3000, 1, 1),
-                            snippet.Description,
-                            duration: null,
-                            thumbnails: new Thumbnail[] {
-                                new Thumbnail(snippet.Thumbnails.Maxres.Url, new Resolution((int)(snippet.Thumbnails.Maxres.Width ?? 1), (int)(snippet.Thumbnails.Maxres.Height ?? 1)))
-                            },
-                            keywords: Array.Empty<string>(),
-                            engagement: new Engagement(0, 0, 0));
+                        return Transform(bestMatch);
                     }
                 }
                 else
@@ -308,12 +321,50 @@ namespace MihuBot.Helpers
 
         public static Task<IVideo> TryFindSongAsync(string title, string artist, YouTubeService youtubeService = null)
         {
-            return TrySearchAsync(string.IsNullOrEmpty(artist) ? title : $"{artist} - {title}", youtubeService);
+            return TrySearchAsync($"{artist} {title}", youtubeService);
         }
 
         public static ValueTask<Video> GetVideoAsync(VideoId videoId, CancellationToken cancellationToken = default)
         {
             return Youtube.Videos.GetAsync(videoId, cancellationToken);
+        }
+
+        private static IVideo Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
+        {
+            var snippet = searchResult.Snippet;
+            var thumbnail = snippet.Thumbnails.Maxres ?? snippet.Thumbnails.High ?? snippet.Thumbnails.Standard ?? snippet.Thumbnails.Default__;
+
+            return new Video(
+                searchResult.Id.VideoId,
+                snippet.Title,
+                new Author(snippet.ChannelId, snippet.ChannelTitle),
+                snippet.PublishedAt ?? new DateTime(3000, 1, 1),
+                snippet.Description,
+                duration: null,
+                thumbnails: new Thumbnail[] {
+                    new Thumbnail(thumbnail.Url, new Resolution((int)(thumbnail.Width ?? 1), (int)(thumbnail.Height ?? 1)))
+                },
+                keywords: Array.Empty<string>(),
+                engagement: new Engagement(0, 0, 0));
+        }
+
+        private static IVideo Transform(Google.Apis.YouTube.v3.Data.PlaylistItem playlistItem)
+        {
+            var snippet = playlistItem.Snippet;
+            var thumbnail = snippet.Thumbnails.Maxres ?? snippet.Thumbnails.High ?? snippet.Thumbnails.Standard ?? snippet.Thumbnails.Default__;
+
+            return new Video(
+                playlistItem.Id,
+                snippet.Title,
+                new Author(snippet.ChannelId, snippet.ChannelTitle),
+                snippet.PublishedAt ?? new DateTime(3000, 1, 1),
+                snippet.Description,
+                duration: null,
+                thumbnails: new Thumbnail[] {
+                    new Thumbnail(thumbnail.Url, new Resolution((int)(thumbnail.Width ?? 1), (int)(thumbnail.Height ?? 1)))
+                },
+                keywords: Array.Empty<string>(),
+                engagement: new Engagement(0, 0, 0));
         }
     }
 }

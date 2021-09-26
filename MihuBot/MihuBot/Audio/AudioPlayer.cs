@@ -168,8 +168,8 @@ namespace MihuBot.Audio
                         }
                         else if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
                         {
-                            List<PlaylistVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId);
-                            foreach (PlaylistVideo video in videos)
+                            List<IVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId, _youtubeService);
+                            foreach (IVideo video in videos)
                             {
                                 await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
                             }
@@ -185,7 +185,7 @@ namespace MihuBot.Audio
                                 .Select(t => t.Track)
                                 .OfType<FullTrack>())
                             {
-                                var searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
+                                IVideo searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
                                 if (searchResult is not null)
                                 {
                                     Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
@@ -199,7 +199,18 @@ namespace MihuBot.Audio
                                 }
                             }
                         }
-                        else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString, _youtubeService) is { } video)
+                        else if (TryParseSpotifyTrackId(argument, out string trackId))
+                        {
+                            FullTrack track = await _spotifyClient.Tracks.Get(trackId);
+                            IVideo searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
+                            if (searchResult is not null)
+                            {
+                                Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
+                                await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                                await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                            }
+                        }
+                        else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString.Replace('-', ' '), _youtubeService) is { } video)
                         {
                             await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
@@ -241,6 +252,31 @@ namespace MihuBot.Audio
 
             playlistId = path.Substring("/playlist/".Length);
             return !playlistId.Contains('/');
+        }
+
+        private static bool TryParseSpotifyTrackId(string argument, out string trackId)
+        {
+            trackId = null;
+
+            if (!argument.Contains("spotify", StringComparison.OrdinalIgnoreCase) ||
+                !argument.Contains("track", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!Uri.TryCreate(argument, UriKind.Absolute, out Uri uri))
+            {
+                return false;
+            }
+
+            string path = uri.AbsolutePath;
+            if (!path.StartsWith("/track/", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            trackId = path.Substring("/track/".Length);
+            return !trackId.Contains('/');
         }
     }
 

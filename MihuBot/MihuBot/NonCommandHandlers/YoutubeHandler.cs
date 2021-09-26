@@ -1,7 +1,16 @@
-﻿namespace MihuBot.NonCommandHandlers
+﻿using Google.Apis.YouTube.v3;
+
+namespace MihuBot.NonCommandHandlers
 {
     public sealed class YoutubeHandler : NonCommandHandler
     {
+        private readonly YouTubeService _youtubeService;
+
+        public YoutubeHandler(YouTubeService youtubeService)
+        {
+            _youtubeService = youtubeService;
+        }
+
         public override Task HandleAsync(MessageContext ctx)
         {
             if (ctx.Content.Contains("youtu", StringComparison.OrdinalIgnoreCase) && ctx.IsMentioned)
@@ -16,7 +25,7 @@
                 }
                 else if (parts.Any(p => YoutubeHelper.TryParsePlaylistId(p, out playlistId)))
                 {
-                    _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, ctx.Channel, useOpus));
+                    _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, ctx.Channel, useOpus, _youtubeService));
                 }
             }
 
