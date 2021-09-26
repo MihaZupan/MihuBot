@@ -1,5 +1,7 @@
-﻿using System.Text.RegularExpressions;
+﻿using Google.Apis.YouTube.v3;
+using System.Text.RegularExpressions;
 using YoutubeExplode;
+using YoutubeExplode.Common;
 using YoutubeExplode.Playlists;
 using YoutubeExplode.Search;
 using YoutubeExplode.Videos;
@@ -245,21 +247,58 @@ namespace MihuBot.Helpers
             return bestAudio;
         }
 
-        public static async Task<VideoSearchResult> TrySearchAsync(string query)
+        public static async Task<IVideo> TrySearchAsync(string query, YouTubeService youtubeService = null)
         {
             try
             {
-                VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(5).ToArrayAsync();
-
-                if (results.Length != 0)
+                if (youtubeService is not null)
                 {
-                    var titleMatches = results.Where(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
-                    if (titleMatches.Length != 0)
-                    {
-                        results = titleMatches;
-                    }
+                    SearchResource.ListRequest searchListRequest = youtubeService.Search.List("snippet");
+                    searchListRequest.Q = query;
+                    searchListRequest.MaxResults = 5;
+                    searchListRequest.Type = "video";
+                    searchListRequest.EventType = SearchResource.ListRequest.EventTypeEnum.Completed;
 
-                    return results[0];
+                    var searchListResponse = await searchListRequest.ExecuteAsync();
+
+                    if (searchListResponse.Items.Count != 0)
+                    {
+                        Google.Apis.YouTube.v3.Data.SearchResult bestMatch =
+                            searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
+
+                        if (bestMatch is null)
+                        {
+                            bestMatch = searchListResponse.Items.First();
+                        }
+
+                        var snippet = bestMatch.Snippet;
+
+                        return new Video(bestMatch.Id.VideoId, snippet.Title,
+                            new Author(snippet.ChannelId, snippet.ChannelTitle),
+                            snippet.PublishedAt ?? new DateTime(3000, 1, 1),
+                            snippet.Description,
+                            duration: null,
+                            thumbnails: new Thumbnail[] {
+                                new Thumbnail(snippet.Thumbnails.Maxres.Url, new Resolution((int)(snippet.Thumbnails.Maxres.Width ?? 1), (int)(snippet.Thumbnails.Maxres.Height ?? 1)))
+                            },
+                            keywords: Array.Empty<string>(),
+                            engagement: new Engagement(0, 0, 0));
+                    }
+                }
+                else
+                {
+                    VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(5).ToArrayAsync();
+
+                    if (results.Length != 0)
+                    {
+                        VideoSearchResult titleMatch = results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
+                        if (titleMatch is not null)
+                        {
+                            return titleMatch;
+                        }
+
+                        return results[0];
+                    }
                 }
             }
             catch { }
@@ -267,36 +306,9 @@ namespace MihuBot.Helpers
             return null;
         }
 
-        public static async Task<VideoSearchResult> TryFindSongAsync(string title, string artist)
+        public static Task<IVideo> TryFindSongAsync(string title, string artist, YouTubeService youtubeService = null)
         {
-            try
-            {
-                string query = string.IsNullOrEmpty(artist) ? title : $"{artist} - {title}";
-                VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(3).ToArrayAsync();
-
-                if (results.Length != 0)
-                {
-                    var titleMatches = results.Where(r => r.Title.Contains(title, StringComparison.OrdinalIgnoreCase)).ToArray();
-                    if (titleMatches.Length != 0)
-                    {
-                        results = titleMatches;
-                    }
-
-                    if (!string.IsNullOrEmpty(artist))
-                    {
-                        var artistMatches = results.Where(r => r.Title.Contains(artist, StringComparison.OrdinalIgnoreCase)).ToArray();
-                        if (artistMatches.Length != 0)
-                        {
-                            results = artistMatches;
-                        }
-                    }
-
-                    return results[0];
-                }
-            }
-            catch { }
-
-            return null;
+            return TrySearchAsync(string.IsNullOrEmpty(artist) ? title : $"{artist} - {title}", youtubeService);
         }
 
         public static ValueTask<Video> GetVideoAsync(VideoId videoId, CancellationToken cancellationToken = default)

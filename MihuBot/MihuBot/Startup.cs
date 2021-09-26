@@ -1,4 +1,6 @@
 using AspNet.Security.OAuth.Discord;
+using Google.Apis.Services;
+using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using MihuBot.Audio;
@@ -124,6 +126,12 @@ namespace MihuBot
                 .WithAuthenticator(new ClientCredentialsAuthenticator(
                     Configuration["Spotify:ClientId"],
                     Configuration["Spotify:ClientSecret"]))));
+
+            services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
+            {
+                ApiKey = Configuration["Youtube:ApiKey"],
+                ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
+            }));
 
             services.AddSingleton<AudioService>();
 

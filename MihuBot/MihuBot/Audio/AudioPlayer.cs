@@ -1,5 +1,6 @@
 ﻿using Discord.Audio;
 using Discord.Rest;
+using Google.Apis.YouTube.v3;
 using Newtonsoft.Json;
 using SpotifyAPI.Web;
 using System.Collections.Concurrent;
@@ -29,11 +30,13 @@ namespace MihuBot.Audio
 
         private readonly AudioService _audioService;
         private readonly SpotifyClient _spotifyClient;
+        private readonly YouTubeService _youtubeService;
 
-        public AudioCommands(AudioService audioService, SpotifyClient spotifyClient)
+        public AudioCommands(AudioService audioService, SpotifyClient spotifyClient, YouTubeService youtubeService)
         {
             _audioService = audioService;
             _spotifyClient = spotifyClient;
+            _youtubeService = youtubeService;
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -174,9 +177,6 @@ namespace MihuBot.Audio
                         }
                         else if (TryParseSpotifyPlaylistId(argument, out playlistId))
                         {
-                            await ctx.ReplyAsync("Spotify doesn't work just yet");
-                            return;
-
                             var page = await _spotifyClient.Playlists.GetItems(playlistId);
 
                             bool foundAny = false;
@@ -185,7 +185,7 @@ namespace MihuBot.Audio
                                 .Select(t => t.Track)
                                 .OfType<FullTrack>())
                             {
-                                var searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name);
+                                var searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
                                 if (searchResult is not null)
                                 {
                                     Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
@@ -199,7 +199,7 @@ namespace MihuBot.Audio
                                 }
                             }
                         }
-                        else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString) is { } video)
+                        else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString, _youtubeService) is { } video)
                         {
                             await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
