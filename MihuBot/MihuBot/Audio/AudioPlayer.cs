@@ -22,7 +22,7 @@ namespace MihuBot.Audio
 
     public sealed class AudioCommands : CommandBase
     {
-        private static readonly string[] AvailableCommands = new[] { "p", "play", "pause", "unpause", "resume", "skip", "volume" };
+        private static readonly string[] AvailableCommands = new[] { "p", "play", "pause", "unpause", "resume", "skip", "volume", "queue" };
 
         public override string Command => "mplay";
         public override string[] Aliases => AvailableCommands.Concat(new[] { "audiocommands", "audiodebug", "audiotempsettings" }).ToArray();
@@ -58,13 +58,21 @@ namespace MihuBot.Audio
                 return;
             }
 
-            if (ctx.Command == "mplay" || ctx.Command == "audiocommands")
+            string command = ctx.Command;
+            if (ctx.Arguments.Length == 1 && (command == "p" || command == "play") && AvailableCommands.Contains(ctx.Arguments[0], StringComparison.OrdinalIgnoreCase))
+            {
+                command = ctx.Arguments[0].ToLowerInvariant();
+            }
+
+            if (command == "mplay" || command == "audiocommands")
             {
                 await ctx.ReplyAsync($"I know of these: {string.Join(", ", AvailableCommands.Select(c => $"`!{c}`"))}");
                 return;
             }
 
-            if (ctx.Command == "pause" || ctx.Command == "unpause" || ctx.Command == "resume" || ctx.Command == "skip" || ctx.Command == "volume" || ctx.Command == "audiodebug")
+            if (command == "pause" || command == "unpause" || command == "resume" ||
+                command == "skip" || command == "volume" || command == "audiodebug" ||
+                command == "queue")
             {
                 if (audioPlayer is not null)
                 {
@@ -81,10 +89,10 @@ namespace MihuBot.Audio
 
                     try
                     {
-                        if (ctx.Command == "pause") audioPlayer.Pause();
-                        else if (ctx.Command == "unpause" || ctx.Command == "resume") audioPlayer.Unpause();
-                        else if (ctx.Command == "skip") await audioPlayer.MoveNextAsync();
-                        else if (ctx.Command == "volume")
+                        if (command == "pause") audioPlayer.Pause();
+                        else if (command == "unpause" || command == "resume") audioPlayer.Unpause();
+                        else if (command == "skip") await audioPlayer.MoveNextAsync();
+                        else if (command == "volume")
                         {
                             if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
                             {
@@ -95,7 +103,14 @@ namespace MihuBot.Audio
                                 await ctx.ReplyAsync("Please specify a volume like `!volume 50`", mention: true);
                             }
                         }
-                        else if (ctx.Command == "audiodebug" && await ctx.RequirePermissionAsync(ctx.Command))
+                        else if (command == "queue")
+                        {
+                            if (permissions.SendMessages)
+                            {
+                                await audioPlayer.PostQueueAsync();
+                            }
+                        }
+                        else if (command == "audiodebug" && await ctx.RequirePermissionAsync(command))
                         {
                             var sb = new StringBuilder();
                             await audioPlayer.DebugDumpAsync(sb);
@@ -130,6 +145,11 @@ namespace MihuBot.Audio
                     }
 
                     audioPlayer = await _audioService.GetOrCreateAudioPlayerAsync(ctx.Discord, ctx.Channel, voiceChannel);
+
+                    if (permissions.SendMessages)
+                    {
+                        audioPlayer.LastTextChannel = ctx.Channel;
+                    }
                 }
 
                 if (ctx.Arguments.Length > 0)
@@ -137,19 +157,19 @@ namespace MihuBot.Audio
                     string argument = ctx.Arguments[0];
                     try
                     {
-                        if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
+                        if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
+                        {
+                            Video video = await YoutubeHelper.GetVideoAsync(videoId);
+                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                        }
+                        else if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
                         {
                             List<PlaylistVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId);
                             foreach (PlaylistVideo video in videos)
                             {
                                 await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
                             }
-                            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
-                        }
-                        else if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
-                        {
-                            Video video = await YoutubeHelper.GetVideoAsync(videoId);
-                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }
                         else if (TryParseSpotifyPlaylistId(argument, out playlistId))
@@ -693,6 +713,52 @@ namespace MihuBot.Audio
                 sb.Append(' ', Math.Max(0, 15 - name.Length));
                 sb.Append(value);
                 sb.AppendLine();
+            }
+        }
+
+        public async Task PostQueueAsync()
+        {
+            var builder = new EmbedBuilder()
+                .WithTitle("Queue")
+                .WithColor(0x00, 0x42, 0xFF);
+
+            if (_currentAudioSource is IAudioSource currentSource)
+            {
+                string escapedTitle = currentSource.Description
+                    .Replace("[", "\\[", StringComparison.Ordinal)
+                    .Replace("]", "\\]", StringComparison.Ordinal);
+
+                builder.WithDescription($"Now playing [{escapedTitle}]({currentSource.Url}) (requested by {MentionUtils.MentionUser(currentSource.Requester.Id)})");
+                builder.WithThumbnailUrl(currentSource.ThumbnailUrl);
+            }
+
+            await _lock.WaitAsync();
+            try
+            {
+                int count = 0;
+                foreach (IAudioSource audioSource in _audioSources.Take(25))
+                {
+                    count++;
+
+                    string escapedTitle = audioSource.Description
+                        .Replace("[", "\\[", StringComparison.Ordinal)
+                        .Replace("]", "\\]", StringComparison.Ordinal);
+
+                    builder.AddField($"{count}. [{escapedTitle}]({audioSource.Url})", $"Requested by {MentionUtils.MentionUser(audioSource.Requester.Id)}", inline: true);
+                }
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            if (string.IsNullOrEmpty(builder.Title) && builder.Fields.Count == 0)
+            {
+                await LastTextChannel.SendMessageAsync("The queue is currently empty");
+            }
+            else
+            {
+                await LastTextChannel.SendMessageAsync(embed: builder.Build(), allowedMentions: AllowedMentions.None);
             }
         }
     }
