@@ -1014,7 +1014,7 @@ RecipientAdded
                         if (links.Count != 0)
                         {
                             string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
-                            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}", userMessage);
+                            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}\n\n{message.GetJumpUrl()}");
                         }
                     }
                     catch { }
