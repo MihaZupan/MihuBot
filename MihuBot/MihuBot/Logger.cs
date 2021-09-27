@@ -941,27 +941,32 @@ RecipientAdded
                     });
                 }
 
-                if (message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
+                if (message.Content.Contains('/') &&
+                    message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                     ShouldLogAttachments(userMessage))
                 {
                     _ = Task.Run(() =>
                     {
-                        foreach (Match match in _cdnLinksRegex.Matches(message.Content))
+                        try
                         {
-                            var url = match.Value;
-                            if (Uri.TryCreate(url, UriKind.Absolute, out _) && _cdnLinksHashSet.TryAdd(url.Substring(CdnLinkPrefix.Length)))
+                            foreach (Match match in _cdnLinksRegex.Matches(message.Content))
                             {
-                                Task.Run(async () =>
+                                var url = match.Value;
+                                if (Uri.TryCreate(url, UriKind.Absolute, out _) && _cdnLinksHashSet.TryAdd(url.Substring(CdnLinkPrefix.Length)))
                                 {
-                                    await DownloadFileAsync(
-                                        url,
-                                        (message.EditedTimestamp ?? message.Timestamp).UtcDateTime,
-                                        message.Id,
-                                        url.SplitLastTrimmed('/'),
-                                        userMessage);
-                                });
+                                    Task.Run(async () =>
+                                    {
+                                        await DownloadFileAsync(
+                                            url,
+                                            (message.EditedTimestamp ?? message.Timestamp).UtcDateTime,
+                                            message.Id,
+                                            url.SplitLastTrimmed('/'),
+                                            userMessage);
+                                    });
+                                }
                             }
                         }
+                        catch { }
                     });
                 }
             }
@@ -988,6 +993,27 @@ RecipientAdded
                         }
 
                         _ignoredGuildsAndChannels = ignored;
+                    }
+                    catch { }
+                });
+            }
+
+            if (message.Content.Contains('/') && message.Content.Contains("https://discord.gift/", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        List<string> links = Regex.Matches(message.Content, @"https:\/\/discord\.gift\/[^\s]+", RegexOptions.IgnoreCase)
+                            .Select(r => r.Value)
+                            .Where(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
+                            .ToList();
+
+                        if (links.Count != 0)
+                        {
+                            string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
+                            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}", userMessage);
+                        }
                     }
                     catch { }
                 });
