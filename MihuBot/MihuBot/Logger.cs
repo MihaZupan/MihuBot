@@ -1000,23 +1000,23 @@ RecipientAdded
 
             if (message.Content.Contains('/') && message.Content.Contains("https://discord.gift/", StringComparison.OrdinalIgnoreCase))
             {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        List<string> links = Regex.Matches(message.Content, @"https:\/\/discord\.gift\/[^\s]+", RegexOptions.IgnoreCase)
-                            .Select(r => r.Value)
-                            .Where(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
-                            .ToList();
+                //_ = Task.Run(async () =>
+                //{
+                //    try
+                //    {
+                //        List<string> links = Regex.Matches(message.Content, @"https:\/\/discord\.gift\/[^\s]+", RegexOptions.IgnoreCase)
+                //            .Select(r => r.Value)
+                //            .Where(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
+                //            .ToList();
 
-                        if (links.Count != 0)
-                        {
-                            string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
-                            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}", userMessage);
-                        }
-                    }
-                    catch { }
-                });
+                //        if (links.Count != 0)
+                //        {
+                //            string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
+                //            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}", userMessage);
+                //        }
+                //    }
+                //    catch { }
+                //});
             }
 
             return Task.CompletedTask;
