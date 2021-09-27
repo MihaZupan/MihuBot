@@ -998,28 +998,28 @@ RecipientAdded
                 });
             }
 
-            //if (message.Content.Contains('/') &&
-            //    message.Content.Contains("https://discord.gift/", StringComparison.OrdinalIgnoreCase) &&
-            //    channelId != Guilds.PrivateLogs) // Has to match the debug channel
-            //{
-            //    _ = Task.Run(async () =>
-            //    {
-            //        try
-            //        {
-            //            List<string> links = Regex.Matches(message.Content, @"https:\/\/discord\.gift\/[^\s]+", RegexOptions.IgnoreCase)
-            //                .Select(r => r.Value)
-            //                .Where(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
-            //                .ToList();
+            if (message.Content.Contains('/') &&
+                message.Content.Contains("https://discord.gift/", StringComparison.OrdinalIgnoreCase) &&
+                userMessage.Guild() is { } guild && guild.Id != Guilds.PrivateLogs) // Has to match the debug channel
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        List<string> links = Regex.Matches(message.Content, @"https:\/\/discord\.gift\/[^\s]+", RegexOptions.IgnoreCase)
+                            .Select(r => r.Value)
+                            .Where(uri => Uri.TryCreate(uri, UriKind.Absolute, out _))
+                            .ToList();
 
-            //            if (links.Count != 0)
-            //            {
-            //                string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
-            //                await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}\n\n{message.GetJumpUrl()}");
-            //            }
-            //        }
-            //        catch { }
-            //    });
-            //}
+                        if (links.Count != 0)
+                        {
+                            string @everyone = Options.DebugTextChannel.Guild.EveryoneRole.Mention;
+                            await DebugAsync($"Nitro gifts spotted {@everyone}\n{string.Join('\n', links)}\n\n{message.GetJumpUrl()}");
+                        }
+                    }
+                    catch { }
+                });
+            }
 
             return Task.CompletedTask;
         }
