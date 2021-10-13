@@ -7,7 +7,6 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using YoutubeExplode.Common;
-using YoutubeExplode.Playlists;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
@@ -18,7 +17,7 @@ namespace MihuBot.Audio
         public static int StreamBufferMs = 1000;
         public static int PacketLoss = 0;
         public static int MinBitrateKb = 96;
-        public static int MinBitrate => 96 * 1000;
+        public static int MinBitrate => MinBitrateKb * 1000;
     }
 
     public sealed class AudioCommands : CommandBase
@@ -94,7 +93,7 @@ namespace MihuBot.Audio
                     {
                         if (command == "pause") audioPlayer.Pause();
                         else if (command == "unpause" || command == "resume") audioPlayer.Unpause();
-                        else if (command == "skip") await audioPlayer.MoveNextAsync();
+                        else if (command == "skip") await audioPlayer.SkipAsync();
                         else if (command == "volume")
                         {
                             if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
@@ -116,7 +115,7 @@ namespace MihuBot.Audio
                         else if (command == "audiodebug" && await ctx.RequirePermissionAsync(command))
                         {
                             var sb = new StringBuilder();
-                            await audioPlayer.DebugDumpAsync(sb);
+                            audioPlayer.DebugDump(sb);
                             await ctx.Channel.SendTextFileAsync($"AudioDebug-{ctx.Guild.Id}.txt", sb.ToString());
                         }
                     }
@@ -163,7 +162,7 @@ namespace MihuBot.Audio
                         if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
                         {
                             Video video = await YoutubeHelper.GetVideoAsync(videoId);
-                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }
                         else if (YoutubeHelper.TryParsePlaylistId(argument, out string playlistId))
@@ -171,7 +170,7 @@ namespace MihuBot.Audio
                             List<IVideo> videos = await YoutubeHelper.GetVideosAsync(playlistId, _youtubeService);
                             foreach (IVideo video in videos)
                             {
-                                await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                                audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                             }
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }
@@ -189,7 +188,7 @@ namespace MihuBot.Audio
                                 if (searchResult is not null)
                                 {
                                     Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
-                                    await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                                    audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
 
                                     if (!foundAny)
                                     {
@@ -206,13 +205,13 @@ namespace MihuBot.Audio
                             if (searchResult is not null)
                             {
                                 Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
-                                await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                                audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                                 await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                             }
                         }
                         else if (await YoutubeHelper.TrySearchAsync(ctx.ArgumentString.Replace('-', ' '), _youtubeService) is { } video)
                         {
-                            await audioPlayer.EnqueueAsync(new YoutubeAudioSource(ctx.Author, video));
+                            audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }
                         else
@@ -394,6 +393,210 @@ namespace MihuBot.Audio
         }
     }
 
+    public sealed class AudioScheduler : IAsyncDisposable
+    {
+        private readonly Queue<IAudioSource> _queue = new();
+        private int _bitrateHintKbit = GlobalAudioSettings.MinBitrateKb;
+
+        private IAudioSource _current;
+        private TaskCompletionSource _skipTcs;
+        private TaskCompletionSource _enqueueTcs;
+
+        public void SetBitrateHint(int bitrateHint)
+        {
+            if (bitrateHint % 1000 == 0) bitrateHint /= 1000;
+            else if (bitrateHint % 1024 == 0) bitrateHint /= 1024;
+            bitrateHint = Math.Max(bitrateHint, GlobalAudioSettings.MinBitrateKb);
+
+            _bitrateHintKbit = bitrateHint;
+        }
+
+        public int QueueLength => _queue.Count;
+
+        public IAudioSource[] GetQueueSnapshot(int limit, out IAudioSource currentSource)
+        {
+            lock (_queue)
+            {
+                currentSource = _current;
+
+                if ((uint)_queue.Count < (uint)limit)
+                {
+                    return _queue.ToArray();
+                }
+
+                return _queue.Take(limit).ToArray();
+            }
+        }
+
+        public void Enqueue(IAudioSource audioSource)
+        {
+            lock (_queue)
+            {
+                if (_queue.Count == 0)
+                {
+                    audioSource.StartInitializing(_bitrateHintKbit);
+                }
+
+                _queue.Enqueue(audioSource);
+
+                if (_enqueueTcs is not null)
+                {
+                    _enqueueTcs.SetResult();
+                    _enqueueTcs = null;
+                }
+            }
+        }
+
+        public async Task SkipAsync()
+        {
+            IAudioSource toDispose = null;
+
+            lock (_queue)
+            {
+                if (_skipTcs is not null)
+                {
+                    _skipTcs.SetResult();
+                    _skipTcs = null;
+                }
+                else
+                {
+                    if (_current is not null)
+                    {
+                        toDispose = _current;
+                        _current = null;
+                    }
+                    else
+                    {
+                        if (_queue.TryDequeue(out toDispose))
+                        {
+                            if (_queue.TryPeek(out IAudioSource nextNext))
+                            {
+                                nextNext.StartInitializing(_bitrateHintKbit);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (toDispose is not null)
+            {
+                await toDispose.DisposeAsync();
+            }
+        }
+
+        public void SkipCurrent(IAudioSource sourceToSkip)
+        {
+            lock (_queue)
+            {
+                if (ReferenceEquals(_current, sourceToSkip))
+                {
+                    _current = null;
+                }
+            }
+        }
+
+        public async ValueTask<IAudioSource> GetAudioSourceAsync(CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                TaskCompletionSource enqueueTcs = null;
+                TaskCompletionSource skipTcs = null;
+                IAudioSource candidate = null;
+
+                lock (_queue)
+                {
+                    candidate = _current;
+
+                    if (candidate is null)
+                    {
+                        if (_queue.TryDequeue(out candidate))
+                        {
+                            if (_queue.TryPeek(out IAudioSource nextNext))
+                            {
+                                nextNext.StartInitializing(_bitrateHintKbit);
+                            }
+                        }
+                        else
+                        {
+                            _enqueueTcs = enqueueTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        }
+                    }
+
+                    if (candidate is not null)
+                    {
+                        Task<bool> initializedTask = candidate.EnsureInitializedAsync();
+                        if (initializedTask.IsCompletedSuccessfully && initializedTask.Result)
+                        {
+                            _current = candidate;
+                            return candidate;
+                        }
+
+                        _skipTcs = skipTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    }
+                }
+
+                if (enqueueTcs is not null)
+                {
+                    await enqueueTcs.Task.WaitAsync(cancellationToken);
+                    continue;
+                }
+
+                try
+                {
+                    Task<bool> initializedTask = candidate.EnsureInitializedAsync();
+
+                    await Task.WhenAny(initializedTask, skipTcs.Task).WaitAsync(cancellationToken);
+
+                    lock (_queue)
+                    {
+                        _skipTcs = null;
+
+                        if (!skipTcs.Task.IsCompleted && initializedTask.Result)
+                        {
+                            _current = candidate;
+                            return candidate;
+                        }
+                    }
+
+                    await candidate.DisposeAsync();
+                    continue;
+                }
+                catch
+                {
+                    await candidate.DisposeAsync();
+                    throw;
+                }
+            }
+        }
+
+        public bool TryPeekCurrent(out IAudioSource audioSource)
+        {
+            audioSource = _current;
+            return audioSource is not null;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            IAudioSource[] toDispose;
+            lock (_queue)
+            {
+                if (_current is not null)
+                {
+                    _queue.Enqueue(_current);
+                    _current = null;
+                }
+
+                toDispose = _queue.ToArray();
+                _queue.Clear();
+            }
+
+            foreach (IAudioSource audioSource in toDispose)
+            {
+                await audioSource.DisposeAsync();
+            }
+        }
+    }
+
     public sealed class AudioPlayer : IAsyncDisposable
     {
         public DiscordSocketClient Client { get; }
@@ -403,18 +606,14 @@ namespace MihuBot.Audio
 
         public SocketTextChannel LastTextChannel { get; set; }
 
-        public int QueueLength => _audioSources.Count;
-
-        private readonly SemaphoreSlim _lock = new(1, 1);
-        private readonly Queue<IAudioSource> _audioSources = new();
+        private readonly AudioScheduler _scheduler = new();
         private readonly CancellationTokenSource _disposedCts = new();
         private readonly ConcurrentDictionary<ulong, AudioPlayer> _audioPlayers;
         private readonly Logger _logger;
         private RestUserMessage _lastSentStatusMessage;
-        private bool _disposed;
-        private TaskCompletionSource _pausedCts = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposed;
+        private TaskCompletionSource _pausedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private IAudioClient _audioClient;
-        private IAudioSource _currentAudioSource;
         private AudioOutStream _pcmStream;
 
         public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
@@ -431,6 +630,8 @@ namespace MihuBot.Audio
         {
             try
             {
+                _scheduler.SetBitrateHint(voiceChannel.Bitrate);
+
                 VoiceChannel = voiceChannel;
                 _audioClient = await voiceChannel.ConnectAsync(selfDeaf: true);
 
@@ -440,7 +641,14 @@ namespace MihuBot.Audio
 
                 _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
 
-                _ = Task.Run(CopyAudioAsync);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await CopyAudioAsync();
+                    }
+                    catch { }
+                });
             }
             catch (Exception ex)
             {
@@ -451,47 +659,34 @@ namespace MihuBot.Audio
 
         public bool Unpause()
         {
-            return Interlocked.Exchange(ref _pausedCts, null)?.TrySetResult() ?? false;
+            return Interlocked.Exchange(ref _pausedTcs, null)?.TrySetResult() ?? false;
         }
 
         public bool Pause()
         {
-            if (_pausedCts is null)
+            if (_pausedTcs is null)
             {
                 var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                return Interlocked.CompareExchange(ref _pausedCts, tcs, null) is null;
+                return Interlocked.CompareExchange(ref _pausedTcs, tcs, null) is null;
             }
             return false;
         }
 
-        private async Task<bool> TryInit(IAudioSource audioSource)
+        public async Task SkipAsync()
         {
-            try
-            {
-                int bitrate = VoiceChannel.Bitrate;
-                if (bitrate % 1000 == 0) bitrate /= 1000;
-                else if (bitrate % 1024 == 0) bitrate /= 1024;
+            await _scheduler.SkipAsync();
+            Unpause();
+        }
 
-                bitrate = Math.Max(bitrate, GlobalAudioSettings.MinBitrateKb);
-
-                await audioSource.InitializeAsync(bitrate);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                await _logger.DebugAsync(ex.ToString());
-                try
-                {
-                    await audioSource.DisposeAsync();
-                }
-                catch { }
-                return false;
-            }
+        public void Enqueue(IAudioSource audioSource)
+        {
+            _scheduler.Enqueue(audioSource);
+            Unpause();
         }
 
         private async Task SendCurrentlyPlayingAsync()
         {
-            if (_currentAudioSource is IAudioSource audioSource)
+            if (_scheduler.TryPeekCurrent(out IAudioSource audioSource))
             {
                 try
                 {
@@ -501,11 +696,13 @@ namespace MihuBot.Audio
                         .Replace("[", "\\[", StringComparison.Ordinal)
                         .Replace("]", "\\]", StringComparison.Ordinal);
 
+                    int queueLength = _scheduler.QueueLength;
+
                     Embed embed = new EmbedBuilder()
                         .WithTitle("**Now playing**")
                         .WithDescription($"[{escapedTitle}]({audioSource.Url})" +
                             $"\nRequested by {MentionUtils.MentionUser(audioSource.Requester.Id)}" +
-                            (QueueLength > 0 ? $"\nSongs in queue: {QueueLength}" : ""))
+                            (queueLength > 0 ? $"\nSongs in queue: {queueLength}" : ""))
                         .WithUrl(audioSource.Url)
                         .WithColor(0x00, 0x42, 0xFF)
                         .WithThumbnailUrl(audioSource.ThumbnailUrl)
@@ -529,78 +726,13 @@ namespace MihuBot.Audio
                         await lastSentMessage.ModifyAsync(message => message.Embed = embed);
                     }
                 }
-                catch { }
-            }
-        }
-
-        public async Task EnqueueAsync(IAudioSource audioSource)
-        {
-            await _lock.WaitAsync();
-            try
-            {
-                if (_currentAudioSource is null)
+                catch (Exception ex)
                 {
-                    if (await TryInit(audioSource))
+                    if (ex is not OperationCanceledException)
                     {
-                        _currentAudioSource = audioSource;
-                        Unpause();
-                        await SendCurrentlyPlayingAsync();
+                        await _logger.DebugAsync(ex.ToString());
                     }
                 }
-                else
-                {
-                    _audioSources.Enqueue(audioSource);
-                }
-            }
-            finally
-            {
-                _lock.Release();
-            }
-        }
-
-        public async Task MoveNextAsync(IAudioSource previous = null)
-        {
-            await _lock.WaitAsync();
-            try
-            {
-                IAudioSource current = _currentAudioSource;
-                if (previous is not null && !ReferenceEquals(current, previous))
-                {
-                    return;
-                }
-
-                IAudioSource next = null;
-                while (_audioSources.TryDequeue(out next))
-                {
-                    if (await TryInit(next))
-                    {
-                        break;
-                    }
-                }
-
-                _currentAudioSource = next;
-                if (next is not null)
-                {
-                    Unpause();
-                    await SendCurrentlyPlayingAsync();
-                }
-
-                if (current is not null)
-                {
-                    try
-                    {
-                        await current.DisposeAsync();
-                    }
-                    catch { }
-                }
-            }
-            catch
-            {
-                await DisposeAsync();
-            }
-            finally
-            {
-                _lock.Release();
             }
         }
 
@@ -612,25 +744,31 @@ namespace MihuBot.Audio
             const int BufferMilliseconds = 100;
             Memory<byte> buffer = new byte[Channels * SampleRateMs * BytesPerSample * BufferMilliseconds];
 
+            IAudioSource previous = null;
+            Task sendCurrentlyPlayingTask = Task.CompletedTask;
+
             while (!_disposedCts.IsCancellationRequested)
             {
-                if (_pausedCts is TaskCompletionSource pausedCts)
+                if (_pausedTcs is TaskCompletionSource pausedTcs)
                 {
-                    await pausedCts.Task;
-                    Interlocked.CompareExchange(ref _pausedCts, null, pausedCts);
+                    await pausedTcs.Task;
+                    Interlocked.CompareExchange(ref _pausedTcs, null, pausedTcs);
                     continue;
                 }
 
-                IAudioSource currentSource = Volatile.Read(ref _currentAudioSource);
-                if (currentSource is null)
+                IAudioSource audioSource = await _scheduler.GetAudioSourceAsync(_disposedCts.Token);
+
+                if (!ReferenceEquals(previous, audioSource))
                 {
-                    continue;
+                    previous = audioSource;
+                    await sendCurrentlyPlayingTask.WaitAsync(_disposedCts.Token);
+                    sendCurrentlyPlayingTask = SendCurrentlyPlayingAsync();
                 }
 
                 int read = 0;
                 try
                 {
-                    read = await currentSource.ReadAsync(buffer, _disposedCts.Token);
+                    read = await audioSource.ReadAsync(buffer, _disposedCts.Token);
                 }
                 catch (Exception ex)
                 {
@@ -639,7 +777,8 @@ namespace MihuBot.Audio
 
                 if (read <= 0)
                 {
-                    await MoveNextAsync(currentSource);
+                    _scheduler.SkipCurrent(audioSource);
+                    await audioSource.DisposeAsync();
                     continue;
                 }
 
@@ -663,73 +802,38 @@ namespace MihuBot.Audio
 
         public async ValueTask DisposeAsync()
         {
-            lock (_lock)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
-                if (_disposed)
-                {
-                    return;
-                }
-
-                _disposed = true;
+                return;
             }
+
+            await _scheduler.DisposeAsync();
 
             _disposedCts.Cancel();
             Unpause();
             _audioPlayers.TryRemove(new KeyValuePair<ulong, AudioPlayer>(Guild.Id, this));
-
-            await _lock.WaitAsync();
-            try
-            {
-                while (_audioSources.TryDequeue(out IAudioSource audioSource))
-                {
-                    try
-                    {
-                        await audioSource.DisposeAsync();
-                    }
-                    catch { }
-                }
-
-                if (Interlocked.Exchange(ref _currentAudioSource, null) is IAudioSource currentSource)
-                {
-                    try
-                    {
-                        await currentSource.DisposeAsync();
-                    }
-                    catch { }
-                }
-            }
-            finally
-            {
-                _lock.Release();
-            }
         }
 
-        public async Task DebugDumpAsync(StringBuilder sb)
+        public void DebugDump(StringBuilder sb)
         {
-            await _lock.WaitAsync();
-            try
+            Property(sb, "VoiceChannel", VoiceChannel.Name);
+            Property(sb, "VC Bitrate", VoiceChannel.Bitrate.ToString());
+            Property(sb, "Volume", AudioSettings.Volume.ToString());
+            Property(sb, "QueueLength", _scheduler.QueueLength.ToString());
+
+            IAudioSource[] sources = _scheduler.GetQueueSnapshot(limit: -1, out IAudioSource current);
+
+            if (current is not null)
             {
-                Property(sb, "VoiceChannel", VoiceChannel.Name);
-                Property(sb, "VC Bitrate", VoiceChannel.Bitrate.ToString());
-                Property(sb, "Volume", AudioSettings.Volume.ToString());
-                Property(sb, "QueueLength", QueueLength.ToString());
-
-                if (_currentAudioSource is not null)
-                {
-                    sb.AppendLine();
-                    sb.AppendLine("Current audio source:");
-                    AudioSource(sb, _currentAudioSource);
-                }
-
-                foreach (IAudioSource audioSource in _audioSources)
-                {
-                    sb.AppendLine();
-                    AudioSource(sb, audioSource);
-                }
+                sb.AppendLine();
+                sb.AppendLine("Current audio source:");
+                AudioSource(sb, current);
             }
-            finally
+
+            foreach (IAudioSource audioSource in sources)
             {
-                _lock.Release();
+                sb.AppendLine();
+                AudioSource(sb, audioSource);
             }
 
             static void AudioSource(StringBuilder sb, IAudioSource audioSource)
@@ -758,34 +862,28 @@ namespace MihuBot.Audio
                 .WithTitle("Queue")
                 .WithColor(0x00, 0x42, 0xFF);
 
-            if (_currentAudioSource is IAudioSource currentSource)
+            IAudioSource[] sources = _scheduler.GetQueueSnapshot(limit: 25, out IAudioSource current);
+
+            if (current is not null)
             {
-                string escapedTitle = currentSource.Description
+                string escapedTitle = current.Description
                     .Replace("[", "\\[", StringComparison.Ordinal)
                     .Replace("]", "\\]", StringComparison.Ordinal);
 
-                builder.WithDescription($"Now playing [{escapedTitle}]({currentSource.Url}) (requested by {MentionUtils.MentionUser(currentSource.Requester.Id)})");
-                builder.WithThumbnailUrl(currentSource.ThumbnailUrl);
+                builder.WithDescription($"Now playing [{escapedTitle}]({current.Url}) (requested by {MentionUtils.MentionUser(current.Requester.Id)})");
+                builder.WithThumbnailUrl(current.ThumbnailUrl);
             }
 
-            await _lock.WaitAsync();
-            try
+            int count = 0;
+            foreach (IAudioSource audioSource in sources)
             {
-                int count = 0;
-                foreach (IAudioSource audioSource in _audioSources.Take(25))
-                {
-                    count++;
+                count++;
 
-                    string escapedTitle = audioSource.Description
-                        .Replace("[", "\\[", StringComparison.Ordinal)
-                        .Replace("]", "\\]", StringComparison.Ordinal);
+                string escapedTitle = audioSource.Description
+                    .Replace("[", "\\[", StringComparison.Ordinal)
+                    .Replace("]", "\\]", StringComparison.Ordinal);
 
-                    builder.AddField($"{count}. [{escapedTitle}]({audioSource.Url})", $"Requested by {MentionUtils.MentionUser(audioSource.Requester.Id)}", inline: true);
-                }
-            }
-            finally
-            {
-                _lock.Release();
+                builder.AddField($"{count}. {escapedTitle}", $"Requested by {MentionUtils.MentionUser(audioSource.Requester.Id)}", inline: true);
             }
 
             if (string.IsNullOrEmpty(builder.Title) && builder.Fields.Count == 0)
@@ -801,7 +899,9 @@ namespace MihuBot.Audio
 
     public interface IAudioSource : IAsyncDisposable
     {
-        Task InitializeAsync(int bitrateHintKbit);
+        void StartInitializing(int bitrateHintKbit);
+
+        Task<bool> EnsureInitializedAsync();
 
         TimeSpan? Remaining { get; }
 
@@ -818,35 +918,87 @@ namespace MihuBot.Audio
         void DebugDump(StringBuilder sb) { }
     }
 
-    public sealed class YoutubeAudioSource : IAudioSource
+    public abstract class AudioSource : IAudioSource
     {
         public SocketGuildUser Requester { get; }
 
+        private int _startedInitializing;
+        private readonly TaskCompletionSource<bool> _initialized = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly CancellationTokenSource _disposedCts = new();
+
+        public AudioSource(SocketGuildUser requester)
+        {
+            Requester = requester;
+        }
+
+        public void StartInitializing(int bitrateHintKbit)
+        {
+            Task.Run(async () =>
+            {
+                if (Interlocked.Exchange(ref _startedInitializing, 1) != 0)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await InitializeAsync(bitrateHintKbit, _disposedCts.Token);
+                    _initialized.SetResult(true);
+                }
+                catch
+                {
+                    _initialized.SetResult(false);
+                    await DisposeAsync();
+                }
+            });
+        }
+
+        public Task<bool> EnsureInitializedAsync() => _initialized.Task;
+
+        public abstract Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken);
+
+        public virtual ValueTask DisposeAsync()
+        {
+            _disposedCts.Cancel();
+            return default;
+        }
+
+
+        public abstract TimeSpan? Remaining { get; }
+
+        public abstract string Description { get; }
+
+        public abstract string Url { get; }
+
+        public abstract string ThumbnailUrl { get; }
+
+        public abstract ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken);
+    }
+
+    public sealed class YoutubeAudioSource : AudioSource
+    {
         private readonly IVideo _video;
         private Stream _ffmpegOutputStream;
         private Process _process;
-        private CancellationTokenSource _cts;
         private string _temporaryFile;
 
         public YoutubeAudioSource(SocketGuildUser requester, IVideo video)
+            : base(requester)
         {
-            Requester = requester;
             _video = video;
         }
 
-        public async Task InitializeAsync(int bitrateHintKbit)
+        public override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
         {
-            _cts = new CancellationTokenSource();
-
-            string cachedPath = await YoutubeAudioCache.GetOrTryCacheAsync(_video, _cts.Token);
+            string cachedPath = await YoutubeAudioCache.GetOrTryCacheAsync(_video, cancellationToken);
             string audioPath = cachedPath ?? (Path.GetTempFileName() + ".opus");
             if (cachedPath is null)
             {
                 try
                 {
-                    StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, _cts.Token);
+                    StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, cancellationToken);
                     IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(manifest, out _);
-                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit, _cts.Token);
+                    await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit, cancellationToken);
                 }
                 catch
                 {
@@ -870,22 +1022,23 @@ namespace MihuBot.Audio
             _ffmpegOutputStream = _process.StandardOutput.BaseStream;
         }
 
-        public TimeSpan? Remaining => null;
+        public override TimeSpan? Remaining => null;
 
-        public string Description => _video.Title;
+        public override string Description => _video.Title;
 
-        public string Url => _video.Url;
+        public override string Url => _video.Url;
 
-        public string ThumbnailUrl => _video.Thumbnails.OrderBy(t => t.Resolution.Area).FirstOrDefault()?.Url;
+        public override string ThumbnailUrl => _video.Thumbnails.OrderBy(t => t.Resolution.Area).FirstOrDefault()?.Url;
 
-        public ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken)
+        public override ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken)
         {
             return _ffmpegOutputStream.ReadAsync(pcmBuffer, cancellationToken);
         }
 
-        public ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
-            _cts?.Cancel();
+            await base.DisposeAsync();
+
             try
             {
                 if (_process is Process process)
@@ -904,8 +1057,6 @@ namespace MihuBot.Audio
                 }
             }
             catch { }
-
-            return default;
         }
 
         public void DebugDump(StringBuilder sb)
