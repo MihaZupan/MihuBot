@@ -617,7 +617,7 @@ namespace MihuBot.Audio
         private AudioOutStream _pcmStream;
 
         private const int CopyLoopTimings = 512;
-        private readonly Queue<float> _copyLoopTimings = new(CopyLoopTimings);
+        private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
 
         public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
         {
@@ -755,18 +755,13 @@ namespace MihuBot.Audio
 
             while (!_disposedCts.IsCancellationRequested)
             {
-                TimeSpan elapsed = stopwatch.Elapsed;
-                TimeSpan delta = elapsed - lastElapsed;
-                lastElapsed = elapsed;
-                lock (_copyLoopTimings)
-                {
-                    if (_copyLoopTimings.Count == CopyLoopTimings) _copyLoopTimings.Dequeue();
-                    _copyLoopTimings.Enqueue((float)delta.TotalMilliseconds);
-                }
+                LogTiming("Start");
 
                 if (_pausedTcs is TaskCompletionSource pausedTcs)
                 {
+                    LogTiming("Paused");
                     await pausedTcs.Task;
+                    LogTiming("Unpaused");
                     Interlocked.CompareExchange(ref _pausedTcs, null, pausedTcs);
                     continue;
                 }
@@ -779,6 +774,8 @@ namespace MihuBot.Audio
                     await sendCurrentlyPlayingTask.WaitAsync(_disposedCts.Token);
                     sendCurrentlyPlayingTask = SendCurrentlyPlayingAsync();
                 }
+
+                LogTiming("Read start");
 
                 int read = 0;
                 try
@@ -804,6 +801,8 @@ namespace MihuBot.Audio
                     Helpers.Helpers.Multiply(MemoryMarshal.Cast<byte, short>(buffer.Span.Slice(0, read)), volume);
                 }
 
+                LogTiming("Write start");
+
                 try
                 {
                     await _pcmStream.WriteAsync(buffer.Slice(0, read), _disposedCts.Token);
@@ -811,6 +810,18 @@ namespace MihuBot.Audio
                 catch
                 {
                     await DisposeAsync();
+                }
+            }
+
+            void LogTiming(string eventName)
+            {
+                TimeSpan elapsed = stopwatch.Elapsed;
+                TimeSpan delta = elapsed - lastElapsed;
+                lastElapsed = elapsed;
+                lock (_copyLoopTimings)
+                {
+                    if (_copyLoopTimings.Count == CopyLoopTimings) _copyLoopTimings.Dequeue();
+                    _copyLoopTimings.Enqueue((eventName, (float)delta.TotalMilliseconds));
                 }
             }
         }
@@ -855,9 +866,9 @@ namespace MihuBot.Audio
             sb.AppendLine("Copy loop deltas:");
             lock (_copyLoopTimings)
             {
-                foreach (float deltaMs in _copyLoopTimings)
+                foreach ((string eventName, float deltaMs) in _copyLoopTimings)
                 {
-                    sb.AppendLine($"{deltaMs:N1}");
+                    sb.AppendLine($"{deltaMs} {eventName}");
                 }
             }
 
