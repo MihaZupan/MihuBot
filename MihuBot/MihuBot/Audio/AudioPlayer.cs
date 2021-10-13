@@ -15,7 +15,7 @@ namespace MihuBot.Audio
     public static class GlobalAudioSettings
     {
         public static int StreamBufferMs = 1000;
-        public static int PacketLoss = 0;
+        public static int PacketLoss = 5;
         public static int MinBitrateKb = 96;
         public static int MinBitrate => MinBitrateKb * 1000;
     }
@@ -616,6 +616,9 @@ namespace MihuBot.Audio
         private IAudioClient _audioClient;
         private AudioOutStream _pcmStream;
 
+        private const int CopyLoopTimings = 512;
+        private readonly Queue<float> _copyLoopTimings = new(CopyLoopTimings);
+
         public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
         {
             Client = client;
@@ -741,14 +744,26 @@ namespace MihuBot.Audio
             const int Channels = 2;
             const int SampleRateMs = 48;
             const int BytesPerSample = 2;
-            const int BufferMilliseconds = 100;
+            const int BufferMilliseconds = 200;
             Memory<byte> buffer = new byte[Channels * SampleRateMs * BytesPerSample * BufferMilliseconds];
 
             IAudioSource previous = null;
             Task sendCurrentlyPlayingTask = Task.CompletedTask;
 
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            TimeSpan lastElapsed = stopwatch.Elapsed;
+
             while (!_disposedCts.IsCancellationRequested)
             {
+                TimeSpan elapsed = stopwatch.Elapsed;
+                TimeSpan delta = elapsed - lastElapsed;
+                lastElapsed = elapsed;
+                lock (_copyLoopTimings)
+                {
+                    if (_copyLoopTimings.Count == CopyLoopTimings) _copyLoopTimings.Dequeue();
+                    _copyLoopTimings.Enqueue((float)delta.TotalMilliseconds);
+                }
+
                 if (_pausedTcs is TaskCompletionSource pausedTcs)
                 {
                     await pausedTcs.Task;
@@ -818,7 +833,7 @@ namespace MihuBot.Audio
         {
             Property(sb, "VoiceChannel", VoiceChannel.Name);
             Property(sb, "VC Bitrate", VoiceChannel.Bitrate.ToString());
-            Property(sb, "Volume", AudioSettings.Volume.ToString());
+            Property(sb, "Volume", AudioSettings.Volume?.ToString() ?? "N/A");
             Property(sb, "QueueLength", _scheduler.QueueLength.ToString());
 
             IAudioSource[] sources = _scheduler.GetQueueSnapshot(limit: -1, out IAudioSource current);
@@ -834,6 +849,16 @@ namespace MihuBot.Audio
             {
                 sb.AppendLine();
                 AudioSource(sb, audioSource);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("Copy loop deltas:");
+            lock (_copyLoopTimings)
+            {
+                foreach (float deltaMs in _copyLoopTimings)
+                {
+                    sb.AppendLine($"{deltaMs:N1}");
+                }
             }
 
             static void AudioSource(StringBuilder sb, IAudioSource audioSource)
