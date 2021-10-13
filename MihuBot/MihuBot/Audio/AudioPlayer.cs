@@ -744,7 +744,7 @@ namespace MihuBot.Audio
             const int Channels = 2;
             const int SampleRateMs = 48;
             const int BytesPerSample = 2;
-            const int BufferMilliseconds = 200;
+            const int BufferMilliseconds = 20;
             Memory<byte> buffer = new byte[Channels * SampleRateMs * BytesPerSample * BufferMilliseconds];
 
             IAudioSource previous = null;
