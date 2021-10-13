@@ -31,7 +31,7 @@ jobs:
       run: tar -cvzf artifacts.tar.gz artifacts
 
     - name: Upload to VM
-      run: "curl -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.tar.gz \"https://${{ secrets.HOST }}/Management/Deployed\""
+      run: "curl --insecure -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.tar.gz \"https://${{ secrets.HOST }}/Management/Deployed\""
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
