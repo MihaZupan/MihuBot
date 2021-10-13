@@ -366,5 +366,11 @@ namespace MihuBot.Helpers
                 keywords: Array.Empty<string>(),
                 engagement: new Engagement(0, 0, 0));
         }
+
+        public static TimeSpan Duration(this IStreamInfo streamInfo)
+        {
+            long bytesPerSecond = Math.Min(1, streamInfo.Bitrate.BitsPerSecond / 8);
+            return TimeSpan.FromSeconds(streamInfo.Size.Bytes / bytesPerSecond);
+        }
     }
 }

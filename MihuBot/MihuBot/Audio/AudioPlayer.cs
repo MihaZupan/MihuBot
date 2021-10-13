@@ -977,27 +977,36 @@ namespace MihuBot.Audio
 
     public sealed class YoutubeAudioSource : AudioSource
     {
+        private const int Channels = 2;
+        private const int SampleRateMs = 48;
+        private const int BytesPerSample = 2;
+        private const int BytesPerMs = Channels * SampleRateMs * BytesPerSample;
+
         private readonly IVideo _video;
         private Stream _ffmpegOutputStream;
         private Process _process;
         private string _temporaryFile;
+        private TimeSpan? _duration;
+        private long _bytesRead;
 
         public YoutubeAudioSource(SocketGuildUser requester, IVideo video)
             : base(requester)
         {
             _video = video;
+            _duration = video.Duration;
         }
 
         public override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
         {
-            string cachedPath = await YoutubeAudioCache.GetOrTryCacheAsync(_video, cancellationToken);
-            string audioPath = cachedPath ?? (Path.GetTempFileName() + ".opus");
-            if (cachedPath is null)
+            YoutubeAudioCache.VideoMetadata metadata = await YoutubeAudioCache.GetOrTryCacheAsync(_video, cancellationToken);
+            string audioPath = metadata.OpusPath ?? (Path.GetTempFileName() + ".opus");
+            if (metadata.OpusPath is null)
             {
                 try
                 {
                     StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, cancellationToken);
                     IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(manifest, out _);
+                    _duration ??= bestAudio.Duration();
                     await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit, cancellationToken);
                 }
                 catch
@@ -1007,6 +1016,8 @@ namespace MihuBot.Audio
                 }
                 _temporaryFile = audioPath;
             }
+
+            _duration ??= metadata.Duration;
 
             _process = new Process
             {
@@ -1022,7 +1033,19 @@ namespace MihuBot.Audio
             _ffmpegOutputStream = _process.StandardOutput.BaseStream;
         }
 
-        public override TimeSpan? Remaining => null;
+        public override TimeSpan? Remaining
+        {
+            get
+            {
+                if (_duration is null)
+                {
+                    return null;
+                }
+
+                TimeSpan consumed = TimeSpan.FromMilliseconds(Volatile.Read(ref _bytesRead) / BytesPerMs);
+                return _duration.Value.Subtract(consumed);
+            }
+        }
 
         public override string Description => _video.Title;
 
@@ -1032,7 +1055,22 @@ namespace MihuBot.Audio
 
         public override ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken)
         {
-            return _ffmpegOutputStream.ReadAsync(pcmBuffer, cancellationToken);
+            ValueTask<int> readTask = _ffmpegOutputStream.ReadAsync(pcmBuffer, cancellationToken);
+            if (readTask.IsCompletedSuccessfully)
+            {
+                int read = readTask.GetAwaiter().GetResult();
+                Volatile.Write(ref _bytesRead, _bytesRead + read);
+                return new ValueTask<int>(read);
+            }
+
+            return ReadAsyncCore(readTask);
+
+            async ValueTask<int> ReadAsyncCore(ValueTask<int> readTask)
+            {
+                int read = await readTask;
+                Volatile.Write(ref _bytesRead, _bytesRead + read);
+                return read;
+            }
         }
 
         public override async ValueTask DisposeAsync()
@@ -1068,7 +1106,7 @@ namespace MihuBot.Audio
 
     public static class YoutubeAudioCache
     {
-        private sealed class VideoMetadata : IVideo
+        public sealed class VideoMetadata : IVideo
         {
             public VideoId Id { get; set; }
             public string Url { get; set; }
@@ -1084,7 +1122,7 @@ namespace MihuBot.Audio
         private const string OpusExtension = ".opus";
         private const string MetadataExtension = ".metadata";
         private const string CacheDirectory = "YoutubeAudioCache";
-        private static readonly Dictionary<string, Task<string>> _cacheOperations = new();
+        private static readonly Dictionary<string, Task<VideoMetadata>> _cacheOperations = new();
 
         public static readonly TimeSpan MaxVideoLength = TimeSpan.FromMinutes(7);
 
@@ -1097,7 +1135,7 @@ namespace MihuBot.Audio
             return (directory, path, metadata);
         }
 
-        public static async Task<string> GetOrTryCacheAsync(IVideo video, CancellationToken cancellationToken)
+        public static async Task<VideoMetadata> GetOrTryCacheAsync(IVideo video, CancellationToken cancellationToken)
         {
             var (directory, path, metadataPath) = GetFileDirectory(video.Id);
 
@@ -1108,7 +1146,7 @@ namespace MihuBot.Audio
                     var metadata = JsonConvert.DeserializeObject<VideoMetadata>(await File.ReadAllTextAsync(metadataPath));
                     metadata.LastAccessedAt = DateTime.UtcNow;
                     await File.WriteAllTextAsync(metadataPath, JsonConvert.SerializeObject(metadata, Formatting.Indented));
-                    return metadata.OpusPath;
+                    return metadata;
                 }
                 catch
                 {
@@ -1116,13 +1154,13 @@ namespace MihuBot.Audio
                 }
             }
 
-            TaskCompletionSource<string> tcs = null;
-            Task<string> task;
+            TaskCompletionSource<VideoMetadata> tcs = null;
+            Task<VideoMetadata> task;
             lock (_cacheOperations)
             {
                 if (!_cacheOperations.TryGetValue(video.Id, out task))
                 {
-                    tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    tcs = new TaskCompletionSource<VideoMetadata>(TaskCreationOptions.RunContinuationsAsynchronously);
                     _cacheOperations.Add(video.Id, tcs.Task);
                 }
             }
@@ -1149,7 +1187,7 @@ namespace MihuBot.Audio
                             OpusPath = path
                         };
 
-                        if (video.Duration > MaxVideoLength)
+                        if (metadata.Duration.HasValue && metadata.Duration > MaxVideoLength)
                         {
                             metadata.OpusPath = null;
                         }
@@ -1157,12 +1195,22 @@ namespace MihuBot.Audio
                         {
                             StreamManifest streamManifest = await YoutubeHelper.Streams.GetManifestAsync(video.Id);
                             IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(streamManifest, out _);
-                            await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, path, bitrate: 160);
+
+                            metadata.Duration ??= bestAudio.Duration();
+
+                            if (metadata.Duration > MaxVideoLength)
+                            {
+                                metadata.OpusPath = null;
+                            }
+                            else
+                            {
+                                await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, path, bitrate: 160);
+                            }
                         }
 
                         metadata.LastAccessedAt = DateTime.UtcNow;
                         await File.WriteAllTextAsync(metadataPath, JsonConvert.SerializeObject(metadata, Formatting.Indented));
-                        tcs.TrySetResult(metadata.OpusPath);
+                        tcs.TrySetResult(metadata);
                     }
                     catch (Exception ex)
                     {
