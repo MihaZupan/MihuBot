@@ -868,7 +868,7 @@ namespace MihuBot.Audio
             {
                 foreach ((string eventName, float deltaMs) in _copyLoopTimings)
                 {
-                    sb.AppendLine($"{deltaMs} {eventName}");
+                    sb.AppendLine($"{(int)deltaMs,-4} {eventName}");
                 }
             }
 
