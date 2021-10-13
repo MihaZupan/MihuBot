@@ -14,7 +14,7 @@ namespace MihuBot.Audio
 {
     public static class GlobalAudioSettings
     {
-        public static int StreamBufferMs = 1000;
+        public static int StreamBufferMs = 500;
         public static int PacketLoss = 5;
         public static int MinBitrateKb = 96;
         public static int MinBitrate => MinBitrateKb * 1000;
@@ -744,8 +744,10 @@ namespace MihuBot.Audio
             const int Channels = 2;
             const int SampleRateMs = 48;
             const int BytesPerSample = 2;
-            const int BufferMilliseconds = 20;
-            Memory<byte> buffer = new byte[Channels * SampleRateMs * BytesPerSample * BufferMilliseconds];
+            const int FrameMs = 20;
+            const int BytesPerFrame = Channels * SampleRateMs * BytesPerSample * FrameMs;
+            const int FramesPerBuffer = 10;
+            Memory<byte> buffer = new byte[BytesPerFrame * FramesPerBuffer];
 
             IAudioSource previous = null;
             Task sendCurrentlyPlayingTask = Task.CompletedTask;
