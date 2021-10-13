@@ -803,11 +803,17 @@ namespace MihuBot.Audio
                     Helpers.Helpers.Multiply(MemoryMarshal.Cast<byte, short>(buffer.Span.Slice(0, read)), volume);
                 }
 
-                LogTiming("Write start");
-
                 try
                 {
-                    await _pcmStream.WriteAsync(buffer.Slice(0, read), _disposedCts.Token);
+                    int offset = 0;
+                    while (offset < read)
+                    {
+                        LogTiming("Write frame");
+
+                        int frame = Math.Min(BytesPerFrame, read - offset);
+                        await _pcmStream.WriteAsync(buffer.Slice(offset, frame), _disposedCts.Token);
+                        offset += frame;
+                    }
                 }
                 catch
                 {
