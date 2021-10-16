@@ -53,7 +53,7 @@ namespace MihuBot.Commands
             {
                 if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@") && ctx.Arguments[0].EndsWith('>'))
                 {
-                    rngUser = ctx.Message.MentionedUsers.ToArray().Random();
+                    rngUser = ctx.Message.MentionedUsers.Random();
                     at = true;
                 }
                 else if (ulong.TryParse(ctx.Arguments[0], out ulong userId))
