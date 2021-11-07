@@ -1,26 +1,26 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
     <DebugType>embedded</DebugType>
-    <LangVersion>10.0</LangVersion>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AspNet.Security.OAuth.Discord" Version="5.0.14" />
+    <PackageReference Include="AspNet.Security.OAuth.Discord" Version="5.0.18" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.2.1" />
-    <PackageReference Include="Azure.Identity" Version="1.4.1" />
+    <PackageReference Include="Azure.Identity" Version="1.5.0" />
     <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.2.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.10.0" />
-    <PackageReference Include="Discord.Net.Labs" Version="3.1.1" />
+    <PackageReference Include="Discord.Net.Labs" Version="3.1.7" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.55.0.2449" />
-    <PackageReference Include="LettuceEncrypt" Version="1.1.1" />
+    <PackageReference Include="LettuceEncrypt" Version="1.1.2" />
     <PackageReference Include="Markdig" Version="0.26.0" />
-    <PackageReference Include="SendGrid" Version="9.24.3" />
+    <PackageReference Include="SendGrid" Version="9.24.4" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="1.0.3" />
-    <PackageReference Include="SpotifyAPI.Web" Version="6.2.1" />
-    <PackageReference Include="TwitchLib" Version="3.2.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="1.0.4" />
+    <PackageReference Include="SpotifyAPI.Web" Version="6.2.2" />
+    <PackageReference Include="TwitchLib" Version="3.3.0" />
     <PackageReference Include="YoutubeExplode" Version="6.0.5" />
   </ItemGroup>
 

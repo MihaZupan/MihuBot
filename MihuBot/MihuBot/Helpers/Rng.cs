@@ -7,6 +7,7 @@ namespace MihuBot.Helpers
 {
     public static class Rng
     {
+        [ThreadStatic]
         private static ulong _rngBoolCache = 0;
 
         public static bool Chance(int oneInX)
@@ -36,15 +37,10 @@ namespace MihuBot.Helpers
             const ulong RngBitsMask = ~LengthMask;
 
             ulong value = _rngBoolCache;
-            while (value != 0)
+            if (value != 0)
             {
-                ulong updated = ((value & LengthMask) - LengthOne) | ((value & RngBitsMask) >> 1);
-                ulong newValue = Interlocked.CompareExchange(ref _rngBoolCache, updated, value);
-
-                if (value == newValue)
-                    return (newValue & 1) == 1;
-
-                value = newValue;
+                _rngBoolCache = ((value & LengthMask) - LengthOne) | ((value & RngBitsMask) >> 1);
+                return (value & 1) == 1;
             }
 
             ulong buffer = 0;

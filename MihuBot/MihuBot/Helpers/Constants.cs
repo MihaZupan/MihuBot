@@ -8,10 +8,8 @@
         public static readonly HashSet<ulong> Admins = new()
         {
             KnownUsers.Miha,
-            KnownUsers.Caroline,
             KnownUsers.James,
             KnownUsers.Jordan,
-            KnownUsers.Darling,
         };
 
         public const float VCDefaultVolume = 0.30f;
