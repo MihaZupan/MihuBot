@@ -213,25 +213,6 @@ namespace MihuBot
             };
 
             _discord.ReactionAdded += Client_ReactionAdded;
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await _discord.DownloadUsersAsync(_discord.Guilds);
-
-                        await _logger.DebugAsync("Beep boop. I'm back!");
-
-                        await _discord.SetGameAsync("Quality content", streamUrl: "https://www.youtube.com/watch?v=d1YBv2mWll0", type: ActivityType.Streaming);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.DebugLog(ex.ToString());
-                    }
-                });
-            }
         }
 
         private TaskCompletionSource _stopTcs;

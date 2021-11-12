@@ -51,7 +51,8 @@ namespace MihuBot
             var discordConfig = new DiscordSocketConfig()
             {
                 MessageCacheSize = 1024 * 16,
-                ConnectionTimeout = 30_000
+                ConnectionTimeout = 30_000,
+                AlwaysDownloadUsers = RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
             };
 
             var discord = new InitializedDiscordClient(
