@@ -3,36 +3,30 @@
     public sealed class AvatarCommand : CommandBase
     {
         public override string Command => "avatar";
-        public override string[] Aliases => new[] { "banner" };
+        public override string[] Aliases => new[] { "avatar2" };
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
-            IUser user = await ChooseUserAsync(ctx) ?? ctx.Author;
+            IGuildUser user = await ChooseUserAsync(ctx) ?? ctx.Author;
 
-            if (ctx.Command == "avatar")
-            {
-                string avatarId = user.AvatarId ?? user.GetDefaultAvatarUrl();
+            string guildAvatarId = user.GuildAvatarId;
+            bool useAvatarId = guildAvatarId is null || ctx.Command == "avatar";
+            string avatarId = useAvatarId ? user.AvatarId : guildAvatarId;
 
-                ImageFormat format = avatarId.StartsWith("a_", StringComparison.Ordinal)
-                    ? ImageFormat.Gif
-                    : ImageFormat.Png;
+            ImageFormat format = avatarId is not null && avatarId.StartsWith("a_", StringComparison.Ordinal)
+                ? ImageFormat.Gif
+                : ImageFormat.Png;
 
-                await ctx.ReplyAsync(user.GetAvatarUrl(format, size: 1024));
-            }
-            else if (ctx.Command == "banner")
-            {
-                if (user.BannerId is string bannerId)
-                {
-                    ImageFormat format = bannerId.StartsWith("a_", StringComparison.Ordinal)
-                        ? ImageFormat.Gif
-                        : ImageFormat.Png;
+            const int Size = 1024;
 
-                    await ctx.ReplyAsync(user.GetBannerUrl(format, size: 1024));
-                }
-            }
+            string avatarUrl = useAvatarId
+                ? (user.GetAvatarUrl(format, Size) ?? user.GetDefaultAvatarUrl())
+                : user.GetGuildAvatarUrl(format, Size);
+
+            await ctx.ReplyAsync(avatarUrl);
         }
 
-        private static async Task<IUser> ChooseUserAsync(CommandContext ctx)
+        private static async Task<IGuildUser> ChooseUserAsync(CommandContext ctx)
         {
             if (ctx.Arguments.Length > 0)
             {
@@ -40,11 +34,20 @@
 
                 if (ctx.Message.MentionedUsers.Count != 0 && pattern.StartsWith("<@") && pattern.EndsWith('>'))
                 {
-                    return ctx.Message.MentionedUsers.Random();
+                    var mentioned = ctx.Message.MentionedUsers
+                        .Select(m => ctx.Guild.GetUser(m.Id))
+                        .Where(m => m is not null)
+                        .ToArray();
+
+                    if (mentioned.Length > 0)
+                    {
+                        return mentioned.Random();
+                    }
                 }
-                else if (ulong.TryParse(pattern, out ulong userId))
+                
+                if (ulong.TryParse(pattern, out ulong userId) && ctx.Guild.GetUser(userId) is { } guildUser)
                 {
-                    return ctx.Discord.GetUser(userId);
+                    return guildUser;
                 }
                 else
                 {
@@ -76,7 +79,7 @@
                                 matches = closerMatches;
                         }
 
-                        return matches.Random();
+                        return ctx.Guild.GetUser(matches.Random().Id);
                     }
                 }
             }
