@@ -208,7 +208,10 @@ namespace MihuBot.Commands
                                     if (message.Reactions.Any(r => r.Key.Name == Emotes.ThumbsUp.Name && r.Value.ReactionCount > 1 && r.Value.ReactionCount <= 10))
                                     {
                                         var reactions = await message.GetReactionUsersAsync(Emotes.ThumbsUp, 15).ToArrayAsync();
-                                        var users = reactions.SelectMany(r => r).Where(r => !r.IsBot && r.Id != entry.AuthorId);
+                                        var users = reactions
+                                            .SelectMany(r => r)
+                                            .Where(r => !r.IsBot && r.Id != entry.AuthorId)
+                                            .Where(r => !mention.Contains(r.Id.ToString(), StringComparison.Ordinal));
                                         string extraMentions = string.Join(' ', users.Select(u => MentionUtils.MentionUser(u.Id)));
                                         if (extraMentions.Length != 0)
                                         {
