@@ -26,6 +26,8 @@ namespace MihuBot.Commands
 
         public override string Command => "duel";
 
+        private static readonly ulong[] _duelTextChannels = new[] { 911772790099693598ul, 780506349414121503ul };
+
         private readonly Dictionary<ulong, Duel> _channelDuels = new ();
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int Wins, int Losses)>> _leaderboard = new("DuelsLeaderboard.json");
 
@@ -49,15 +51,20 @@ namespace MihuBot.Commands
         {
             var scripts = new List<DuelScript>();
 
-            await foreach (var messages in _discord.GetTextChannel(Channels.DuelsTexts).GetMessagesAsync())
+            foreach (SocketTextChannel textChannel in _duelTextChannels
+                .Select(id => _discord.GetTextChannel(id))
+                .Where(channel => channel is not null))
             {
-                foreach (var message in messages)
+                await foreach (var messages in textChannel.GetMessagesAsync())
                 {
-                    foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                    foreach (var message in messages)
                     {
-                        var script = text.Trim();
-                        if (script.Length > 0)
-                            scripts.Add(new DuelScript(script));
+                        foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            var script = text.Trim();
+                            if (script.Length > 0)
+                                scripts.Add(new DuelScript(script));
+                        }
                     }
                 }
             }
