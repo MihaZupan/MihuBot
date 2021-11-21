@@ -24,6 +24,12 @@
                 return;
             }
 
+            ulong? secondId = null;
+            if (ctx.Arguments.Length >= 2 && ulong.TryParse(ctx.Arguments[1], out ulong secondIdTemp))
+            {
+                secondId = secondIdTemp;
+            }
+
             DiscordSocketClient discord = ctx.Command == "pdebugdump" ? _privateClient : null;
             discord ??= ctx.Discord;
 
@@ -41,10 +47,13 @@
 
                 SerializeChannel(channel, sb);
             }
-            else if (ctx.Arguments.Length >= 2 && ulong.TryParse(ctx.Arguments[1], out ulong secondId)
-                && guild.GetRole(secondId) is SocketRole role)
+            else if (secondId.HasValue && guild.GetRole(secondId.Value) is SocketRole role)
             {
                 SerializeRole(role, sb);
+            }
+            else if (secondId.HasValue && guild.GetUser(secondId.Value) is SocketGuildUser user)
+            {
+                SerializeUser(user, sb);
             }
             else
             {
@@ -67,12 +76,7 @@
 
             sb.AppendLine();
 
-            sb.AppendLine("Allow:");
-            foreach (ChannelPermission allow in role.Permissions.ToList())
-            {
-                sb.Append(allow).Append(' ');
-            }
-            sb.AppendLine();
+            SerializePermissions(role.Permissions, sb);
         }
 
         private static void SerializeChannel(SocketChannel channel, StringBuilder sb)
@@ -129,19 +133,7 @@
                 }
                 sb.AppendLine();
 
-                sb.Append("Allow: ");
-                foreach (ChannelPermission allow in overwrite.Permissions.ToAllowList())
-                {
-                    sb.Append(allow).Append(' ');
-                }
-                sb.AppendLine();
-
-                sb.Append("Deny: ");
-                foreach (ChannelPermission deny in overwrite.Permissions.ToDenyList())
-                {
-                    sb.Append(deny).Append(' ');
-                }
-                sb.AppendLine();
+                SerializePermissions(overwrite.Permissions, sb);
 
                 sb.AppendLine();
             }
@@ -155,17 +147,70 @@
             sb.AppendLine();
 
             sb.AppendLine("Text channels:");
-            foreach (SocketTextChannel channel in guild.TextChannels)
+            foreach (SocketTextChannel channel in guild.TextChannels.OrderBy(c => c.Position))
             {
-                sb.Append(channel.Id.ToString().PadRight(20, ' ')).AppendLine(channel.Name);
+                sb.Append(channel.Id.ToString().PadRight(19, ' ')).AppendLine(channel.Name);
             }
             sb.AppendLine();
 
             sb.AppendLine("Voice channels:");
-            foreach (SocketVoiceChannel channel in guild.VoiceChannels)
+            foreach (SocketVoiceChannel channel in guild.VoiceChannels.OrderBy(c => c.Position))
             {
-                sb.Append(channel.Id.ToString().PadRight(20, ' ')).AppendLine(channel.Name);
+                sb.Append(channel.Id.ToString().PadRight(19, ' ')).AppendLine(channel.Name);
             }
+        }
+
+        private static void SerializeUser(SocketGuildUser user, StringBuilder sb)
+        {
+            sb.Append(user.Username).Append('#').Append(user.Discriminator).Append(" (").Append(user.Id).AppendLine(")");
+
+            if (user.JoinedAt.HasValue)
+            {
+                sb.Append("Joined at ").AppendLine(user.JoinedAt.Value.ToISODate());
+            }
+
+            sb.AppendLine();
+
+            SerializePermissions(user.GuildPermissions, sb);
+            sb.AppendLine();
+
+            foreach (SocketTextChannel channel in user.Guild.Channels.OrderBy(c => c.Position))
+            {
+                OverwritePermissions? permOverwrites = channel.GetPermissionOverwrite(user);
+                if (permOverwrites.HasValue && (permOverwrites.Value.AllowValue != 0 || permOverwrites.Value.DenyValue != 0))
+                {
+                    sb.Append(channel.Id.ToString().PadRight(19, ' ')).AppendLine(channel.Name);
+                    SerializePermissions(permOverwrites.Value, sb);
+                    sb.AppendLine();
+                }
+            }
+        }
+
+        private static void SerializePermissions(GuildPermissions permissions, StringBuilder sb)
+        {
+            sb.Append("Allow: ");
+            foreach (ChannelPermission perm in permissions.ToList())
+            {
+                sb.Append(perm).Append(' ');
+            }
+            sb.AppendLine();
+        }
+
+        private static void SerializePermissions(OverwritePermissions overwrite, StringBuilder sb)
+        {
+            sb.Append("Allow: ");
+            foreach (ChannelPermission allow in overwrite.ToAllowList())
+            {
+                sb.Append(allow).Append(' ');
+            }
+            sb.AppendLine();
+
+            sb.Append("Deny: ");
+            foreach (ChannelPermission deny in overwrite.ToDenyList())
+            {
+                sb.Append(deny).Append(' ');
+            }
+            sb.AppendLine();
         }
     }
 }
