@@ -174,7 +174,7 @@
             SerializePermissions(user.GuildPermissions, sb);
             sb.AppendLine();
 
-            foreach (SocketTextChannel channel in user.Guild.Channels.OrderBy(c => c.Position))
+            foreach (SocketGuildChannel channel in user.Guild.Channels.OrderBy(c => c.Position))
             {
                 OverwritePermissions? permOverwrites = channel.GetPermissionOverwrite(user);
                 if (permOverwrites.HasValue && (permOverwrites.Value.AllowValue != 0 || permOverwrites.Value.DenyValue != 0))
