@@ -61,7 +61,7 @@
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;
-        public const ulong DuelsTexts       = 780506349414121503ul;
+        public const ulong DuelsTexts       = 911772790099693598ul;
 
         public const ulong RetirementHomeWhitelist = 782770488233558016ul;
     }
