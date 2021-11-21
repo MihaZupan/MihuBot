@@ -53,6 +53,7 @@ namespace MihuBot
                 MessageCacheSize = 1024 * 16,
                 ConnectionTimeout = 30_000,
                 AlwaysDownloadUsers = RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
+                GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
             };
 
             var discord = new InitializedDiscordClient(
