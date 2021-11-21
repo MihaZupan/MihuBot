@@ -105,19 +105,6 @@ namespace MihuBot.Helpers
             }
         }
 
-        public static IEnumerable<TElement> UniqueBy<TElement, TBy>(this IEnumerable<TElement> source, Func<TElement, TBy> selector)
-        {
-            var hashSet = new HashSet<TBy>();
-
-            foreach (TElement element in source)
-            {
-                if (hashSet.Add(selector(element)))
-                {
-                    yield return element;
-                }
-            }
-        }
-
         public static bool OverwritesEqual(this IReadOnlyCollection<Overwrite> left, IReadOnlyCollection<Overwrite> right)
         {
             if (ReferenceEquals(left, right))
@@ -203,23 +190,9 @@ namespace MihuBot.Helpers
             return (channel as SocketGuildChannel)?.Guild;
         }
 
-        public static bool MentionsAny(this SocketUserMessage message)
-        {
-            return message.MentionedUsers.Any()
-                || message.MentionedRoles.Any()
-                || message.MentionedChannels.Any()
-                || message.MentionedEveryone;
-        }
-
         public static bool IsAdmin(this SocketUser user)
         {
             return Constants.Admins.Contains(user.Id);
-        }
-
-        public static bool AuthorIsAdmin(this SocketMessage message)
-        {
-            var guild = message.Guild();
-            return guild != null && message.Author.IsAdmin();
         }
 
         public static bool TryGetFirst<T>(this IEnumerable<T> entities, ulong id, out T entity)

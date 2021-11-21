@@ -1,5 +1,4 @@
-﻿using MihuBot.Permissions;
-using MihuBot.Reminders;
+﻿using MihuBot.Reminders;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -109,19 +108,27 @@ namespace MihuBot.Commands
 
         private readonly DiscordSocketClient _discord;
         private readonly IReminderService _reminderService;
-        private readonly IPermissionsService _permissions;
         private readonly Logger _logger;
         private readonly Timer _reminderTimer;
 
-        private const string MentionPermission = "reminders.mention";
-
-        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, IPermissionsService permissions, Logger logger)
+        public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, Logger logger)
         {
             _discord = discord;
             _reminderService = reminderService;
-            _permissions = permissions;
             _logger = logger;
             _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
+        }
+
+        private static bool ContainsMentionsWithoutPermissions(SocketUserMessage message)
+        {
+            if (message.Guild() is SocketGuild guild &&
+                guild.GetUser(message.Author.Id) is SocketGuildUser user &&
+                user.GuildPermissions.MentionEveryone)
+            {
+                return false;
+            }
+
+            return message.MentionedEveryone || message.MentionedRoles.Any();
         }
 
         public override Task HandleAsync(MessageContext ctx)
@@ -129,7 +136,7 @@ namespace MihuBot.Commands
             if (!ctx.Content.Contains("remind", StringComparison.OrdinalIgnoreCase)
                 || ctx.Content.Length > 256
                 || !TryPeek(ctx)
-                || (ctx.Message.MentionsAny() && !_permissions.HasPermission(MentionPermission, ctx.AuthorId)))
+                || ContainsMentionsWithoutPermissions(ctx.Message))
             {
                 return Task.CompletedTask;
             }
