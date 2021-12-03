@@ -322,7 +322,7 @@ namespace MihuBot
 
                 Stream fileStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
 
-                JsonLogStream = new BrotliStream(fileStream, (CompressionLevel)4);
+                JsonLogStream = new BrotliStream(fileStream, CompressionLevel.Optimal);
             }
             catch (Exception ex)
             {
