@@ -195,6 +195,13 @@ namespace MihuBot
             app.UseAuthentication();
             app.UseAuthorization();
 
+            app.Use(async (context, next) =>
+            {
+                Console.WriteLine($"{context.Connection.RemoteIpAddress}");
+
+                await next();
+            });
+
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
