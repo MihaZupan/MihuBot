@@ -2,7 +2,6 @@
 using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Common;
-using YoutubeExplode.Playlists;
 using YoutubeExplode.Search;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;

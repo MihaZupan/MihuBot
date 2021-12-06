@@ -1048,9 +1048,9 @@ namespace MihuBot.Audio
             {
                 try
                 {
-                    StreamManifest manifest = await YoutubeHelper.Streams.GetManifestAsync(_video.Id, cancellationToken);
-                    IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(manifest, out _);
-                    _duration ??= bestAudio.Duration();
+                    YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url);
+                    _duration ??= TimeSpan.FromSeconds(ytMetadata.Duration);
+                    var bestAudio = ytMetadata.GetBestAudio();
                     await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, audioPath, bitrateHintKbit, cancellationToken);
                 }
                 catch
@@ -1237,10 +1237,9 @@ namespace MihuBot.Audio
                         }
                         else
                         {
-                            StreamManifest streamManifest = await YoutubeHelper.Streams.GetManifestAsync(video.Id);
-                            IStreamInfo bestAudio = YoutubeHelper.GetBestAudio(streamManifest, out _);
+                            YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(video.Url);
 
-                            metadata.Duration ??= bestAudio.Duration();
+                            metadata.Duration ??= TimeSpan.FromSeconds(ytMetadata.Duration);
 
                             if (metadata.Duration > MaxVideoLength)
                             {
@@ -1248,6 +1247,7 @@ namespace MihuBot.Audio
                             }
                             else
                             {
+                                var bestAudio = ytMetadata.GetBestAudio();
                                 await YoutubeHelper.ConvertToAudioOutputAsync(bestAudio.Url, path, bitrate: 160);
                             }
                         }

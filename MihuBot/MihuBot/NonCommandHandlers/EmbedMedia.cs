@@ -1,6 +1,4 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 
 namespace MihuBot.NonCommandHandlers
 {
@@ -51,8 +49,7 @@ namespace MihuBot.NonCommandHandlers
 
                         try
                         {
-                            YoutubeDlMetadata metadata = await YoutubeDl.GetJsonAsync<YoutubeDlMetadata>(match.Value);
-                            await UploadFileAsync(ctx, metadata);
+                            await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(match.Value));
                         }
                         catch (Exception ex)
                         {
@@ -66,7 +63,7 @@ namespace MihuBot.NonCommandHandlers
             }
         }
 
-        private async Task UploadFileAsync(MessageContext ctx, YoutubeDlMetadata metadata)
+        private async Task UploadFileAsync(MessageContext ctx, YoutubeDl.YoutubeDlMetadata metadata)
         {
             var request = new HttpRequestMessage(HttpMethod.Get, metadata.Url);
             foreach (var header in metadata.HttpHeaders)
@@ -78,16 +75,6 @@ namespace MihuBot.NonCommandHandlers
             using Stream responseStream = await response.Content.ReadAsStreamAsync();
 
             await ctx.Channel.SendFileAsync(responseStream, metadata.Filename);
-        }
-
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
-        private class YoutubeDlMetadata
-        {
-            public string Url { get; set; }
-            public Dictionary<string, string> HttpHeaders { get; set; }
-
-            [JsonProperty(PropertyName = "_filename")]
-            public string Filename { get; set; }
         }
     }
 }

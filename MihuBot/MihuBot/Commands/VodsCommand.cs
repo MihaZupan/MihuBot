@@ -1,8 +1,5 @@
 ﻿using Azure.Storage.Blobs;
 using Discord.Rest;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands
@@ -41,10 +38,10 @@ namespace MihuBot.Commands
 
             string link = match.Value;
 
-            YoutubeDlMetadata metadata;
+            YoutubeDl.YoutubeDlMetadata metadata;
             try
             {
-                metadata = await YoutubeDl.GetJsonAsync<YoutubeDlMetadata>(link);
+                metadata = await YoutubeDl.GetMetadataAsync(link);
             }
             catch (Exception ex)
             {
@@ -65,7 +62,7 @@ namespace MihuBot.Commands
                 return;
             }
 
-            YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f).First();
+            YoutubeDl.YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f).First();
 
             if (ctx.Arguments.Length > 1)
             {
@@ -146,45 +143,6 @@ namespace MihuBot.Commands
                 await ctx.DebugAsync(ex);
                 await ctx.ReplyAsync($"Failed to initiate a media transfer");
                 return;
-            }
-        }
-
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
-        private class YoutubeDlMetadata
-        {
-            public string Id { get; set; }
-            public string Title { get; set; }
-            public bool IsLive { get; set; }
-            public double Duration { get; set; }
-
-            public YoutubeDlFormat[] Formats { get; set; }
-
-            [JsonProperty(PropertyName = "_filename")]
-            public string Filename { get; set; }
-        }
-
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy), ItemNullValueHandling = NullValueHandling.Ignore)]
-        private class YoutubeDlFormat : IComparable<YoutubeDlFormat>, IComparable
-        {
-            public string FormatId { get; set; }
-            public string Url { get; set; }
-            public double? Tbr { get; set; }
-            public double? Height { get; set; }
-            public Dictionary<string, string> HttpHeaders { get; set; }
-
-            public int CompareTo(object obj) => CompareTo(obj as YoutubeDlFormat);
-
-            public int CompareTo([AllowNull] YoutubeDlFormat other)
-            {
-                if (other is null) return 1;
-
-                if (Tbr.HasValue && other.Tbr.HasValue)
-                    return Tbr.Value.CompareTo(other.Tbr.Value);
-
-                if (Height.HasValue && other.Height.HasValue)
-                    return Height.Value.CompareTo(other.Height.Value);
-
-                return FormatId.CompareTo(other.FormatId);
             }
         }
     }

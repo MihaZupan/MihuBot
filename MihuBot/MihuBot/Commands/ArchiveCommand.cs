@@ -137,7 +137,7 @@ namespace MihuBot.Commands
 
                         using var process = new Process()
                         {
-                            StartInfo = new ProcessStartInfo("youtube-dl")
+                            StartInfo = new ProcessStartInfo("yt-dlp")
                             {
                                 Arguments = $"{url} -o -",
                                 UseShellExecute = false,
