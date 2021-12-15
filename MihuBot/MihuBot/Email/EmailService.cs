@@ -18,7 +18,7 @@ namespace MihuBot.Email
         {
             try
             {
-                var from = new EmailAddress($"{fromEmailPrefix}@darlings.me", fromName);
+                var from = new EmailAddress($"{fromEmailPrefix}@mihubot.xyz", fromName);
                 var to = new EmailAddress(toEmail, toName);
                 SendGridMessage msg = MailHelper.CreateSingleEmail(from, to, subject, plainText, htmlText);
                 return await _emailClient.SendEmailAsync(msg);
