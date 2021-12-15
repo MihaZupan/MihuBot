@@ -34,7 +34,7 @@ namespace MihuBot.Commands
         private readonly DiscordSocketClient _discord;
         private readonly IConfigurationService _configuration;
 
-        private List<DuelScript> _scripts;
+        private List<(int Priority, DuelScript Script)> _scripts;
 
         public DuelCommand(DiscordSocketClient discord, IConfigurationService configuration)
         {
@@ -49,7 +49,7 @@ namespace MihuBot.Commands
 
         private async Task LoadScriptsAsync()
         {
-            var scripts = new List<DuelScript>();
+            var scripts = new List<(int, DuelScript)>();
 
             foreach (SocketTextChannel textChannel in _duelTextChannels
                 .Select(id => _discord.GetTextChannel(id))
@@ -59,11 +59,14 @@ namespace MihuBot.Commands
                 {
                     foreach (var message in messages)
                     {
+                        int reactionCount = message.Reactions.Sum(r => r.Value.ReactionCount);
+                        reactionCount++;
+
                         foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
                         {
                             var script = text.Trim();
                             if (script.Length > 0)
-                                scripts.Add(new DuelScript(script));
+                                scripts.Add((reactionCount, new DuelScript(script)));
                         }
                     }
                 }
@@ -238,11 +241,19 @@ namespace MihuBot.Commands
                 var (winner, looser) = duel.ChooseWinner(_configuration);
 
                 bool firstWins = winner == duel.UserOne;
-                var script = (firstWins
-                        ? _scripts.Where(s => s.FirstWins is null || s.FirstWins.Value == true)
-                        : _scripts.Where(s => s.FirstWins is null || s.FirstWins.Value == false))
-                    .ToArray()
-                    .Random();
+                var scripts = (firstWins
+                        ? _scripts.Where(s => s.Script.FirstWins is null || s.Script.FirstWins.Value == true)
+                        : _scripts.Where(s => s.Script.FirstWins is null || s.Script.FirstWins.Value == false))
+                    .ToArray();
+
+                int combinedPriority = scripts.Sum(s => s.Priority);
+                int chosenPriority = Rng.Next(combinedPriority);
+                DuelScript script = scripts[0].Script;
+                for (int i = 0; i < scripts.Length && chosenPriority > 0; i++)
+                {
+                    script = scripts[i].Script;
+                    chosenPriority -= scripts[i].Priority;
+                }
 
                 foreach (string messageFormat in script.Messages)
                 {
