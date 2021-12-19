@@ -19,6 +19,7 @@
     <PackageReference Include="SendGrid" Version="9.24.4" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SpotifyAPI.Web" Version="6.2.2" />
+    <PackageReference Include="TweetinviAPI" Version="5.0.4" />
     <PackageReference Include="TwitchLib" Version="3.3.0" />
     <PackageReference Include="YoutubeExplode" Version="6.0.5" />
   </ItemGroup>

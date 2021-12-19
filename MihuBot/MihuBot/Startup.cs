@@ -13,6 +13,8 @@ using MihuBot.Reminders;
 using MihuBot.Weather;
 using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
+using Tweetinvi;
+using Tweetinvi.Models;
 
 namespace MihuBot
 {
@@ -47,6 +49,15 @@ namespace MihuBot
                 Configuration["NextCloud:User"],
                 Configuration["NextCloud:Password"]);
             services.AddSingleton(nextCloudClient);
+
+            services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
+                Configuration["Twitter:ConsumerKey"],
+                Configuration["Twitter:ConsumerSecret"],
+                Configuration["Twitter:AccessToken"],
+                Configuration["Twitter:AccessTokenSecret"])
+            {
+                BearerToken = Configuration["Twitter:BearerToken"]
+            }));
 
             var discordConfig = new DiscordSocketConfig()
             {
@@ -140,6 +151,8 @@ namespace MihuBot
             services.AddHostedService<MihuBotService>();
 
             services.AddHostedService<TwitchBotService>();
+
+            services.AddHostedService<TwitterBioUpdater>();
 
             services.AddAuthentication(options =>
                 {
