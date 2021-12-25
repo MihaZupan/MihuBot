@@ -135,6 +135,9 @@ namespace MihuBot
 
             services.AddSingleton<IWeatherService, WeatherService>();
 
+            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
+            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
+
             services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
                 .WithAuthenticator(new ClientCredentialsAuthenticator(
                     Configuration["Spotify:ClientId"],
