@@ -61,9 +61,9 @@ namespace MihuBot.DownBadProviders
             var embeds = mediaTweets
                 .SelectMany(tweet => tweet.Media
                     .Select(media => new EmbedBuilder()
-                        .WithAuthor(author.Name, author.ProfileImageUrl, author.Url)
+                        .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
+                        .WithTitle(tweet.Tweet.Text)
                         .WithUrl(tweet.Tweet.Url)
-                        .WithDescription(tweet.Tweet.Text)
                         .WithImageUrl(media.MediaURLHttps)
                         .Build()))
                 .ToArray();
