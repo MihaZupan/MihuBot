@@ -57,13 +57,13 @@ namespace MihuBot.DownBadProviders
             {
                 foreach (var (username, subscriptions) in _subscriptions.ToArray())
                 {
-                    string result;
+                    Embed[] results;
                     DateTime lastTweetTime;
                     try
                     {
-                        (result, lastTweetTime) = await QueryAsync(username, subscriptions.LastTweet);
+                        (results, lastTweetTime) = await QueryAsync(username, subscriptions.LastTweet);
 
-                        if (result is null)
+                        if (results is null)
                         {
                             continue;
                         }
@@ -92,7 +92,10 @@ namespace MihuBot.DownBadProviders
                             var channel = await channelSelector();
                             if (channel is not null)
                             {
-                                await channel.SendMessageAsync(result);
+                                foreach (Embed embed in results)
+                                {
+                                    await channel.SendMessageAsync(embed: embed);
+                                }
                             }
                         }
                         catch { }
@@ -106,10 +109,11 @@ namespace MihuBot.DownBadProviders
             }
         }
 
-        private async Task<(string Result, DateTime LastTweetTime)> QueryAsync(string username, DateTime lastTweetTime)
+        private async Task<(Embed[] Results, DateTime LastTweetTime)> QueryAsync(string username, DateTime lastTweetTime)
         {
             var tweets = (await _client.Timelines.GetUserTimelineAsync(username))
                 .Where(t => t.CreatedAt > lastTweetTime)
+                .Where(t => !t.IsRetweet)
                 .ToArray();
 
             if (tweets.Length == 0)
@@ -120,9 +124,8 @@ namespace MihuBot.DownBadProviders
             lastTweetTime = tweets.Max(t => t.CreatedAt).UtcDateTime;
 
             var mediaTweets = tweets
-                .Where(t => t.Media.Any(m => m.MediaType == "photo"))
-                .SelectMany(t => t.Media)
-                .Where(m => m.MediaType == "photo")
+                .Select(t => (Tweet: t, Media: t.Media.Where(m => m.MediaType == "photo").ToArray()))
+                .Where(t => t.Media.Length != 0)
                 .ToArray();
 
             if (mediaTweets.Length == 0)
@@ -130,7 +133,19 @@ namespace MihuBot.DownBadProviders
                 return (null, lastTweetTime);
             }
 
-            return (string.Join('\n', mediaTweets.Select(m => m.MediaURLHttps)), lastTweetTime);
+            var author = tweets.First().CreatedBy;
+
+            var embeds = mediaTweets
+                .SelectMany(tweet => tweet.Media
+                    .Select(media => new EmbedBuilder()
+                        .WithAuthor(author.Name, author.ProfileImageUrl, author.Url)
+                        .WithUrl(tweet.Tweet.Url)
+                        .WithDescription(tweet.Tweet.Text)
+                        .WithImageUrl(media.MediaURLHttps)
+                        .Build()))
+                .ToArray();
+
+            return (embeds, lastTweetTime);
         }
     }
 }
