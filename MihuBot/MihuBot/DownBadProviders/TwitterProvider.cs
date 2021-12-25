@@ -16,7 +16,8 @@ namespace MihuBot.DownBadProviders
 
         public bool CanMatch(Uri url)
         {
-            return url.IdnHost.Equals("twitter.com", StringComparison.OrdinalIgnoreCase)
+            return (url.IdnHost.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) ||
+                    url.IdnHost.Equals("www.twitter.com", StringComparison.OrdinalIgnoreCase))
                 && url.PathAndQuery.Length > 0;
         }
 
@@ -25,13 +26,13 @@ namespace MihuBot.DownBadProviders
             string username;
             try
             {
-                string name = url.PathAndQuery.Trim('/');
+                string name = url.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).First();
                 var user = await _client.UsersV2.GetUserByNameAsync(name);
                 username = user.User.Username;
             }
             catch
             {
-                return "Couldn't find a matching Tweeter account";
+                return "Couldn't find a matching Twitter account";
             }
 
             lock (_subscriptions)
