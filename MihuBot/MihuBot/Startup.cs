@@ -253,9 +253,9 @@ namespace MihuBot
                 {
                     instaApi.SendRequestsBeforeLoginAsync().GetAwaiter().GetResult();
 
-                    delay.Disable();
+                    Thread.Sleep(5_000);
+
                     var logInResult = instaApi.LoginAsync().GetAwaiter().GetResult();
-                    delay.Enable();
 
                     if (!logInResult.Succeeded)
                     {
