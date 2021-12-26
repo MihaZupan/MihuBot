@@ -1,10 +1,8 @@
-﻿using SharpCollections.Generic;
-
-namespace MihuBot.Reminders
+﻿namespace MihuBot.Reminders
 {
     internal sealed class ReminderService : IReminderService
     {
-        private readonly BinaryHeap<ReminderEntry> _remindersHeap = new(32);
+        private readonly PriorityQueue<ReminderEntry, DateTime> _remindersHeap = new(32);
         private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders = new("Reminders.json");
         private readonly Logger _logger;
 
@@ -16,7 +14,7 @@ namespace MihuBot.Reminders
             List<ReminderEntry> reminders = _reminders.DangerousGetValue();
 
             foreach (var reminder in reminders)
-                _remindersHeap.Push(reminder);
+                _remindersHeap.Enqueue(reminder, reminder.Time);
         }
 
         public async ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync()
@@ -40,9 +38,9 @@ namespace MihuBot.Reminders
             {
                 lock (_remindersHeap)
                 {
-                    while (!_remindersHeap.IsEmpty && _remindersHeap.Top.Time < now)
+                    while (_remindersHeap.Count != 0 && _remindersHeap.Peek().Time < now)
                     {
-                        var entry = _remindersHeap.Pop();
+                        var entry = _remindersHeap.Dequeue();
                         Log($"Popping reminder from the heap {entry}", entry);
                         (entries ??= new List<ReminderEntry>()).Add(entry);
                     }
@@ -88,7 +86,7 @@ namespace MihuBot.Reminders
                 reminders.Add(entry);
                 lock (_remindersHeap)
                 {
-                    _remindersHeap.Push(entry);
+                    _remindersHeap.Enqueue(entry, entry.Time);
                 }
             }
             finally
