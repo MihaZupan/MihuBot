@@ -1,14 +1,27 @@
-﻿using Tweetinvi;
+﻿using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
+using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
+using Tweetinvi;
 
 namespace MihuBot.DownBadProviders
 {
     public sealed class TwitterProvider : PollingDownBadProviderBase
     {
-        private readonly ITwitterClient _client;
-
-        public TwitterProvider(ITwitterClient client)
+        private static readonly VisualFeatureTypes?[] _visualFeatureTypes = new VisualFeatureTypes?[]
         {
-            _client = client;
+            VisualFeatureTypes.Categories
+        };
+
+        private readonly Logger _logger;
+        private readonly DiscordSocketClient _discord;
+        private readonly ITwitterClient _twitter;
+        private readonly IComputerVisionClient _computerVision;
+
+        public TwitterProvider(Logger logger, DiscordSocketClient discord, ITwitterClient twitter, IComputerVisionClient computerVision)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _discord = discord ?? throw new ArgumentNullException(nameof(discord));
+            _twitter = twitter ?? throw new ArgumentNullException(nameof(twitter));
+            _computerVision = computerVision ?? throw new ArgumentNullException(nameof(computerVision));
         }
 
         public override bool CanMatch(Uri url)
@@ -23,7 +36,7 @@ namespace MihuBot.DownBadProviders
             try
             {
                 string name = url.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).First();
-                var user = await _client.UsersV2.GetUserByNameAsync(name);
+                var user = await _twitter.UsersV2.GetUserByNameAsync(name);
                 return (user.User.Username, null);
             }
             catch
@@ -34,7 +47,7 @@ namespace MihuBot.DownBadProviders
 
         public override async Task<(Embed[] Embeds, DateTime LastPostTime)> QueryNewPostsAsync(string data, DateTime lastPostTime)
         {
-            var tweets = (await _client.Timelines.GetUserTimelineAsync(data))
+            var tweets = (await _twitter.Timelines.GetUserTimelineAsync(data))
                 .Where(t => t.CreatedAt > lastPostTime)
                 .Where(t => !t.IsRetweet)
                 .ToArray();
@@ -46,29 +59,71 @@ namespace MihuBot.DownBadProviders
 
             lastPostTime = tweets.Max(t => t.CreatedAt).UtcDateTime;
 
-            var mediaTweets = tweets
-                .Select(t => (Tweet: t, Media: t.Media.Where(m => m.MediaType == "photo").ToArray()))
-                .Where(t => t.Media.Length != 0)
+            var photoTweets = tweets
+                .Select(t => (Tweet: t, Photos: t.Media.Where(m => m.MediaType == "photo").ToArray()))
+                .Where(t => t.Photos.Length != 0)
                 .ToArray();
 
-            if (mediaTweets.Length == 0)
+            if (photoTweets.Length == 0)
             {
                 return (null, lastPostTime);
             }
 
-            var author = tweets.First().CreatedBy;
+            var author = photoTweets.First().Tweet.CreatedBy;
 
-            var embeds = mediaTweets
-                .SelectMany(tweet => tweet.Media
-                    .Select(media => new EmbedBuilder()
+            var embeds = new List<Embed>();
+
+            foreach (var (tweet, photos) in photoTweets)
+            {
+                foreach (var photo in photos)
+                {
+                    try
+                    {
+                        ImageAnalysis analysis = await _computerVision.AnalyzeImageAsync(photo.MediaURL, _visualFeatureTypes);
+
+                        try
+                        {
+                            if (_discord.GetTextChannel(Channels.TheBoysSpam) is SocketTextChannel spamChannel)
+                            {
+                                await spamChannel.SendMessageAsync(embed: new EmbedBuilder()
+                                    .WithTitle(tweet.Text ?? "Tweet")
+                                    .WithUrl(tweet.Url)
+                                    .WithImageUrl(photo.MediaURLHttps)
+                                    .WithFields(analysis.Categories
+                                        .OrderByDescending(category => category.Score)
+                                        .Take(10)
+                                        .Select(category => new EmbedFieldBuilder()
+                                            .WithName(category.Name)
+                                            .WithValue($"Score: {category.Score}")
+                                            .WithIsInline(true)))
+                                    .Build());
+                            }
+                        }
+                        catch { }
+
+                        const double PeopleScoreThreshold = 0.75;
+
+                        if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase) && t.Score > PeopleScoreThreshold))
+                        {
+                            _logger.DebugLog($"Skipping {photo.URL} as no people categories above {PeopleScoreThreshold} were detected");
+                            continue;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        await _logger.DebugAsync($"An expection was thrown while processing {photo.MediaURLHttps} for {tweet.Url}: {ex}");
+                    }
+
+                    embeds.Add(new EmbedBuilder()
                         .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
-                        .WithTitle(tweet.Tweet.Text)
-                        .WithUrl(tweet.Tweet.Url)
-                        .WithImageUrl(media.MediaURLHttps)
-                        .Build()))
-                .ToArray();
+                        .WithTitle(tweet.Text ?? "Tweet")
+                        .WithUrl(tweet.Url)
+                        .WithImageUrl(photo.MediaURLHttps)
+                        .Build());
+                }
+            }
 
-            return (embeds, lastPostTime);
+            return (embeds.ToArray(), lastPostTime);
         }
     }
 }

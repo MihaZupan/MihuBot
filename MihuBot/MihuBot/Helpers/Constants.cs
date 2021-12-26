@@ -51,13 +51,12 @@
     public static class Channels
     {
         public const ulong DDsGeneral       = 353640904185085953ul;
-        public const ulong DDsIntroductions = 374585088404488202ul;
-        public const ulong DDsPancake       = 836483780965302292ul;
 
         public const ulong Debug            = 806048964021190656ul;
         public const ulong LogText          = 750706839431413870ul;
         public const ulong Files            = 774147493319540736ul;
         public const ulong Email            = 880649603580559401ul;
+        public const ulong TheBoysSpam      = 924503695738171402ul;
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;

@@ -3,6 +3,7 @@ using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
@@ -58,6 +59,14 @@ namespace MihuBot
             {
                 BearerToken = Configuration["Twitter:BearerToken"]
             }));
+
+            services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
+                new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
+                httpClient,
+                disposeHttpClient: false)
+            {
+                Endpoint = Configuration["AzureComputerVision:Endpoint"]
+            });
 
             var discord = new InitializedDiscordClient(
                 new DiscordSocketConfig()
