@@ -7,7 +7,8 @@ namespace MihuBot.DownBadProviders
     {
         private static readonly VisualFeatureTypes?[] _visualFeatureTypes = new VisualFeatureTypes?[]
         {
-            VisualFeatureTypes.Categories
+            VisualFeatureTypes.Categories,
+            VisualFeatureTypes.Faces
         };
 
         private readonly Logger _logger;
@@ -135,14 +136,20 @@ namespace MihuBot.DownBadProviders
                                 .Select(category => new EmbedFieldBuilder()
                                     .WithName(category.Name)
                                     .WithValue($"Score: {category.Score:N4}")
-                                    .WithIsInline(true)))
+                                    .WithIsInline(true))
+                                .Concat((analysis.Faces ?? Array.Empty<FaceDescription>())
+                                .Select(face => new EmbedFieldBuilder()
+                                    .WithName("Face")
+                                    .WithValue($"Age={face.Age}, Gender={face.Gender}")
+                                    .WithIsInline(true))))
                             .Build(),
                         logger: _logger);
                 }
 
                 const double PeopleScoreThreshold = 0.15;
 
-                if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase) && t.Score > PeopleScoreThreshold))
+                if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase) && t.Score > PeopleScoreThreshold) &&
+                    (analysis.Faces is null || analysis.Faces.Count == 0))
                 {
                     _logger.DebugLog($"Skipping {photoUrl} as no people categories above {PeopleScoreThreshold} were detected");
                     return false;
