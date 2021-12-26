@@ -8,7 +8,7 @@ namespace MihuBot.NonCommandHandlers
 
         public YoutubeHandler(YouTubeService youtubeService)
         {
-            _youtubeService = youtubeService;
+            _youtubeService = youtubeService ?? throw new ArgumentNullException(nameof(youtubeService));
         }
 
         public override Task HandleAsync(MessageContext ctx)

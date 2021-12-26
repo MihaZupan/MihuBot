@@ -12,7 +12,7 @@ namespace MihuBot.Commands
 
         public DownBadCommand(DiscordSocketClient discord, IEnumerable<IDownBadProvider> downBadProviders)
         {
-            _discord = discord;
+            _discord = discord ?? throw new ArgumentNullException(nameof(discord));
             _providers = downBadProviders.ToArray();
         }
 

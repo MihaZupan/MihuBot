@@ -6,7 +6,7 @@
 
         public ReactCommand(DiscordSocketClient discord)
         {
-            _discord = discord;
+            _discord = discord ?? throw new ArgumentNullException(nameof(discord));
             discord.ReactionAdded += Discord_ReactionAddedAsync;
         }
 

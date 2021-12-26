@@ -113,9 +113,9 @@ namespace MihuBot.Commands
 
         public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, Logger logger)
         {
-            _discord = discord;
-            _reminderService = reminderService;
-            _logger = logger;
+            _discord = discord ?? throw new ArgumentNullException(nameof(discord));
+            _reminderService = reminderService ?? throw new ArgumentNullException(nameof(reminderService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
         }
 

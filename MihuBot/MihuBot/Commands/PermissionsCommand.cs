@@ -11,7 +11,7 @@ namespace MihuBot.Commands
 
         public PermissionsCommand(IPermissionsService permissions)
         {
-            _permissions = permissions;
+            _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)

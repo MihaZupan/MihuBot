@@ -35,9 +35,9 @@ namespace MihuBot
 
         public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
         {
-            _logger = logger;
-            Discord = discord;
-            Message = message;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            Discord = discord ?? throw new ArgumentNullException(nameof(discord));
+            Message = message ?? throw new ArgumentNullException(nameof(message));
             Content = message.Content.Trim();
         }
 

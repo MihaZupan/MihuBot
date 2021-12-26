@@ -10,7 +10,7 @@ namespace MihuBot.Weather
 
         public WeatherService(HttpClient httpClient, IConfiguration configuration)
         {
-            _http = httpClient;
+            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _apiKey = configuration["OpenWeather:ApiKey"];
         }
 

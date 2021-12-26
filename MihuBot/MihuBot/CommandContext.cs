@@ -76,8 +76,8 @@ namespace MihuBot
         public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger, IPermissionsService permissions)
             : base(discord, message, logger)
         {
-            Command = command;
-            _permissions = permissions;
+            Command = command ?? throw new ArgumentNullException(nameof(command));
+            _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
         }
 
         public ValueTask<bool> RequirePermissionAsync(string permission)

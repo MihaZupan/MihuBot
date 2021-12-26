@@ -8,7 +8,7 @@ namespace MihuBot.NonCommandHandlers
 
         public AtVoiceChat(IPermissionsService permissionsService)
         {
-            _permissions = permissionsService;
+            _permissions = permissionsService ?? throw new ArgumentNullException(nameof(permissionsService));
         }
 
         public override Task HandleAsync(MessageContext ctx)

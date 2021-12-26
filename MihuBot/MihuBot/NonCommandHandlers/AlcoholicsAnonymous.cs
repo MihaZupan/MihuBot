@@ -20,7 +20,7 @@ namespace MihuBot.NonCommandHandlers
 
         public AlcoholicsAnonymous(IPermissionsService permissions)
         {
-            _permissions = permissions;
+            _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
         }
 
         public override Task HandleAsync(MessageContext ctx)

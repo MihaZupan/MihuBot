@@ -9,8 +9,8 @@ namespace MihuBot.NonCommandHandlers
 
         public McFunction(HttpClient httpClient, IConfiguration configuration)
         {
-            _http = httpClient;
-            _configuration = configuration;
+            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         }
 
         public Task HandleAsync(MessageContext ctx)

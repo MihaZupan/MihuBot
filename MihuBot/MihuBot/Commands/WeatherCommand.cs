@@ -15,7 +15,7 @@ namespace MihuBot.Commands
 
         public WeatherCommand(IWeatherService weather)
         {
-            _weather = weather;
+            _weather = weather ?? throw new ArgumentNullException(nameof(weather));
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)

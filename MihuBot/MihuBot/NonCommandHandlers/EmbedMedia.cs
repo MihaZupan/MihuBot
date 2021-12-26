@@ -17,7 +17,7 @@ namespace MihuBot.NonCommandHandlers
 
         public EmbedMedia(HttpClient httpClient)
         {
-            _http = httpClient;
+            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
 
         public override Task HandleAsync(MessageContext ctx)

@@ -6,13 +6,13 @@ namespace MihuBot
     public sealed class TwitterBioUpdater : IHostedService
     {
         private readonly Logger _logger;
-        private readonly ITwitterClient _client;
+        private readonly ITwitterClient _twitter;
         private readonly CancellationTokenSource _cts;
 
-        public TwitterBioUpdater(Logger logger, ITwitterClient client)
+        public TwitterBioUpdater(Logger logger, ITwitterClient twitter)
         {
-            _logger = logger;
-            _client = client;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _twitter = twitter ?? throw new ArgumentNullException(nameof(twitter));
             _cts = new CancellationTokenSource();
         }
 
@@ -32,7 +32,7 @@ namespace MihuBot
                         var utcNow = DateTime.UtcNow;
                         var minutesSpent = (int)utcNow.Subtract(start).TotalMinutes;
 
-                        await _client.AccountSettings.UpdateProfileAsync(new UpdateProfileParameters
+                        await _twitter.AccountSettings.UpdateProfileAsync(new UpdateProfileParameters
                         {
                             Description = $"Performance fan working on @dotnet @Microsoft for the past {minutesSpent} minutes"
                         });

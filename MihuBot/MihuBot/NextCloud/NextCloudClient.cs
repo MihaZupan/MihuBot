@@ -10,7 +10,11 @@
 
         public NextCloudClient(HttpClient httpClient, string serverAddress, string username, string password)
         {
-            _httpClient = httpClient;
+            _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+
+            ArgumentNullException.ThrowIfNull(serverAddress);
+            ArgumentNullException.ThrowIfNull(username);
+            ArgumentNullException.ThrowIfNull(password);
 
             _basicAuth = $"Basic {Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"))}";
 

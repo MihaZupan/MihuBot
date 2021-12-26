@@ -10,7 +10,7 @@ namespace MihuBot.NonCommandHandlers
 
         public HusbandoAndWaifu(IHusbandoService husbandoService)
         {
-            _husbandoService = husbandoService;
+            _husbandoService = husbandoService ?? throw new ArgumentNullException(nameof(husbandoService));
         }
 
         public override Task HandleAsync(MessageContext ctx)

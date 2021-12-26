@@ -12,7 +12,7 @@ namespace MihuBot.Commands
 
         public EmailCommand(IEmailService emailService)
         {
-            _emailService = emailService;
+            _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)

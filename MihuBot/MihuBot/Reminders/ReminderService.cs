@@ -8,7 +8,7 @@
 
         public ReminderService(Logger logger)
         {
-            _logger = logger;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _logger.DebugLog($"Initializing {nameof(ReminderService)}");
 
             List<ReminderEntry> reminders = _reminders.DangerousGetValue();

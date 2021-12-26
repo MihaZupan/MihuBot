@@ -11,7 +11,7 @@ namespace MihuBot.Commands
 
         public EmoteCommand(HttpClient httpClient, IConfiguration configuration)
         {
-            _http = httpClient;
+            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _apiKey = configuration["Tenor:ApiKey"];
         }
 

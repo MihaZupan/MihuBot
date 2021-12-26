@@ -13,7 +13,7 @@ namespace MihuBot.Commands
 
         public LogsCommand(Logger logger, IEnumerable<CustomLogger> customLogger)
         {
-            _logger = logger;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _customLogger = customLogger.FirstOrDefault();
         }
 

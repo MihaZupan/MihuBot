@@ -13,7 +13,7 @@
 
         public WhitelistCommand(IConfiguration configuration)
         {
-            _configuration = configuration;
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)

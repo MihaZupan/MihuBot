@@ -38,8 +38,8 @@ namespace MihuBot.Commands
 
         public DuelCommand(DiscordSocketClient discord, IConfigurationService configuration)
         {
-            _discord = discord;
-            _configuration = configuration;
+            _discord = discord ?? throw new ArgumentNullException(nameof(discord));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         }
 
         public override async Task InitAsync()
