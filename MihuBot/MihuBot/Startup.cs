@@ -110,7 +110,7 @@ namespace MihuBot
 
                 services.AddHostedService<TwitterBioUpdater>();
 
-                TryAddInstagramClient(services, httpClient);
+                TryAddInstagramClient(services);
             }
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
@@ -225,7 +225,7 @@ namespace MihuBot
             services.AddHostedService(_ => customLogger);
         }
 
-        private bool TryAddInstagramClient(IServiceCollection services, HttpClient httpClient)
+        private bool TryAddInstagramClient(IServiceCollection services)
         {
             try
             {
@@ -240,7 +240,6 @@ namespace MihuBot
                 IInstaApi instaApi = InstaApiBuilder.CreateBuilder()
                     .SetUser(userSession)
                     .SetRequestDelay(delay)
-                    .UseHttpClient(httpClient)
                     .Build();
 
                 string stateFile = $"{Constants.StateDirectory}/InstagramState.bin";
