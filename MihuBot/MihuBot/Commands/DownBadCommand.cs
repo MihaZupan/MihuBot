@@ -146,7 +146,7 @@ namespace MihuBot.Commands
                     }
                     else
                     {
-                        await ctx.ReplyAsync("Listening to\n" + string.Join('\n', registration.Sources));
+                        await ctx.ReplyAsync("Listening to\n" + string.Join('\n', registration.Sources.Select(s => $"<{s}>")));
                     }
                     return;
                 }
