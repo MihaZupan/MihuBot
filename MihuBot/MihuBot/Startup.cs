@@ -59,16 +59,14 @@ namespace MihuBot
                 BearerToken = Configuration["Twitter:BearerToken"]
             }));
 
-            var discordConfig = new DiscordSocketConfig()
-            {
-                MessageCacheSize = 1024 * 16,
-                ConnectionTimeout = 30_000,
-                AlwaysDownloadUsers = RuntimeInformation.IsOSPlatform(OSPlatform.Linux),
-                GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
-            };
-
             var discord = new InitializedDiscordClient(
-                discordConfig,
+                new DiscordSocketConfig()
+                {
+                    MessageCacheSize = 1024 * 16,
+                    ConnectionTimeout = 30_000,
+                    AlwaysDownloadUsers = true,
+                    GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
+                },
                 TokenType.Bot,
 #if DEBUG
                 Configuration["Discord:AuthToken-Dev"]
@@ -90,38 +88,10 @@ namespace MihuBot
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                var privateDiscordClient = new InitializedDiscordClient(
-                    discordConfig,
-                    /* TokenType.User */ 0,
-                    Configuration["Discord:PrivateAuthToken"]);
+                AddPrivateDiscordClient(services, httpClient, nextCloudClient);
 
-                var customLogger = new CustomLogger(httpClient,
-                    new LoggerOptions(
-                        privateDiscordClient,
-                        $"{Constants.StateDirectory}/pvt_logs", "Private_",
-                        Channels.Debug,
-                        806049221631410186ul,
-                        Channels.Files)
-                    {
-                        ShouldLogAttachments = message =>
-                        {
-                            if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
-                                return true;
-
-                            if (message.Channel is not SocketTextChannel channel)
-                                return true;
-
-                            return !user.GetPermissions(channel).ViewChannel;
-                        }
-                    },
-                    nextCloudClient,
-                    Configuration);
-
-                services.AddSingleton(customLogger);
-                services.AddHostedService(_ => customLogger);
+                services.AddHostedService<TwitterBioUpdater>();
             }
-
-            services.AddSingleton<StreamerSongListClient>();
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
 
@@ -135,8 +105,7 @@ namespace MihuBot
 
             services.AddSingleton<IWeatherService, WeatherService>();
 
-            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
-            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
+            AddDownBadProviders(services);
 
             services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
                 .WithAuthenticator(new ClientCredentialsAuthenticator(
@@ -152,10 +121,6 @@ namespace MihuBot
             services.AddSingleton<AudioService>();
 
             services.AddHostedService<MihuBotService>();
-
-            services.AddHostedService<TwitchBotService>();
-
-            services.AddHostedService<TwitterBioUpdater>();
 
             services.AddAuthentication(options =>
                 {
@@ -189,6 +154,51 @@ namespace MihuBot
                     policy.RequireAssertion(context =>
                         context.User.IsAdmin()));
             });
+        }
+
+        private void AddDownBadProviders(IServiceCollection services)
+        {
+            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
+            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
+        }
+
+        private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient, NextCloudClient nextCloudClient)
+        {
+            var privateDiscordClient = new InitializedDiscordClient(
+                    new DiscordSocketConfig()
+                    {
+                        MessageCacheSize = 1024, // Is this needed?
+                        ConnectionTimeout = 30_000,
+                        AlwaysDownloadUsers = false,
+                        GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
+                    },
+                    /* TokenType.User */ 0,
+                    Configuration["Discord:PrivateAuthToken"]);
+
+            var customLogger = new CustomLogger(httpClient,
+                new LoggerOptions(
+                    privateDiscordClient,
+                    $"{Constants.StateDirectory}/pvt_logs", "Private_",
+                    Channels.Debug,
+                    806049221631410186ul,
+                    Channels.Files)
+                {
+                    ShouldLogAttachments = static message =>
+                    {
+                        if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
+                            return true;
+
+                        if (message.Channel is not SocketTextChannel channel)
+                            return true;
+
+                        return !user.GetPermissions(channel).ViewChannel;
+                    }
+                },
+                nextCloudClient,
+                Configuration);
+
+            services.AddSingleton(customLogger);
+            services.AddHostedService(_ => customLogger);
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
