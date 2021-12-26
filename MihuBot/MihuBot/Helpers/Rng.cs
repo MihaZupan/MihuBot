@@ -15,10 +15,18 @@ namespace MihuBot.Helpers
             return Next(oneInX) == 0;
         }
 
+        public static int Next(int minInclusive, int maxExclusive)
+        {
+            return minInclusive + Next(maxExclusive - minInclusive);
+        }
+
         public static int Next(int mod)
         {
             if (mod == 2)
                 return Bool() ? 0 : 1;
+
+            if (mod == 1)
+                return 0;
 
             if (mod <= 0)
                 throw new ArgumentOutOfRangeException(nameof(mod), "Must be > 0");

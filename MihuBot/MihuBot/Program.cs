@@ -1,5 +1,6 @@
 using Azure.Identity;
 using Azure.Core;
+using System.Runtime.InteropServices;
 
 namespace MihuBot
 {
@@ -44,9 +45,9 @@ namespace MihuBot
             Host.CreateDefaultBuilder(args)
                 .ConfigureAppConfiguration((context, config) =>
                 {
-                    TokenCredential credential = new ChainedTokenCredential(
-                        new ManagedIdentityCredential(),
-                        new AzureCliCredential());
+                    TokenCredential credential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                        ? new ManagedIdentityCredential()
+                        : new AzureCliCredential();
 
                     config.AddAzureKeyVault(
                         new Uri("https://mihubotkv.vault.azure.net/"),

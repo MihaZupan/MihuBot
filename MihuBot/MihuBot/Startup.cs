@@ -3,6 +3,9 @@ using Azure;
 using Azure.AI.TextAnalytics;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
+using InstagramApiSharp.API;
+using InstagramApiSharp.API.Builder;
+using InstagramApiSharp.Classes;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
@@ -106,6 +109,8 @@ namespace MihuBot
                 AddPrivateDiscordClient(services, httpClient, nextCloudClient);
 
                 services.AddHostedService<TwitterBioUpdater>();
+
+                TryAddInstagramClient(services, httpClient);
             }
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
@@ -174,7 +179,11 @@ namespace MihuBot
         private void AddDownBadProviders(IServiceCollection services)
         {
             services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
-            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
+
+            if (services.Any(s => s.ServiceType == typeof(IInstaApi)))
+            {
+                services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
+            }
         }
 
         private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient, NextCloudClient nextCloudClient)
@@ -214,6 +223,62 @@ namespace MihuBot
 
             services.AddSingleton(customLogger);
             services.AddHostedService(_ => customLogger);
+        }
+
+        private bool TryAddInstagramClient(IServiceCollection services, HttpClient httpClient)
+        {
+            try
+            {
+                var userSession = new UserSessionData
+                {
+                    UserName = Configuration["Instagram:Username"],
+                    Password = Configuration["Instagram:Password"]
+                };
+
+                IRequestDelay delay = RequestDelay.FromSeconds(3, 5);
+
+                IInstaApi instaApi = InstaApiBuilder.CreateBuilder()
+                    .SetUser(userSession)
+                    .SetRequestDelay(delay)
+                    .UseHttpClient(httpClient)
+                    .Build();
+
+                string stateFile = $"{Constants.StateDirectory}/InstagramState.bin";
+                if (File.Exists(stateFile))
+                {
+                    instaApi.LoadStateDataFromString(File.ReadAllText(stateFile));
+                }
+
+                if (!instaApi.IsUserAuthenticated)
+                {
+                    instaApi.SendRequestsBeforeLoginAsync().GetAwaiter().GetResult();
+
+                    delay.Disable();
+                    var logInResult = instaApi.LoginAsync().GetAwaiter().GetResult();
+                    delay.Enable();
+
+                    if (!logInResult.Succeeded)
+                    {
+                        Console.WriteLine($"Unable to login: {logInResult.Info.Message}");
+                        return false;
+                    }
+                }
+
+                File.WriteAllText(stateFile, instaApi.GetStateDataAsString());
+
+                if (!instaApi.GetCurrentUserAsync().GetAwaiter().GetResult().Succeeded)
+                {
+                    return false;
+                }
+
+                services.AddSingleton(instaApi);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                return false;
+            }
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
