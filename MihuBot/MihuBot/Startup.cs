@@ -1,4 +1,6 @@
 using AspNet.Security.OAuth.Discord;
+using Azure;
+using Azure.AI.TextAnalytics;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
@@ -67,6 +69,10 @@ namespace MihuBot
             {
                 Endpoint = Configuration["AzureComputerVision:Endpoint"]
             });
+
+            services.AddSingleton(new TextAnalyticsClient(
+                new Uri(Configuration["AzureTextAnalytics:Endpoint"], UriKind.Absolute),
+                new AzureKeyCredential(Configuration["AzureTextAnalytics:SubscriptionKey"])));
 
             var discord = new InitializedDiscordClient(
                 new DiscordSocketConfig()

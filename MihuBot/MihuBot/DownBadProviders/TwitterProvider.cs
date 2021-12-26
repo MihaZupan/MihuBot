@@ -73,33 +73,40 @@ namespace MihuBot.DownBadProviders
 
             var embeds = new List<Embed>();
 
+            SocketTextChannel spamChannel = _discord.GetTextChannel(Channels.TheBoysSpam);
+
             foreach (var (tweet, photos) in photoTweets)
             {
+                string tweetText = tweet.Text;
+                if (string.IsNullOrWhiteSpace(tweetText))
+                {
+                    tweetText = "Tweet";
+                }
+                else if (DetectAnAd(tweetText) || DetectAnAd(tweet.FullText))
+                {
+                    tweetText = $"Ad ||{tweetText.Replace('|', 'I')}||";
+                }
+
                 foreach (var photo in photos)
                 {
                     try
                     {
                         ImageAnalysis analysis = await _computerVision.AnalyzeImageAsync(photo.MediaURL, _visualFeatureTypes);
 
-                        try
-                        {
-                            if (_discord.GetTextChannel(Channels.TheBoysSpam) is SocketTextChannel spamChannel)
-                            {
-                                await spamChannel.SendMessageAsync(embed: new EmbedBuilder()
-                                    .WithTitle(tweet.Text ?? "Tweet")
-                                    .WithUrl(tweet.Url)
-                                    .WithImageUrl(photo.MediaURLHttps)
-                                    .WithFields(analysis.Categories
-                                        .OrderByDescending(category => category.Score)
-                                        .Take(10)
-                                        .Select(category => new EmbedFieldBuilder()
-                                            .WithName(category.Name)
-                                            .WithValue($"Score: {category.Score}")
-                                            .WithIsInline(true)))
-                                    .Build());
-                            }
-                        }
-                        catch { }
+                        await spamChannel.TrySendMessageAsync(
+                            embed: new EmbedBuilder()
+                                .WithTitle(tweetText)
+                                .WithUrl(tweet.Url)
+                                .WithImageUrl(photo.MediaURLHttps)
+                                .WithFields(analysis.Categories
+                                    .OrderByDescending(category => category.Score)
+                                    .Take(10)
+                                    .Select(category => new EmbedFieldBuilder()
+                                        .WithName(category.Name)
+                                        .WithValue($"Score: {category.Score}")
+                                        .WithIsInline(true)))
+                                .Build(),
+                            logger: _logger);
 
                         const double PeopleScoreThreshold = 0.75;
 
@@ -116,7 +123,7 @@ namespace MihuBot.DownBadProviders
 
                     embeds.Add(new EmbedBuilder()
                         .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
-                        .WithTitle(tweet.Text ?? "Tweet")
+                        .WithTitle(tweetText)
                         .WithUrl(tweet.Url)
                         .WithImageUrl(photo.MediaURLHttps)
                         .Build());
@@ -124,6 +131,26 @@ namespace MihuBot.DownBadProviders
             }
 
             return (embeds.ToArray(), lastPostTime);
+        }
+
+        private static bool DetectAnAd(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return false;
+            }
+
+            return text.Contains("#ad",         StringComparison.OrdinalIgnoreCase)
+                || text.Contains("sale",        StringComparison.OrdinalIgnoreCase)
+                || text.Contains("promo",       StringComparison.OrdinalIgnoreCase)
+                || text.Contains("giveaway",    StringComparison.OrdinalIgnoreCase)
+                || text.Contains("% off",       StringComparison.OrdinalIgnoreCase)
+                || text.Contains("onlyfans.",   StringComparison.OrdinalIgnoreCase)
+                || text.Contains("twitch.tv",   StringComparison.OrdinalIgnoreCase)
+                || text.Contains("youtu",       StringComparison.OrdinalIgnoreCase)
+                || text.Contains("instagram.",  StringComparison.OrdinalIgnoreCase)
+                || text.Contains("patreon",     StringComparison.OrdinalIgnoreCase)
+                ;
         }
     }
 }

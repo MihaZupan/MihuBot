@@ -375,5 +375,24 @@ namespace MihuBot.Helpers
                 samples[i] = (short)(samples[i] * multilpier);
             }
         }
+
+        public static async Task<IUserMessage> TrySendMessageAsync(this ITextChannel channel, string text = null, bool isTTS = false, Embed embed = null, RequestOptions options = null, AllowedMentions allowedMentions = null, MessageReference messageReference = null, MessageComponent components = null, ISticker[] stickers = null, Embed[] embeds = null, Logger logger = null)
+        {
+            if (channel is null)
+            {
+                logger?.DebugLog($"Failed to send a message because the provided channel is null: Text='{text}', Embed='{embed}'");
+                return null;
+            }
+
+            try
+            {
+                return await channel.SendMessageAsync(text, isTTS, embed, options, allowedMentions, messageReference, components, stickers, embeds);
+            }
+            catch (Exception ex)
+            {
+                logger?.DebugLog($"Failed to send a message because an exception was thrown: Text='{text}', Embed='{embed}', Exception: {ex}", channel.GuildId, channel.Id);
+                return null;
+            }
+        }
     }
 }

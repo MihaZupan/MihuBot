@@ -100,6 +100,11 @@ namespace MihuBot.Commands
                 if (ctx.Arguments.Length > 0 &&
                     ctx.Arguments[0].Equals("register", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!await ctx.RequirePermissionAsync($"{Command}.register"))
+                    {
+                        return;
+                    }
+
                     var channel = ctx.Message.MentionedChannels.OfType<SocketTextChannel>().FirstOrDefault();
                     if (channel is null)
                     {
@@ -113,6 +118,8 @@ namespace MihuBot.Commands
                     }
 
                     registrations[ctx.Guild.Id] = (channel.Id, registration.Sources);
+
+                    await ctx.ReplyAsync($"Registered to {channel.Mention}");
                     return;
                 }
 
