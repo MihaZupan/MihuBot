@@ -140,13 +140,18 @@ namespace MihuBot.Commands
 
                 if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!await ctx.RequirePermissionAsync($"{Command}.list"))
+                    {
+                        return;
+                    }
+
                     if (registration.Sources.Count == 0)
                     {
                         await ctx.ReplyAsync("Not listening to any sources yet. Use `!downbad https://twitter.com/GoldenQT_` to add a twitter source.");
                     }
                     else
                     {
-                        await ctx.ReplyAsync("Listening to\n" + string.Join('\n', registration.Sources.Select(s => $"<{s}>")));
+                        await ctx.Channel.SendTextFileAsync("DownbadSources.txt", string.Join('\n', registration.Sources.Select(s => $"<{s}>")));
                     }
                     return;
                 }
