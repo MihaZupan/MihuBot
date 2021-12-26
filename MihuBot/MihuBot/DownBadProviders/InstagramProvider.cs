@@ -86,13 +86,9 @@ namespace MihuBot.DownBadProviders
             foreach (var post in newPosts)
             {
                 string postText = post.Caption.Text;
-                if (string.IsNullOrWhiteSpace(postText))
+                if (string.IsNullOrWhiteSpace(postText) || TextLikelyContainsAds(postText))
                 {
                     postText = "Post";
-                }
-                else if (TextLikelyContainsAds(postText))
-                {
-                    postText = $"Ad ||{postText.Replace('|', 'I')}||";
                 }
 
                 string postUrl = $"https://www.instagram.com/p/{post.Code}";
