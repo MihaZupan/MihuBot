@@ -52,7 +52,7 @@ namespace MihuBot.DownBadProviders
                 else
                 {
                     var channelSelectors = new List<Func<Task<SocketTextChannel>>>() { channelSelector };
-                    _subscriptions.Add(data, (DateTime.UtcNow.AddSeconds(5), channelSelectors));
+                    _subscriptions.Add(data, (DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(3)), channelSelectors));
                 }
             }
 
