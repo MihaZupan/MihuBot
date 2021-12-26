@@ -69,10 +69,13 @@ namespace MihuBot.Commands
                 foreach (string source in sources)
                 {
                     var url = new Uri(source, UriKind.Absolute);
-                    var provider = _providers.FirstOrDefault(p => p.CanMatch(url));
-                    if (provider is not null)
+                    foreach (var provider in _providers)
                     {
-                        await TryRegisterAsync(guild, provider, url);
+                        if (provider.CanMatch(url, out Uri normalizedUrl))
+                        {
+                            await TryRegisterAsync(guild, provider, normalizedUrl);
+                            break;
+                        }
                     }
                 }
             }
@@ -95,7 +98,6 @@ namespace MihuBot.Commands
                 }
                 registration.Sources ??= new List<string>();
                 registrations[ctx.Guild.Id] = registration;
-                int sourceCount = registration.Sources.Count;
 
                 if (ctx.Arguments.Length > 0 &&
                     ctx.Arguments[0].Equals("register", StringComparison.OrdinalIgnoreCase))
@@ -131,7 +133,20 @@ namespace MihuBot.Commands
                     }
                     else
                     {
-                        await ctx.ReplyAsync($"Registered to {channel.Mention}, watching {sourceCount} sources");
+                        await ctx.ReplyAsync($"Registered to {channel.Mention}, watching {registration.Sources.Count} sources");
+                    }
+                    return;
+                }
+
+                if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (registration.Sources.Count == 0)
+                    {
+                        await ctx.ReplyAsync("Not listening to any sources yet. Use `!downbad https://twitter.com/GoldenQT_` to add a twitter source.");
+                    }
+                    else
+                    {
+                        await ctx.ReplyAsync("Listening to\n" + string.Join('\n', registration.Sources));
                     }
                     return;
                 }
@@ -140,8 +155,10 @@ namespace MihuBot.Commands
                 {
                     foreach (IDownBadProvider provider in _providers)
                     {
-                        if (provider.CanMatch(url))
+                        if (provider.CanMatch(url, out Uri normalizedUrl))
                         {
+                            url = normalizedUrl;
+
                             if (registration.Sources.Any(s => s.Equals(url.AbsoluteUri, StringComparison.OrdinalIgnoreCase)))
                             {
                                 await ctx.ReplyAsync($"Already watching <{url.AbsoluteUri}>");

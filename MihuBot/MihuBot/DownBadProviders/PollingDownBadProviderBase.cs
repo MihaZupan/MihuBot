@@ -10,7 +10,7 @@
             _watchTimer = new Timer(s => Task.Run(() => ((PollingDownBadProviderBase)s).OnTimerAsync()), this, TimeSpan.FromSeconds(30), Timeout.InfiniteTimeSpan);
         }
 
-        public abstract bool CanMatch(Uri url);
+        public abstract bool CanMatch(Uri url, out Uri normalizedUrl);
 
         public abstract Task<(string Data, string Error)> TryExtractUrlDataAsync(Uri url);
 

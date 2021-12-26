@@ -2,8 +2,10 @@
 {
     public class InstagramProvider : PollingDownBadProviderBase
     {
-        public override bool CanMatch(Uri url)
+        public override bool CanMatch(Uri url, out Uri normalizedUrl)
         {
+            normalizedUrl = null;
+
             return (url.IdnHost.Equals("instagram.com", StringComparison.OrdinalIgnoreCase) ||
                     url.IdnHost.Equals("www.instagram.com", StringComparison.OrdinalIgnoreCase))
                 && url.PathAndQuery.Length > 0;

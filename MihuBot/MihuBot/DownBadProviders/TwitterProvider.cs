@@ -24,11 +24,22 @@ namespace MihuBot.DownBadProviders
             _computerVision = computerVision ?? throw new ArgumentNullException(nameof(computerVision));
         }
 
-        public override bool CanMatch(Uri url)
+        public override bool CanMatch(Uri url, out Uri normalizedUrl)
         {
-            return (url.IdnHost.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) ||
-                    url.IdnHost.Equals("www.twitter.com", StringComparison.OrdinalIgnoreCase))
-                && url.PathAndQuery.Length > 0;
+            string host = url.IdnHost;
+
+            if ((host.Equals("twitter.com", StringComparison.OrdinalIgnoreCase) || host.Equals("www.twitter.com", StringComparison.OrdinalIgnoreCase))
+                && url.PathAndQuery.Length > 0)
+            {
+                string name = url.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).First();
+                normalizedUrl = new Uri($"https://twitter.com/{name}", UriKind.Absolute);
+                return true;
+            }
+            else
+            {
+                normalizedUrl = null;
+                return false;
+            }
         }
 
         public override async Task<(string Data, string Error)> TryExtractUrlDataAsync(Uri url)
