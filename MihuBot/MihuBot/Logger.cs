@@ -728,7 +728,7 @@ RecipientAdded
                 });
             }
 
-            if (beforeUser is null ? afterUser.ActiveClients.Count != 0 : !beforeUser.ActiveClients.SetEquals(afterUser.ActiveClients))
+            if (beforeUser is null ? afterUser.ActiveClients.Count != 0 : !beforeUser.ActiveClients.ToHashSet().SetEquals(afterUser.ActiveClients))
             {
                 Log(new LogEvent(EventType.UserActiveClientsChanged, guildId)
                 {
@@ -783,9 +783,9 @@ RecipientAdded
             return Task.CompletedTask;
         }
 
-        private Task UserLeftAsync(SocketGuildUser user)
+        private Task UserLeftAsync(SocketGuild guild, SocketUser user)
         {
-            Log(new LogEvent(EventType.UserLeft, user.Guild.Id)
+            Log(new LogEvent(EventType.UserLeft, guild.Id)
             {
                 UserID = user.Id
             });
