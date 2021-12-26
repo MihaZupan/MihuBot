@@ -140,7 +140,7 @@ namespace MihuBot.DownBadProviders
                         logger: _logger);
                 }
 
-                const double PeopleScoreThreshold = 0.40;
+                const double PeopleScoreThreshold = 0.15;
 
                 if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase) && t.Score > PeopleScoreThreshold))
                 {
@@ -174,6 +174,7 @@ namespace MihuBot.DownBadProviders
                 || text.Contains("youtu", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("instagram.", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("patreon", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("shop", StringComparison.OrdinalIgnoreCase)
                 ;
         }
     }
