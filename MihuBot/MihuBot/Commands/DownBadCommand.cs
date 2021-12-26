@@ -138,7 +138,7 @@ namespace MihuBot.Commands
                     return;
                 }
 
-                if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
+                if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase) || ctx.Arguments[0].Equals("sources", StringComparison.OrdinalIgnoreCase))
                 {
                     if (!await ctx.RequirePermissionAsync($"{Command}.list"))
                     {
