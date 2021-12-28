@@ -36,7 +36,7 @@ namespace MihuBot.Commands
 
                 if (sources is not null)
                 {
-                    await RegisterAllAsync(guild, sources);
+                    _ = Task.Run(() => RegisterAllAsync(guild, sources));
                 }
             };
 
@@ -61,25 +61,32 @@ namespace MihuBot.Commands
                 }
             }
 
-            foreach (var (guild, sources) in guildSubscriptions)
+            _ = Task.Run(async () =>
             {
-                await RegisterAllAsync(guild, sources);
-            }
+                foreach (var (guild, sources) in guildSubscriptions)
+                {
+                    await RegisterAllAsync(guild, sources);
+                }
+            });
 
             async Task RegisterAllAsync(SocketGuild guild, List<string> sources)
             {
-                foreach (string source in sources)
+                try
                 {
-                    var url = new Uri(source, UriKind.Absolute);
-                    foreach (var provider in _providers)
+                    foreach (string source in sources)
                     {
-                        if (provider.CanMatch(url, out Uri normalizedUrl))
+                        var url = new Uri(source, UriKind.Absolute);
+                        foreach (var provider in _providers)
                         {
-                            await TryRegisterAsync(guild, provider, normalizedUrl);
-                            break;
+                            if (provider.CanMatch(url, out Uri normalizedUrl))
+                            {
+                                await TryRegisterAsync(guild, provider, normalizedUrl);
+                                break;
+                            }
                         }
                     }
                 }
+                catch { }
             }
         }
 
