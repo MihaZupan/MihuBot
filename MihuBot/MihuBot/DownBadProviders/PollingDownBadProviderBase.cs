@@ -63,7 +63,14 @@ namespace MihuBot.DownBadProviders
         {
             try
             {
-                foreach (var (data, subscriptions) in _subscriptions.ToArray())
+                KeyValuePair<string, (DateTime LastPost, List<Func<Task<SocketTextChannel>>> ChannelSelectors)>[] subscriptionsCopy;
+                lock (_subscriptions)
+                {
+                    subscriptionsCopy = _subscriptions.ToArray();
+                }
+
+
+                foreach (var (data, subscriptions) in subscriptionsCopy)
                 {
                     Embed[] embeds;
                     DateTime lastPostTime;
@@ -73,13 +80,13 @@ namespace MihuBot.DownBadProviders
                     }
                     catch { continue; }
 
-                    List<Func<Task<SocketTextChannel>>> channelSelectors;
+                    Func<Task<SocketTextChannel>>[] channelSelectors;
 
                     lock (_subscriptions)
                     {
                         if (_subscriptions.TryGetValue(data, out var subsciption))
                         {
-                            channelSelectors = subsciption.ChannelSelectors;
+                            channelSelectors = subsciption.ChannelSelectors.ToArray();
                             _subscriptions[data] = (lastPostTime, subsciption.ChannelSelectors);
                         }
                         else
@@ -203,6 +210,28 @@ namespace MihuBot.DownBadProviders
                 || text.Contains("patreon", StringComparison.OrdinalIgnoreCase)
                 || text.Contains("shop", StringComparison.OrdinalIgnoreCase)
                 ;
+        }
+
+        public async Task RemoveAsync(Uri url, Func<Task<SocketTextChannel>> channelSelector)
+        {
+            var (data, error) = await TryExtractUrlDataAsync(url);
+
+            if (error is not null)
+            {
+                return;
+            }
+
+            lock (_subscriptions)
+            {
+                if (_subscriptions.TryGetValue(data, out var subscriptions))
+                {
+                    subscriptions.ChannelSelectors.Remove(channelSelector);
+                    if (subscriptions.ChannelSelectors.Count == 0)
+                    {
+                        _subscriptions.Remove(data);
+                    }
+                }
+            }
         }
     }
 }

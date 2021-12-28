@@ -1,4 +1,5 @@
 ﻿using MihuBot.DownBadProviders;
+using System.Collections.Concurrent;
 
 namespace MihuBot.Commands
 {
@@ -9,6 +10,7 @@ namespace MihuBot.Commands
         private readonly DiscordSocketClient _discord;
         private readonly IDownBadProvider[] _providers;
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (ulong Channel, List<string> Sources)>> _registrations = new("DownBadRegistrations.json");
+        private readonly ConcurrentDictionary<ulong, Func<Task<SocketTextChannel>>> _channelSelectors = new();
 
         public DownBadCommand(DiscordSocketClient discord, IEnumerable<IDownBadProvider> downBadProviders)
         {
@@ -140,7 +142,7 @@ namespace MihuBot.Commands
 
                 if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase) || ctx.Arguments[0].Equals("sources", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!await ctx.RequirePermissionAsync($"{Command}.list"))
+                    if (!await ctx.RequirePermissionAsync($"{Command}.modify"))
                     {
                         return;
                     }
@@ -153,6 +155,37 @@ namespace MihuBot.Commands
                     {
                         await ctx.Channel.SendTextFileAsync("DownbadSources.txt", string.Join('\n', registration.Sources.Select(s => $"<{s}>")));
                     }
+                    return;
+                }
+
+                if (ctx.Arguments[0].Equals("remove", StringComparison.OrdinalIgnoreCase) || ctx.Arguments[0].Equals("delete", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!await ctx.RequirePermissionAsync($"{Command}.modify"))
+                    {
+                        return;
+                    }
+
+                    if (ctx.Arguments.Length == 0)
+                    {
+                        await ctx.ReplyAsync("Usage: `!downbad remove source`");
+                        return;
+                    }
+
+                    var sourceToRemove = new Uri(ctx.Arguments[1], UriKind.Absolute);
+
+                    if (_channelSelectors.TryGetValue(ctx.Guild.Id, out var selector))
+                    {
+                        foreach (IDownBadProvider provider in _providers)
+                        {
+                            if (provider.CanMatch(sourceToRemove, out Uri normalizedUrl))
+                            {
+                                await provider.RemoveAsync(normalizedUrl, selector);
+                                break;
+                            }
+                        }
+                    }
+
+                    await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                     return;
                 }
 
@@ -195,7 +228,7 @@ namespace MihuBot.Commands
 
         private async Task<string> TryRegisterAsync(SocketGuild guild, IDownBadProvider provider, Uri url)
         {
-            return await provider.TryWatchAsync(url, async () =>
+            var selector = _channelSelectors.GetOrAdd(guild.Id, async () =>
             {
                 ulong channelId = await _registrations.QueryAsync(i => i.TryGetValue(guild.Id, out var registration) ? registration.Channel : 0);
                 if (_discord.GetTextChannel(channelId) is SocketTextChannel channel)
@@ -204,6 +237,8 @@ namespace MihuBot.Commands
                 }
                 return null;
             });
+
+            return await provider.TryWatchAsync(url, selector);
         }
     }
 }

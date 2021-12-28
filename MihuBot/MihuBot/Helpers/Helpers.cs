@@ -394,5 +394,19 @@ namespace MihuBot.Helpers
                 return null;
             }
         }
+
+        public static bool Remove<T>(this List<T> list, T element, IEqualityComparer<T> comparer)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (comparer.Equals(list[i], element))
+                {
+                    list.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }
