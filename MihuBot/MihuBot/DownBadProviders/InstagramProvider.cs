@@ -86,7 +86,7 @@ namespace MihuBot.DownBadProviders
             foreach (var post in newPosts)
             {
                 string postText = post.Caption.Text;
-                if (string.IsNullOrWhiteSpace(postText) || TextLikelyContainsAds(postText))
+                if (string.IsNullOrWhiteSpace(postText) || postText.Length > 128 || TextLikelyContainsAds(postText))
                 {
                     postText = "Post";
                 }

@@ -121,7 +121,22 @@ namespace MihuBot.DownBadProviders
         {
             try
             {
-                ImageAnalysis analysis = await _computerVision.AnalyzeImageAsync(photoUrl, _visualFeatureTypes);
+                const int MaxRetries = 3;
+                int retry = 0;
+                ImageAnalysis analysis;
+                while (true)
+                {
+                    try
+                    {
+                        analysis = await _computerVision.AnalyzeImageAsync(photoUrl, _visualFeatureTypes);
+                        break;
+                    }
+                    catch (Exception ex) when (retry++ < MaxRetries)
+                    {
+                        _logger.DebugLog($"[Retrying ...] An expection was thrown while processing {photoUrl} for {postUrl}: {ex}");
+                        await Task.Delay(TimeSpan.FromSeconds(5) * Math.Pow(2, retry));
+                    }
+                }
 
                 if (_discord.GetTextChannel(Channels.TheBoysSpam) is SocketTextChannel spamChannel)
                 {
@@ -132,12 +147,13 @@ namespace MihuBot.DownBadProviders
                             .WithImageUrl(photoUrl)
                             .WithFields(analysis.Categories
                                 .OrderByDescending(category => category.Score)
-                                .Take(10)
+                                .Take(5)
                                 .Select(category => new EmbedFieldBuilder()
                                     .WithName(category.Name)
                                     .WithValue($"Score: {category.Score:N4}")
                                     .WithIsInline(true))
                                 .Concat((analysis.Faces ?? Array.Empty<FaceDescription>())
+                                .Take(5)
                                 .Select(face => new EmbedFieldBuilder()
                                     .WithName("Face")
                                     .WithValue($"Age={face.Age}, Gender={face.Gender}")
@@ -146,12 +162,16 @@ namespace MihuBot.DownBadProviders
                         logger: _logger);
                 }
 
-                const double PeopleScoreThreshold = 0.15;
-
-                if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase) && t.Score > PeopleScoreThreshold) &&
+                if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase)) &&
                     (analysis.Faces is null || analysis.Faces.Count == 0))
                 {
-                    _logger.DebugLog($"Skipping {photoUrl} as no people categories above {PeopleScoreThreshold} were detected");
+                    _logger.DebugLog($"Skipping {photoUrl} as no people categories or faces were detected");
+                    return false;
+                }
+
+                if (analysis.Faces is not null && analysis.Faces.Count != 0 && !analysis.Faces.Any(f => f.Age >= 14))
+                {
+                    _logger.DebugLog($"Skipping {photoUrl} as only young people were detected");
                     return false;
                 }
 

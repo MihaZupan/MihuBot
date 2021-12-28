@@ -76,7 +76,7 @@ namespace MihuBot.DownBadProviders
             foreach (var (tweet, photos) in photoTweets)
             {
                 string tweetText = tweet.Text;
-                if (string.IsNullOrWhiteSpace(tweetText) || TextLikelyContainsAds(tweetText) || TextLikelyContainsAds(tweet.FullText))
+                if (string.IsNullOrWhiteSpace(tweetText) || tweetText.Length > 128 || TextLikelyContainsAds(tweetText) || TextLikelyContainsAds(tweet.FullText))
                 {
                     tweetText = "Tweet";
                 }
