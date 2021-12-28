@@ -172,7 +172,7 @@ namespace MihuBot.Commands
                         return;
                     }
 
-                    if (ctx.Arguments.Length == 0)
+                    if (ctx.Arguments.Length == 1)
                     {
                         await ctx.ReplyAsync("Usage: `!downbad remove source`");
                         return;
