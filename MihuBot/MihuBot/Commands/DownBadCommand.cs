@@ -186,6 +186,7 @@ namespace MihuBot.Commands
                         {
                             if (provider.CanMatch(sourceToRemove, out Uri normalizedUrl))
                             {
+                                registration.Sources.Remove(normalizedUrl.AbsoluteUri, StringComparer.OrdinalIgnoreCase);
                                 await provider.RemoveAsync(normalizedUrl, selector);
                                 break;
                             }
