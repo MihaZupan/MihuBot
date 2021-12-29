@@ -235,7 +235,7 @@ namespace MihuBot
                     Password = Configuration["Instagram:Password"]
                 };
 
-                IRequestDelay delay = RequestDelay.FromSeconds(3, 5);
+                IRequestDelay delay = RequestDelay.FromSeconds(2, 3);
 
                 IInstaApi instaApi = InstaApiBuilder.CreateBuilder()
                     .SetUser(userSession)

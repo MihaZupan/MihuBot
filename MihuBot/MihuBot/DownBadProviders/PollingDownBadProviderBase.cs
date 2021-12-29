@@ -25,7 +25,7 @@ namespace MihuBot.DownBadProviders
             _computerVision = computerVision ?? throw new ArgumentNullException(nameof(computerVision));
 
             _timerInterval = TimeSpan.FromMinutes(Rng.Next(9, 13));
-            _watchTimer = new Timer(s => Task.Run(() => ((PollingDownBadProviderBase)s).OnTimerAsync()), this, TimeSpan.FromMinutes(2), Timeout.InfiniteTimeSpan);
+            _watchTimer = new Timer(s => Task.Run(() => ((PollingDownBadProviderBase)s).OnTimerAsync()), this, TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
         }
 
         public abstract bool CanMatch(Uri url, out Uri normalizedUrl);
