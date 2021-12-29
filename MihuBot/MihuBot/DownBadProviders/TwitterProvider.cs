@@ -90,12 +90,12 @@ namespace MihuBot.DownBadProviders
 
                 foreach (var photo in photos)
                 {
-                    _logger.DebugLog($"Testing {photo} for {tweet.Url}");
+                    _logger.DebugLog($"Testing {photo.URL} for {tweet.Url}");
                     try
                     {
                         if (await ImageContainsPeopleAsync(photo.MediaURL, tweetText, tweet.Url))
                         {
-                            _logger.DebugLog($"Adding {photo} for {tweet.Url}");
+                            _logger.DebugLog($"Adding {photo.URL} for {tweet.Url}");
                             embeds.Add(new EmbedBuilder()
                                 .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
                                 .WithTitle(tweetText)
@@ -105,7 +105,7 @@ namespace MihuBot.DownBadProviders
                         }
                         else
                         {
-                            _logger.DebugLog($"Skipping {photo} for {tweet.Url}");
+                            _logger.DebugLog($"Skipping {photo.URL} for {tweet.Url}");
                         }
                     }
                     catch (Exception ex)
