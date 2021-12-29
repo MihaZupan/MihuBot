@@ -7,13 +7,15 @@ namespace MihuBot.Commands
     {
         public override string Command => "downbad";
 
+        private readonly Logger _logger;
         private readonly DiscordSocketClient _discord;
         private readonly IDownBadProvider[] _providers;
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (ulong Channel, List<string> Sources)>> _registrations = new("DownBadRegistrations.json");
         private readonly ConcurrentDictionary<ulong, Func<Task<SocketTextChannel>>> _channelSelectors = new();
 
-        public DownBadCommand(DiscordSocketClient discord, IEnumerable<IDownBadProvider> downBadProviders)
+        public DownBadCommand(Logger logger, DiscordSocketClient discord, IEnumerable<IDownBadProvider> downBadProviders)
         {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _discord = discord ?? throw new ArgumentNullException(nameof(discord));
             _providers = downBadProviders.ToArray();
         }
@@ -239,11 +241,17 @@ namespace MihuBot.Commands
             var selector = _channelSelectors.GetOrAdd(guild.Id, async () =>
             {
                 ulong channelId = await _registrations.QueryAsync(i => i.TryGetValue(guild.Id, out var registration) ? registration.Channel : 0);
+
                 if (_discord.GetTextChannel(channelId) is SocketTextChannel channel)
                 {
+                    _logger.DebugLog($"Channel selector for {guild.Id} was called, returned {channelId}");
                     return channel;
                 }
-                return null;
+                else
+                {
+                    _logger.DebugLog($"Channel selector for {guild.Id} was called, but the channel was not found (returned {channelId})");
+                    return null;
+                }
             });
 
             return await provider.TryWatchAsync(url, selector);

@@ -5,11 +5,13 @@ namespace MihuBot.DownBadProviders
 {
     public sealed class TwitterProvider : PollingDownBadProviderBase
     {
+        private readonly Logger _logger;
         private readonly ITwitterClient _twitter;
 
         public TwitterProvider(Logger logger, DiscordSocketClient discord, IComputerVisionClient computerVision, ITwitterClient twitter)
             : base(logger, discord, computerVision)
         {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _twitter = twitter ?? throw new ArgumentNullException(nameof(twitter));
         }
 
@@ -47,6 +49,8 @@ namespace MihuBot.DownBadProviders
 
         public override async Task<(Embed[] Embeds, DateTime LastPostTime)> QueryNewPostsAsync(string data, DateTime lastPostTime)
         {
+            _logger.DebugLog($"{nameof(QueryNewPostsAsync)} for {nameof(TwitterProvider)}, {data} with {nameof(lastPostTime)}={lastPostTime}");
+
             var tweets = (await _twitter.Timelines.GetUserTimelineAsync(data))
                 .Where(t => t.CreatedAt > lastPostTime)
                 .Where(t => !t.IsRetweet)
@@ -54,10 +58,12 @@ namespace MihuBot.DownBadProviders
 
             if (tweets.Length == 0)
             {
+                _logger.DebugLog($"Found no new Tweets for {data}");
                 return (null, lastPostTime);
             }
 
             lastPostTime = tweets.Max(t => t.CreatedAt).UtcDateTime;
+            _logger.DebugLog($"New {nameof(lastPostTime)} for {data} is {lastPostTime}");
 
             var photoTweets = tweets
                 .Select(t => (Tweet: t, Photos: t.Media.Where(m => m.MediaType == "photo").ToArray()))
@@ -66,6 +72,7 @@ namespace MihuBot.DownBadProviders
 
             if (photoTweets.Length == 0)
             {
+                _logger.DebugLog($"Found no new photo Tweets for {data}");
                 return (null, lastPostTime);
             }
 
@@ -83,14 +90,27 @@ namespace MihuBot.DownBadProviders
 
                 foreach (var photo in photos)
                 {
-                    if (await ImageContainsPeopleAsync(photo.MediaURL, tweetText, tweet.Url))
+                    _logger.DebugLog($"Testing {photo} for {tweet.Url}");
+                    try
                     {
-                        embeds.Add(new EmbedBuilder()
-                            .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
-                            .WithTitle(tweetText)
-                            .WithUrl(tweet.Url)
-                            .WithImageUrl(photo.MediaURLHttps)
-                            .Build());
+                        if (await ImageContainsPeopleAsync(photo.MediaURL, tweetText, tweet.Url))
+                        {
+                            _logger.DebugLog($"Adding {photo} for {tweet.Url}");
+                            embeds.Add(new EmbedBuilder()
+                                .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
+                                .WithTitle(tweetText)
+                                .WithUrl(tweet.Url)
+                                .WithImageUrl(photo.MediaURLHttps)
+                                .Build());
+                        }
+                        else
+                        {
+                            _logger.DebugLog($"Skipping {photo} for {tweet.Url}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        await _logger.DebugAsync($"Exception while evaulating {photo} for {tweet.Url}: {ex}");
                     }
                 }
             }

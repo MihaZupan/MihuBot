@@ -61,8 +61,11 @@ namespace MihuBot.DownBadProviders
 
         private async Task OnTimerAsync()
         {
+            string providerName = GetType().Name;
             try
             {
+                _logger.DebugLog($"{nameof(OnTimerAsync)} for {providerName}");
+
                 KeyValuePair<string, (DateTime LastPost, List<Func<Task<SocketTextChannel>>> ChannelSelectors)>[] subscriptionsCopy;
                 lock (_subscriptions)
                 {
@@ -78,7 +81,11 @@ namespace MihuBot.DownBadProviders
                     {
                         (embeds, lastPostTime) = await QueryNewPostsAsync(data, subscriptions.LastPost);
                     }
-                    catch { continue; }
+                    catch (Exception ex)
+                    {
+                        _logger.DebugLog($"Querying for {providerName} posts for {data} failed: {ex}");
+                        continue;
+                    }
 
                     Func<Task<SocketTextChannel>>[] channelSelectors;
 
@@ -91,14 +98,18 @@ namespace MihuBot.DownBadProviders
                         }
                         else
                         {
+                            _logger.DebugLog($"Found no subscription for {providerName}, {data}.");
                             continue;
                         }
                     }
 
                     if (embeds is null)
                     {
+                        _logger.DebugLog($"Found no new {providerName} posts for {data}");
                         continue;
                     }
+
+                    _logger.DebugLog($"Sending {embeds.Length} embeds for {providerName} to {channelSelectors.Length} channels");
 
                     foreach (var channelSelector in channelSelectors)
                     {
@@ -109,6 +120,7 @@ namespace MihuBot.DownBadProviders
                             {
                                 foreach (Embed embed in embeds)
                                 {
+                                    _logger.DebugLog($"Sending embed for {providerName} to {channel.Id}");
                                     await channel.SendMessageAsync(embed: embed);
                                 }
                             }
@@ -120,6 +132,7 @@ namespace MihuBot.DownBadProviders
             catch { }
             finally
             {
+                _logger.DebugLog($"Restarting the timer for {providerName}");
                 _watchTimer.Change(_timerInterval, Timeout.InfiniteTimeSpan);
             }
         }
@@ -135,48 +148,56 @@ namespace MihuBot.DownBadProviders
                 {
                     try
                     {
+                        _logger.DebugLog($"Starting analysis for {photoUrl} ({postUrl})");
                         analysis = await _computerVision.AnalyzeImageAsync(photoUrl, _visualFeatureTypes);
                         break;
                     }
                     catch (Exception ex) when (retry++ < MaxRetries)
                     {
-                        _logger.DebugLog($"[Retrying ...] An expection was thrown while processing {photoUrl} for {postUrl}: {ex}");
-                        await Task.Delay(TimeSpan.FromSeconds(5) * Math.Pow(2, retry));
+                        int retrySec = 5 * (int)Math.Pow(2, retry);
+                        _logger.DebugLog($"[Retrying after {retrySec} s] An expection was thrown while processing {photoUrl} for {postUrl}: {ex}");
+                        await Task.Delay(TimeSpan.FromSeconds(retrySec));
                     }
                 }
 
-                if (_discord.GetTextChannel(Channels.TheBoysSpam) is SocketTextChannel spamChannel)
-                {
-                    await spamChannel.TrySendMessageAsync(
-                        embed: new EmbedBuilder()
-                            .WithTitle(postText)
-                            .WithUrl(postUrl)
-                            .WithImageUrl(photoUrl)
-                            .WithFields(analysis.Categories
-                                .OrderByDescending(category => category.Score)
-                                .Take(5)
-                                .Select(category => new EmbedFieldBuilder()
-                                    .WithName(category.Name)
-                                    .WithValue($"Score: {category.Score:N4}")
-                                    .WithIsInline(true))
-                                .Concat((analysis.Faces ?? Array.Empty<FaceDescription>())
-                                .Take(5)
-                                .Select(face => new EmbedFieldBuilder()
-                                    .WithName("Face")
-                                    .WithValue($"Age={face.Age}, Gender={face.Gender}")
-                                    .WithIsInline(true))))
-                            .Build(),
-                        logger: _logger);
-                }
+                analysis.Faces ??= Array.Empty<FaceDescription>();
 
-                if (!analysis.Categories.Any(t => t.Name.Contains("people", StringComparison.OrdinalIgnoreCase)) &&
-                    (analysis.Faces is null || analysis.Faces.Count == 0))
+                try
+                {
+                    if (_discord.GetTextChannel(Channels.TheBoysSpam) is SocketTextChannel spamChannel)
+                    {
+                        await spamChannel.TrySendMessageAsync(
+                            embed: new EmbedBuilder()
+                                .WithTitle(postText)
+                                .WithUrl(postUrl)
+                                .WithImageUrl(photoUrl)
+                                .WithFields(analysis.Categories
+                                    .OrderByDescending(category => category.Score)
+                                    .Take(5)
+                                    .Select(category => new EmbedFieldBuilder()
+                                        .WithName(category.Name)
+                                        .WithValue($"Score: {category.Score:N4}")
+                                        .WithIsInline(true))
+                                    .Concat(analysis.Faces
+                                    .Take(5)
+                                    .Select(face => new EmbedFieldBuilder()
+                                        .WithName("Face")
+                                        .WithValue($"Age={face.Age}, Gender={face.Gender}")
+                                        .WithIsInline(true))))
+                                .Build(),
+                            logger: _logger);
+                    }
+                }
+                catch { }
+
+                if (analysis.Faces.Count == 0 &&
+                    !analysis.Categories.Any(c => c.Name.Contains("people", StringComparison.OrdinalIgnoreCase)))
                 {
                     _logger.DebugLog($"Skipping {photoUrl} as no people categories or faces were detected");
                     return false;
                 }
 
-                if (analysis.Faces is not null && analysis.Faces.Count != 0 && !analysis.Faces.Any(f => f.Age >= 14))
+                if (analysis.Faces.Count != 0 && !analysis.Faces.Any(f => f.Age >= 14))
                 {
                     _logger.DebugLog($"Skipping {photoUrl} as only young people were detected");
                     return false;
