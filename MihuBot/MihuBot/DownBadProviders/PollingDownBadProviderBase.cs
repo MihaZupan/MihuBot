@@ -121,7 +121,14 @@ namespace MihuBot.DownBadProviders
                                 foreach (Embed embed in embeds)
                                 {
                                     _logger.DebugLog($"Sending embed for {providerName} to {channel.Id}");
-                                    await channel.SendMessageAsync(embed: embed);
+                                    try
+                                    {
+                                        await channel.SendMessageAsync(embed: embed);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        await _logger.DebugAsync($"Failed to send the embed for {providerName} to {channel.Id}: {ex}");
+                                    }
                                 }
                             }
                         }
