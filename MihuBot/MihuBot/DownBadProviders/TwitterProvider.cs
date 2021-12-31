@@ -97,7 +97,7 @@ namespace MihuBot.DownBadProviders
                         {
                             _logger.DebugLog($"Adding {photo.URL} for {tweet.Url}");
                             embeds.Add(new EmbedBuilder()
-                                .WithAuthor(author.Name, author.ProfileImageUrl, $"https://twitter.com/{author.Name}")
+                                .WithAuthor(author.ScreenName, author.ProfileImageUrl, $"https://twitter.com/{author.ScreenName}")
                                 .WithTitle(tweetText)
                                 .WithUrl(tweet.Url)
                                 .WithImageUrl(photo.MediaURLHttps)
