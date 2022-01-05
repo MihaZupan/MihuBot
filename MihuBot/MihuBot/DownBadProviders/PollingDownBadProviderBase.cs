@@ -167,7 +167,8 @@ namespace MihuBot.DownBadProviders
                     }
                 }
 
-                analysis.Faces ??= Array.Empty<FaceDescription>();
+                IList<FaceDescription> faces = analysis.Faces ?? Array.Empty<FaceDescription>();
+                IList<Category> categories = analysis.Categories;
 
                 try
                 {
@@ -178,14 +179,14 @@ namespace MihuBot.DownBadProviders
                                 .WithTitle(postText)
                                 .WithUrl(postUrl)
                                 .WithImageUrl(photoUrl)
-                                .WithFields(analysis.Categories
+                                .WithFields(categories
                                     .OrderByDescending(category => category.Score)
                                     .Take(5)
                                     .Select(category => new EmbedFieldBuilder()
                                         .WithName(category.Name)
                                         .WithValue($"Score: {category.Score:N4}")
                                         .WithIsInline(true))
-                                    .Concat(analysis.Faces
+                                    .Concat(faces
                                     .Take(5)
                                     .Select(face => new EmbedFieldBuilder()
                                         .WithName("Face")
@@ -197,14 +198,20 @@ namespace MihuBot.DownBadProviders
                 }
                 catch { }
 
-                if (analysis.Faces.Count == 0 &&
-                    !analysis.Categories.Any(c => c.Name.Contains("people", StringComparison.OrdinalIgnoreCase)))
+                if (faces.Count == 0 &&
+                    !categories.Any(c => c.Name.Contains("people", StringComparison.OrdinalIgnoreCase)))
                 {
                     _logger.DebugLog($"Skipping {photoUrl} as no people categories or faces were detected");
                     return false;
                 }
 
-                if (analysis.Faces.Count != 0 && !analysis.Faces.Any(f => f.Age >= 14))
+                if (faces.Count != 0 && faces.All(f => f.Age < 14))
+                {
+                    _logger.DebugLog($"Skipping {photoUrl} as only young people were detected");
+                    return false;
+                }
+
+                if (faces.Count == 0 && categories.All(c => c.Name == "people_baby" || c.Name == "people_young"))
                 {
                     _logger.DebugLog($"Skipping {photoUrl} as only young people were detected");
                     return false;
