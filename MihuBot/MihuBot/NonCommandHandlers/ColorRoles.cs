@@ -2,9 +2,9 @@
 {
     public sealed class ColorRoles : NonCommandHandler
     {
-        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(5);
+        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(30);
 
-        protected override int CooldownToleranceCount => 3;
+        protected override int CooldownToleranceCount => 20;
 
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, GuildColors>> _guildColors = new("ColorRoles.json");
 
