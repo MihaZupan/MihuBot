@@ -213,6 +213,12 @@ namespace MihuBot
             };
 
             _discord.ReactionAdded += Client_ReactionAdded;
+
+            try
+            {
+                await _discord.GetTextChannel(Channels.Debug).TrySendMessageAsync("Started");
+            }
+            catch { }
         }
 
         private TaskCompletionSource _stopTcs;
