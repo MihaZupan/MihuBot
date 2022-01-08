@@ -110,7 +110,7 @@ namespace MihuBot
 
                 services.AddHostedService<TwitterBioUpdater>();
 
-                TryAddInstagramClient(services);
+                TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
             }
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
@@ -225,7 +225,7 @@ namespace MihuBot
             services.AddHostedService(_ => customLogger);
         }
 
-        private bool TryAddInstagramClient(IServiceCollection services)
+        private async Task<bool> TryAddInstagramClientAsync(IServiceCollection services)
         {
             try
             {
@@ -235,7 +235,7 @@ namespace MihuBot
                     Password = Configuration["Instagram:Password"]
                 };
 
-                IRequestDelay delay = RequestDelay.FromSeconds(2, 3);
+                IRequestDelay delay = RequestDelay.FromSeconds(5, 5);
 
                 IInstaApi instaApi = InstaApiBuilder.CreateBuilder()
                     .SetUser(userSession)
@@ -250,22 +250,57 @@ namespace MihuBot
 
                 if (!instaApi.IsUserAuthenticated)
                 {
-                    instaApi.SendRequestsBeforeLoginAsync().GetAwaiter().GetResult();
+                    await instaApi.SendRequestsBeforeLoginAsync();
 
-                    Thread.Sleep(5_000);
+                    await Task.Delay(5000);
 
-                    var logInResult = instaApi.LoginAsync().GetAwaiter().GetResult();
+                    var logInResult = await instaApi.LoginAsync();
 
                     if (!logInResult.Succeeded)
                     {
-                        Console.WriteLine($"Unable to login: {logInResult.Info.Message}");
-                        return false;
+                        if (logInResult.Value == InstaLoginResult.ChallengeRequired)
+                        {
+                            var challenge = await instaApi.GetChallengeRequireVerifyMethodAsync();
+                            if (challenge.Succeeded && challenge.Value.StepData?.Email != null)
+                            {
+                                var email = await instaApi.RequestVerifyCodeToEmailForChallengeRequireAsync();
+                                if (email.Succeeded)
+                                {
+                                    Console.WriteLine($"Verification code sent to {email.Value.StepData.ContactPoint}");
+                                    Console.WriteLine("Enter code now:");
+                                    string code = Console.ReadLine()!;
+                                    var verifyLogin = await instaApi.VerifyCodeForChallengeRequireAsync(code);
+                                    if (!verifyLogin.Succeeded)
+                                    {
+                                        Console.WriteLine($"Unable to login: {verifyLogin.Info.Message}");
+                                        return false;
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Unable to login: {email.Info.Message}");
+                                    return false;
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Unable to login: {challenge.Info.Message}");
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Unable to login: {logInResult.Info.Message}");
+                            return false;
+                        }
                     }
+
+                    await instaApi.SendRequestsAfterLoginAsync();
                 }
 
                 File.WriteAllText(stateFile, instaApi.GetStateDataAsString());
 
-                if (!instaApi.GetCurrentUserAsync().GetAwaiter().GetResult().Succeeded)
+                if (!(await instaApi.GetCurrentUserAsync()).Succeeded)
                 {
                     return false;
                 }
