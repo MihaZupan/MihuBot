@@ -18,14 +18,14 @@ namespace MihuBot.DownBadProviders
         private readonly Timer _watchTimer;
         private readonly TimeSpan _timerInterval;
 
-        protected PollingDownBadProviderBase(Logger logger, DiscordSocketClient discord, IComputerVisionClient computerVision)
+        protected PollingDownBadProviderBase(Logger logger, DiscordSocketClient discord, IComputerVisionClient computerVision, TimeSpan timerInterval)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _discord = discord ?? throw new ArgumentNullException(nameof(discord));
             _computerVision = computerVision ?? throw new ArgumentNullException(nameof(computerVision));
 
-            _timerInterval = TimeSpan.FromMinutes(Rng.Next(9, 13));
-            _watchTimer = new Timer(s => Task.Run(() => ((PollingDownBadProviderBase)s).OnTimerAsync()), this, TimeSpan.FromMinutes(5), Timeout.InfiniteTimeSpan);
+            _timerInterval = timerInterval;
+            _watchTimer = new Timer(s => Task.Run(() => ((PollingDownBadProviderBase)s).OnTimerAsync()), this, timerInterval, Timeout.InfiniteTimeSpan);
         }
 
         public abstract bool CanMatch(Uri url, out Uri normalizedUrl);

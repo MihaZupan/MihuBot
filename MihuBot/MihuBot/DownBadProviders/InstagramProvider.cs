@@ -11,7 +11,7 @@ namespace MihuBot.DownBadProviders
         private readonly IInstaApi _instagram;
 
         public InstagramProvider(Logger logger, DiscordSocketClient discord, IComputerVisionClient computerVision, IInstaApi instagram)
-            : base(logger, discord, computerVision)
+            : base(logger, discord, computerVision, TimeSpan.FromMinutes(20))
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _instagram = instagram ?? throw new ArgumentNullException(nameof(instagram));

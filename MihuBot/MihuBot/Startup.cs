@@ -250,6 +250,8 @@ namespace MihuBot
 
                 if (!instaApi.IsUserAuthenticated)
                 {
+                    delay.Disable();
+
                     Console.WriteLine(nameof(instaApi.SendRequestsBeforeLoginAsync));
                     await instaApi.SendRequestsBeforeLoginAsync();
 
@@ -325,6 +327,8 @@ namespace MihuBot
                             return false;
                         }
                     }
+
+                    delay.Enable();
 
                     Console.WriteLine(nameof(instaApi.SendRequestsAfterLoginAsync));
                     await instaApi.SendRequestsAfterLoginAsync();

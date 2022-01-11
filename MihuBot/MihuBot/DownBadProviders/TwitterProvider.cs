@@ -9,7 +9,7 @@ namespace MihuBot.DownBadProviders
         private readonly ITwitterClient _twitter;
 
         public TwitterProvider(Logger logger, DiscordSocketClient discord, IComputerVisionClient computerVision, ITwitterClient twitter)
-            : base(logger, discord, computerVision)
+            : base(logger, discord, computerVision, TimeSpan.FromMinutes(10))
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _twitter = twitter ?? throw new ArgumentNullException(nameof(twitter));
