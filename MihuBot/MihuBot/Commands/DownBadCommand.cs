@@ -24,7 +24,7 @@ namespace MihuBot.Commands
         {
             var registrations = await _registrations.QueryAsync(i => i.ToDictionary(i => i.Key, i => i.Value));
 
-            _discord.GuildMembersDownloaded += async guild =>
+            _discord.GuildMembersDownloaded += guild =>
             {
                 List<string> sources = null;
                 lock (registrations)
@@ -40,6 +40,8 @@ namespace MihuBot.Commands
                 {
                     _ = Task.Run(() => RegisterAllAsync(guild, sources));
                 }
+
+                return Task.CompletedTask;
             };
 
             List<(SocketGuild Guild, List<string> Sources)> guildSubscriptions = new();
