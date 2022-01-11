@@ -13,6 +13,11 @@ namespace MihuBot.NonCommandHandlers
             RegexOptions.IgnoreCase | RegexOptions.Compiled,
             matchTimeout: TimeSpan.FromSeconds(5));
 
+        private static readonly Regex _instagramReelRegex = new(
+            @"https?:\/\/.*?instagram\.com\/reel\/\w+",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled,
+            matchTimeout: TimeSpan.FromSeconds(5));
+
         private readonly HttpClient _http;
 
         public EmbedMedia(HttpClient httpClient)
@@ -39,27 +44,44 @@ namespace MihuBot.NonCommandHandlers
 
                 foreach (SocketMessage message in history)
                 {
-                    if (message.Content.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase) &&
-                        message.Content.Contains("http", StringComparison.OrdinalIgnoreCase))
+                    if (!message.Content.Contains("http://", StringComparison.OrdinalIgnoreCase) &&
+                        !message.Content.Contains("https://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (message.Content.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase))
                     {
                         Match match = _tiktokRegex.Match(message.Content);
-
-                        if (!match.Success)
-                            continue;
-
-                        try
+                        if (match.Success)
                         {
-                            await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(match.Value));
+                            await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                            break;
                         }
-                        catch (Exception ex)
+                    }
+                    else if (message.Content.Contains("instagram.com/reel/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Match match = _instagramReelRegex.Match(message.Content);
+                        if (match.Success)
                         {
-                            await ctx.DebugAsync(ex, message.Content);
-                            await ctx.Message.AddReactionAsync(Emotes.RedCross);
+                            await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                            break;
                         }
-
-                        break;
                     }
                 }
+            }
+        }
+
+        private async Task TryExtractAndUploadVideoAsync(MessageContext ctx, string url, string content)
+        {
+            try
+            {
+                await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(url));
+            }
+            catch (Exception ex)
+            {
+                await ctx.DebugAsync(ex, content);
+                await ctx.Message.AddReactionAsync(Emotes.RedCross);
             }
         }
 
