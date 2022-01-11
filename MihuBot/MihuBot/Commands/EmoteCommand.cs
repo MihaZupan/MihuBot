@@ -92,32 +92,26 @@ namespace MihuBot.Commands
 
                 extension = extension.SplitFirstTrimmed('?');
                 extension = extension.ToLowerInvariant();
-                string attachmentTempPath = Path.GetTempFileName() + extension;
-                string convertedFileTempPath = Path.GetTempFileName() + extension;
-                try
-                {
-                    using var stream = await _http.GetStreamAsync(url);
 
-                    using (var fs = File.OpenWrite(attachmentTempPath))
-                        await stream.CopyToAsync(fs);
+                using var attachmentTempFile = new TempFile(extension);
+                using var convertedFileTempFile = new TempFile(extension);
 
-                    using var proc = new Process();
-                    proc.StartInfo.FileName = "ffmpeg";
-                    proc.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{attachmentTempPath}\" -vf scale=128:-1 \"{convertedFileTempPath}\"";
-                    proc.StartInfo.UseShellExecute = false;
-                    proc.Start();
-                    proc.WaitForExit();
+                using var stream = await _http.GetStreamAsync(url);
 
-                    var emote = await guild.CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempPath));
-                    await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
+                using (var fs = File.OpenWrite(attachmentTempFile.Path))
+                    await stream.CopyToAsync(fs);
 
-                    break;
-                }
-                finally
-                {
-                    try { File.Delete(attachmentTempPath); } catch { }
-                    try { File.Delete(convertedFileTempPath); } catch { }
-                }
+                using var proc = new Process();
+                proc.StartInfo.FileName = "ffmpeg";
+                proc.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{attachmentTempFile}\" -vf scale=128:-1 \"{convertedFileTempFile}\"";
+                proc.StartInfo.UseShellExecute = false;
+                proc.Start();
+                proc.WaitForExit();
+
+                var emote = await guild.CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempFile.Path));
+                await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
+
+                break;
             }
         }
     }

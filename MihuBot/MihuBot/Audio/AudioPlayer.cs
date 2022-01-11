@@ -1029,7 +1029,7 @@ namespace MihuBot.Audio
         private readonly IVideo _video;
         private Stream _ffmpegOutputStream;
         private Process _process;
-        private string _temporaryFile;
+        private TempFile _temporaryFile;
         private TimeSpan? _duration;
         private long _bytesRead;
 
@@ -1043,7 +1043,7 @@ namespace MihuBot.Audio
         public override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
         {
             YoutubeAudioCache.VideoMetadata metadata = await YoutubeAudioCache.GetOrTryCacheAsync(_video, cancellationToken);
-            string audioPath = metadata.OpusPath ?? (Path.GetTempFileName() + ".opus");
+            string audioPath = metadata.OpusPath ?? (_temporaryFile = new TempFile("opus")).Path;
             if (metadata.OpusPath is null)
             {
                 try
@@ -1058,7 +1058,6 @@ namespace MihuBot.Audio
                     File.Delete(audioPath);
                     throw;
                 }
-                _temporaryFile = audioPath;
             }
 
             _duration ??= metadata.Duration;
@@ -1131,19 +1130,12 @@ namespace MihuBot.Audio
             }
             catch { }
 
-            try
-            {
-                if (_temporaryFile is string temporaryFile)
-                {
-                    File.Delete(temporaryFile);
-                }
-            }
-            catch { }
+            _temporaryFile?.Dispose();
         }
 
         public void DebugDump(StringBuilder sb)
         {
-            sb.AppendLine($"TemporaryFile: {_temporaryFile ?? "N/A"}");
+            sb.AppendLine($"TemporaryFile: {_temporaryFile?.Path ?? "N/A"}");
             sb.AppendLine($"FFmpeg arguments: {_process?.StartInfo.Arguments ?? "N/A"}");
         }
     }

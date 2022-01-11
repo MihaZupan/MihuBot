@@ -74,7 +74,17 @@ namespace MihuBot.NonCommandHandlers
             using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
             using Stream responseStream = await response.Content.ReadAsStreamAsync();
 
-            await ctx.Channel.SendFileAsync(responseStream, metadata.Filename);
+            using var tempFile = new TempFile("mp4");
+
+            using (var writeFs = File.OpenWrite(tempFile.Path))
+            {
+                await responseStream.CopyToAsync(writeFs);
+            }
+
+            using (var readFs = File.OpenRead(tempFile.Path))
+            {
+                await ctx.Channel.SendFileAsync(readFs, metadata.Filename);
+            }
         }
     }
 }
