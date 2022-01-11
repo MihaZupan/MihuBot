@@ -105,7 +105,8 @@ namespace MihuBot.NonCommandHandlers
 
             using (var readFs = File.OpenRead(tempFile.Path))
             {
-                await ctx.Channel.SendFileAsync(readFs, metadata.Filename.Replace(".", "", StringComparison.Ordinal));
+                string filename = Path.GetFileNameWithoutExtension(metadata.Filename).Replace(".", "", StringComparison.Ordinal) + Path.GetExtension(metadata.Filename);
+                await ctx.Channel.SendFileAsync(readFs, filename);
             }
         }
     }
