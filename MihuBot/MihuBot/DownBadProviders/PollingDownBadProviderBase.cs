@@ -148,7 +148,7 @@ namespace MihuBot.DownBadProviders
         {
             try
             {
-                const int MaxRetries = 3;
+                const int MaxRetries = 6;
                 int retry = 0;
                 ImageAnalysis analysis;
                 while (true)
