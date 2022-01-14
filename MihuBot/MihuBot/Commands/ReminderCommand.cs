@@ -208,7 +208,7 @@ namespace MihuBot.Commands
 
                                 string mention = match.Success ? match.Groups[1].Value : MentionUtils.MentionUser(entry.AuthorId);
 
-                                IMessage message = await channel.GetMessageAsync(entry.MessageId);
+                                IMessage message = entry.MessageId == 0 ? null : await channel.GetMessageAsync(entry.MessageId);
 
                                 if (message is not null)
                                 {
