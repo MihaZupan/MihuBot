@@ -176,9 +176,14 @@ namespace MihuBot.Commands
 
             var entry = new ReminderEntry(time, message, ctx);
 
-            await _reminderService.ScheduleAsync(entry);
-
             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+
+            if (ctx.Guild.Id == Guilds.DDs && time.Subtract(DateTime.UtcNow) > TimeSpan.FromMinutes(11))
+            {
+                return;
+            }
+
+            await _reminderService.ScheduleAsync(entry);
         }
 
         private async Task OnReminderTimerAsync()
