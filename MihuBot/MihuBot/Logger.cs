@@ -138,42 +138,42 @@ namespace MihuBot
                         .Replace('/', '_')
                         .Replace('\\', '_');
 
-                    try
-                    {
-                        string directory;
-                        string fileName;
+                    //try
+                    //{
+                    //    string directory;
+                    //    string fileName;
 
-                        if (blobName.StartsWith("files_", StringComparison.Ordinal))
-                        {
-                            directory = "Discord/Files/";
-                            fileName = blobName.Substring("files_".Length);
-                        }
-                        else
-                        {
-                            directory = "Discord/Logs/";
-                            fileName = blobName;
-                        }
+                    //    if (blobName.StartsWith("files_", StringComparison.Ordinal))
+                    //    {
+                    //        directory = "Discord/Files/";
+                    //        fileName = blobName.Substring("files_".Length);
+                    //    }
+                    //    else
+                    //    {
+                    //        directory = "Discord/Logs/";
+                    //        fileName = blobName;
+                    //    }
 
-                        directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
-                        fileName = $"{directory}{fileName}";
+                    //    directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
+                    //    fileName = $"{directory}{fileName}";
 
-                        try
-                        {
-                            using FileStream fs = File.OpenRead(FilePath);
-                            await _nextCloudClient.UploadFileAsync(fileName, fs);
-                        }
-                        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-                        {
-                            await _nextCloudClient.CreateDirectoryAsync(directory);
+                    //    try
+                    //    {
+                    //        using FileStream fs = File.OpenRead(FilePath);
+                    //        await _nextCloudClient.UploadFileAsync(fileName, fs);
+                    //    }
+                    //    catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                    //    {
+                    //        await _nextCloudClient.CreateDirectoryAsync(directory);
 
-                            using FileStream fs = File.OpenRead(FilePath);
-                            await _nextCloudClient.UploadFileAsync(fileName, fs);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLog($"Failed to archive {FilePath} to NextCloud: {ex}", Message);
-                    }
+                    //        using FileStream fs = File.OpenRead(FilePath);
+                    //        await _nextCloudClient.UploadFileAsync(fileName, fs);
+                    //    }
+                    //}
+                    //catch (Exception ex)
+                    //{
+                    //    DebugLog($"Failed to archive {FilePath} to NextCloud: {ex}", Message);
+                    //}
 
                     string extension = Path.GetExtension(FilePath).ToLowerInvariant();
 
