@@ -656,6 +656,11 @@ namespace MihuBot.Audio
                     return Task.CompletedTask;
                 };
 
+                foreach (var pair in _audioClient.GetStreams())
+                {
+                    _logger.AudioLogger.AddStream(voiceChannel.Id, pair.Key, pair.Value);
+                }
+
                 _ = Task.Run(async () =>
                 {
                     try
