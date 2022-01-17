@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Discord.Audio;
 using MihuBot.NextCloud;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -56,6 +57,8 @@ namespace MihuBot
             { ".png",   (".webp",   "-pix_fmt yuv420p -q 75") },
             { ".wav",   (".mp3",    "-b:a 192k") },
         };
+
+        public AudioLogger AudioLogger { get; private set; }
 
         public async Task OnShutdownAsync()
         {
@@ -229,7 +232,7 @@ namespace MihuBot
                             .WithDescription(Message.GetJumpUrl())
                             .WithUrl(blobClient.Uri.AbsoluteUri);
 
-                        if (isImage)
+                        if (isImage && accessTier != AccessTier.Archive)
                         {
                             embed.WithImageUrl(blobClient.Uri.AbsoluteUri);
                         }
@@ -554,6 +557,8 @@ namespace MihuBot
             Discord.GuildAvailable += GuildAvailableAsync;
             Discord.GuildUnavailable += GuildUnavailableAsync;
             Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
+
+            AudioLogger = new AudioLogger(this, FileArchivingChannel.Writer);
 
             /*
 GuildUpdated
@@ -1501,6 +1506,100 @@ RecipientAdded
                     if (value < 10) builder.Append('0');
                     builder.Append(value);
                 }
+            }
+        }
+    }
+
+    public sealed class AudioLogger
+    {
+        private readonly Logger _logger;
+        private readonly ChannelWriter<(string FileName, string FilePath, SocketUserMessage Message, bool Delete)> _fileArchivingChannel;
+        private readonly Dictionary<ulong, AudioStreamLogger> _audioStreams = new();
+
+        public AudioLogger(
+            Logger logger,
+            ChannelWriter<(string FileName, string FilePath, SocketUserMessage Message, bool Delete)> fileArchivingChannel)
+        {
+            _logger = logger;
+            _fileArchivingChannel = fileArchivingChannel;
+        }
+
+        public void AddStream(ulong channelId, ulong userId, AudioInStream audioStream)
+        {
+            lock (_audioStreams)
+            {
+                if (!_audioStreams.ContainsKey(userId))
+                {
+                    _logger.DebugLog($"Starting to log audio stream for channel={channelId}, user={userId}");
+                    var logger = new AudioStreamLogger(this, channelId, userId, audioStream);
+                    _audioStreams.Add(userId, logger);
+                }
+            }
+        }
+
+        public void RemoveStream(ulong userId)
+        {
+            lock (_audioStreams)
+            {
+                if (_audioStreams.Remove(userId, out var logger))
+                {
+                    _logger.DebugLog($"Stopping audio logging for user={userId}");
+                    logger.Stop();
+                }
+            }
+        }
+
+        private void ArchiveFileAsync(string filePath)
+        {
+            _fileArchivingChannel.TryWrite((FileName: Path.GetFileName(filePath), FilePath: filePath, Message: null, Delete: true));
+        }
+
+        private sealed class AudioStreamLogger
+        {
+            private readonly AudioLogger _logger;
+            private readonly CancellationTokenSource _cts = new();
+            private readonly string _filePath;
+            private readonly FileStream _fileStream;
+
+            public AudioStreamLogger(AudioLogger logger, ulong channelId, ulong userId, AudioInStream audioStream)
+            {
+                _logger = logger;
+
+                var time = DateTime.UtcNow;
+                _filePath = $"{_logger._logger.Options.FilesRoot}Audio_{channelId}_{userId}_{time.ToISODateTime()}.rtp";
+                _fileStream = File.OpenWrite(_filePath);
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await CopyAudioAsync(audioStream);
+                    }
+                    catch { }
+                });
+            }
+
+            private async Task CopyAudioAsync(AudioInStream stream)
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    try
+                    {
+                        RTPFrame frame = await stream.ReadFrameAsync(_cts.Token);
+                        await _fileStream.WriteAsync(frame.Payload);
+                    }
+                    catch { break; }
+                }
+
+                await _fileStream.FlushAsync();
+                await _fileStream.DisposeAsync();
+
+                _logger.ArchiveFileAsync(_filePath);
+            }
+
+            public void Stop()
+            {
+                _cts.Cancel();
             }
         }
     }

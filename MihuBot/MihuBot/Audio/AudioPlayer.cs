@@ -636,13 +636,25 @@ namespace MihuBot.Audio
                 _scheduler.SetBitrateHint(voiceChannel.Bitrate);
 
                 VoiceChannel = voiceChannel;
-                _audioClient = await voiceChannel.ConnectAsync(selfDeaf: true);
+                _audioClient = await voiceChannel.ConnectAsync();
 
                 int bitrate = Math.Max(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate);
                 int bufferMs = GlobalAudioSettings.StreamBufferMs;
                 int packetLoss = GlobalAudioSettings.PacketLoss;
 
                 _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
+
+                _audioClient.StreamCreated += (userId, stream) =>
+                {
+                    _logger.AudioLogger.AddStream(voiceChannel.Id, userId, stream);
+                    return Task.CompletedTask;
+                };
+
+                _audioClient.StreamDestroyed += userId =>
+                {
+                    _logger.AudioLogger.RemoveStream(userId);
+                    return Task.CompletedTask;
+                };
 
                 _ = Task.Run(async () =>
                 {
