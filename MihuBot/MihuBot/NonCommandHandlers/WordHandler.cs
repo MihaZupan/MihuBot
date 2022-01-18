@@ -6,9 +6,6 @@ namespace MihuBot.NonCommandHandlers
     {
         private readonly CompactPrefixTree<Func<MessageContext, Task>> _wordHandlers;
 
-        private readonly CooldownTracker _stinkyUserTracker = new CooldownTracker(TimeSpan.FromDays(1), cooldownTolerance: 0);
-        private readonly SimpleCooldownTracker _stinkyGlobalTracker = new SimpleCooldownTracker(TimeSpan.FromHours(1));
-
         public WordHandler()
         {
             _wordHandlers = new CompactPrefixTree<Func<MessageContext, Task>>(ignoreCase: true);
