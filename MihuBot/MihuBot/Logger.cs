@@ -202,11 +202,6 @@ namespace MihuBot
                         _ => AccessTier.Archive
                     };
 
-                    if (accessTier == AccessTier.Archive && Message?.Guild()?.Id == Guilds.DDs)
-                    {
-                        accessTier = AccessTier.Cool;
-                    }
-
                     BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
 
                     using (FileStream fs = File.OpenRead(FilePath))
@@ -576,12 +571,6 @@ RecipientAdded
                 {
                     Content = $"{JsonSerializer.Serialize(ChannelModel.FromSocketChannel(before), JsonOptions)} => {JsonSerializer.Serialize(ChannelModel.FromSocketChannel(after), JsonOptions)}"
                 });
-
-                if (Discord.CurrentUser.Id == KnownUsers.Miha &&
-                    !before.PermissionOverwrites.OverwritesEqual(after.PermissionOverwrites))
-                {
-                    Task.Run(async () => await LogPermissionsChangedAsync(before, after));
-                }
             }
             return Task.CompletedTask;
         }
@@ -594,11 +583,6 @@ RecipientAdded
                 {
                     Content = JsonSerializer.Serialize(ChannelModel.FromSocketChannel(guildChannel), JsonOptions)
                 });
-
-                if (Discord.CurrentUser.Id == KnownUsers.Miha)
-                {
-                    Task.Run(async () => await LogPermissionsChangedAsync(null, guildChannel));
-                }
             }
             return Task.CompletedTask;
         }
@@ -908,8 +892,6 @@ RecipientAdded
             if (channelId == Channels.LogText || channelId == 750706839431413870ul || channelId == Channels.Files)
                 return Task.CompletedTask;
 
-            bool isRetirementHome = message.Guild()?.Id == Guilds.RetirementHome;
-
             if (!string.IsNullOrWhiteSpace(message.Content))
             {
                 Log(new LogEvent(previousId is null ? EventType.MessageReceived : EventType.MessageUpdated, userMessage)
@@ -1073,65 +1055,6 @@ RecipientAdded
                 DebugLog(ex.ToString(), message);
             }
         }
-
-        private async Task LogPermissionsChangedAsync(SocketGuildChannel before, SocketGuildChannel after)
-        {
-            try
-            {
-                if (after.Guild.Id != Guilds.DDs && after.Guild.Id != Guilds.ComfyCove)
-                {
-                    return;
-                }
-
-                bool updated = before is not null;
-
-                var embedBuilder = new EmbedBuilder()
-                    .WithTitle($"Channel *{after.Name}* {(updated ? "updated" : "created")}")
-                    .WithUrl(after.GetJumpUrl())
-                    .WithColor(0x00, 0x42, 0xFF)
-                    .WithThumbnailUrl(after.Guild.IconUrl);
-
-                Overwrite[] overwrites = after.PermissionOverwrites.ToArray();
-                if (updated && overwrites.Length > 25)
-                {
-                    Overwrite[] overwritesBefore = before.PermissionOverwrites.ToArray();
-                    if (overwritesBefore.Length != 0)
-                    {
-                        overwrites = overwrites
-                            .Where(o => !overwritesBefore.Any(ob => o.OverwriteEquals(ob)))
-                            .ToArray();
-                    }
-                }
-
-                for (int i = 0; i < Math.Min(25, overwrites.Length); i++)
-                {
-                    Overwrite overwrite = overwrites[i];
-
-                    string name = overwrite.TargetType == PermissionTarget.User
-                        ? after.Guild.GetUser(overwrite.TargetId)?.Username ?? $"User {overwrite.TargetId}"
-                        : after.Guild.GetRole(overwrite.TargetId)?.Name ?? $"Role {overwrite.TargetId}";
-
-                    string allow = string.Join('\n', overwrite.Permissions.ToAllowList());
-                    string deny = string.Join('\n', overwrite.Permissions.ToDenyList());
-
-                    string value = $"{(allow.Length == 0 ? "" : $"{Emotes.Checkmark}\n")}{allow}";
-                    if (allow.Length != 0 && deny.Length != 0) value += "\n";
-                    value += $"{(deny.Length == 0 ? "" : $"{Emotes.RedCross}\n")}{deny}";
-
-                    if (value.Length != 0)
-                    {
-                        embedBuilder.AddField(name, value, inline: true);
-                    }
-                }
-
-                await Options.LogsTextChannel.SendMessageAsync(embed: embedBuilder.Build());
-            }
-            catch (Exception ex)
-            {
-                await DebugAsync(ex.ToString());
-            }
-        }
-
 
         [Flags]
         public enum VoiceStatusUpdateFlags : uint

@@ -18,20 +18,7 @@ namespace MihuBot.NonCommandHandlers
                 _wordHandlers.Add(word, TypingResponseHandler);
             }
 
-            _wordHandlers.Add("banana", BananaReactionHandler);
-            _wordHandlers.Add("stinky", StinkyHandler);
-
-            static async Task BananaReactionHandler(MessageContext ctx) => await ctx.Message.AddReactionAsync(Emotes.PudeesJammies);
             static async Task TypingResponseHandler(MessageContext ctx) => await ctx.Channel.TriggerTypingAsync();
-
-            async Task StinkyHandler(MessageContext ctx)
-            {
-                if (ctx.Guild.Id == Guilds.DDs && Rng.Chance(50) &&
-                    _stinkyGlobalTracker.TryEnter(state => state._stinkyUserTracker.TryEnter(state.AuthorId), (_stinkyUserTracker, ctx.AuthorId)))
-                {
-                    await ctx.ReplyAsync(MentionUtils.MentionUser(KnownUsers.Jordan), suppressMentions: true);
-                }
-            }
         }
 
         public override Task HandleAsync(MessageContext ctx)

@@ -127,11 +127,11 @@ namespace MihuBot.Commands
             string reply = ctx.Command switch
             {
                 "dropkickofftheturnbuckle" => $"drop kicked {target} off the turn buckle",
-                "butt" => $"thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt! {Emotes.DarlShyShy}",
-                "slap" => $"just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}! {Emotes.MonkaHmm}",
-                "kick" => $"just {(targetIsAuthor ? "tripped" : $"kicked {target}")}! {Emotes.DarlZoom}",
-                "love" => $"wants {target} to know they are loved! {Emotes.DarlHearts}",
-                "hug" => $"is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {(ctx.Guild.Id == Guilds.LiverGang ? Emotes.SenpaiLove : Emotes.DarlHearts)}",
+                "butt" => $"thinks {(targetIsAuthor ? "they have" : $"{target} has")} a nice butt!",
+                "slap" => $"just {(targetIsAuthor ? "performed a self-slap maneuver" : $"slapped {target}")}!",
+                "kick" => $"just {(targetIsAuthor ? "tripped" : $"kicked {target}")}!",
+                "love" => $"wants {target} to know they are loved! {Emotes.Heart}",
+                "hug" => $"is {(targetIsAuthor ? "getting hugged" : $"sending hugs to {target}")}! {Emotes.SenpaiLove}",
                 "kiss" => $"just kissed {target}! {Emotes.KissAHomie}",
                 "spank" => $"just spanked {target} {Emotes.EyesShaking}",
                 "tableflip" => $"just flipped {target} over the table?",
@@ -139,7 +139,7 @@ namespace MihuBot.Commands
                 "curbstomp" => $"curb stomped {target} {Emotes.EyesShaking}",
                 "poke" => $"pokes {target} {Emotes.MonkaStab}",
                 "laugh" => $"{Emotes.PepePoint} {target}", // TODO {Emotes.DarlClown}
-                "hiton" => $"Come here often, {target}? {Emotes.DarlShyShy}",
+                "hiton" => $"Come here often, {target}?",
                 "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}", // TODO {Emotes.DarlUwU}
                 "beatup" => $"just beat up {target} {Emotes.EyesShaking}",
                 "beatupandtakelunchmoney" => $"just beat up {target} and took their lunch money {Emotes.EyesShaking}",

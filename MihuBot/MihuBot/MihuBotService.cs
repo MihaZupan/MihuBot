@@ -47,19 +47,7 @@ namespace MihuBot
         {
             try
             {
-                if (reaction.Emote.Name.Equals("yesw", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (reaction.User.IsSpecified && reaction.User.Value.Id == KnownUsers.MihuBot)
-                        return;
-
-                    var userMessage = reaction.Message;
-
-                    if (userMessage.IsSpecified)
-                    {
-                        await userMessage.Value.AddReactionAsync(Emotes.YesW);
-                    }
-                }
-                else if (reaction.Emote is Emote reactionEmote)
+                if (reaction.Emote is Emote reactionEmote)
                 {
                     if (reactionEmote.Id == Emotes.James.Id) // James emote
                     {
@@ -89,16 +77,8 @@ namespace MihuBot
             if (message.Author.IsBot)
                 return Task.CompletedTask;
 
-            if (guildChannel.Guild.Id == Guilds.DDs)
-            {
-                if (guildChannel.Id == Channels.DDsGeneral)
-                    return Task.CompletedTask; // Ignore
-            }
-            else if (guildChannel.Guild.Id == Guilds.RetirementHome)
-            {
-                if (guildChannel.Id != Channels.RetirementHomeWhitelist)
-                    return Task.CompletedTask; // Ignore
-            }
+            if (guildChannel.Guild.Id == Guilds.RetirementHome)
+                return Task.CompletedTask; // Ignore
 
             if (message.Content.Contains('\0'))
                 throw new InvalidOperationException("Null in text");
@@ -116,9 +96,6 @@ namespace MihuBot
 
                 if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
                 {
-                    if (message.Guild().Id == Guilds.RetirementHome && (match.Key != "whitelist" && match.Key != "mc"))
-                        return; // Ignore everything except whitelist/mc for Retirement Home
-
                     var command = match.Value;
                     var context = new CommandContext(_discord, message, match.Key, _logger, _permissions);
 
@@ -144,9 +121,6 @@ namespace MihuBot
             }
             else
             {
-                if (message.Guild().Id == Guilds.RetirementHome)
-                    return;
-
                 var messageContext = new MessageContext(_discord, message, _logger);
 
                 foreach (var handler in _nonCommandHandlers)

@@ -178,11 +178,6 @@ namespace MihuBot.Commands
 
             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
 
-            if (ctx.Guild.Id == Guilds.DDs && time.Subtract(DateTime.UtcNow) > TimeSpan.FromMinutes(11))
-            {
-                return;
-            }
-
             await _reminderService.ScheduleAsync(entry);
         }
 

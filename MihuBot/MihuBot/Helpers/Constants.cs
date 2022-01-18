@@ -4,7 +4,6 @@
     {
         public static string StateDirectory => "State";
 
-        public static readonly HashSet<ulong> GuildIDs = new(typeof(Guilds).GetFields().Select(f => (ulong)f.GetRawConstantValue()));
         public static readonly HashSet<ulong> Admins = new()
         {
             KnownUsers.Miha,
@@ -34,18 +33,8 @@
     {
         public const ulong Mihu             = 566925785563136020ul;
         public const ulong PrivateLogs      = 750706593858977802ul;
-        public const ulong DDs              = 350658308878630914ul;
-        public const ulong Paul             = 715374946846769202ul;
         public const ulong LiverGang        = 244642778024378368ul;
-        public const ulong DresDreamers     = 495391858009309184ul;
-        public const ulong Arisas           = 417794764029820939ul;
-        public const ulong Brandons         = 478637384347549713ul;
-        public const ulong Dreamlings       = 612032458258644992ul;
-        public const ulong TheWaddle        = 509232675001991169ul;
-        public const ulong TheFragmentary   = 489465972772831233ul;
         public const ulong RetirementHome   = 357322948501045259ul;
-        public const ulong DevBotOnlyTest   = 811117737866166312ul;
-        public const ulong ComfyCove        = 841908886583246858ul;
     }
 
     public static class Channels
@@ -60,8 +49,6 @@
 
         public const ulong BirthdaysLog     = 752617146172964875ul;
         public const ulong TwitchAddLogs    = 769854674881740820ul;
-
-        public const ulong RetirementHomeWhitelist = 782770488233558016ul;
     }
 
     public static class KnownUsers
@@ -74,45 +61,24 @@
 
         // Admins
         public const ulong Miha         = 162569877087977480ul;
-        public const ulong Caroline     = 340562834658295821ul;
         public const ulong James        = 91680709588045824ul;
         public const ulong Jordan       = 236455327535464458ul;
-        public const ulong Darling      = 399843400041365516ul;
 
-        public const ulong CurtIs       = 237788815626862593ul;
         public const ulong Christian    = 397254656025427968ul;
-        public const ulong Gradravin    = 235218831247671297ul;
         public const ulong PaulK        = 267771172962304000ul;
         public const ulong Sticky       = 162050931326713857ul;
         public const ulong Joster       = 105498799706759168ul;
-        public const ulong Richard      = 136981443497689088ul;
-        public const ulong Adi          = 360977915975958537ul;
         public const ulong Ryboh        = 156253985207091202ul;
-        public const ulong Moo          = 409919984207265793ul;
     }
 
     public static class Emotes
     {
-        // TODO
-        // DarlClown, DarlUwU, DarlHug
-
-        // DDs
-        public static Emote DarlFighting { get; }   = Emote.Parse("<a:darlFighting:806975528942567484>");
-        public static Emote DarlHearts { get; }     = Emote.Parse("<a:darlHearts:819656027367669791>");
-        public static Emote DarlShyShy { get; }     = Emote.Parse("<a:darlShyshy:807001178582810674>");
-        public static Emote DarlZoom { get; }       = Emote.Parse("<a:darlsipzoom:646124538312261651>");
-        public static Emote MonkaHmm { get; }       = Emote.Parse("<:monkaHmm:758118234284490792>");
-        public static Emote PudeesJammies { get; }  = Emote.Parse("<a:pudeesJammies:686340394866573338>");
-        public static Emote WeeHypers { get; }      = Emote.Parse("<a:WeeHypers:758118343210434603>");
-        public static Emote YesW { get; }           = Emote.Parse("<:yesW:726548253059055759>");
-
         // Mihu
         public static Emote CreepyFace { get; }     = Emote.Parse("<:creepyface:708844396791201833>");
         public static Emote EyesShaking { get; }    = Emote.Parse("<a:eyesShaking:719904795091009636>");
         public static Emote James { get; }          = Emote.Parse("<:james:685587814330794040>");
         public static Emote KissAHomie { get; }     = Emote.Parse("<a:KissAHomie:769335184750805003>");
         public static Emote OmegaLUL { get; }       = Emote.Parse("<:OMEGALUL:775860675938353202>");
-        public static Emote PauseChamp { get; }     = Emote.Parse("<:PauseChamp:724041635821781002>");
         public static Emote PepePoint { get; }      = Emote.Parse("<:pepePoint:701207439273361408>");
         public static Emote WeirdChamp { get; }     = Emote.Parse("<:WeirdChamp:715663367741898785>");
 
@@ -148,8 +114,7 @@
         };
 
         public static IEmote ThumbsUp { get; }      = new Emoji("👍");
-        public static IEmote Checkmark { get; }     = new Emoji("✅");
         public static IEmote RedCross { get; }      = new Emoji("❌");
-        public static IEmote QuestionMark { get; }  = new Emoji("❓");
+        public static IEmote Heart { get; }         = new Emoji("❤️");
     }
 }

@@ -4,8 +4,7 @@
     {
         public override Task HandleAsync(MessageContext ctx)
         {
-            if ((ctx.AuthorId == KnownUsers.Gradravin && Rng.Chance(1000))
-                || (ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
+            if ((ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
             {
                 return HandleAsyncCore();
             }
@@ -15,11 +14,6 @@
             async Task HandleAsyncCore()
             {
                 var message = ctx.Message;
-
-                if (ctx.AuthorId == KnownUsers.Gradravin)
-                {
-                    await message.AddReactionAsync(Emotes.YesW);
-                }
 
                 if (ctx.AuthorId == KnownUsers.James)
                 {

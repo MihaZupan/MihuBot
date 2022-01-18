@@ -14,7 +14,7 @@
 
             async Task HandleAsyncCore()
             {
-                await ctx.Message.AddReactionAsync(Emotes.DarlHearts);
+                await ctx.Message.AddReactionAsync(Emotes.Heart);
             }
         }
     }
