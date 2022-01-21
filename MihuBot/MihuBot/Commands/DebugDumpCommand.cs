@@ -3,13 +3,13 @@
     public sealed class DebugDumpCommand : CommandBase
     {
         public override string Command => "debugdump";
-        public override string[] Aliases => new[] { "pdebugdump" };
+        public override string[] Aliases => new[] { "pdebugdump", "dddebugdump" };
 
-        private readonly DiscordSocketClient _privateClient;
+        private readonly CustomLogger[] _customLoggers;
 
         public DebugDumpCommand(IEnumerable<CustomLogger> customLogger)
         {
-            _privateClient = customLogger.FirstOrDefault()?.Options.Discord;
+            _customLoggers = customLogger.ToArray();
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -30,7 +30,14 @@
                 secondId = secondIdTemp;
             }
 
-            DiscordSocketClient discord = ctx.Command == "pdebugdump" ? _privateClient : null;
+            DiscordSocketClient discord = null;
+            if (ctx.Command != Command)
+            {
+                var logger = ctx.Command == "dddebugdump"
+                       ? (_customLoggers.FirstOrDefault(l => l is DDsLogger))
+                       : (_customLoggers.FirstOrDefault(l => l is PrivateLogger));
+                discord = logger?.Options.Discord;
+            }
             discord ??= ctx.Discord;
 
             var sb = new StringBuilder();

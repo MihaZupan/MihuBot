@@ -9,6 +9,7 @@ using InstagramApiSharp.Classes;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Email;
@@ -110,7 +111,7 @@ namespace MihuBot
 
                 services.AddHostedService<TwitterBioUpdater>();
 
-                TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
+                //TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
             }
 
             services.AddSingleton<IPermissionsService, PermissionsService>();
@@ -188,7 +189,25 @@ namespace MihuBot
 
         private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient, NextCloudClient nextCloudClient)
         {
-            var privateDiscordClient = new InitializedDiscordClient(
+            var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
+            var customLogger = new PrivateLogger(httpClient,
+                CreateLoggerOptions(privateDiscordClient, "pvt_logs", "Private_"),
+                nextCloudClient,
+                Configuration);
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
+            services.AddHostedService(_ => customLogger);
+
+            var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
+            var ddsLogger = new DDsLogger(httpClient,
+                CreateLoggerOptions(ddsDiscordClient, "pvt_logs_dds", "Private_DDs_"),
+                nextCloudClient,
+                Configuration);
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, DDsLogger>(_ => ddsLogger));
+            services.AddHostedService(_ => ddsLogger);
+
+            static InitializedDiscordClient CreateDiscordClient(string authToken)
+            {
+                return new InitializedDiscordClient(
                     new DiscordSocketConfig()
                     {
                         MessageCacheSize = 1024, // Is this needed?
@@ -197,15 +216,17 @@ namespace MihuBot
                         GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
                     },
                     /* TokenType.User */ 0,
-                    Configuration["Discord:PrivateAuthToken"]);
+                    authToken);
+            }
 
-            var customLogger = new CustomLogger(httpClient,
-                new LoggerOptions(
-                    privateDiscordClient,
-                    $"{Constants.StateDirectory}/pvt_logs", "Private_",
-                    Channels.Debug,
-                    806049221631410186ul,
-                    Channels.Files)
+            static LoggerOptions CreateLoggerOptions(InitializedDiscordClient discord, string dirPrefix, string filePrefix)
+            {
+                return new LoggerOptions(
+                        discord,
+                        $"{Constants.StateDirectory}/{dirPrefix}", filePrefix,
+                        Channels.Debug,
+                        806049221631410186ul,
+                        Channels.Files)
                 {
                     ShouldLogAttachments = static message =>
                     {
@@ -217,12 +238,8 @@ namespace MihuBot
 
                         return !user.GetPermissions(channel).ViewChannel;
                     }
-                },
-                nextCloudClient,
-                Configuration);
-
-            services.AddSingleton(customLogger);
-            services.AddHostedService(_ => customLogger);
+                };
+            }
         }
 
         private async Task<bool> TryAddInstagramClientAsync(IServiceCollection services)

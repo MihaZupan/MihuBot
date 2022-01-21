@@ -1449,6 +1449,8 @@ RecipientAdded
 
         public void AddStream(ulong channelId, ulong userId, AudioInStream audioStream)
         {
+            return;
+
             lock (_audioStreams)
             {
                 if (!_audioStreams.ContainsKey(userId))

@@ -6,15 +6,15 @@ namespace MihuBot.Commands
     public sealed class LogsCommand : CommandBase
     {
         public override string Command => "logs";
-        public override string[] Aliases => new[] { "plogs", "pvtlogs", "privatelogs" };
+        public override string[] Aliases => new[] { "plogs", "pvtlogs", "privatelogs", "ddlogs" };
 
         private readonly Logger _logger;
-        private readonly CustomLogger _customLogger;
+        private readonly CustomLogger[] _customLoggers;
 
         public LogsCommand(Logger logger, IEnumerable<CustomLogger> customLogger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _customLogger = customLogger.FirstOrDefault();
+            _customLoggers = customLogger.ToArray();
         }
 
         public override async Task ExecuteAsync(CommandContext ctx)
@@ -25,7 +25,14 @@ namespace MihuBot.Commands
             if (ctx.Command != Command && ctx.AuthorId != KnownUsers.Miha)
                 return;
 
-            var logger = ctx.Command == Command ? _logger : _customLogger.Logger;
+            Logger logger = _logger;
+            if (ctx.Command != Command)
+            {
+                logger = ctx.Command == "ddlogs"
+                    ? (_customLoggers.FirstOrDefault(l => l is DDsLogger))?.Logger
+                    : (_customLoggers.FirstOrDefault(l => l is PrivateLogger))?.Logger;
+            }
+
             if (logger is null)
                 return;
 

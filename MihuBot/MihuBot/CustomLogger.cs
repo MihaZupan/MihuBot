@@ -2,6 +2,20 @@
 
 namespace MihuBot
 {
+    public class DDsLogger : CustomLogger
+    {
+        public DDsLogger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
+            : base(httpClient, options, nextCloudClient, configuration)
+        { }
+    }
+
+    public class PrivateLogger : CustomLogger
+    {
+        public PrivateLogger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
+            : base(httpClient, options, nextCloudClient, configuration)
+        { }
+    }
+
     public class CustomLogger : IHostedService
     {
         public readonly LoggerOptions Options;
