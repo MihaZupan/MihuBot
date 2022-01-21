@@ -20,7 +20,7 @@ namespace MihuBot
         {
             _ = Task.Run(async () =>
             {
-                const int MaxFails = 10;
+                const int MaxFails = 15;
                 int failCount = 0;
 
                 using var timer = new PeriodicTimer(TimeSpan.FromSeconds(90));
@@ -44,17 +44,11 @@ namespace MihuBot
                         failCount++;
 
                         string message = $"An exception was thrown while processing a Twitter update: {ex}";
-                        if (failCount == 1)
-                        {
-                            await _logger.DebugAsync(message);
-                        }
-                        else
-                        {
-                            _logger.DebugLog(message);
-                        }
+                        _logger.DebugLog(message);
 
                         if (failCount > MaxFails)
                         {
+                            await _logger.DebugAsync(message);
                             break;
                         }
 
