@@ -5,7 +5,8 @@
         private readonly TokenType _tokenType;
         private readonly string _token;
 
-        private Task _tcsTask;
+        private Task _initializerTcsTask;
+        private TaskCompletionSource _initializedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public InitializedDiscordClient(DiscordSocketConfig config, TokenType tokenType, string token)
             : base(config)
@@ -16,25 +17,29 @@
 
         public async Task EnsureInitializedAsync()
         {
-            if (_tcsTask is null)
+            if (_initializerTcsTask is null)
             {
                 var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                if (Interlocked.CompareExchange(ref _tcsTask, tcs.Task, null) is null)
+                if (Interlocked.CompareExchange(ref _initializerTcsTask, tcs.Task, null) is null)
                 {
                     try
                     {
                         await InitializeAsync();
                         tcs.SetResult();
+                        _initializedTcs.SetResult();
                     }
                     catch (Exception ex)
                     {
                         tcs.SetException(ex);
+                        _initializedTcs.SetException(ex);
                     }
                 }
             }
 
-            await _tcsTask;
+            await _initializerTcsTask;
         }
+
+        public Task WaitUntilInitializedAsync() => _initializedTcs.Task;
 
         private async Task InitializeAsync()
         {
