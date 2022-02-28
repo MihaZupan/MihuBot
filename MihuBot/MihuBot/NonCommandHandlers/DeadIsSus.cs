@@ -18,15 +18,14 @@
 
             _discord.UserVoiceStateUpdated += async (user, before, after) =>
             {
-                if (!before.IsSelfDeafened &&
-                    after.IsSelfDeafened &&
+                if (after.IsSelfDeafened &&
                     !user.IsBot &&
+                    after.VoiceChannel?.Id == ComfyZone &&
                     _discord.GetGuild(Guilds.TheBoys) is { } guild &&
-                    guild.GetVoiceChannel(ComfyZone) is { } comfyZone &&
-                    comfyZone.GetUser(user.Id) is { } voiceUser &&
+                    guild.GetUser(user.Id) is { } guildUser &&
                     guild.GetVoiceChannel(DeafIsSus) is { } deafIsSus)
                 {
-                    await guild.MoveAsync(voiceUser, deafIsSus);
+                    await guild.MoveAsync(guildUser, deafIsSus);
                 }
             };
 
