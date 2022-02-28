@@ -35,6 +35,7 @@
         public const ulong PrivateLogs      = 750706593858977802ul;
         public const ulong LiverGang        = 244642778024378368ul;
         public const ulong RetirementHome   = 357322948501045259ul;
+        public const ulong TheBoys          = 890697765615697960ul;
     }
 
     public static class Channels
