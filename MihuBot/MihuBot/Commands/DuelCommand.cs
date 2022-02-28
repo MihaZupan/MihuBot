@@ -26,7 +26,7 @@ namespace MihuBot.Commands
 
         public override string Command => "duel";
 
-        private static readonly ulong[] _duelTextChannels = new[] { 911772790099693598ul, 780506349414121503ul };
+        private static readonly ulong[] _duelTextChannels = new[] { 780506349414121503ul };
 
         private readonly Dictionary<ulong, Duel> _channelDuels = new ();
         private readonly SynchronizedLocalJsonStore<Dictionary<ulong, (int Wins, int Losses)>> _leaderboard = new("DuelsLeaderboard.json");
@@ -55,21 +55,25 @@ namespace MihuBot.Commands
                 .Select(id => _discord.GetTextChannel(id))
                 .Where(channel => channel is not null))
             {
-                await foreach (var messages in textChannel.GetMessagesAsync())
+                try
                 {
-                    foreach (var message in messages)
+                    await foreach (var messages in textChannel.GetMessagesAsync())
                     {
-                        int reactionCount = message.Reactions.Sum(r => r.Value.ReactionCount);
-                        reactionCount++;
-
-                        foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                        foreach (var message in messages)
                         {
-                            var script = text.Trim();
-                            if (script.Length > 0)
-                                scripts.Add((reactionCount, new DuelScript(script)));
+                            int reactionCount = message.Reactions.Sum(r => r.Value.ReactionCount);
+                            reactionCount++;
+
+                            foreach (var text in message.Content.NormalizeNewLines().Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                var script = text.Trim();
+                                if (script.Length > 0)
+                                    scripts.Add((reactionCount, new DuelScript(script)));
+                            }
                         }
                     }
                 }
+                catch { }
             }
 
             _scripts = scripts;
