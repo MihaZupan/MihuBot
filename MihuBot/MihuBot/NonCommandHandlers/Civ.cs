@@ -2,20 +2,22 @@
 {
     public class Civ : NonCommandHandler
     {
-        private readonly Stopwatch _lastSentMessage = Stopwatch.StartNew();
+        private DateTime _lastSentMessage = DateTime.UtcNow.Subtract(TimeSpan.FromDays(5));
 
         public override Task HandleAsync(MessageContext ctx)
         {
-            if (ctx.Guild.Id == Guilds.TheBoys && ctx.Content.Contains("civ", StringComparison.OrdinalIgnoreCase))
+            if (ctx.Guild.Id == Guilds.TheBoys &&
+                ctx.Content.Contains("civ", StringComparison.OrdinalIgnoreCase) &&
+                !ctx.Content.Contains("://", StringComparison.Ordinal))
             {
-                lock (_lastSentMessage)
+                lock (this)
                 {
-                    if (_lastSentMessage.Elapsed.TotalDays < 1)
+                    if (_lastSentMessage.Add(TimeSpan.FromDays(1)) > DateTime.UtcNow)
                     {
                         return Task.CompletedTask;
                     }
 
-                    _lastSentMessage.Restart();
+                    _lastSentMessage = DateTime.UtcNow;
                 }
 
                 return HandleAsyncCore();
