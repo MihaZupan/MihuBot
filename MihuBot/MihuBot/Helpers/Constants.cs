@@ -79,6 +79,9 @@
         public static Emote PepePoint { get; }      = Emote.Parse("<:pepePoint:701207439273361408>");
         public static Emote WeirdChamp { get; }     = Emote.Parse("<:WeirdChamp:715663367741898785>");
 
+        // The Boys
+        public static Emote SomeoneSayCiv { get; }  = Emote.Parse("<:DIDSOMEONESAYCIV:968527414256877608>");
+
         // Liv
         public static Emote SenpaiLove { get; }     = Emote.Parse("<:senpaiLove:681560481214889999>");
 
