@@ -1,4 +1,6 @@
-﻿namespace MihuBot.Commands
+﻿using Discord.Rest;
+
+namespace MihuBot.Commands
 {
     public sealed class SfaeLinksCommand : CommandBase
     {
@@ -11,15 +13,21 @@
         public override string[] Aliases => new[] { "sfaelink", "slg" };
 
         private readonly SynchronizedLocalJsonStore<Box<int>> _counter = new("SfaeLinks.json");
+        private readonly DiscordSocketClient _discord;
+
+        public SfaeLinksCommand(DiscordSocketClient discord)
+        {
+            _discord = discord;
+        }
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
             await ctx.Channel.SendMessageAsync(
                 text: CurrentTally(await _counter.QueryAsync(i => i.Value)),
                 components: new ComponentBuilder()
-                    .WithButton("+1", PlusOneButtonId)
-                    .WithButton("-1", MinusOneButtonId)
-                    .WithButton("Close", CloseButtonId, ButtonStyle.Danger)
+                    .WithButton("+1", $"{PlusOneButtonId}-{ctx.Message.Id}")
+                    .WithButton("-1", $"{MinusOneButtonId}-{ctx.Message.Id}")
+                    .WithButton("Close", $"{CloseButtonId}-{ctx.Message.Id}", ButtonStyle.Danger)
                     .Build());
         }
 
@@ -33,19 +41,39 @@
             var counter = await _counter.EnterAsync();
             try
             {
-                switch (component.Data.CustomId)
+                string id = component.Data.CustomId;
+
+                if (id.StartsWith(PlusOneButtonId, StringComparison.Ordinal))
                 {
-                    case PlusOneButtonId:
-                        counter.Value++;
-                        break;
+                    counter.Value++;
+                }
+                else if (id.StartsWith(MinusOneButtonId, StringComparison.Ordinal))
+                {
+                    counter.Value--;
+                }
+                else if (id.StartsWith(CloseButtonId, StringComparison.Ordinal))
+                {
+                    await component.Message.DeleteAsync();
 
-                    case MinusOneButtonId:
-                        counter.Value--;
-                        break;
+                    int prefixLength = 1 + CloseButtonId.Length;
+                    if (id.Length > prefixLength && ulong.TryParse(id.AsSpan(prefixLength), out ulong messageId))
+                    {
+                        var message = await component.Channel.GetMessageAsync(messageId);
+                        if (message is not null)
+                        {
+                            try
+                            {
+                                await message.DeleteAsync();
+                            }
+                            catch { }
+                        }
+                    }
 
-                    case CloseButtonId:
-                        await component.Message.DeleteAsync();
-                        return;
+                    return;
+                }
+                else
+                {
+                    return;
                 }
 
                 await component.UpdateAsync(m => m.Content = CurrentTally(counter.Value));

@@ -166,6 +166,12 @@ namespace MihuBot
 
                 if (dashIndex > 0 && _commands.TryMatchExact(id.AsSpan(0, dashIndex), out var match))
                 {
+                    _logger.DebugLog($"Processing message component update '{id}'",
+                        component.Channel.Guild()?.Id ?? 0,
+                        component.Channel.Id,
+                        component.Message.Id,
+                        component.User.Id);
+
                     await match.Value.HandleMessageComponentAsync(component);
                 }
             }
