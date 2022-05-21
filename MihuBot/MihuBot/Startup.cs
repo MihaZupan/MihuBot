@@ -45,6 +45,8 @@ namespace MihuBot
                     .PersistDataToDirectory(certDir, "certpass123");
             }
 
+            Console.WriteLine("Starting ...");
+
             var httpClient = new HttpClient(new HttpClientHandler()
             {
                 AutomaticDecompression = DecompressionMethods.All
@@ -177,6 +179,8 @@ namespace MihuBot
                     policy.RequireAssertion(context =>
                         context.User.IsAdmin()));
             });
+
+            Console.WriteLine("Services configured.");
         }
 
         private void AddDownBadProviders(IServiceCollection services)
