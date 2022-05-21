@@ -25,6 +25,11 @@
 
         public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
         {
+            if (component.User is null || component.User.Id == KnownUsers.Sfae)
+            {
+                return;
+            }
+
             var counter = await _counter.EnterAsync();
             try
             {

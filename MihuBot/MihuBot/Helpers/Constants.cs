@@ -66,6 +66,7 @@
         public const ulong Sticky       = 162050931326713857ul;
         public const ulong Joster       = 105498799706759168ul;
         public const ulong Ryboh        = 156253985207091202ul;
+        public const ulong Sfae         = 224015634206425088ul;
     }
 
     public static class Emotes
