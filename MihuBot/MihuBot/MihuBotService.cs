@@ -157,6 +157,24 @@ namespace MihuBot
             }
         }
 
+        private async Task HandleMessageComponentAsync(SocketMessageComponent component)
+        {
+            try
+            {
+                string id = component.Data.CustomId;
+                int dashIndex = id.IndexOf('-');
+
+                if (dashIndex > 0 && _commands.TryMatchExact(id.AsSpan(0, dashIndex), out var match))
+                {
+                    await match.Value.HandleMessageComponentAsync(component);
+                }
+            }
+            catch (Exception ex)
+            {
+                await _logger.DebugAsync(ex.ToString());
+            }
+        }
+
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             await _discord.EnsureInitializedAsync();
@@ -185,6 +203,8 @@ namespace MihuBot
                     Console.WriteLine(ex);
                 }
             };
+
+            _discord.ButtonExecuted += HandleMessageComponentAsync;
 
             _discord.ReactionAdded += Client_ReactionAdded;
 
