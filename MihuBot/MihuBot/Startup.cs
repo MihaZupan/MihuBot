@@ -145,8 +145,6 @@ namespace MihuBot
 
             services.AddHostedService<MihuBotService>();
 
-            services.AddHostedService<WordleSolver>();
-
             services.AddAuthentication(options =>
                 {
                     options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;

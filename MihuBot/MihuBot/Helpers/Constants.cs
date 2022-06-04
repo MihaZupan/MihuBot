@@ -45,7 +45,6 @@
         public const ulong Files            = 774147493319540736ul;
         public const ulong Email            = 880649603580559401ul;
         public const ulong TheBoysSpam      = 924503695738171402ul;
-        public const ulong TheBoysWordle    = 928980369984860161ul;
     }
 
     public static class KnownUsers

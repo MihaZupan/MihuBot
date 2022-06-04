@@ -22,6 +22,11 @@ namespace MihuBot.Commands
 
         public override async Task ExecuteAsync(CommandContext ctx)
         {
+            if (ctx.Guild.Id != Guilds.TheBoys)
+            {
+                return;
+            }
+
             await ctx.Channel.SendMessageAsync(
                 text: CurrentTally(await _counter.QueryAsync(i => i.Value)),
                 components: new ComponentBuilder()
