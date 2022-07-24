@@ -14,38 +14,38 @@
         </tr>
     </thead>
     @foreach (var entry in matches.OrderBy(m => m.Key))
-    {
-        <tr>
+{
+    <tr>
             <td scope="row">@(discord.GetUser(entry.Key)?.GetName() ?? "Jane Doe")</td>
             <td>@string.Join(", ", entry.Value.Husbandos.Select(h => discord.GetUser(h)?.GetName()).Where(u => u != null))</td>
             <td>@string.Join(", ", entry.Value.Waifus.Select(w => discord.GetUser(w)?.GetName()).Where(u => u != null))</td>
         </tr>
-    }
+}
 </table>
 
 @code {
-    KeyValuePair<ulong, (ulong[] Husbandos, ulong[] Waifus)>[] matches;
-    ulong userId;
+KeyValuePair<ulong, (ulong[] Husbandos, ulong[] Waifus)>[] matches;
+ulong userId;
 
-    protected override async Task OnInitializedAsync()
+protected override async Task OnInitializedAsync()
+{
+    userId = httpContextAccessor.HttpContext.User.GetUserId();
+    await UpdateAsync();
+}
+
+private async Task UpdateAsync()
+{
+    var users = Constants.Admins.Contains(userId)
+        ? await husbandoService.GetAllUsersAsync()
+        : new ulong[] { userId };
+
+    matches = new KeyValuePair<ulong, (ulong[], ulong[])>[users.Length];
+
+    for (int i = 0; i < users.Length; i++)
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
-        await UpdateAsync();
+        ulong user = users[i];
+        matches[i] = new KeyValuePair<ulong, (ulong[], ulong[])>(user,
+            (await husbandoService.GetAllMatchesAsync(true, user), await husbandoService.GetAllMatchesAsync(false, user)));
     }
-
-    private async Task UpdateAsync()
-    {
-        var users = Constants.Admins.Contains(userId)
-            ? await husbandoService.GetAllUsersAsync()
-            : new ulong[] { userId };
-
-        matches = new KeyValuePair<ulong, (ulong[], ulong[])>[users.Length];
-
-        for (int i = 0; i < users.Length; i++)
-        {
-            ulong user = users[i];
-            matches[i] = new KeyValuePair<ulong, (ulong[], ulong[])>(user,
-                (await husbandoService.GetAllMatchesAsync(true, user), await husbandoService.GetAllMatchesAsync(false, user)));
-        }
-    }
+}
 }

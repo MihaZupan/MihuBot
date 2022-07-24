@@ -44,13 +44,13 @@
                     </NavLink>
                 </li>
                 @if (permissions.HasPermission("custommessage", context.User.GetUserId()))
-                {
-                    <li class="nav-item px-3">
+            {
+                <li class="nav-item px-3">
                         <NavLink class="nav-link" href="custom-message">
                             <span class="oi oi-chat" aria-hidden="true"></span> Custom message
                         </NavLink>
                     </li>
-                }
+            }
                 <li class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Logout">
                         <span class="oi oi-account-logout" aria-hidden="true"></span> Log out
@@ -62,12 +62,12 @@
 </div>
 
 @code {
-    private bool collapseNavMenu = true;
+private bool collapseNavMenu = true;
 
-    private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
 
-    private void ToggleNavMenu()
-    {
-        collapseNavMenu = !collapseNavMenu;
-    }
+private void ToggleNavMenu()
+{
+    collapseNavMenu = !collapseNavMenu;
+}
 }

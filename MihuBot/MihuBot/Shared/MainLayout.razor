@@ -9,9 +9,9 @@
         <AuthorizeView>
             <Authorized>
                 @if (context.User.IsAdmin())
-                {
-                    <span class="oi oi-lock-unlocked">Admin access</span>
-                }
+            {
+                <span class="oi oi-lock-unlocked">Admin access</span>
+            }
             </Authorized>
             <NotAuthorized>
                 <a href="Account/Login">Log in</a>

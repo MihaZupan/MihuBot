@@ -9,24 +9,24 @@
             OnChannelSelected="@OnChannelSelected"
             OnChannelCleared="@OnChannelCleared"
             ChannelFilter="(channel, user) =>
-                            channel.HasWriteAccess(user.Id) &&
-                            channel.HasWriteAccess(KnownUsers.MihuBot)" />
+                        channel.HasWriteAccess(user.Id) &&
+                        channel.HasWriteAccess(KnownUsers.MihuBot)" />
 
         @if (textChannel != null)
-        {
-            <div class="form-group input-group mb-3">
+    {
+        <div class="form-group input-group mb-3">
                 <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
             </div>
-        }
+    }
 
         @if (exception != null)
-        {
-            <div class="alert alert-danger" role="alert">@exception</div>
-        }
-        else if (progress != null)
-        {
-            <div class="alert alert-primary" role="alert">@progress</div>
-        }
+    {
+        <div class="alert alert-danger" role="alert">@exception</div>
+    }
+    else if (progress != null)
+    {
+        <div class="alert alert-primary" role="alert">@progress</div>
+    }
     </div>
 </form>
 
@@ -34,46 +34,46 @@
 {
     private static readonly CooldownTracker _cooldown = new CooldownTracker(TimeSpan.FromHours(1), 0, adminOverride: true);
 
-    private string progress;
-    private string exception;
-    private SocketTextChannel textChannel;
-    private ulong userId;
+private string progress;
+private string exception;
+private SocketTextChannel textChannel;
+private ulong userId;
 
-    protected override void OnInitialized()
+protected override void OnInitialized()
+{
+    userId = httpContextAccessor.HttpContext.User.GetUserId();
+}
+
+private void OnChannelSelected(SocketTextChannel channel)
+{
+    textChannel = channel;
+    InvokeAsync(StateHasChanged);
+}
+
+private void OnChannelCleared() => OnChannelSelected(null);
+
+private async Task SendMessageAsync()
+{
+    progress = null;
+    exception = null;
+
+    if (!_cooldown.TryEnter(userId, out var cooldown, out _))
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
+        exception = $"Please wait {(int)Math.Ceiling(cooldown.TotalSeconds)} more seconds";
+        return;
     }
 
-    private void OnChannelSelected(SocketTextChannel channel)
+    try
     {
-        textChannel = channel;
-        InvokeAsync(StateHasChanged);
+        SocketGuildUser user = textChannel.GetUser(userId);
+        progress = "Sending ...";
+        await textChannel.SendMessageAsync($"{user.GetName()} wants to {Emotes.KissAHomie}");
+        progress = "Sent";
     }
-
-    private void OnChannelCleared() => OnChannelSelected(null);
-
-    private async Task SendMessageAsync()
+    catch (Exception ex)
     {
         progress = null;
-        exception = null;
-
-        if (!_cooldown.TryEnter(userId, out var cooldown, out _))
-        {
-            exception = $"Please wait {(int)Math.Ceiling(cooldown.TotalSeconds)} more seconds";
-            return;
-        }
-
-        try
-        {
-            SocketGuildUser user = textChannel.GetUser(userId);
-            progress = "Sending ...";
-            await textChannel.SendMessageAsync($"{user.GetName()} wants to {Emotes.KissAHomie}");
-            progress = "Sent";
-        }
-        catch (Exception ex)
-        {
-            progress = null;
-            exception = ex.ToString();
-        }
+        exception = ex.ToString();
     }
+}
 }

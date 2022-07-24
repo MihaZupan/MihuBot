@@ -1,19 +1,18 @@
-﻿namespace MihuBot.Commands
+﻿namespace MihuBot.Commands;
+
+public sealed class StopCommand : CommandBase
 {
-    public sealed class StopCommand : CommandBase
+    public override string Command => "stop";
+
+    public override async Task ExecuteAsync(CommandContext ctx)
     {
-        public override string Command => "stop";
+        if (!await ctx.RequirePermissionAsync(ctx.Command))
+            return;
 
-        public override async Task ExecuteAsync(CommandContext ctx)
+        if (ctx.IsMentioned && ctx.AuthorId == KnownUsers.Miha)
         {
-            if (!await ctx.RequirePermissionAsync(ctx.Command))
-                return;
-
-            if (ctx.IsMentioned && ctx.AuthorId == KnownUsers.Miha)
-            {
-                await ctx.ReplyAsync("Stopping ...");
-                Program.BotStopTCS.TrySetResult();
-            }
+            await ctx.ReplyAsync("Stopping ...");
+            Program.BotStopTCS.TrySetResult();
         }
     }
 }

@@ -1,113 +1,112 @@
 ﻿using System.Text.RegularExpressions;
 
-namespace MihuBot.NonCommandHandlers
+namespace MihuBot.NonCommandHandlers;
+
+public sealed class EmbedMedia : NonCommandHandler
 {
-    public sealed class EmbedMedia : NonCommandHandler
+    protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
+
+    protected override int CooldownToleranceCount => 10;
+
+    private static readonly Regex _tiktokRegex = new(
+        @"https?:\/\/.*?tiktok\.com\/(?:@[^\/]+\/video\/\d+|\w+)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        matchTimeout: TimeSpan.FromSeconds(5));
+
+    private static readonly Regex _instagramReelRegex = new(
+        @"https?:\/\/.*?instagram\.com\/reel\/\w+",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        matchTimeout: TimeSpan.FromSeconds(5));
+
+    private readonly HttpClient _http;
+
+    public EmbedMedia(HttpClient httpClient)
     {
-        protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
+        _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+    }
 
-        protected override int CooldownToleranceCount => 10;
-
-        private static readonly Regex _tiktokRegex = new(
-            @"https?:\/\/.*?tiktok\.com\/(?:@[^\/]+\/video\/\d+|\w+)",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled,
-            matchTimeout: TimeSpan.FromSeconds(5));
-
-        private static readonly Regex _instagramReelRegex = new(
-            @"https?:\/\/.*?instagram\.com\/reel\/\w+",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled,
-            matchTimeout: TimeSpan.FromSeconds(5));
-
-        private readonly HttpClient _http;
-
-        public EmbedMedia(HttpClient httpClient)
+    public override Task HandleAsync(MessageContext ctx)
+    {
+        if (ctx.Content.Equals("embed", StringComparison.OrdinalIgnoreCase) &&
+            TryEnter(ctx) &&
+            ctx.ChannelPermissions.AttachFiles)
         {
-            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+            return HandleAsyncCore();
         }
 
-        public override Task HandleAsync(MessageContext ctx)
+        return Task.CompletedTask;
+
+        async Task HandleAsyncCore()
         {
-            if (ctx.Content.Equals("embed", StringComparison.OrdinalIgnoreCase) &&
-                TryEnter(ctx) &&
-                ctx.ChannelPermissions.AttachFiles)
+            await Task.Yield();
+
+            var history = ctx.Channel.GetCachedMessages(limit: 5);
+
+            foreach (SocketMessage message in history)
             {
-                return HandleAsyncCore();
-            }
-
-            return Task.CompletedTask;
-
-            async Task HandleAsyncCore()
-            {
-                await Task.Yield();
-
-                var history = ctx.Channel.GetCachedMessages(limit: 5);
-
-                foreach (SocketMessage message in history)
+                if (!message.Content.Contains("http://", StringComparison.OrdinalIgnoreCase) &&
+                    !message.Content.Contains("https://", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!message.Content.Contains("http://", StringComparison.OrdinalIgnoreCase) &&
-                        !message.Content.Contains("https://", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    if (message.Content.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase))
+                if (message.Content.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    Match match = _tiktokRegex.Match(message.Content);
+                    if (match.Success)
                     {
-                        Match match = _tiktokRegex.Match(message.Content);
-                        if (match.Success)
-                        {
-                            await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
-                            break;
-                        }
+                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                        break;
                     }
-                    else if (message.Content.Contains("instagram.com/reel/", StringComparison.OrdinalIgnoreCase))
+                }
+                else if (message.Content.Contains("instagram.com/reel/", StringComparison.OrdinalIgnoreCase))
+                {
+                    Match match = _instagramReelRegex.Match(message.Content);
+                    if (match.Success)
                     {
-                        Match match = _instagramReelRegex.Match(message.Content);
-                        if (match.Success)
-                        {
-                            await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
-                            break;
-                        }
+                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                        break;
                     }
                 }
             }
         }
+    }
 
-        private async Task TryExtractAndUploadVideoAsync(MessageContext ctx, string url, string content)
+    private async Task TryExtractAndUploadVideoAsync(MessageContext ctx, string url, string content)
+    {
+        try
         {
-            try
-            {
-                await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(url));
-            }
-            catch (Exception ex)
-            {
-                await ctx.DebugAsync(ex, content);
-                await ctx.Message.AddReactionAsync(Emotes.RedCross);
-            }
+            await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(url));
+        }
+        catch (Exception ex)
+        {
+            await ctx.DebugAsync(ex, content);
+            await ctx.Message.AddReactionAsync(Emotes.RedCross);
+        }
+    }
+
+    private async Task UploadFileAsync(MessageContext ctx, YoutubeDl.YoutubeDlMetadata metadata)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, metadata.Url);
+        foreach (var header in metadata.HttpHeaders)
+        {
+            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
-        private async Task UploadFileAsync(MessageContext ctx, YoutubeDl.YoutubeDlMetadata metadata)
+        using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        using Stream responseStream = await response.Content.ReadAsStreamAsync();
+
+        using var tempFile = new TempFile("mp4");
+
+        using (var writeFs = File.OpenWrite(tempFile.Path))
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, metadata.Url);
-            foreach (var header in metadata.HttpHeaders)
-            {
-                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
-            }
+            await responseStream.CopyToAsync(writeFs);
+        }
 
-            using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-            using Stream responseStream = await response.Content.ReadAsStreamAsync();
-
-            using var tempFile = new TempFile("mp4");
-
-            using (var writeFs = File.OpenWrite(tempFile.Path))
-            {
-                await responseStream.CopyToAsync(writeFs);
-            }
-
-            using (var readFs = File.OpenRead(tempFile.Path))
-            {
-                string filename = Path.GetFileNameWithoutExtension(metadata.Filename).Replace(".", "", StringComparison.Ordinal) + Path.GetExtension(metadata.Filename);
-                await ctx.Channel.SendFileAsync(readFs, filename);
-            }
+        using (var readFs = File.OpenRead(tempFile.Path))
+        {
+            string filename = Path.GetFileNameWithoutExtension(metadata.Filename).Replace(".", "", StringComparison.Ordinal) + Path.GetExtension(metadata.Filename);
+            await ctx.Channel.SendFileAsync(readFs, filename);
         }
     }
 }

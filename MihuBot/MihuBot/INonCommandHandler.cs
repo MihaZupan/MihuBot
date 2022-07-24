@@ -1,7 +1,6 @@
-﻿namespace MihuBot
+﻿namespace MihuBot;
+
+public interface INonCommandHandler
 {
-    public interface INonCommandHandler
-    {
-        Task HandleAsync(MessageContext ctx);
-    }
+    Task HandleAsync(MessageContext ctx);
 }

@@ -1,36 +1,35 @@
-﻿namespace MihuBot.NonCommandHandlers
+﻿namespace MihuBot.NonCommandHandlers;
+
+public sealed class AuthorReactions : NonCommandHandler
 {
-    public sealed class AuthorReactions : NonCommandHandler
+    public override Task HandleAsync(MessageContext ctx)
     {
-        public override Task HandleAsync(MessageContext ctx)
+        if ((ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
         {
-            if ((ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
+            return HandleAsyncCore();
+        }
+
+        return Task.CompletedTask;
+
+        async Task HandleAsyncCore()
+        {
+            var message = ctx.Message;
+
+            if (ctx.AuthorId == KnownUsers.James)
             {
-                return HandleAsyncCore();
-            }
-
-            return Task.CompletedTask;
-
-            async Task HandleAsyncCore()
-            {
-                var message = ctx.Message;
-
-                if (ctx.AuthorId == KnownUsers.James)
+                await message.AddReactionAsync(Emotes.CreepyFace);
+                _ = Task.Run(async () =>
                 {
-                    await message.AddReactionAsync(Emotes.CreepyFace);
-                    _ = Task.Run(async () =>
+                    try
                     {
-                        try
-                        {
-                            await Task.Delay(750);
-                            await message.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex);
-                        }
-                    });
-                }
+                        await Task.Delay(750);
+                        await message.RemoveReactionAsync(Emotes.CreepyFace, KnownUsers.MihuBot);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex);
+                    }
+                });
             }
         }
     }

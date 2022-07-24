@@ -1,21 +1,20 @@
-﻿namespace MihuBot.Configuration
+﻿namespace MihuBot.Configuration;
+
+public interface IConfigurationService
 {
-    public interface IConfigurationService
+    void Set(ulong? context, string key, string value);
+
+    bool Remove(ulong? context, string key);
+
+    string Get(ulong? context, string key)
     {
-        void Set(ulong? context, string key, string value);
-
-        bool Remove(ulong? context, string key);
-
-        string Get(ulong? context, string key)
+        if (TryGet(context, key, out string value))
         {
-            if (TryGet(context, key, out string value))
-            {
-                return value;
-            }
-
-            throw new KeyNotFoundException($"{context} - {key}");
+            return value;
         }
 
-        bool TryGet(ulong? context, string key, out string value);
+        throw new KeyNotFoundException($"{context} - {key}");
     }
+
+    bool TryGet(ulong? context, string key, out string value);
 }

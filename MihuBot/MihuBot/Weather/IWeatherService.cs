@@ -1,7 +1,6 @@
-﻿namespace MihuBot.Weather
+﻿namespace MihuBot.Weather;
+
+public interface IWeatherService
 {
-    public interface IWeatherService
-    {
-        public Task<WeatherData> GetWeatherDataAsync(string location, long? cityId);
-    }
+    public Task<WeatherData> GetWeatherDataAsync(string location, long? cityId);
 }

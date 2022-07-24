@@ -1,88 +1,87 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 
-namespace MihuBot.Data
+namespace MihuBot.Data;
+
+[Route("[controller]/[action]")]
+public class ManagementController : ControllerBase
 {
-    [Route("[controller]/[action]")]
-    public class ManagementController : ControllerBase
+    private readonly Logger _logger;
+    private readonly string _updateToken;
+
+    public ManagementController(Logger logger, IConfiguration configuration)
     {
-        private readonly Logger _logger;
-        private readonly string _updateToken;
+        _logger = logger;
+        _updateToken = configuration["UPDATE-TOKEN"];
+    }
 
-        public ManagementController(Logger logger, IConfiguration configuration)
+    [HttpPost]
+    [RequestSizeLimit(256 * 1024 * 1024)]
+    public async Task<IActionResult> Deployed()
+    {
+        if (!Request.Headers.TryGetValue("X-Run-Number", out var runNumberValue) || !uint.TryParse(runNumberValue, out uint runNumber))
         {
-            _logger = logger;
-            _updateToken = configuration["UPDATE-TOKEN"];
+            _logger.DebugLog($"No X-Run-Number header received");
+            return Unauthorized();
         }
 
-        [HttpPost]
-        [RequestSizeLimit(256 * 1024 * 1024)]
-        public async Task<IActionResult> Deployed()
+        if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
         {
-            if (!Request.Headers.TryGetValue("X-Run-Number", out var runNumberValue) || !uint.TryParse(runNumberValue, out uint runNumber))
-            {
-                _logger.DebugLog($"No X-Run-Number header received");
-                return Unauthorized();
-            }
-
-            if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
-            {
-                _logger.DebugLog($"No X-Update-Token header received");
-                return Unauthorized();
-            }
-
-            if (!CheckToken(_updateToken, updateToken))
-            {
-                return Unauthorized();
-            }
-
-            await RunUpdateAsync(runNumber);
-            return Ok();
+            _logger.DebugLog($"No X-Update-Token header received");
+            return Unauthorized();
         }
 
-        private async Task RunUpdateAsync(uint runNumber)
+        if (!CheckToken(_updateToken, updateToken))
+        {
+            return Unauthorized();
+        }
+
+        await RunUpdateAsync(runNumber);
+        return Ok();
+    }
+
+    private async Task RunUpdateAsync(uint runNumber)
+    {
+        try
+        {
+            string currentDir = Environment.CurrentDirectory;
+            string nextUpdateDir = $"{currentDir}/next_update";
+            Directory.CreateDirectory(nextUpdateDir);
+            string artifactsPath = Path.Combine(nextUpdateDir, "artifacts.tar.gz");
+
+            System.IO.File.Delete(artifactsPath);
+
+            _logger.DebugLog($"Received a deployment notification for run {runNumber}");
+
+            using (var tempFs = System.IO.File.OpenWrite(artifactsPath))
+            {
+                await Request.Body.CopyToAsync(tempFs);
+            }
+
+            Program.BotStopTCS.TrySetResult();
+        }
+        catch (Exception ex)
         {
             try
             {
-                string currentDir = Environment.CurrentDirectory;
-                string nextUpdateDir = $"{currentDir}/next_update";
-                Directory.CreateDirectory(nextUpdateDir);
-                string artifactsPath = Path.Combine(nextUpdateDir, "artifacts.tar.gz");
-
-                System.IO.File.Delete(artifactsPath);
-
-                _logger.DebugLog($"Received a deployment notification for run {runNumber}");
-
-                using (var tempFs = System.IO.File.OpenWrite(artifactsPath))
-                {
-                    await Request.Body.CopyToAsync(tempFs);
-                }
-
-                Program.BotStopTCS.TrySetResult();
+                await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
             }
-            catch (Exception ex)
-            {
-                try
-                {
-                    await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
-                }
-                catch { }
-            }
+            catch { }
         }
+    }
 
-        private static bool CheckToken(string expected, string actual)
+    private static bool CheckToken(string expected, string actual)
+    {
+        if (expected is null || actual is null)
+            return false;
+
+        if (expected.Length != actual.Length)
+            return false;
+
+        int differentbits = 0;
+        for (int i = 0; i < expected.Length; ++i)
         {
-            if (expected is null || actual is null)
-                return false;
-
-            if (expected.Length != actual.Length)
-                return false;
-
-            int differentbits = 0;
-            for (int i = 0; i < expected.Length; ++i)
-            {
-                differentbits |= expected[i] ^ actual[i];
-            }
-            return differentbits == 0;
+            differentbits |= expected[i] ^ actual[i];
         }
+        return differentbits == 0;
     }
 }

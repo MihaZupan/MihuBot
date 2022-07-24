@@ -19,110 +19,110 @@
         </tr>
     </thead>
     @foreach (var entry in reminders
-        .Where(r => r.Time > now)
-        .OrderBy(r => r.Time))
-    {
-        <tr>
+    .Where(r => r.Time > now)
+    .OrderBy(r => r.Time))
+{
+    <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
             <td>@GetRemainingTime(entry.Time)</td>
             <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
         </tr>
-    }
+}
 </table>
 
 @code {
-    DateTime now = DateTime.UtcNow;
-    DateTime lastUpdateTime = DateTime.UtcNow;
-    IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
-    System.Threading.Timer timer;
-    ulong userId;
+DateTime now = DateTime.UtcNow;
+DateTime lastUpdateTime = DateTime.UtcNow;
+IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
+System.Threading.Timer timer;
+ulong userId;
 
-    protected override async Task OnInitializedAsync()
+protected override async Task OnInitializedAsync()
+{
+    userId = httpContextAccessor.HttpContext.User.GetUserId();
+    await UpdateRemindersAsync();
+
+    timer = new System.Threading.Timer(_ =>
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
-        await UpdateRemindersAsync();
+        now = DateTime.UtcNow;
 
-        timer = new System.Threading.Timer(_ =>
+        bool isAdmin = Constants.Admins.Contains(userId);
+        if (now - lastUpdateTime > (isAdmin ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(60)))
         {
-            now = DateTime.UtcNow;
+            lastUpdateTime = now;
+            Task.Run(UpdateRemindersAsync);
+        }
 
-            bool isAdmin = Constants.Admins.Contains(userId);
-            if (now - lastUpdateTime > (isAdmin ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(60)))
-            {
-                lastUpdateTime = now;
-                Task.Run(UpdateRemindersAsync);
-            }
+        InvokeAsync(StateHasChanged);
+    }, null, 1_000, 1_000);
+}
 
-            InvokeAsync(StateHasChanged);
-        }, null, 1_000, 1_000);
+private async Task UpdateRemindersAsync()
+{
+    if (Constants.Admins.Contains(userId))
+    {
+        reminders = await reminderService.GetAllRemindersAsync();
+    }
+    else
+    {
+        reminders = await reminderService.GetRemindersForUserAsync(userId);
+    }
+}
+
+private string GetRemainingTime(DateTime time)
+{
+    if (now > time) return "0";
+
+    TimeSpan remaining = time - now;
+
+    string result = string.Empty;
+
+    if (remaining.TotalDays >= 1)
+    {
+        if (remaining.TotalDays > 5 * 365)
+        {
+            return (int)(remaining.TotalDays / 365) + " years";
+        }
+
+        int days = (int)remaining.TotalDays;
+        result += days + " day" + (days == 1 ? "" : "s");
+
+        if (remaining.TotalDays > 100)
+        {
+            return result;
+        }
     }
 
-    private async Task UpdateRemindersAsync()
+    if (remaining.Hours > 0)
     {
-        if (Constants.Admins.Contains(userId))
-        {
-            reminders = await reminderService.GetAllRemindersAsync();
-        }
-        else
-        {
-            reminders = await reminderService.GetRemindersForUserAsync(userId);
-        }
+        int hours = (int)remaining.Hours;
+        result += " " + hours + " hour" + (hours == 1 ? "" : "s");
+
+        if (remaining.TotalDays >= 1) return result;
     }
 
-    private string GetRemainingTime(DateTime time)
+    if (remaining.Minutes > 0)
     {
-        if (now > time) return "0";
+        int minutes = (int)remaining.Minutes;
+        result += " " + minutes + " minute" + (minutes == 1 ? "" : "s");
 
-        TimeSpan remaining = time - now;
-
-        string result = string.Empty;
-
-        if (remaining.TotalDays >= 1)
-        {
-            if (remaining.TotalDays > 5 * 365)
-            {
-                return (int)(remaining.TotalDays / 365) + " years";
-            }
-
-            int days = (int)remaining.TotalDays;
-            result += days + " day" + (days == 1 ? "" : "s");
-
-            if (remaining.TotalDays > 100)
-            {
-                return result;
-            }
-        }
-
-        if (remaining.Hours > 0)
-        {
-            int hours = (int)remaining.Hours;
-            result += " " + hours + " hour" + (hours == 1 ? "" : "s");
-
-            if (remaining.TotalDays >= 1) return result;
-        }
-
-        if (remaining.Minutes > 0)
-        {
-            int minutes = (int)remaining.Minutes;
-            result += " " + minutes + " minute" + (minutes == 1 ? "" : "s");
-
-            if (remaining.TotalHours >= 1) return result;
-        }
-
-        if (remaining.Seconds > 0)
-        {
-            int seconds = (int)remaining.Seconds;
-            result += " " + seconds + " second" + (seconds == 1 ? "" : "s");
-        }
-
-        return result.Trim();
+        if (remaining.TotalHours >= 1) return result;
     }
 
-    public async ValueTask DisposeAsync()
+    if (remaining.Seconds > 0)
     {
-        if (timer != null)
-            await timer.DisposeAsync();
+        int seconds = (int)remaining.Seconds;
+        result += " " + seconds + " second" + (seconds == 1 ? "" : "s");
     }
+
+    return result.Trim();
+}
+
+public async ValueTask DisposeAsync()
+{
+    if (timer != null)
+        await timer.DisposeAsync();
+}
 }

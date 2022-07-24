@@ -1,26 +1,25 @@
-﻿namespace MihuBot.Commands
+﻿namespace MihuBot.Commands;
+
+public sealed class YellowCommand : CommandBase
 {
-    public sealed class YellowCommand : CommandBase
+    public override string Command => "yellow";
+    public override string[] Aliases => new[] { "red" };
+
+    public override async Task ExecuteAsync(CommandContext ctx)
     {
-        public override string Command => "yellow";
-        public override string[] Aliases => new[] { "red" };
+        (string url, int number) =
+            ctx.Command == "yellow" ? ("https://cdn.discordapp.com/attachments/750706594412757094/887520872393478204/Color-yellow.jpg", 4) :
+            ctx.Command == "red" ? ("https://cdn.discordapp.com/attachments/750706594412757094/887524063176691712/red.png", 1)
+            : (null, 0);
 
-        public override async Task ExecuteAsync(CommandContext ctx)
+        for (int i = 0; i < number; i++)
         {
-            (string url, int number) =
-                ctx.Command == "yellow" ? ("https://cdn.discordapp.com/attachments/750706594412757094/887520872393478204/Color-yellow.jpg", 4) :
-                ctx.Command == "red" ? ("https://cdn.discordapp.com/attachments/750706594412757094/887524063176691712/red.png", 1)
-                : (null, 0);
-
-            for (int i = 0; i < number; i++)
+            if (i != 0)
             {
-                if (i != 0)
-                {
-                    await Task.Delay(1000);
-                }
-
-                await ctx.Author.SendMessageAsync(url);
+                await Task.Delay(1000);
             }
+
+            await ctx.Author.SendMessageAsync(url);
         }
     }
 }

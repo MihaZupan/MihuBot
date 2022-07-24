@@ -1,59 +1,58 @@
-﻿namespace MihuBot
+﻿namespace MihuBot;
+
+public sealed class InitializedDiscordClient : DiscordSocketClient
 {
-    public sealed class InitializedDiscordClient : DiscordSocketClient
+    private readonly TokenType _tokenType;
+    private readonly string _token;
+
+    private Task _initializerTcsTask;
+    private TaskCompletionSource _initializedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public InitializedDiscordClient(DiscordSocketConfig config, TokenType tokenType, string token)
+        : base(config)
     {
-        private readonly TokenType _tokenType;
-        private readonly string _token;
+        _tokenType = tokenType;
+        _token = token;
+    }
 
-        private Task _initializerTcsTask;
-        private TaskCompletionSource _initializedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public InitializedDiscordClient(DiscordSocketConfig config, TokenType tokenType, string token)
-            : base(config)
+    public async Task EnsureInitializedAsync()
+    {
+        if (_initializerTcsTask is null)
         {
-            _tokenType = tokenType;
-            _token = token;
-        }
-
-        public async Task EnsureInitializedAsync()
-        {
-            if (_initializerTcsTask is null)
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (Interlocked.CompareExchange(ref _initializerTcsTask, tcs.Task, null) is null)
             {
-                var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                if (Interlocked.CompareExchange(ref _initializerTcsTask, tcs.Task, null) is null)
+                try
                 {
-                    try
-                    {
-                        await InitializeAsync();
-                        tcs.SetResult();
-                        _initializedTcs.SetResult();
-                    }
-                    catch (Exception ex)
-                    {
-                        tcs.SetException(ex);
-                        _initializedTcs.SetException(ex);
-                    }
+                    await InitializeAsync();
+                    tcs.SetResult();
+                    _initializedTcs.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                    _initializedTcs.SetException(ex);
                 }
             }
-
-            await _initializerTcsTask;
         }
 
-        public Task WaitUntilInitializedAsync() => _initializedTcs.Task;
+        await _initializerTcsTask;
+    }
 
-        private async Task InitializeAsync()
-        {
-            var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
+    public Task WaitUntilInitializedAsync() => _initializedTcs.Task;
 
-            var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
+    private async Task InitializeAsync()
+    {
+        var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
 
-            await LoginAsync(_tokenType, _token);
-            await StartAsync();
+        var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
 
-            await onConnectedTcs.Task;
-            await onReadyTcs.Task;
-        }
+        await LoginAsync(_tokenType, _token);
+        await StartAsync();
+
+        await onConnectedTcs.Task;
+        await onReadyTcs.Task;
     }
 }

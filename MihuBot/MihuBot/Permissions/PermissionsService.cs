@@ -1,79 +1,78 @@
-﻿namespace MihuBot.Permissions
+﻿namespace MihuBot.Permissions;
+
+public sealed class PermissionsService : IPermissionsService
 {
-    public sealed class PermissionsService : IPermissionsService
+    private readonly Dictionary<string, HashSet<ulong>> _root;
+    private readonly SynchronizedLocalJsonStore<Dictionary<string, HashSet<ulong>>> _store;
+    private readonly ReaderWriterLockSlim _lock;
+
+    public PermissionsService()
     {
-        private readonly Dictionary<string, HashSet<ulong>> _root;
-        private readonly SynchronizedLocalJsonStore<Dictionary<string, HashSet<ulong>>> _store;
-        private readonly ReaderWriterLockSlim _lock;
+        _store = new SynchronizedLocalJsonStore<Dictionary<string, HashSet<ulong>>>("Permissions.json");
+        _root = _store.DangerousGetValue();
+        _lock = new ReaderWriterLockSlim();
+    }
 
-        public PermissionsService()
+    public bool HasPermission(string permission, ulong userId)
+    {
+        if (Constants.Admins.Contains(userId))
+            return true;
+
+        _lock.EnterReadLock();
+        try
         {
-            _store = new SynchronizedLocalJsonStore<Dictionary<string, HashSet<ulong>>>("Permissions.json");
-            _root = _store.DangerousGetValue();
-            _lock = new ReaderWriterLockSlim();
+            return _root.TryGetValue(permission, out HashSet<ulong> userIds)
+                && userIds.Contains(userId);
         }
-
-        public bool HasPermission(string permission, ulong userId)
+        finally
         {
-            if (Constants.Admins.Contains(userId))
-                return true;
-
-            _lock.EnterReadLock();
-            try
-            {
-                return _root.TryGetValue(permission, out HashSet<ulong> userIds)
-                    && userIds.Contains(userId);
-            }
-            finally
-            {
-                _lock.ExitReadLock();
-            }
+            _lock.ExitReadLock();
         }
+    }
 
-        public async ValueTask<bool> AddPermissionAsync(string permission, ulong userId)
+    public async ValueTask<bool> AddPermissionAsync(string permission, ulong userId)
+    {
+        await _store.EnterAsync();
+        try
         {
-            await _store.EnterAsync();
-            try
-            {
-                _lock.EnterWriteLock();
+            _lock.EnterWriteLock();
 
-                if (!_root.TryGetValue(permission, out HashSet<ulong> userIds))
-                    userIds = _root[permission] = new HashSet<ulong>();
+            if (!_root.TryGetValue(permission, out HashSet<ulong> userIds))
+                userIds = _root[permission] = new HashSet<ulong>();
 
-                return userIds.Add(userId);
-            }
-            finally
-            {
-                _lock.ExitWriteLock();
-                _store.Exit();
-            }
+            return userIds.Add(userId);
         }
-
-        public async ValueTask<bool> RemovePermissionAsync(string permission, ulong userId)
+        finally
         {
-            await _store.EnterAsync();
-            try
+            _lock.ExitWriteLock();
+            _store.Exit();
+        }
+    }
+
+    public async ValueTask<bool> RemovePermissionAsync(string permission, ulong userId)
+    {
+        await _store.EnterAsync();
+        try
+        {
+            _lock.EnterWriteLock();
+
+            if (!_root.TryGetValue(permission, out HashSet<ulong> userIds))
+                return false;
+
+            if (!userIds.Remove(userId))
+                return false;
+
+            if (userIds.Count == 0)
             {
-                _lock.EnterWriteLock();
-
-                if (!_root.TryGetValue(permission, out HashSet<ulong> userIds))
-                    return false;
-
-                if (!userIds.Remove(userId))
-                    return false;
-
-                if (userIds.Count == 0)
-                {
-                    _root.Remove(permission);
-                }
-
-                return true;
+                _root.Remove(permission);
             }
-            finally
-            {
-                _lock.ExitWriteLock();
-                _store.Exit();
-            }
+
+            return true;
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+            _store.Exit();
         }
     }
 }

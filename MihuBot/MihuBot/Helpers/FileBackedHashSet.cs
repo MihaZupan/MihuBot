@@ -1,46 +1,45 @@
-﻿namespace MihuBot.Helpers
+﻿namespace MihuBot.Helpers;
+
+public sealed class FileBackedHashSet
 {
-    public sealed class FileBackedHashSet
+    private readonly Stream _stream;
+    private readonly HashSet<string> _hashSet;
+
+    public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null)
     {
-        private readonly Stream _stream;
-        private readonly HashSet<string> _hashSet;
+        filePath = $"{Constants.StateDirectory}/{filePath}";
 
-        public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null)
+        if (File.Exists(filePath))
         {
-            filePath = $"{Constants.StateDirectory}/{filePath}";
-
-            if (File.Exists(filePath))
-            {
-                string[] lines = File.ReadAllLines(filePath);
-                _hashSet = new HashSet<string>(lines, comparer);
-            }
-            else
-            {
-                _hashSet = new HashSet<string>(comparer);
-            }
-
-            _stream = File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            string[] lines = File.ReadAllLines(filePath);
+            _hashSet = new HashSet<string>(lines, comparer);
+        }
+        else
+        {
+            _hashSet = new HashSet<string>(comparer);
         }
 
-        public bool TryAdd(string value)
+        _stream = File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
+    }
+
+    public bool TryAdd(string value)
+    {
+        Debug.Assert(!value.Contains('\n'));
+
+        lock (_hashSet)
         {
-            Debug.Assert(!value.Contains('\n'));
-
-            lock (_hashSet)
+            if (!_hashSet.Add(value))
             {
-                if (!_hashSet.Add(value))
-                {
-                    return false;
-                }
+                return false;
             }
+        }
 
-            lock (_stream)
-            {
-                _stream.Write(Encoding.UTF8.GetBytes(value));
-                _stream.WriteByte((byte)'\n');
-                _stream.Flush();
-                return true;
-            }
+        lock (_stream)
+        {
+            _stream.Write(Encoding.UTF8.GetBytes(value));
+            _stream.WriteByte((byte)'\n');
+            _stream.Flush();
+            return true;
         }
     }
 }

@@ -18,249 +18,248 @@ using System.Runtime.InteropServices;
 using Tweetinvi;
 using Tweetinvi.Models;
 
-namespace MihuBot
+namespace MihuBot;
+
+public class Startup
 {
-    public class Startup
+    public Startup(IConfiguration configuration)
     {
-        public Startup(IConfiguration configuration)
+        Configuration = configuration;
+    }
+
+    public IConfiguration Configuration { get; }
+
+    public void ConfigureServices(IServiceCollection services)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            Configuration = configuration;
+            DirectoryInfo certDir = new("/home/certs");
+            certDir.Create();
+
+            services.AddLettuceEncrypt()
+                .PersistDataToDirectory(certDir, "certpass123");
         }
 
-        public IConfiguration Configuration { get; }
+        Console.WriteLine("Starting ...");
 
-        public void ConfigureServices(IServiceCollection services)
+        var httpClient = new HttpClient(new HttpClientHandler()
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            AutomaticDecompression = DecompressionMethods.All
+        });
+        services.AddSingleton(httpClient);
+
+        services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
+            Configuration["Twitter:ConsumerKey"],
+            Configuration["Twitter:ConsumerSecret"],
+            Configuration["Twitter:AccessToken"],
+            Configuration["Twitter:AccessTokenSecret"])
+        {
+            BearerToken = Configuration["Twitter:BearerToken"]
+        }));
+
+        services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
+            new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
+            httpClient,
+            disposeHttpClient: false)
+        {
+            Endpoint = Configuration["AzureComputerVision:Endpoint"]
+        });
+
+        services.AddSingleton(new TextAnalyticsClient(
+            new Uri(Configuration["AzureTextAnalytics:Endpoint"], UriKind.Absolute),
+            new AzureKeyCredential(Configuration["AzureTextAnalytics:SubscriptionKey"])));
+
+        var discord = new InitializedDiscordClient(
+            new DiscordSocketConfig()
             {
-                DirectoryInfo certDir = new("/home/certs");
-                certDir.Create();
+                MessageCacheSize = 1024 * 16,
+                ConnectionTimeout = 30_000,
+                AlwaysDownloadUsers = true,
+                GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
+            },
+            TokenType.Bot,
+#if DEBUG
+            Configuration["Discord:AuthToken-Dev"]
+#else
+            Configuration["Discord:AuthToken"]
+#endif
+            );
+        services.AddSingleton(discord);
+        services.AddSingleton<DiscordSocketClient>(discord);
 
-                services.AddLettuceEncrypt()
-                    .PersistDataToDirectory(certDir, "certpass123");
-            }
+        services.AddSingleton(new LoggerOptions(
+            discord,
+            $"{Constants.StateDirectory}/logs", string.Empty,
+            Channels.Debug,
+            Channels.LogText,
+            Channels.Files));
 
-            Console.WriteLine("Starting ...");
+        services.AddSingleton<Logger>();
 
-            var httpClient = new HttpClient(new HttpClientHandler()
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            AddPrivateDiscordClient(services, httpClient);
+
+            services.AddHostedService<TwitterBioUpdater>();
+
+            //TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
+        }
+
+        services.AddSingleton<IPermissionsService, PermissionsService>();
+
+        services.AddSingleton<IConfigurationService, ConfigurationService>();
+
+        services.AddSingleton<IReminderService, ReminderService>();
+
+        services.AddSingleton<IHusbandoService, HusbandoService>();
+
+        services.AddSingleton<IWeatherService, WeatherService>();
+
+        services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
+
+        AddDownBadProviders(services);
+
+        services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
+            .WithAuthenticator(new ClientCredentialsAuthenticator(
+                Configuration["Spotify:ClientId"],
+                Configuration["Spotify:ClientSecret"]))));
+
+        services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
+        {
+            ApiKey = Configuration["Youtube:ApiKey"],
+            ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
+        }));
+
+        services.AddSingleton<AudioService>();
+
+        services.AddHostedService<MihuBotService>();
+
+        services.AddAuthentication(options =>
             {
-                AutomaticDecompression = DecompressionMethods.All
+                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = DiscordAuthenticationDefaults.AuthenticationScheme;
+            })
+            .AddCookie()
+            .AddDiscord(options =>
+            {
+                options.ClientId = KnownUsers.MihuBot.ToString();
+#if DEBUG
+                options.ClientSecret = Configuration["Discord:ClientSecret-Dev"];
+#else
+                options.ClientSecret = Configuration["Discord:ClientSecret"];
+#endif
+                options.SaveTokens = true;
+
+                options.Scope.Add("guilds");
             });
-            services.AddSingleton(httpClient);
 
-            services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
-                Configuration["Twitter:ConsumerKey"],
-                Configuration["Twitter:ConsumerSecret"],
-                Configuration["Twitter:AccessToken"],
-                Configuration["Twitter:AccessTokenSecret"])
-            {
-                BearerToken = Configuration["Twitter:BearerToken"]
-            }));
+        services.AddHttpContextAccessor();
 
-            services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
-                new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
-                httpClient,
-                disposeHttpClient: false)
-            {
-                Endpoint = Configuration["AzureComputerVision:Endpoint"]
-            });
+        services.AddRazorPages();
+        services.AddServerSideBlazor();
+        services.AddControllers();
 
-            services.AddSingleton(new TextAnalyticsClient(
-                new Uri(Configuration["AzureTextAnalytics:Endpoint"], UriKind.Absolute),
-                new AzureKeyCredential(Configuration["AzureTextAnalytics:SubscriptionKey"])));
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("Admin", policy =>
+                policy.RequireAssertion(context =>
+                    context.User.IsAdmin()));
+        });
 
-            var discord = new InitializedDiscordClient(
+        Console.WriteLine("Services configured.");
+    }
+
+    private static void AddDownBadProviders(IServiceCollection services)
+    {
+        services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
+    }
+
+    private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient)
+    {
+        var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
+        var customLogger = new PrivateLogger(httpClient,
+            CreateLoggerOptions(privateDiscordClient, "pvt_logs", "Private_"),
+            Configuration);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
+        services.AddHostedService(_ => customLogger);
+
+        var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
+        var ddsLogger = new DDsLogger(httpClient,
+            CreateLoggerOptions(ddsDiscordClient, "pvt_logs_dds", "Private_DDs_"),
+            Configuration);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, DDsLogger>(_ => ddsLogger));
+        services.AddHostedService(_ => ddsLogger);
+
+        static InitializedDiscordClient CreateDiscordClient(string authToken)
+        {
+            return new InitializedDiscordClient(
                 new DiscordSocketConfig()
                 {
-                    MessageCacheSize = 1024 * 16,
+                    MessageCacheSize = 1024, // Is this needed?
                     ConnectionTimeout = 30_000,
-                    AlwaysDownloadUsers = true,
+                    AlwaysDownloadUsers = false,
                     GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
                 },
-                TokenType.Bot,
-#if DEBUG
-                Configuration["Discord:AuthToken-Dev"]
-#else
-                Configuration["Discord:AuthToken"]
-#endif
-                );
-            services.AddSingleton(discord);
-            services.AddSingleton<DiscordSocketClient>(discord);
-
-            services.AddSingleton(new LoggerOptions(
-                discord,
-                $"{Constants.StateDirectory}/logs", string.Empty,
-                Channels.Debug,
-                Channels.LogText,
-                Channels.Files));
-
-            services.AddSingleton<Logger>();
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                AddPrivateDiscordClient(services, httpClient);
-
-                services.AddHostedService<TwitterBioUpdater>();
-
-                //TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
-            }
-
-            services.AddSingleton<IPermissionsService, PermissionsService>();
-
-            services.AddSingleton<IConfigurationService, ConfigurationService>();
-
-            services.AddSingleton<IReminderService, ReminderService>();
-
-            services.AddSingleton<IHusbandoService, HusbandoService>();
-
-            services.AddSingleton<IWeatherService, WeatherService>();
-
-            services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
-
-            AddDownBadProviders(services);
-
-            services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
-                .WithAuthenticator(new ClientCredentialsAuthenticator(
-                    Configuration["Spotify:ClientId"],
-                    Configuration["Spotify:ClientSecret"]))));
-
-            services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
-            {
-                ApiKey = Configuration["Youtube:ApiKey"],
-                ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
-            }));
-
-            services.AddSingleton<AudioService>();
-
-            services.AddHostedService<MihuBotService>();
-
-            services.AddAuthentication(options =>
-                {
-                    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                    options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                    options.DefaultChallengeScheme = DiscordAuthenticationDefaults.AuthenticationScheme;
-                })
-                .AddCookie()
-                .AddDiscord(options =>
-                {
-                    options.ClientId = KnownUsers.MihuBot.ToString();
-#if DEBUG
-                    options.ClientSecret = Configuration["Discord:ClientSecret-Dev"];
-#else
-                    options.ClientSecret = Configuration["Discord:ClientSecret"];
-#endif
-                    options.SaveTokens = true;
-
-                    options.Scope.Add("guilds");
-                });
-
-            services.AddHttpContextAccessor();
-
-            services.AddRazorPages();
-            services.AddServerSideBlazor();
-            services.AddControllers();
-
-            services.AddAuthorization(options =>
-            {
-                options.AddPolicy("Admin", policy =>
-                    policy.RequireAssertion(context =>
-                        context.User.IsAdmin()));
-            });
-
-            Console.WriteLine("Services configured.");
+                /* TokenType.User */ 0,
+                authToken);
         }
 
-        private static void AddDownBadProviders(IServiceCollection services)
+        static LoggerOptions CreateLoggerOptions(InitializedDiscordClient discord, string dirPrefix, string filePrefix)
         {
-            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
-        }
-
-        private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient)
-        {
-            var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
-            var customLogger = new PrivateLogger(httpClient,
-                CreateLoggerOptions(privateDiscordClient, "pvt_logs", "Private_"),
-                Configuration);
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
-            services.AddHostedService(_ => customLogger);
-
-            var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
-            var ddsLogger = new DDsLogger(httpClient,
-                CreateLoggerOptions(ddsDiscordClient, "pvt_logs_dds", "Private_DDs_"),
-                Configuration);
-            services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, DDsLogger>(_ => ddsLogger));
-            services.AddHostedService(_ => ddsLogger);
-
-            static InitializedDiscordClient CreateDiscordClient(string authToken)
+            return new LoggerOptions(
+                    discord,
+                    $"{Constants.StateDirectory}/{dirPrefix}", filePrefix,
+                    Channels.Debug,
+                    806049221631410186ul,
+                    Channels.Files)
             {
-                return new InitializedDiscordClient(
-                    new DiscordSocketConfig()
-                    {
-                        MessageCacheSize = 1024, // Is this needed?
-                        ConnectionTimeout = 30_000,
-                        AlwaysDownloadUsers = false,
-                        GatewayIntents = GatewayIntents.AllUnprivileged | GatewayIntents.GuildMembers,
-                    },
-                    /* TokenType.User */ 0,
-                    authToken);
-            }
-
-            static LoggerOptions CreateLoggerOptions(InitializedDiscordClient discord, string dirPrefix, string filePrefix)
-            {
-                return new LoggerOptions(
-                        discord,
-                        $"{Constants.StateDirectory}/{dirPrefix}", filePrefix,
-                        Channels.Debug,
-                        806049221631410186ul,
-                        Channels.Files)
+                ShouldLogAttachments = static message =>
                 {
-                    ShouldLogAttachments = static message =>
-                    {
-                        if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
-                            return true;
+                    if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
+                        return true;
 
-                        if (message.Channel is not SocketTextChannel channel)
-                            return true;
+                    if (message.Channel is not SocketTextChannel channel)
+                        return true;
 
-                        return !user.GetPermissions(channel).ViewChannel;
-                    }
-                };
-            }
+                    return !user.GetPermissions(channel).ViewChannel;
+                }
+            };
         }
+    }
 
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+    public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+    {
+        if (env.IsDevelopment())
         {
-            if (env.IsDevelopment())
-            {
-                app.UseDeveloperExceptionPage();
-            }
-            else
-            {
-                app.UseExceptionHandler("/Error");
-                app.UseHsts();
-            }
-
-            app.UseHttpsRedirection();
-            app.UseStaticFiles();
-
-            app.UseRouting();
-
-            app.UseAuthentication();
-            app.UseAuthorization();
-
-            app.Use(async (context, next) =>
-            {
-                Console.WriteLine($"{context.Connection.RemoteIpAddress}");
-
-                await next();
-            });
-
-            app.UseEndpoints(endpoints =>
-            {
-                endpoints.MapControllers();
-                endpoints.MapBlazorHub();
-                endpoints.MapFallbackToPage("/_Host");
-            });
+            app.UseDeveloperExceptionPage();
         }
+        else
+        {
+            app.UseExceptionHandler("/Error");
+            app.UseHsts();
+        }
+
+        app.UseHttpsRedirection();
+        app.UseStaticFiles();
+
+        app.UseRouting();
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+
+        app.Use(async (context, next) =>
+        {
+            Console.WriteLine($"{context.Connection.RemoteIpAddress}");
+
+            await next();
+        });
+
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapControllers();
+            endpoints.MapBlazorHub();
+            endpoints.MapFallbackToPage("/_Host");
+        });
     }
 }

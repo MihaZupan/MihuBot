@@ -1,118 +1,117 @@
 ﻿using Newtonsoft.Json.Linq;
 
-namespace MihuBot.Commands
+namespace MihuBot.Commands;
+
+public sealed class EmoteCommand : CommandBase
 {
-    public sealed class EmoteCommand : CommandBase
+    public override string Command => "emote";
+
+    private readonly HttpClient _http;
+    private readonly string _apiKey;
+
+    public EmoteCommand(HttpClient httpClient, IConfiguration configuration)
     {
-        public override string Command => "emote";
+        _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _apiKey = configuration["Tenor:ApiKey"];
+    }
 
-        private readonly HttpClient _http;
-        private readonly string _apiKey;
+    public override async Task ExecuteAsync(CommandContext ctx)
+    {
+        if (!await ctx.RequirePermissionAsync("emote") || ctx.Arguments.Length == 0 || ctx.Arguments.Length > 2)
+            return;
 
-        public EmoteCommand(HttpClient httpClient, IConfiguration configuration)
+        ulong guildId = Guilds.PrivateLogs;
+        if (ctx.Arguments.Length == 2 && !ulong.TryParse(ctx.Arguments[1], out guildId))
         {
-            _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _apiKey = configuration["Tenor:ApiKey"];
+            await ctx.ReplyAsync("Unrecognized guild");
+            return;
         }
 
-        public override async Task ExecuteAsync(CommandContext ctx)
+        var guild = ctx.Discord.GetGuild(guildId);
+        if (guild?.GetUser(ctx.BotId)?.GuildPermissions.ManageEmojisAndStickers != true)
         {
-            if (!await ctx.RequirePermissionAsync("emote") || ctx.Arguments.Length == 0 || ctx.Arguments.Length > 2)
-                return;
+            await ctx.ReplyAsync("I don't have the permissions to do that");
+            return;
+        }
 
-            ulong guildId = Guilds.PrivateLogs;
-            if (ctx.Arguments.Length == 2 && !ulong.TryParse(ctx.Arguments[1], out guildId))
+        const int Limit = 10;
+        IMessage[] messages = (await ctx.Channel.GetMessagesAsync(Limit).ToArrayAsync())
+            .SelectMany(i => i)
+            .OrderByDescending(m => m.Timestamp)
+            .ToArray();
+
+        foreach (IMessage message in messages)
+        {
+            string url = null;
+            string extension = null;
+
+            if (message.Attachments.Count == 1)
             {
-                await ctx.ReplyAsync("Unrecognized guild");
-                return;
+                var attachment = message.Attachments.Single();
+                extension = Path.GetExtension(attachment.Filename).ToLowerInvariant();
+
+                if (extension == ".jpg" ||
+                    extension == ".jpeg" ||
+                    extension == ".png" ||
+                    extension == ".gif")
+                {
+                    url = attachment.Url;
+                }
             }
 
-            var guild = ctx.Discord.GetGuild(guildId);
-            if (guild?.GetUser(ctx.BotId)?.GuildPermissions.ManageEmojisAndStickers != true)
+            if (url is null &&
+                message.Content.StartsWith("https://cdn.discordapp.com/", StringComparison.OrdinalIgnoreCase) &&
+                !message.Content.Contains(' ') &&
+                Uri.TryCreate(message.Content, UriKind.Absolute, out _))
             {
-                await ctx.ReplyAsync("I don't have the permissions to do that");
-                return;
+                url = message.Content;
+                extension = Path.GetExtension(message.Content.SplitLastTrimmed('/'));
             }
 
-            const int Limit = 10;
-            IMessage[] messages = (await ctx.Channel.GetMessagesAsync(Limit).ToArrayAsync())
-                .SelectMany(i => i)
-                .OrderByDescending(m => m.Timestamp)
-                .ToArray();
-
-            foreach (IMessage message in messages)
+            if (url is null &&
+                message.Content.StartsWith("https://tenor.com/view/", StringComparison.OrdinalIgnoreCase) &&
+                message.Content.Contains("-gif-", StringComparison.OrdinalIgnoreCase) &&
+                long.TryParse(message.Content.SplitLastTrimmed('-'), out long id))
             {
-                string url = null;
-                string extension = null;
-
-                if (message.Attachments.Count == 1)
+                try
                 {
-                    var attachment = message.Attachments.Single();
-                    extension = Path.GetExtension(attachment.Filename).ToLowerInvariant();
-
-                    if (extension == ".jpg" ||
-                        extension == ".jpeg" ||
-                        extension == ".png" ||
-                        extension == ".gif")
-                    {
-                        url = attachment.Url;
-                    }
+                    string tenorJson = await _http.GetStringAsync($"https://api.tenor.com/v1/gifs?ids={id}&media_filter=minimal&key={_apiKey}");
+                    url = JToken.Parse(tenorJson)["results"].First["media"].First["gif"]["url"].ToObject<string>();
+                }
+                catch (Exception ex)
+                {
+                    ctx.DebugLog(ex);
+                    break;
                 }
 
-                if (url is null &&
-                    message.Content.StartsWith("https://cdn.discordapp.com/", StringComparison.OrdinalIgnoreCase) &&
-                    !message.Content.Contains(' ') &&
-                    Uri.TryCreate(message.Content, UriKind.Absolute, out _))
-                {
-                    url = message.Content;
-                    extension = Path.GetExtension(message.Content.SplitLastTrimmed('/'));
-                }
-
-                if (url is null &&
-                    message.Content.StartsWith("https://tenor.com/view/", StringComparison.OrdinalIgnoreCase) &&
-                    message.Content.Contains("-gif-", StringComparison.OrdinalIgnoreCase) &&
-                    long.TryParse(message.Content.SplitLastTrimmed('-'), out long id))
-                {
-                    try
-                    {
-                        string tenorJson = await _http.GetStringAsync($"https://api.tenor.com/v1/gifs?ids={id}&media_filter=minimal&key={_apiKey}");
-                        url = JToken.Parse(tenorJson)["results"].First["media"].First["gif"]["url"].ToObject<string>();
-                    }
-                    catch (Exception ex)
-                    {
-                        ctx.DebugLog(ex);
-                        break;
-                    }
-
-                    extension = ".gif";
-                }
-
-                if (url is null)
-                    continue;
-
-                extension = extension.SplitFirstTrimmed('?');
-                extension = extension.ToLowerInvariant();
-
-                using var attachmentTempFile = new TempFile(extension);
-                using var convertedFileTempFile = new TempFile(extension);
-
-                using var stream = await _http.GetStreamAsync(url);
-
-                using (var fs = File.OpenWrite(attachmentTempFile.Path))
-                    await stream.CopyToAsync(fs);
-
-                using var proc = new Process();
-                proc.StartInfo.FileName = "ffmpeg";
-                proc.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{attachmentTempFile}\" -vf scale=128:-1 \"{convertedFileTempFile}\"";
-                proc.StartInfo.UseShellExecute = false;
-                proc.Start();
-                proc.WaitForExit();
-
-                var emote = await guild.CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempFile.Path));
-                await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
-
-                break;
+                extension = ".gif";
             }
+
+            if (url is null)
+                continue;
+
+            extension = extension.SplitFirstTrimmed('?');
+            extension = extension.ToLowerInvariant();
+
+            using var attachmentTempFile = new TempFile(extension);
+            using var convertedFileTempFile = new TempFile(extension);
+
+            using var stream = await _http.GetStreamAsync(url);
+
+            using (var fs = File.OpenWrite(attachmentTempFile.Path))
+                await stream.CopyToAsync(fs);
+
+            using var proc = new Process();
+            proc.StartInfo.FileName = "ffmpeg";
+            proc.StartInfo.Arguments = $"-y -hide_banner -loglevel warning -i \"{attachmentTempFile}\" -vf scale=128:-1 \"{convertedFileTempFile}\"";
+            proc.StartInfo.UseShellExecute = false;
+            proc.Start();
+            proc.WaitForExit();
+
+            var emote = await guild.CreateEmoteAsync(ctx.Arguments[0], new Image(convertedFileTempFile.Path));
+            await ctx.ReplyAsync($"Created emote {emote.Name}: {emote}");
+
+            break;
         }
     }
 }

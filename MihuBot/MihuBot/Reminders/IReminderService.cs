@@ -1,15 +1,14 @@
-﻿namespace MihuBot.Reminders
+﻿namespace MihuBot.Reminders;
+
+public interface IReminderService
 {
-    public interface IReminderService
-    {
-        ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync();
+    ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync();
 
-        ValueTask<IEnumerable<ReminderEntry>> GetRemindersForUserAsync(ulong userId);
+    ValueTask<IEnumerable<ReminderEntry>> GetRemindersForUserAsync(ulong userId);
 
-        ValueTask<ICollection<ReminderEntry>> GetPendingRemindersAsync();
+    ValueTask<ICollection<ReminderEntry>> GetPendingRemindersAsync();
 
-        ValueTask ScheduleAsync(ReminderEntry entry);
+    ValueTask ScheduleAsync(ReminderEntry entry);
 
-        ValueTask<int> RemoveRemindersAsync(ReadOnlyMemory<ulong> reminders);
-    }
+    ValueTask<int> RemoveRemindersAsync(ReadOnlyMemory<ulong> reminders);
 }

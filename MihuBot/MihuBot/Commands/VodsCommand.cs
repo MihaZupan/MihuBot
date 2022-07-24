@@ -2,148 +2,147 @@
 using Discord.Rest;
 using System.Text.RegularExpressions;
 
-namespace MihuBot.Commands
+namespace MihuBot.Commands;
+
+public sealed class VodsCommand : CommandBase
 {
-    public sealed class VodsCommand : CommandBase
+    public override string Command => "vods";
+    public override string[] Aliases => new[] { "vod" };
+
+    private readonly BlobContainerClient BlobContainerClient;
+
+    public VodsCommand(IConfiguration configuration)
     {
-        public override string Command => "vods";
-        public override string[] Aliases => new[] { "vod" };
+        BlobContainerClient = new BlobContainerClient(
+            configuration["AzureStorage:ConnectionString"],
+            "vods");
+    }
 
-        private readonly BlobContainerClient BlobContainerClient;
+    public override async Task ExecuteAsync(CommandContext ctx)
+    {
+        if (!await ctx.RequirePermissionAsync("vods"))
+            return;
 
-        public VodsCommand(IConfiguration configuration)
+        if (!ctx.Arguments.Any())
         {
-            BlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString"],
-                "vods");
+            await ctx.ReplyAsync("Usage: `!vods vodLink [format_id]`");
+            return;
         }
 
-        public override async Task ExecuteAsync(CommandContext ctx)
+        Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/(?:videos?|.*?\/clip)\/[^\/\?\#]+", RegexOptions.IgnoreCase);
+        if (!match.Success)
         {
-            if (!await ctx.RequirePermissionAsync("vods"))
-                return;
+            await ctx.ReplyAsync("Unknown vod link format");
+            return;
+        }
 
-            if (!ctx.Arguments.Any())
-            {
-                await ctx.ReplyAsync("Usage: `!vods vodLink [format_id]`");
-                return;
-            }
+        string link = match.Value;
 
-            Match match = Regex.Match(ctx.Arguments[0], @"https:\/\/www\.twitch\.tv\/(?:videos?|.*?\/clip)\/[^\/\?\#]+", RegexOptions.IgnoreCase);
-            if (!match.Success)
-            {
-                await ctx.ReplyAsync("Unknown vod link format");
-                return;
-            }
+        YoutubeDl.YoutubeDlMetadata metadata;
+        try
+        {
+            metadata = await YoutubeDl.GetMetadataAsync(link);
+        }
+        catch (Exception ex)
+        {
+            await ctx.DebugAsync(ex, $"Link {link}");
+            await ctx.ReplyAsync($"Failed to fetch vod metadata");
+            return;
+        }
 
-            string link = match.Value;
+        if (metadata.IsLive)
+        {
+            await ctx.ReplyAsync($"Please queue the download after the stream has ended");
+            return;
+        }
 
-            YoutubeDl.YoutubeDlMetadata metadata;
+        if (metadata.Formats is null || metadata.Formats.Length == 0)
+        {
+            await ctx.ReplyAsync($"Failed to load any media formats");
+            return;
+        }
+
+        YoutubeDl.YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f).First();
+
+        if (ctx.Arguments.Length > 1)
+        {
+            string formatId = ctx.Arguments[1];
             try
             {
-                metadata = await YoutubeDl.GetMetadataAsync(link);
+                selectedFormat = metadata.Formats.Single(f => f.FormatId.Equals(formatId, StringComparison.OrdinalIgnoreCase));
             }
-            catch (Exception ex)
+            catch
             {
-                await ctx.DebugAsync(ex, $"Link {link}");
-                await ctx.ReplyAsync($"Failed to fetch vod metadata");
+                await ctx.ReplyAsync($"Failed to match {formatId} against [ {string.Join(", ", metadata.Formats.Select(f => f.FormatId))} ]");
                 return;
             }
+        }
 
-            if (metadata.IsLive)
+        try
+        {
+            var argumentBuilder = new StringBuilder();
+
+            if (selectedFormat.HttpHeaders != null)
             {
-                await ctx.ReplyAsync($"Please queue the download after the stream has ended");
-                return;
+                YoutubeDl.SerializeHeadersForCmd(argumentBuilder, selectedFormat.HttpHeaders);
             }
 
-            if (metadata.Formats is null || metadata.Formats.Length == 0)
-            {
-                await ctx.ReplyAsync($"Failed to load any media formats");
-                return;
-            }
+            argumentBuilder.Append("-i \"").Append(selectedFormat.Url).Append("\" ");
 
-            YoutubeDl.YoutubeDlFormat selectedFormat = metadata.Formats.OrderByDescending(f => f).First();
+            if (selectedFormat.Url.EndsWith("m3u8", StringComparison.OrdinalIgnoreCase))
+                argumentBuilder.Append("-c:v copy -c:a libopus -b:a 160k");
+            else
+                argumentBuilder.Append("-c copy");
 
-            if (ctx.Arguments.Length > 1)
-            {
-                string formatId = ctx.Arguments[1];
-                try
-                {
-                    selectedFormat = metadata.Formats.Single(f => f.FormatId.Equals(formatId, StringComparison.OrdinalIgnoreCase));
-                }
-                catch
-                {
-                    await ctx.ReplyAsync($"Failed to match {formatId} against [ {string.Join(", ", metadata.Formats.Select(f => f.FormatId))} ]");
-                    return;
-                }
-            }
+            argumentBuilder.Append(" -f matroska -");
+
+            string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
+            string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
+            BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+
+            Task<RestUserMessage> statusMessage = metadata.Duration < 30
+                ? null
+                : ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
 
             try
             {
-                var argumentBuilder = new StringBuilder();
+                using var proc = new Process();
+                proc.StartInfo.FileName = "ffmpeg";
+                proc.StartInfo.Arguments = argumentBuilder.ToString();
+                proc.StartInfo.UseShellExecute = false;
+                proc.StartInfo.RedirectStandardInput = true;
+                proc.StartInfo.RedirectStandardOutput = true;
+                proc.StartInfo.RedirectStandardError = true;
 
-                if (selectedFormat.HttpHeaders != null)
-                {
-                    YoutubeDl.SerializeHeadersForCmd(argumentBuilder, selectedFormat.HttpHeaders);
-                }
+                proc.Start();
 
-                argumentBuilder.Append("-i \"").Append(selectedFormat.Url).Append("\" ");
-
-                if (selectedFormat.Url.EndsWith("m3u8", StringComparison.OrdinalIgnoreCase))
-                    argumentBuilder.Append("-c:v copy -c:a libopus -b:a 160k");
-                else
-                    argumentBuilder.Append("-c copy");
-
-                argumentBuilder.Append(" -f matroska -");
-
-                string fileName = $"{Path.GetFileNameWithoutExtension(metadata.Filename)}.mkv";
-                string blobName = $"{DateTime.UtcNow.ToISODateTime()}_{fileName}";
-                BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
-
-                Task<RestUserMessage> statusMessage = metadata.Duration < 30
-                    ? null
-                    : ctx.ReplyAsync($"Saving *{metadata.Title}* ({(int)metadata.Duration} s) ...");
+                Task<string> errorReader = proc.StandardError.ReadToEndAsync();
 
                 try
                 {
-                    using var proc = new Process();
-                    proc.StartInfo.FileName = "ffmpeg";
-                    proc.StartInfo.Arguments = argumentBuilder.ToString();
-                    proc.StartInfo.UseShellExecute = false;
-                    proc.StartInfo.RedirectStandardInput = true;
-                    proc.StartInfo.RedirectStandardOutput = true;
-                    proc.StartInfo.RedirectStandardError = true;
-
-                    proc.Start();
-
-                    Task<string> errorReader = proc.StandardError.ReadToEndAsync();
-
-                    try
-                    {
-                        await blobClient.UploadAsync(proc.StandardOutput.BaseStream);
-                    }
-                    catch (Exception ex)
-                    {
-                        string error = await errorReader.TimeoutAfter(TimeSpan.FromSeconds(5));
-                        throw new Exception(error, ex);
-                    }
-
-                    ctx.DebugLog(await errorReader);
-
-                    await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
+                    await blobClient.UploadAsync(proc.StandardOutput.BaseStream);
                 }
-                finally
+                catch (Exception ex)
                 {
-                    if (statusMessage != null)
-                        await (await statusMessage).DeleteAsync();
+                    string error = await errorReader.TimeoutAfter(TimeSpan.FromSeconds(5));
+                    throw new Exception(error, ex);
                 }
+
+                ctx.DebugLog(await errorReader);
+
+                await ctx.ReplyAsync($"Uploaded *{metadata.Title}* to\n<{blobClient.Uri.AbsoluteUri}>");
             }
-            catch (Exception ex)
+            finally
             {
-                await ctx.DebugAsync(ex);
-                await ctx.ReplyAsync($"Failed to initiate a media transfer");
-                return;
+                if (statusMessage != null)
+                    await (await statusMessage).DeleteAsync();
             }
+        }
+        catch (Exception ex)
+        {
+            await ctx.DebugAsync(ex);
+            await ctx.ReplyAsync($"Failed to initiate a media transfer");
+            return;
         }
     }
 }

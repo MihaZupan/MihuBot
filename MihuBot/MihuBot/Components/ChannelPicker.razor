@@ -9,12 +9,12 @@
     </button>
     <div class="dropdown-menu" aria-labelledby="guildsDropdown">
         @foreach (var guild in guilds.OrderBy(g => g.Name))
-        {
-            <button @onclick="() => { selectedGuild = guild; SetChannel(null); }"
+    {
+        <button @onclick="() => { selectedGuild = guild; SetChannel(null); }"
                     class="dropdown-item" type="button">
                 @guild.Name
             </button>
-        }
+    }
     </div>
 </div>
 
@@ -26,61 +26,61 @@
         </button>
         <div class="dropdown-menu" aria-labelledby="channelsDropdown">
             @foreach (var channel in selectedGuild.TextChannels
-                .Where(c => ChannelFilter(c, selectedGuild.GetUser(userId)))
-                .OrderBy(c => c.Position))
-            {
-                <button @onclick="() => SetChannel(channel)"
+            .Where(c => ChannelFilter(c, selectedGuild.GetUser(userId)))
+            .OrderBy(c => c.Position))
+        {
+            <button @onclick="() => SetChannel(channel)"
                         class="dropdown-item" type="button">
                     @channel.Name
                 </button>
-            }
+        }
         </div>
     </div>
 }
 
 @code {
-    [Parameter]
-    public Action<SocketTextChannel> OnChannelSelected { get; set; }
+[Parameter]
+public Action<SocketTextChannel> OnChannelSelected { get; set; }
 
-    [Parameter]
-    public Action OnChannelCleared { get; set; }
+[Parameter]
+public Action OnChannelCleared { get; set; }
 
-    [Parameter]
-    public Func<SocketGuild, SocketGuildUser, bool> GuildFilter { get; set; } = delegate { return true; };
+[Parameter]
+public Func<SocketGuild, SocketGuildUser, bool> GuildFilter { get; set; } = delegate { return true; };
 
-    [Parameter]
-    public Func<SocketTextChannel, SocketGuildUser, bool> ChannelFilter { get; set; } = delegate { return true; };
+[Parameter]
+public Func<SocketTextChannel, SocketGuildUser, bool> ChannelFilter { get; set; } = delegate { return true; };
 
 
-    ulong userId;
-    SocketGuild[] guilds;
-    SocketGuild selectedGuild;
-    SocketTextChannel selectedChannel;
+ulong userId;
+SocketGuild[] guilds;
+SocketGuild selectedGuild;
+SocketTextChannel selectedChannel;
 
-    protected override void OnInitialized()
+protected override void OnInitialized()
+{
+    userId = httpContextAccessor.HttpContext.User.GetUserId();
+    guilds = (discord.GetUser(userId)?.MutualGuilds ?? Array.Empty<SocketGuild>())
+        .Where(g => GuildFilter(g, g.GetUser(userId)))
+        .ToArray();
+
+    if (guilds.Length == 1)
+        selectedGuild = guilds.Single();
+}
+
+private void SetChannel(SocketTextChannel channel)
+{
+    if (selectedChannel != channel)
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
-        guilds = (discord.GetUser(userId)?.MutualGuilds ?? Array.Empty<SocketGuild>())
-            .Where(g => GuildFilter(g, g.GetUser(userId)))
-            .ToArray();
-
-        if (guilds.Length == 1)
-            selectedGuild = guilds.Single();
-    }
-
-    private void SetChannel(SocketTextChannel channel)
-    {
-        if (selectedChannel != channel)
+        selectedChannel = channel;
+        if (channel is null)
         {
-            selectedChannel = channel;
-            if (channel is null)
-            {
-                OnChannelCleared();
-            }
-            else
-            {
-                OnChannelSelected(channel);
-            }
+            OnChannelCleared();
+        }
+        else
+        {
+            OnChannelSelected(channel);
         }
     }
+}
 }
