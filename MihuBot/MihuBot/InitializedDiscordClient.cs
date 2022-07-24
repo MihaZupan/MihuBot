@@ -43,6 +43,16 @@ public sealed class InitializedDiscordClient : DiscordSocketClient
 
     private async Task InitializeAsync()
     {
+        Log += e =>
+        {
+            if (e.Exception is not null && !_initializedTcs.Task.IsCompleted)
+            {
+                Console.WriteLine($"Init error: {e.Message} - {e.Exception}");
+            }
+
+            return Task.CompletedTask;
+        };
+
         var onConnectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Connected += () => { onConnectedTcs.TrySetResult(); return Task.CompletedTask; };
 
