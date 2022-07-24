@@ -15,7 +15,7 @@
     <PackageReference Include="Azure.Storage.Blobs" Version="12.10.0" />
     <PackageReference Include="Discord.Net" Version="3.7.2" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.57.0.2750" />
-    <PackageReference Include="LettuceEncrypt" Version="1.2.0" />
+    <PackageReference Include="LettuceEncrypt" Version="1.1.2" />
     <PackageReference Include="Markdig" Version="0.30.2" />
     <PackageReference Include="Microsoft.Azure.CognitiveServices.Vision.ComputerVision" Version="7.0.1" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
