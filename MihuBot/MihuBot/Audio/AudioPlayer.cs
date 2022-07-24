@@ -644,23 +644,6 @@ namespace MihuBot.Audio
 
                 _pcmStream = _audioClient.CreatePCMStream(AudioApplication.Music, bitrate, bufferMs, packetLoss);
 
-                _audioClient.StreamCreated += (userId, stream) =>
-                {
-                    _logger.AudioLogger.AddStream(voiceChannel.Id, userId, stream);
-                    return Task.CompletedTask;
-                };
-
-                _audioClient.StreamDestroyed += userId =>
-                {
-                    _logger.AudioLogger.RemoveStream(userId);
-                    return Task.CompletedTask;
-                };
-
-                foreach (var pair in _audioClient.GetStreams())
-                {
-                    _logger.AudioLogger.AddStream(voiceChannel.Id, pair.Key, pair.Value);
-                }
-
                 _ = Task.Run(async () =>
                 {
                     try
