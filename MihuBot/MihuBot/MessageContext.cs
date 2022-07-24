@@ -64,7 +64,20 @@ namespace MihuBot
                 throw new Exception($"Missing permissions to send `{text}` in {Channel.Name}.");
             }
 
-            AllowedMentions mentions = suppressMentions ? AllowedMentions.None : null;
+            AllowedMentions mentions = null;
+            if (suppressMentions)
+            {
+                if (mention)
+                {
+                    mentions = new AllowedMentions();
+                    mentions.UserIds.Add(AuthorId);
+                }
+                else
+                {
+                    mentions = AllowedMentions.None;
+                }
+            };
+
             try
             {
                 return await Channel.SendMessageAsync(text, allowedMentions: mentions);

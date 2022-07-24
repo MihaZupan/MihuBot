@@ -128,6 +128,8 @@ namespace MihuBot
 
             services.AddSingleton<IWeatherService, WeatherService>();
 
+            services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
+
             AddDownBadProviders(services);
 
             services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
