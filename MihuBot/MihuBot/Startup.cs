@@ -101,8 +101,6 @@ public class Startup
             AddPrivateDiscordClient(services, httpClient);
 
             services.AddHostedService<TwitterBioUpdater>();
-
-            //TryAddInstagramClientAsync(services).GetAwaiter().GetResult();
         }
 
         services.AddSingleton<IPermissionsService, PermissionsService>();
