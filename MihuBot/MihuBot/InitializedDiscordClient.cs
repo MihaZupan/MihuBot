@@ -49,10 +49,10 @@ public sealed class InitializedDiscordClient : DiscordSocketClient
         var onReadyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Ready += () => { onReadyTcs.TrySetResult(); return Task.CompletedTask; };
 
-        await LoginAsync(_tokenType, _token);
-        await StartAsync();
+        await LoginAsync(_tokenType, _token).WaitAsync(TimeSpan.FromSeconds(15));
+        await StartAsync().WaitAsync(TimeSpan.FromSeconds(15));
 
-        await onConnectedTcs.Task;
-        await onReadyTcs.Task;
+        await onConnectedTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        await onReadyTcs.Task.WaitAsync(TimeSpan.FromSeconds(15));
     }
 }
