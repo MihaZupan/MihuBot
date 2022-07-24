@@ -1,18 +1,16 @@
-﻿using MihuBot.NextCloud;
-
-namespace MihuBot
+﻿namespace MihuBot
 {
     public class DDsLogger : CustomLogger
     {
-        public DDsLogger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
-            : base(httpClient, options, nextCloudClient, configuration)
+        public DDsLogger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
+            : base(httpClient, options, configuration)
         { }
     }
 
     public class PrivateLogger : CustomLogger
     {
-        public PrivateLogger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
-            : base(httpClient, options, nextCloudClient, configuration)
+        public PrivateLogger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
+            : base(httpClient, options, configuration)
         { }
     }
 
@@ -20,23 +18,21 @@ namespace MihuBot
     {
         public readonly LoggerOptions Options;
         private readonly HttpClient _http;
-        private readonly NextCloudClient _nextCloudClient;
         private readonly IConfiguration _configuration;
 
         public Logger Logger;
 
-        public CustomLogger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
+        public CustomLogger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
         {
             _http = httpClient;
             Options = options;
-            _nextCloudClient = nextCloudClient;
             _configuration = configuration;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             await Options.Discord.EnsureInitializedAsync();
-            Logger = new Logger(_http, Options, _nextCloudClient, _configuration);
+            Logger = new Logger(_http, Options, _configuration);
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)

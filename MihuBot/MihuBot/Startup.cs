@@ -10,7 +10,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Husbando;
-using MihuBot.NextCloud;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
@@ -48,12 +47,6 @@ namespace MihuBot
                 AutomaticDecompression = DecompressionMethods.All
             });
             services.AddSingleton(httpClient);
-
-            var nextCloudClient = new NextCloudClient(httpClient,
-                Configuration["NextCloud:Server"],
-                Configuration["NextCloud:User"],
-                Configuration["NextCloud:Password"]);
-            services.AddSingleton(nextCloudClient);
 
             services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
                 Configuration["Twitter:ConsumerKey"],
@@ -105,7 +98,7 @@ namespace MihuBot
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                AddPrivateDiscordClient(services, httpClient, nextCloudClient);
+                AddPrivateDiscordClient(services, httpClient);
 
                 services.AddHostedService<TwitterBioUpdater>();
 
@@ -182,12 +175,11 @@ namespace MihuBot
             services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
         }
 
-        private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient, NextCloudClient nextCloudClient)
+        private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient)
         {
             var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
             var customLogger = new PrivateLogger(httpClient,
                 CreateLoggerOptions(privateDiscordClient, "pvt_logs", "Private_"),
-                nextCloudClient,
                 Configuration);
             services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
             services.AddHostedService(_ => customLogger);
@@ -195,7 +187,6 @@ namespace MihuBot
             var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
             var ddsLogger = new DDsLogger(httpClient,
                 CreateLoggerOptions(ddsDiscordClient, "pvt_logs_dds", "Private_DDs_"),
-                nextCloudClient,
                 Configuration);
             services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, DDsLogger>(_ => ddsLogger));
             services.AddHostedService(_ => ddsLogger);

@@ -1,6 +1,5 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using MihuBot.NextCloud;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.IO.Compression;
@@ -20,7 +19,6 @@ namespace MihuBot
         public readonly LoggerOptions Options;
 
         private readonly HttpClient _http;
-        private readonly NextCloudClient _nextCloudClient;
 
         private DiscordSocketClient Discord => Options.Discord;
 
@@ -137,43 +135,6 @@ namespace MihuBot
                         .Substring(Options.LogsRoot.Length)
                         .Replace('/', '_')
                         .Replace('\\', '_');
-
-                    //try
-                    //{
-                    //    string directory;
-                    //    string fileName;
-
-                    //    if (blobName.StartsWith("files_", StringComparison.Ordinal))
-                    //    {
-                    //        directory = "Discord/Files/";
-                    //        fileName = blobName.Substring("files_".Length);
-                    //    }
-                    //    else
-                    //    {
-                    //        directory = "Discord/Logs/";
-                    //        fileName = blobName;
-                    //    }
-
-                    //    directory = $"{directory}{DateTime.UtcNow.ToISODate()}/";
-                    //    fileName = $"{directory}{fileName}";
-
-                    //    try
-                    //    {
-                    //        using FileStream fs = File.OpenRead(FilePath);
-                    //        await _nextCloudClient.UploadFileAsync(fileName, fs);
-                    //    }
-                    //    catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
-                    //    {
-                    //        await _nextCloudClient.CreateDirectoryAsync(directory);
-
-                    //        using FileStream fs = File.OpenRead(FilePath);
-                    //        await _nextCloudClient.UploadFileAsync(fileName, fs);
-                    //    }
-                    //}
-                    //catch (Exception ex)
-                    //{
-                    //    DebugLog($"Failed to archive {FilePath} to NextCloud: {ex}", Message);
-                    //}
 
                     string extension = Path.GetExtension(FilePath).ToLowerInvariant();
 
@@ -493,11 +454,10 @@ namespace MihuBot
             return Options.ShouldLogAttachments(message);
         }
 
-        public Logger(HttpClient httpClient, LoggerOptions options, NextCloudClient nextCloudClient, IConfiguration configuration)
+        public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
         {
             _http = httpClient;
             Options = options;
-            _nextCloudClient = nextCloudClient;
 
             BlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString"],
