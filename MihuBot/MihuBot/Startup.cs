@@ -12,7 +12,6 @@ using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MihuBot.Audio;
 using MihuBot.Configuration;
-using MihuBot.Email;
 using MihuBot.Husbando;
 using MihuBot.NextCloud;
 using MihuBot.Permissions;
@@ -119,8 +118,6 @@ namespace MihuBot
             services.AddSingleton<IPermissionsService, PermissionsService>();
 
             services.AddSingleton<IConfigurationService, ConfigurationService>();
-
-            services.AddSingleton<IEmailService, EmailService>();
 
             services.AddSingleton<IReminderService, ReminderService>();
 
