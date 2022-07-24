@@ -3,9 +3,6 @@ using Azure;
 using Azure.AI.TextAnalytics;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
-using InstagramApiSharp.API;
-using InstagramApiSharp.API.Builder;
-using InstagramApiSharp.Classes;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
@@ -180,14 +177,9 @@ namespace MihuBot
             Console.WriteLine("Services configured.");
         }
 
-        private void AddDownBadProviders(IServiceCollection services)
+        private static void AddDownBadProviders(IServiceCollection services)
         {
             services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
-
-            if (services.Any(s => s.ServiceType == typeof(IInstaApi)))
-            {
-                services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.InstagramProvider>();
-            }
         }
 
         private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient, NextCloudClient nextCloudClient)
@@ -242,132 +234,6 @@ namespace MihuBot
                         return !user.GetPermissions(channel).ViewChannel;
                     }
                 };
-            }
-        }
-
-        private async Task<bool> TryAddInstagramClientAsync(IServiceCollection services)
-        {
-            try
-            {
-                var userSession = new UserSessionData
-                {
-                    UserName = Configuration["Instagram:Username"],
-                    Password = Configuration["Instagram:Password"]
-                };
-
-                IRequestDelay delay = RequestDelay.FromSeconds(5, 5);
-
-                IInstaApi instaApi = InstaApiBuilder.CreateBuilder()
-                    .SetUser(userSession)
-                    .SetRequestDelay(delay)
-                    .Build();
-
-                string stateFile = $"{Constants.StateDirectory}/InstagramState.bin";
-                if (File.Exists(stateFile))
-                {
-                    instaApi.LoadStateDataFromString(File.ReadAllText(stateFile));
-                }
-
-                if (!instaApi.IsUserAuthenticated)
-                {
-                    delay.Disable();
-
-                    Console.WriteLine(nameof(instaApi.SendRequestsBeforeLoginAsync));
-                    await instaApi.SendRequestsBeforeLoginAsync();
-
-                    Console.WriteLine(nameof(Task.Delay));
-                    await Task.Delay(5000);
-
-                    Console.WriteLine(nameof(instaApi.LoginAsync));
-                    var logInResult = await instaApi.LoginAsync();
-
-                    if (!logInResult.Succeeded)
-                    {
-                        if (logInResult.Value == InstaLoginResult.ChallengeRequired)
-                        {
-                            Console.WriteLine(nameof(instaApi.GetChallengeRequireVerifyMethodAsync));
-                            var challenge = await instaApi.GetChallengeRequireVerifyMethodAsync();
-                            if (challenge.Succeeded)
-                            {
-                                Console.WriteLine($"challenge.Value.SubmitPhoneRequired: {challenge.Value.SubmitPhoneRequired}");
-
-                                if (challenge.Value.StepData is not null)
-                                {
-                                    if (challenge.Value.StepData.Email != null)
-                                    {
-                                        Console.WriteLine(nameof(instaApi.RequestVerifyCodeToEmailForChallengeRequireAsync));
-                                        var email = await instaApi.RequestVerifyCodeToEmailForChallengeRequireAsync();
-                                        if (!email.Succeeded)
-                                        {
-                                            Console.WriteLine($"Unable to login: {email.Info.Message}");
-                                            return false;
-                                        }
-
-                                        Console.WriteLine($"Verification code sent to {email.Value.StepData.ContactPoint}");
-                                    }
-
-                                    if (challenge.Value.StepData.PhoneNumber != null)
-                                    {
-                                        Console.WriteLine(nameof(instaApi.RequestVerifyCodeToSMSForChallengeRequireAsync));
-                                        var sms = await instaApi.RequestVerifyCodeToSMSForChallengeRequireAsync();
-                                        if (!sms.Succeeded)
-                                        {
-                                            Console.WriteLine($"Unable to login: {sms.Info.Message}");
-                                            return false;
-                                        }
-
-                                        Console.WriteLine($"Verification code sent to {sms.Value.StepData.ContactPoint}");
-                                    }
-                                }
-
-                                Console.WriteLine("Enter code now:");
-                                string code = Console.ReadLine()!;
-                                while (code.Length != 6 || !code.All(c => char.IsDigit(c)))
-                                {
-                                    Console.WriteLine("Enter code now:");
-                                    code = Console.ReadLine()!;
-                                }
-                                Console.WriteLine(nameof(instaApi.VerifyCodeForChallengeRequireAsync));
-                                var verifyLogin = await instaApi.VerifyCodeForChallengeRequireAsync(code);
-                                if (!verifyLogin.Succeeded)
-                                {
-                                    Console.WriteLine($"Unable to login: {verifyLogin.Info.Message}");
-                                    return false;
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine($"Unable to login: {challenge.Info.Message}");
-                                return false;
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Unable to login: {logInResult.Info.Message}");
-                            return false;
-                        }
-                    }
-
-                    delay.Enable();
-
-                    Console.WriteLine(nameof(instaApi.SendRequestsAfterLoginAsync));
-                    await instaApi.SendRequestsAfterLoginAsync();
-                }
-
-                File.WriteAllText(stateFile, instaApi.GetStateDataAsString());
-
-                if (!(await instaApi.GetCurrentUserAsync()).Succeeded)
-                {
-                    return false;
-                }
-
-                services.AddSingleton(instaApi);
-                return true;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e);
-                return false;
             }
         }
 
