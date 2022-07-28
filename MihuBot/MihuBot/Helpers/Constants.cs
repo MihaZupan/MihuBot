@@ -117,4 +117,5 @@ public static class Emotes
     public static IEmote ThumbsUp { get; }      = new Emoji("👍");
     public static IEmote RedCross { get; }      = new Emoji("❌");
     public static IEmote Heart { get; }         = new Emoji("❤️");
+    public static IEmote Stopwatch { get; }     = new Emoji("⏱️");
 }
