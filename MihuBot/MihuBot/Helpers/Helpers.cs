@@ -29,6 +29,11 @@ public static class Helpers
             && Constants.Admins.Contains(userId);
     }
 
+    public static string GetAvatarUrl(this ClaimsPrincipal claims, ushort size)
+    {
+        return CDN.GetUserAvatarUrl(claims.GetUserId(), claims.FindFirstValue("urn:discord:avatar:hash"), size, ImageFormat.WebP);
+    }
+
     public static bool HasWriteAccess(this SocketGuildChannel channel, ulong userId)
     {
         SocketGuildUser guildUser = channel.Guild.GetUser(userId);
@@ -73,6 +78,11 @@ public static class Helpers
         }
     }
 
+    public static string GetUserDiscriminator(this ClaimsPrincipal claims)
+    {
+        return claims.FindFirstValue("urn:discord:user:discriminator");
+    }
+
     public static ulong GetUserId(this ClaimsPrincipal claims)
     {
         if (claims.TryGetUserId(out ulong userId))
@@ -83,7 +93,7 @@ public static class Helpers
 
     public static bool TryGetUserId(this ClaimsPrincipal claims, out ulong userId)
     {
-        string id = claims.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        string id = claims.FindFirstValue(ClaimTypes.NameIdentifier);
 
         if (id != null && ulong.TryParse(id, out userId))
             return true;

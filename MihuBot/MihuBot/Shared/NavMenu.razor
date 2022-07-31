@@ -3,8 +3,8 @@
 <div class="top-row pl-4 navbar navbar-dark">
     <AuthorizeView>
         <Authorized>
-            <img class="profile-image" src="@context.User.FindFirst("urn:discord:avatar:url").Value" alt="Avatar" />
-            <a class="navbar-brand" href="">@context.User.Identity.Name<span class="text-muted">#@context.User.FindFirst("urn:discord:user:discriminator").Value</span></a>
+            <img class="profile-image" src="@context.User.GetAvatarUrl(128)" alt="Avatar of @context.User.Identity.Name" />
+            <a class="navbar-brand" href="">@context.User.Identity.Name<span class="text-muted">#@context.User.GetUserDiscriminator()</span></a>
         </Authorized>
         <NotAuthorized>
             <a class="navbar-brand" href="">MihuBot</a>
