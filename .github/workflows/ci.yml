@@ -13,7 +13,7 @@ jobs:
     - name: Setup .NET 7.0
       uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: '7.0.100-preview.4.22252.9'
+        dotnet-version: '7.0.100-rc.1.22379.5'
 
     - name: Dotnet restore
       run: dotnet restore MihuBot
