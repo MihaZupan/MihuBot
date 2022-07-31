@@ -1,0 +1,72 @@
+﻿@page "/minecraft-remote"
+@attribute [Authorize]
+@inject IHttpContextAccessor httpContextAccessor
+@inject IPermissionsService permissions
+@inject MinecraftRCON minecraftRCON
+
+<form @onsubmit="SendCommandAsync">
+    <div class="form-group">
+        <div class="form-group input-group mb-3">
+            <input @bind="currentValue" type="text" class="form-control" placeholder="Command" aria-label="Command" aria-describedby="basic-addon2">
+            <div class="input-group-append">
+                <button @onclick="SendCommandAsync" class="btn btn-outline-secondary" type="button">Send</button>
+            </div>
+        </div>
+
+        @if (working)
+        {
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+        }
+
+        @if (exception != null)
+        {
+            <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@exception</div>
+        }
+    </div>
+</form>
+
+@code
+{
+    private ulong userId;
+    private string currentValue;
+    private string exception;
+    private bool working;
+
+    protected override void OnInitialized()
+    {
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
+    }
+
+    private async Task SendCommandAsync()
+    {
+        if (string.IsNullOrEmpty(currentValue))
+            return;
+
+        try
+        {
+            working = true;
+            exception = null;
+            string message = currentValue;
+            currentValue = null;
+
+            if (permissions.HasPermission("mc", userId))
+            {
+                await minecraftRCON.SendCommandAsync(message.Trim());
+            }
+            else
+            {
+                exception = "Missing permission: mc";
+            }
+        }
+        catch (Exception ex)
+        {
+            exception = ex.ToString();
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+}

@@ -14,64 +14,64 @@
                        channel.HasWriteAccess(KnownUsers.MihuBot)" />
 
         @if (textChannel != null)
-    {
-        <div class="form-group input-group mb-3">
-                <input @bind="currentValue" type="text" class="form-control" placeholder="Message" aria-label="Message" aria-describedby="basic-addon2">
-                <div class="input-group-append">
-                    <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
+        {
+            <div class="form-group input-group mb-3">
+                    <input @bind="currentValue" type="text" class="form-control" placeholder="Message" aria-label="Message" aria-describedby="basic-addon2">
+                    <div class="input-group-append">
+                        <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
+                    </div>
                 </div>
-            </div>
-    }
+        }
 
         @if (exception != null)
-    {
-        <div class="alert alert-danger" role="alert">@exception</div>
-    }
+        {
+            <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@exception</div>
+        }
     </div>
 </form>
 
 @code
 {
     private ulong userId;
-private string currentValue;
-private string exception;
-private SocketTextChannel textChannel;
+    private string currentValue;
+    private string exception;
+    private SocketTextChannel textChannel;
 
-protected override void OnInitialized()
-{
-    userId = httpContextAccessor.HttpContext.User.GetUserId();
-}
-
-private void OnChannelSelected(SocketTextChannel channel)
-{
-    textChannel = channel;
-    InvokeAsync(StateHasChanged);
-}
-
-private void OnChannelCleared() => OnChannelSelected(null);
-
-private async Task SendMessageAsync()
-{
-    if (string.IsNullOrEmpty(currentValue))
-        return;
-
-    try
+    protected override void OnInitialized()
     {
-        string message = currentValue;
-        currentValue = null;
+        userId = httpContextAccessor.HttpContext.User.GetUserId();
+    }
 
-        if (permissions.HasPermission("custommessage", userId))
+    private void OnChannelSelected(SocketTextChannel channel)
+    {
+        textChannel = channel;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnChannelCleared() => OnChannelSelected(null);
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrEmpty(currentValue))
+            return;
+
+        try
         {
-            await textChannel.SendMessageAsync(message.Trim());
+            string message = currentValue;
+            currentValue = null;
+
+            if (permissions.HasPermission("custommessage", userId))
+            {
+                await textChannel.SendMessageAsync(message.Trim());
+            }
+            else
+            {
+                exception = "Missing permission: custommessage";
+            }
         }
-        else
+        catch (Exception ex)
         {
-            exception = "Missing permission: custommessage";
+            exception = ex.ToString();
         }
     }
-    catch (Exception ex)
-    {
-        exception = ex.ToString();
-    }
-}
 }
