@@ -13,6 +13,11 @@
             </div>
         </div>
 
+        @if (lastResponse is not null)
+        {
+            <div class="alert alert-success" style="white-space: pre-wrap" role="alert">@lastResponse</div>
+        }
+
         @if (working)
         {
             <div class="spinner-border text-primary" role="status">
@@ -20,7 +25,7 @@
             </div>
         }
 
-        @if (exception != null)
+        @if (exception is not null)
         {
             <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@exception</div>
         }
@@ -31,6 +36,7 @@
 {
     private ulong userId;
     private string currentValue;
+    private string lastResponse;
     private string exception;
     private bool working;
 
@@ -53,7 +59,9 @@
 
             if (permissions.HasPermission("mc", userId))
             {
-                await minecraftRCON.SendCommandAsync(message.Trim());
+                string response = await minecraftRCON.SendCommandAsync(message.Trim());
+                response = response.Trim();
+                lastResponse = response.Length == 0 ? "Success (empty response)" : response;
             }
             else
             {
@@ -62,6 +70,7 @@
         }
         catch (Exception ex)
         {
+            lastResponse = null;
             exception = ex.ToString();
         }
         finally
