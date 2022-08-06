@@ -113,9 +113,14 @@ public class Startup
 
         services.AddSingleton<IWeatherService, WeatherService>();
 
+        services.AddSingleton<IronmanDataService>();
+
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
 
-        AddDownBadProviders(services);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            AddDownBadProviders(services);
+        }
 
         services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
             .WithAuthenticator(new ClientCredentialsAuthenticator(
@@ -245,13 +250,6 @@ public class Startup
 
         app.UseAuthentication();
         app.UseAuthorization();
-
-        app.Use(async (context, next) =>
-        {
-            Console.WriteLine($"{context.Connection.RemoteIpAddress}");
-
-            await next();
-        });
 
         app.UseEndpoints(endpoints =>
         {

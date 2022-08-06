@@ -1,0 +1,44 @@
+﻿@page "/ironman"
+@inject DiscordSocketClient discord
+@inject IronmanDataService ironmanData
+@implements IDisposable
+
+@if (_latestData.Rank is null)
+{
+    <div>Refreshing ...</div>
+}
+else
+{
+    <div>Current rank: @_latestData.Rank, @_latestData.Tier RR</div>
+}
+
+@code
+{
+    private readonly CancellationTokenSource _cts = new();
+    (string Rank, int Tier) _latestData;
+
+    protected override void OnInitialized()
+    {
+        _latestData = ironmanData.TryGetCurrentRank();
+
+        Task.Run(async () =>
+        {
+            var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+            do
+            {
+                try
+                {
+                    _latestData = await ironmanData.GetCurrentRankAsync(_cts.Token);
+                    _ = InvokeAsync(StateHasChanged);
+                }
+                catch { break; }
+            }
+            while (await timer.WaitForNextTickAsync(_cts.Token));
+        });
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+    }
+}
