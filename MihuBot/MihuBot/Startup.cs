@@ -140,6 +140,13 @@ public class Startup
 
         services.AddHostedService<MihuBotService>();
 
+        services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy => policy
+                .AllowAnyOrigin()
+                .DisallowCredentials());
+        });
+
         services.AddAuthentication(options =>
             {
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -245,6 +252,8 @@ public class Startup
             app.UseExceptionHandler("/Error");
             app.UseHsts();
         }
+
+        app.UseCors();
 
         app.UseHttpsRedirection();
         app.UseStaticFiles();
