@@ -1,6 +1,7 @@
 using Azure.Identity;
 using Azure.Core;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace MihuBot;
 
@@ -8,11 +9,13 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        Console.WriteLine("Starting ...");
+
         Directory.CreateDirectory(Constants.StateDirectory);
 
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
         {
-            Console.WriteLine(e.ExceptionObject);
+            Console.WriteLine($"UnhandledException: {e.ExceptionObject}");
         };
 
         var cts = new CancellationTokenSource();

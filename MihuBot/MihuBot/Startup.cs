@@ -40,7 +40,10 @@ public class Startup
                 .PersistDataToDirectory(certDir, "certpass123");
         }
 
-        Console.WriteLine("Starting ...");
+        services.AddApplicationInsightsTelemetry(options =>
+        {
+            options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+        });
 
         var httpClient = new HttpClient(new HttpClientHandler()
         {
@@ -252,6 +255,8 @@ public class Startup
             app.UseExceptionHandler("/Error");
             app.UseHsts();
         }
+
+        app.UseHttpLogging();
 
         app.UseCors();
 
