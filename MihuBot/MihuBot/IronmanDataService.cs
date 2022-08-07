@@ -7,8 +7,6 @@ namespace MihuBot
 {
     public sealed class IronmanDataService
     {
-        private const int RefreshAfterMinimumMs = 10 * 1000;
-
         private readonly HttpClient _httpClient;
         private readonly DataSource<ValorantStatus> _valorantDataSource;
         private readonly DataSource<TFTStatus> _tftDataSource;
@@ -185,6 +183,8 @@ namespace MihuBot
 
         private sealed class DataSource<T>
         {
+            private const int RefreshAfterMinimumMs = 10 * 1000;
+
             private readonly Logger _logger;
             private readonly Func<Task<T?>> _valueFactory;
             private T? _lastResponseData;
@@ -219,7 +219,7 @@ namespace MihuBot
 
                     if (block)
                     {
-                        _logger.DebugLog("Blocking on Valorant rank information fetch");
+                        _logger.DebugLog($"Blocking on {typeof(T).Name} rank information fetch");
                         await pendingRefreshTask.WaitAsync(cancellation);
                     }
                 }
