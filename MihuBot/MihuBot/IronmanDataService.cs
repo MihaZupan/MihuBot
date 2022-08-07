@@ -49,7 +49,10 @@ namespace MihuBot
                     return null;
                 }
 
-                return new TFTStatus(DateTime.UtcNow, $"{current.Tier} {current.Rank}", current.LeaguePoints);
+                string tier = current.Tier;
+                tier = $"{tier[0]}{tier.Substring(1).ToLowerInvariant()}";
+
+                return new TFTStatus(DateTime.UtcNow, $"{tier} {current.Rank}", current.LeaguePoints);
             });
 
             _apexDataSource = new DataSource<ApexStatus>(logger, async () =>
