@@ -45,7 +45,10 @@ public class Startup
         var httpClient = new HttpClient(new HttpClientHandler()
         {
             AutomaticDecompression = DecompressionMethods.All
-        });
+        })
+        {
+            DefaultRequestVersion = HttpVersion.Version20
+        };
         services.AddSingleton(httpClient);
 
         services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
