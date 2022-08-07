@@ -3,7 +3,7 @@
 @inject IronmanDataService ironmanData
 @implements IDisposable
 
-@if (_latestData.Tier is null)
+@if (_latestData is null)
 {
     <div>Refreshing ...</div>
 }
