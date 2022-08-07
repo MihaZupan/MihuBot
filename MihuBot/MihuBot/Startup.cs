@@ -1,12 +1,15 @@
 using AspNet.Security.OAuth.Discord;
 using Azure;
 using Azure.AI.TextAnalytics;
+using Google.Apis.Logging;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Husbando;
@@ -31,6 +34,8 @@ public class Startup
 
     public void ConfigureServices(IServiceCollection services)
     {
+        Console.WriteLine("Configuring services ...");
+
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             DirectoryInfo certDir = new("/home/certs");
@@ -256,6 +261,8 @@ public class Startup
             app.UseHsts();
         }
 
+        app.UseMiddleware<IPLoggerMiddleware>();
+
         app.UseHttpLogging();
 
         app.UseCors();
@@ -274,5 +281,24 @@ public class Startup
             endpoints.MapBlazorHub();
             endpoints.MapFallbackToPage("/_Host");
         });
+    }
+
+    private sealed class IPLoggerMiddleware : IMiddleware
+    {
+        private readonly ILogger<IPLoggerMiddleware> _logger;
+
+        public IPLoggerMiddleware(ILogger<IPLoggerMiddleware> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public Task InvokeAsync(HttpContext context, RequestDelegate next)
+        {
+            var connection = context.Connection;
+            _logger.LogInformation("Request on connection {ConnectionId} from {RemoteIP} to {LocalPort}",
+                connection.Id, connection.RemoteIpAddress, connection.LocalPort);
+
+            return next(context);
+        }
     }
 }
