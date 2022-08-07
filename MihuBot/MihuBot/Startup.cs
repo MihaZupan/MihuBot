@@ -50,6 +50,8 @@ public class Startup
             options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
         });
 
+        services.AddSingleton<IPLoggerMiddleware>();
+
         var httpClient = new HttpClient(new HttpClientHandler()
         {
             AutomaticDecompression = DecompressionMethods.All
