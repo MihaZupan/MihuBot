@@ -6,6 +6,8 @@ namespace MihuBot.API
     [Route("api/[controller]/[action]")]
     public sealed class IronmanController : ControllerBase
     {
+        private const int MinimumFreshnessSeconds = 25;
+
         private readonly IronmanDataService _ironmanDataService;
 
         public IronmanController(IronmanDataService ironmanDataService)
@@ -14,11 +16,12 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> Valorant(bool waitForRefresh = true)
+        public async Task<RankModel> Valorant()
         {
-            var tierAndRank = waitForRefresh
-                ? await _ironmanDataService.GetValorantRankAsync(HttpContext.RequestAborted)
-                : _ironmanDataService.TryGetValorantRank();
+            var tierAndRank = await GetRankAsync(
+                static ironman => ironman.TryGetValorantRank(),
+                static (ironman, cancellation) => ironman.GetValorantRankAsync(cancellation),
+                static stats => stats.RefreshedAt);
 
             var iconTier = tierAndRank?.Tier?.Replace(' ', '_') ?? "Iron_1";
 
@@ -30,11 +33,12 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> TFT(bool waitForRefresh = true)
+        public async Task<RankModel> TFT()
         {
-            var rankAndLP = waitForRefresh
-                ? await _ironmanDataService.GetTFTRankAsync(HttpContext.RequestAborted)
-                : _ironmanDataService.TryGetTFTRank();
+            var rankAndLP = await GetRankAsync(
+                static ironman => ironman.TryGetTFTRank(),
+                static (ironman, cancellation) => ironman.GetTFTRankAsync(cancellation),
+                static stats => stats.RefreshedAt);
 
             var iconRank = rankAndLP?.Rank?.Split(' ')[0] ?? "Iron";
 
@@ -46,11 +50,12 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> Apex(bool waitForRefresh = true)
+        public async Task<RankModel> Apex()
         {
-            var tierAndRP = waitForRefresh
-                ? await _ironmanDataService.GetApexRankAsync(HttpContext.RequestAborted)
-                : _ironmanDataService.TryGetApexRank();
+            var tierAndRP = await GetRankAsync(
+                static ironman => ironman.TryGetApexRank(),
+                static (ironman, cancellation) => ironman.GetApexRankAsync(cancellation),
+                static stats => stats.RefreshedAt);
 
             return new RankModel(
                 tierAndRP?.RefreshedAt,
@@ -60,11 +65,13 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<CombinedModel> All(bool waitForRefresh = true)
+        public async Task<CombinedModel> All()
         {
-            var valorantTask = Valorant(waitForRefresh);
-            var tftTask = TFT(waitForRefresh);
-            var apexTask = Apex(waitForRefresh);
+            var valorantTask = Valorant();
+            var tftTask = TFT();
+            var apexTask = Apex();
+
+            await Task.WhenAll(valorantTask, tftTask, apexTask);
 
             return new CombinedModel(await valorantTask, await tftTask, await apexTask);
         }
@@ -72,5 +79,21 @@ namespace MihuBot.API
         public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl);
 
         public record CombinedModel(RankModel Valorant, RankModel TFT, RankModel Apex);
+
+        private async ValueTask<T> GetRankAsync<T>(
+            Func<IronmanDataService, T> tryGetRank,
+            Func<IronmanDataService, CancellationToken, ValueTask<T>> getRankAsync,
+            Func<T, DateTime> refreshedAtSelector)
+            where T : class
+        {
+            T rank = tryGetRank(_ironmanDataService);
+
+            if (rank is null || (DateTime.UtcNow - refreshedAtSelector(rank)).TotalSeconds > MinimumFreshnessSeconds)
+            {
+                rank = await getRankAsync(_ironmanDataService, HttpContext.RequestAborted);
+            }
+
+            return rank;
+        }
     }
 }

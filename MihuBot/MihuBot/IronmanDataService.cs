@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Json;
+﻿using MihuBot.Configuration;
+using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
 #nullable enable
@@ -12,7 +13,7 @@ namespace MihuBot
         private readonly DataSource<TFTStatus> _tftDataSource;
         private readonly DataSource<ApexStatus> _apexDataSource;
 
-        public IronmanDataService(HttpClient httpClient, Logger logger, IConfiguration configuration)
+        public IronmanDataService(HttpClient httpClient, Logger logger, IConfiguration configuration, IConfigurationService configurationService)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             ArgumentNullException.ThrowIfNull(logger);
@@ -55,23 +56,30 @@ namespace MihuBot
 
             _apexDataSource = new DataSource<ApexStatus>(logger, async () =>
             {
-                string apiKey = configuration["TrackerGG:ApiKey"] ?? throw new Exception("Missing API Key");
-
-                var request = new HttpRequestMessage(HttpMethod.Get, "https://public-api.tracker.gg/v2/apex/standard/profile/origin/IronmanChallenge");
-                request.Headers.TryAddWithoutValidation("TRN-Api-Key", apiKey);
-                request.Headers.TryAddWithoutValidation("Accept", "application/json");
-
-                using var responseMessage = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
-
-                var response = await responseMessage.Content.ReadFromJsonAsync<ApexResponseModel>(cancellationToken: CancellationToken.None);
-
-                var score = response?.Data?.Segments?.FirstOrDefault(s => s?.Type == "overview")?.Stats?.RankScore;
-                if (score?.Metadata?.RankName is null)
+                if (configurationService.TryGet(null, "Ironman.Apex.Username", out string username))
                 {
-                    return null;
-                }
+                    string apiKey = configuration["TrackerGG:ApiKey"] ?? throw new Exception("Missing API Key");
 
-                return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value, score.Metadata.IconUrl);
+                    var request = new HttpRequestMessage(HttpMethod.Get, $"https://public-api.tracker.gg/v2/apex/standard/profile/origin/{username}");
+                    request.Headers.TryAddWithoutValidation("TRN-Api-Key", apiKey);
+                    request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+                    using var responseMessage = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
+
+                    var response = await responseMessage.Content.ReadFromJsonAsync<ApexResponseModel>(cancellationToken: CancellationToken.None);
+
+                    var score = response?.Data?.Segments?.FirstOrDefault(s => s?.Type == "overview")?.Stats?.RankScore;
+                    if (score?.Metadata?.RankName is null)
+                    {
+                        return null;
+                    }
+
+                    return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value, score.Metadata.IconUrl);
+                }
+                else
+                {
+                    return new ApexStatus(DateTime.UtcNow, "Unknown", 0, null);
+                }
             });
         }
 
