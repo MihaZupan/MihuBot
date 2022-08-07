@@ -14,9 +14,12 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> Valorant()
+        public async Task<RankModel> Valorant(bool waitForRefresh = true)
         {
-            var tierAndRank = await _ironmanDataService.GetValorantRankAsync(HttpContext.RequestAborted);
+            var tierAndRank = waitForRefresh
+                ? await _ironmanDataService.GetValorantRankAsync(HttpContext.RequestAborted)
+                : _ironmanDataService.TryGetValorantRank();
+
             var iconTier = tierAndRank?.Tier?.Replace(' ', '_') ?? "Iron_1";
 
             return new RankModel(
@@ -27,9 +30,12 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> TFT()
+        public async Task<RankModel> TFT(bool waitForRefresh = true)
         {
-            var rankAndLP = await _ironmanDataService.GetTFTRankAsync(HttpContext.RequestAborted);
+            var rankAndLP = waitForRefresh
+                ? await _ironmanDataService.GetTFTRankAsync(HttpContext.RequestAborted)
+                : _ironmanDataService.TryGetTFTRank();
+
             var iconRank = rankAndLP?.Rank?.Split(' ')[0] ?? "Iron";
 
             return new RankModel(
@@ -40,9 +46,11 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<RankModel> Apex()
+        public async Task<RankModel> Apex(bool waitForRefresh = true)
         {
-            var tierAndRP = await _ironmanDataService.GetApexRankAsync(HttpContext.RequestAborted);
+            var tierAndRP = waitForRefresh
+                ? await _ironmanDataService.GetApexRankAsync(HttpContext.RequestAborted)
+                : _ironmanDataService.TryGetApexRank();
 
             return new RankModel(
                 tierAndRP?.RefreshedAt,
@@ -52,11 +60,11 @@ namespace MihuBot.API
         }
 
         [HttpGet]
-        public async Task<CombinedModel> All()
+        public async Task<CombinedModel> All(bool waitForRefresh = true)
         {
-            var valorantTask = Valorant();
-            var tftTask = TFT();
-            var apexTask = Apex();
+            var valorantTask = Valorant(waitForRefresh);
+            var tftTask = TFT(waitForRefresh);
+            var apexTask = Apex(waitForRefresh);
 
             return new CombinedModel(await valorantTask, await tftTask, await apexTask);
         }
