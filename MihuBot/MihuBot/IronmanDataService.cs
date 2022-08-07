@@ -26,12 +26,12 @@ namespace MihuBot
                     CancellationToken.None);
 
                 var current = response?.Data?.CurrentData;
-                if (current?.Tier is null)
+                if (current?.Tier is null || current.RankInTier is null)
                 {
                     return null;
                 }
 
-                return new ValorantStatus(DateTime.UtcNow, current.Tier, current.RankInTier);
+                return new ValorantStatus(DateTime.UtcNow, current.Tier, current.RankInTier.Value);
             });
 
             _tftDataSource = new DataSource<TFTStatus>(logger, async () =>
@@ -125,7 +125,7 @@ namespace MihuBot
             public string? Tier { get; set; }
 
             [JsonPropertyName("ranking_in_tier")]
-            public int RankInTier { get; set; }
+            public int? RankInTier { get; set; }
         }
 
         private sealed class TFTResponseModel
