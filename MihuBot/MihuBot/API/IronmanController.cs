@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MihuBot.Configuration;
 
 namespace MihuBot.API
 {
@@ -9,10 +10,12 @@ namespace MihuBot.API
         private const int MinimumFreshnessSeconds = 25;
 
         private readonly IronmanDataService _ironmanDataService;
+        private readonly IConfigurationService _configuration;
 
-        public IronmanController(IronmanDataService ironmanDataService)
+        public IronmanController(IronmanDataService ironmanDataService, IConfigurationService configuration)
         {
             _ironmanDataService = ironmanDataService;
+            _configuration = configuration;
         }
 
         [HttpGet]
@@ -29,7 +32,8 @@ namespace MihuBot.API
                 tierAndRank?.RefreshedAt,
                 tierAndRank?.Tier ?? "Unknown",
                 tierAndRank?.RankInTier ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/valorant/{iconTier}.png");
+                $"https://{HttpContext.Request.Host.Value}/valorant/{iconTier}.png",
+                GetIsCompleted("Ironman.Valorant.Completed", iconTier, static tier => ContainsAny(tier, "Ascendant_3", "Immortal", "Radiant")));
         }
 
         [HttpGet]
@@ -46,7 +50,8 @@ namespace MihuBot.API
                 rankAndLP?.RefreshedAt,
                 rankAndLP?.Rank ?? "Unknown",
                 rankAndLP?.LP ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/tft/{iconRank}.webp");
+                $"https://{HttpContext.Request.Host.Value}/tft/{iconRank}.webp",
+                GetIsCompleted("Ironman.TFT.Completed", iconRank, static rank => ContainsAny(rank, "Master", "Grandmaster", "Challenger")));
         }
 
         [HttpGet]
@@ -66,7 +71,8 @@ namespace MihuBot.API
                 tierAndRP?.RefreshedAt,
                 tierAndRP?.Tier ?? "Unknown",
                 tierAndRP?.RP ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/apex/{iconPath}");
+                $"https://{HttpContext.Request.Host.Value}/apex/{iconPath}",
+                GetIsCompleted("Ironman.Apex.Completed", iconPath, static rank => ContainsAny(rank, "Diamond_3", "Diamond_2", "Diamond_1", "Master", "Predator")));
         }
 
         [HttpGet]
@@ -81,7 +87,7 @@ namespace MihuBot.API
             return new CombinedModel(await valorantTask, await tftTask, await apexTask);
         }
 
-        public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl);
+        public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl, bool ReachedTop1Percent);
 
         public record CombinedModel(RankModel Valorant, RankModel TFT, RankModel Apex);
 
@@ -99,6 +105,35 @@ namespace MihuBot.API
             }
 
             return rank;
+        }
+
+        private bool GetIsCompleted<T>(string configKey, T state, Func<T, bool> checkCompleted)
+        {
+            if (_configuration.TryGet(null, configKey, out _))
+            {
+                return true;
+            }
+
+            if (checkCompleted(state))
+            {
+                _configuration.Set(null, configKey, "1");
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsAny(string text, params string[] substrings)
+        {
+            foreach (string s in substrings)
+            {
+                if (text.Contains(s, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
