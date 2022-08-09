@@ -36,7 +36,7 @@ namespace MihuBot
 
             _tftDataSource = new DataSource<TFTStatus>(logger, async () =>
             {
-                string apiKey = configuration["RiotGames:ApiKey"] ?? throw new Exception("Missing API Key");
+                string apiKey = configurationService.Get(null, "RiotGames:ApiKey");
 
                 var response = await _httpClient.GetFromJsonAsync<TFTResponseModel[]>(
                     $"https://na1.api.riotgames.com/tft/league/v1/entries/by-summoner/_YQwcaIf4O3y-NR8j2jXthwJE-acdSCxvpgXYq39sWoNkTn15AQj0gXa-w?api_key={apiKey}",
