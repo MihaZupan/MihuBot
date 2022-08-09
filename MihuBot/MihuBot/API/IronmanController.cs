@@ -57,11 +57,16 @@ namespace MihuBot.API
                 static (ironman, cancellation) => ironman.GetApexRankAsync(cancellation),
                 static stats => stats.RefreshedAt);
 
+            var iconName = tierAndRP?.Tier?.Replace(' ', '_') ?? "Rookie_4";
+            var iconPath = iconName.Contains("Apex", StringComparison.OrdinalIgnoreCase)
+                ? "Apex_Predator.png"
+                : $"{iconName}.webp";
+
             return new RankModel(
                 tierAndRP?.RefreshedAt,
                 tierAndRP?.Tier ?? "Unknown",
                 tierAndRP?.RP ?? 0,
-                tierAndRP?.IconUrl);
+                $"https://{HttpContext.Request.Host.Value}/apex/{iconPath}");
         }
 
         [HttpGet]

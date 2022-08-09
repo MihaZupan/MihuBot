@@ -74,11 +74,11 @@ namespace MihuBot
                         return null;
                     }
 
-                    return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value, score.Metadata.IconUrl);
+                    return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value);
                 }
                 else
                 {
-                    return new ApexStatus(DateTime.UtcNow, "Unknown", 0, null);
+                    return new ApexStatus(DateTime.UtcNow, "Unknown", 0);
                 }
             });
         }
@@ -105,7 +105,7 @@ namespace MihuBot
 
         public record TFTStatus(DateTime RefreshedAt, string Rank, int LP);
 
-        public record ApexStatus(DateTime RefreshedAt, string Tier, int RP, string? IconUrl);
+        public record ApexStatus(DateTime RefreshedAt, string Tier, int RP);
 
         private sealed class ValorantMmrResponseModel
         {
