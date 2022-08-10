@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Husbando;
@@ -48,6 +49,12 @@ public class Startup
         services.AddApplicationInsightsTelemetry(options =>
         {
             options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+        });
+
+        services.AddHttpLogging(logging =>
+        {
+            logging.RequestHeaders.Add(HeaderNames.Referer);
+            logging.RequestHeaders.Add(HeaderNames.Origin);
         });
 
         services.AddSingleton<IPLoggerMiddleware>();
