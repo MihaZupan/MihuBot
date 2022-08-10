@@ -86,7 +86,23 @@ namespace MihuBot.API
 
             await Task.WhenAll(valorantTask, tftTask, apexTask);
 
-            return new CombinedModel(await valorantTask, await tftTask, await apexTask);
+            var valorant = await valorantTask;
+            var tft = await tftTask;
+            var apex = await apexTask;
+
+            if (valorant.RefreshedAt is { } valorantAge &&
+                tft.RefreshedAt is { } tftAge &&
+                apex.RefreshedAt is { } apexAge)
+            {
+                var maxRefreshedAt = new DateTime(Math.Max(valorantAge.Ticks, Math.Max(tftAge.Ticks, apexAge.Ticks)), DateTimeKind.Utc);
+                var age = (ulong)(DateTime.UtcNow - maxRefreshedAt).TotalSeconds;
+                if (age < 10)
+                {
+                    Response.Headers.CacheControl = $"public,max-age={10 - age}";
+                }
+            }
+
+            return new CombinedModel(valorant, tft, apex);
         }
 
         public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl, bool ReachedTop1Percent);
