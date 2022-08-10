@@ -7,7 +7,22 @@ namespace MihuBot.API
     [Route("api/[controller]/[action]")]
     public sealed class IronmanController : ControllerBase
     {
-        private const int MinimumFreshnessSeconds = 25;
+        private const int MinimumFreshnessSeconds = 30;
+        private const int HotCacheDurationSeconds = 10 * 60;
+        private const int HotCacheRefreshSeconds = MinimumFreshnessSeconds - 5;
+        private const int CacheControlMaxAge = 15;
+
+        private static readonly Timer s_hotCacheTimer = new(_ => {
+            if (Environment.TickCount64 - Volatile.Read(ref s_lastAccessedTicks) < HotCacheDurationSeconds * 1000)
+            {
+                s_lastIronmanDataService?.TryGetValorantRank();
+                s_lastIronmanDataService?.TryGetTFTRank();
+                s_lastIronmanDataService?.TryGetApexRank();
+            }
+        }, s_hotCacheTimer, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(HotCacheRefreshSeconds));
+
+        private static long s_lastAccessedTicks = 0;
+        private static IronmanDataService s_lastIronmanDataService;
 
         private readonly IronmanDataService _ironmanDataService;
         private readonly IConfigurationService _configuration;
@@ -18,6 +33,7 @@ namespace MihuBot.API
         {
             _ironmanDataService = ironmanDataService;
             _configuration = configuration;
+            s_lastIronmanDataService = ironmanDataService;
         }
 
         [HttpGet]
@@ -96,9 +112,9 @@ namespace MihuBot.API
             {
                 var maxRefreshedAt = new DateTime(Math.Max(valorantAge.Ticks, Math.Max(tftAge.Ticks, apexAge.Ticks)), DateTimeKind.Utc);
                 var age = (ulong)(DateTime.UtcNow - maxRefreshedAt).TotalSeconds;
-                if (age < 10)
+                if (age < CacheControlMaxAge)
                 {
-                    Response.Headers.CacheControl = $"public,max-age={10 - age}";
+                    Response.Headers.CacheControl = $"public,max-age={CacheControlMaxAge - age}";
                 }
             }
 
@@ -115,6 +131,8 @@ namespace MihuBot.API
             Func<T, DateTime> refreshedAtSelector)
             where T : class
         {
+            Volatile.Write(ref s_lastAccessedTicks, Environment.TickCount64);
+
             T rank = tryGetRank(_ironmanDataService);
 
             if (rank is null || (DateTime.UtcNow - refreshedAtSelector(rank)).TotalSeconds > MinimumFreshnessSeconds)
