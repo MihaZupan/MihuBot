@@ -288,7 +288,17 @@ public class Startup
         app.UseCors();
 
         app.UseHttpsRedirection();
-        app.UseStaticFiles();
+
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            OnPrepareResponse = ctx =>
+            {
+                if (Path.GetExtension(ctx.File.Name.AsSpan()) is ".png" or ".webp")
+                {
+                    ctx.Context.Response.Headers.CacheControl = "public,max-age=604800";
+                }
+            }
+        });
 
         app.UseRouting();
 

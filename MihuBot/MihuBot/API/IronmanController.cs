@@ -12,6 +12,8 @@ namespace MihuBot.API
         private readonly IronmanDataService _ironmanDataService;
         private readonly IConfigurationService _configuration;
 
+        private string ImagePathBase => $"https://{HttpContext.Request.Host.Value}/ironman";
+
         public IronmanController(IronmanDataService ironmanDataService, IConfigurationService configuration)
         {
             _ironmanDataService = ironmanDataService;
@@ -32,7 +34,7 @@ namespace MihuBot.API
                 tierAndRank?.RefreshedAt,
                 tierAndRank?.Tier ?? "Unknown",
                 tierAndRank?.RankInTier ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/valorant/{iconTier}.png",
+                $"{ImagePathBase}/valorant/{iconTier}.png",
                 GetIsCompleted("Ironman.Valorant.Completed", iconTier, static tier => ContainsAny(tier, "Ascendant_3", "Immortal", "Radiant")));
         }
 
@@ -50,7 +52,7 @@ namespace MihuBot.API
                 rankAndLP?.RefreshedAt,
                 rankAndLP?.Rank ?? "Unknown",
                 rankAndLP?.LP ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/tft/{iconRank}.webp",
+                $"{ImagePathBase}/tft/{iconRank}.webp",
                 GetIsCompleted("Ironman.TFT.Completed", iconRank, static rank => ContainsAny(rank, "Master", "Grandmaster", "Challenger")));
         }
 
@@ -71,7 +73,7 @@ namespace MihuBot.API
                 tierAndRP?.RefreshedAt,
                 tierAndRP?.Tier ?? "Unknown",
                 tierAndRP?.RP ?? 0,
-                $"https://{HttpContext.Request.Host.Value}/apex/{iconPath}",
+                $"{ImagePathBase}/apex/{iconPath}",
                 GetIsCompleted("Ironman.Apex.Completed", iconPath, static rank => ContainsAny(rank, "Diamond_3", "Diamond_2", "Diamond_1", "Master", "Predator")));
         }
 
