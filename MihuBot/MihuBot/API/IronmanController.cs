@@ -110,11 +110,11 @@ namespace MihuBot.API
                 tft.RefreshedAt is { } tftAge &&
                 apex.RefreshedAt is { } apexAge)
             {
-                var maxRefreshedAt = new DateTime(Math.Max(valorantAge.Ticks, Math.Max(tftAge.Ticks, apexAge.Ticks)), DateTimeKind.Utc);
-                var age = (ulong)(DateTime.UtcNow - maxRefreshedAt).TotalSeconds;
+                var minRefreshedAt = new DateTime(Math.Min(valorantAge.Ticks, Math.Min(tftAge.Ticks, apexAge.Ticks)), DateTimeKind.Utc);
+                var age = (ulong)(DateTime.UtcNow - minRefreshedAt).TotalSeconds;
                 if (age < CacheControlMaxAge)
                 {
-                    Response.Headers.CacheControl = $"public,max-age={CacheControlMaxAge - age}";
+                    Response.Headers.CacheControl = $"public,max-age={Math.Min(5, CacheControlMaxAge - age)}";
                 }
             }
 
