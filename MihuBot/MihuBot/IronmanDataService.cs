@@ -1,5 +1,6 @@
 ﻿using MihuBot.Configuration;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 #nullable enable
@@ -21,9 +22,19 @@ namespace MihuBot
 
             _valorantDataSource = new DataSource<ValorantStatus>(logger, async () =>
             {
-                var response = await _httpClient.GetFromJsonAsync<ValorantMmrResponseModel>(
+                byte[] responseJson = await _httpClient.GetByteArrayAsync(
                     "https://api.henrikdev.xyz/valorant/v2/mmr/na/ironmanchallenge/iron",
                     CancellationToken.None);
+
+                ValorantMmrResponseModel? response;
+                try
+                {
+                    response = JsonSerializer.Deserialize<ValorantMmrResponseModel>(responseJson);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Failed to parse json: {Encoding.ASCII.GetString(responseJson)}", ex);
+                }
 
                 var current = response?.Data?.CurrentData;
                 if (current?.Tier is null)
@@ -198,6 +209,7 @@ namespace MihuBot
             private T? _lastResponseData;
             private Task? _currentFetchOperation;
             private long _lastRefreshTicks = -RefreshAfterMinimumMs;
+            private int _consecutiveFailures;
 
             private long ElapsedMs => Environment.TickCount64 - _lastRefreshTicks;
 
@@ -261,10 +273,16 @@ namespace MihuBot
                                         _lastResponseData = await _valueFactory();
 
                                         _logger.DebugLog($"Got new {typeof(T).Name} rank information: {_lastResponseData}");
+
+                                        _consecutiveFailures = 0;
                                     }
                                     catch (Exception ex)
                                     {
-                                        await _logger.DebugAsync($"Failed to fetch new {typeof(T).Name} rank information: {ex}");
+                                        if (++_consecutiveFailures == 10)
+                                        {
+                                            _consecutiveFailures = 0;
+                                            await _logger.DebugAsync($"Failed to fetch new {typeof(T).Name} rank information: {ex}", truncateToFile: true);
+                                        }
                                     }
                                     finally
                                     {

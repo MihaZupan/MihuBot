@@ -1,5 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using MihuBot.Helpers;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.IO.Compression;
@@ -426,7 +427,7 @@ public sealed class Logger
         });
     }
 
-    public async Task DebugAsync(string debugMessage, SocketUserMessage message = null)
+    public async Task DebugAsync(string debugMessage, SocketUserMessage message = null, bool truncateToFile = false)
     {
         DebugLog(debugMessage, message);
 
@@ -436,7 +437,17 @@ public sealed class Logger
         try
         {
             if (debugMessage.Length >= 2000)
-                debugMessage = debugMessage.Substring(0, 1995) + " ...";
+            {
+                if (truncateToFile)
+                {
+                    await Options.DebugTextChannel.SendTextFileAsync("Debug.txt", debugMessage);
+                    return;
+                }
+                else
+                {
+                    debugMessage = debugMessage.Substring(0, 1995) + " ...";
+                }
+            }
 
             await Options.DebugTextChannel.SendMessageAsync(debugMessage);
         }
