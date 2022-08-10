@@ -1,10 +1,10 @@
 using AspNet.Security.OAuth.Discord;
 using Azure;
 using Azure.AI.TextAnalytics;
-using Google.Apis.Logging;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
+using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
@@ -49,6 +49,17 @@ public class Startup
         services.AddApplicationInsightsTelemetry(options =>
         {
             options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+        });
+
+        services.ConfigureTelemetryModule<EventCounterCollectionModule>((module, options) =>
+        {
+            foreach (var (eventSource, counters) in RuntimeEventCounters.EventCounters)
+            {
+                foreach (string counter in counters)
+                {
+                    module.Counters.Add(new EventCounterCollectionRequest(eventSource, counter));
+                }
+            }
         });
 
         services.AddHttpLogging(logging =>
