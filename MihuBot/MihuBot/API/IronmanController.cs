@@ -46,11 +46,16 @@ namespace MihuBot.API
 
             var iconTier = tierAndRank?.Tier?.Replace(' ', '_') ?? "Iron_1";
 
+            const string RankGoal = "Ascendant 3";
+            const string GoalIcon = "Ascendant_3";
+
             return new RankModel(
                 tierAndRank?.RefreshedAt,
                 tierAndRank?.Tier ?? "Unknown",
                 tierAndRank?.RankInTier ?? 0,
                 $"{ImagePathBase}/valorant/{iconTier}.png",
+                RankGoal,
+                $"{ImagePathBase}/valorant/{GoalIcon}.png",
                 GetIsCompleted("Ironman.Valorant.Completed", iconTier, static tier => ContainsAny(tier, "Ascendant_3", "Immortal", "Radiant")));
         }
 
@@ -64,11 +69,16 @@ namespace MihuBot.API
 
             var iconRank = rankAndLP?.Rank?.Split(' ')[0] ?? "Iron";
 
+            const string RankGoal = "Diamond 1";
+            const string GoalIcon = "Diamond";
+
             return new RankModel(
                 rankAndLP?.RefreshedAt,
                 rankAndLP?.Rank ?? "Unknown",
                 rankAndLP?.LP ?? 0,
                 $"{ImagePathBase}/tft/{iconRank}.webp",
+                RankGoal,
+                $"{ImagePathBase}/tft/{GoalIcon}.webp",
                 GetIsCompleted("Ironman.TFT.Completed", iconRank, static rank => ContainsAny(rank, "Master", "Grandmaster", "Challenger")));
         }
 
@@ -85,11 +95,16 @@ namespace MihuBot.API
                 ? "Apex_Predator.png"
                 : $"{iconName}.webp";
 
+            const string RankGoal = "Diamond 3";
+            const string GoalIcon = "Diamond_3";
+
             return new RankModel(
                 tierAndRP?.RefreshedAt,
                 tierAndRP?.Tier ?? "Unknown",
                 tierAndRP?.RP ?? 0,
                 $"{ImagePathBase}/apex/{iconPath}",
+                RankGoal,
+                $"{ImagePathBase}/apex/{GoalIcon}.webp",
                 GetIsCompleted("Ironman.Apex.Completed", iconPath, static rank => ContainsAny(rank, "Diamond_3", "Diamond_2", "Diamond_1", "Master", "Predator")));
         }
 
@@ -121,7 +136,7 @@ namespace MihuBot.API
             return new CombinedModel(valorant, tft, apex);
         }
 
-        public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl, bool ReachedTop1Percent);
+        public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl, string RankGoal, string RankGoalIcon, bool ReachedTop1Percent);
 
         public record CombinedModel(RankModel Valorant, RankModel TFT, RankModel Apex);
 
