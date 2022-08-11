@@ -14,13 +14,6 @@ namespace MihuBot
         private readonly DataSource<TFTStatus> _tftDataSource;
         private readonly DataSource<ApexStatus> _apexDataSource;
 
-        private readonly Dictionary<string, string> _rankedGoals = new Dictionary<string, string>()
-        {
-            { "tft", "Diamond 1" },
-            { "valo", "Ascendant 3" },
-            { "apex", "Diamond 3" }
-        };
-
         public IronmanDataService(HttpClient httpClient, Logger logger, IConfiguration configuration, IConfigurationService configurationService)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -49,7 +42,7 @@ namespace MihuBot
                     return null;
                 }
 
-                return new ValorantStatus(DateTime.UtcNow, current.Tier, current.RankInTier, _rankedGoals["valo"]);
+                return new ValorantStatus(DateTime.UtcNow, current.Tier, current.RankInTier);
             });
 
             _tftDataSource = new DataSource<TFTStatus>(logger, async () =>
@@ -69,7 +62,7 @@ namespace MihuBot
                 string tier = current.Tier;
                 tier = $"{tier[0]}{tier.Substring(1).ToLowerInvariant()}";
 
-                return new TFTStatus(DateTime.UtcNow, $"{tier} {current.Rank}", current.LeaguePoints, _rankedGoals["tft"]);
+                return new TFTStatus(DateTime.UtcNow, $"{tier} {current.Rank}", current.LeaguePoints);
             });
 
             _apexDataSource = new DataSource<ApexStatus>(logger, async () =>
@@ -92,11 +85,11 @@ namespace MihuBot
                         return null;
                     }
 
-                    return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value, _rankedGoals["apex"]);
+                    return new ApexStatus(DateTime.UtcNow, score.Metadata.RankName, (int)score.Value);
                 }
                 else
                 {
-                    return new ApexStatus(DateTime.UtcNow, "Unknown", 0, _rankedGoals["apex"]);
+                    return new ApexStatus(DateTime.UtcNow, "Unknown", 0);
                 }
             });
         }
@@ -119,11 +112,11 @@ namespace MihuBot
         public ValueTask<ApexStatus?> GetApexRankAsync(CancellationToken cancellation) =>
             _apexDataSource.GetLatestAsync(cancellation);
 
-        public record ValorantStatus(DateTime RefreshedAt, string Tier, int RankInTier, string RankGoal);
+        public record ValorantStatus(DateTime RefreshedAt, string Tier, int RankInTier);
 
-        public record TFTStatus(DateTime RefreshedAt, string Rank, int LP, string RankGoal);
+        public record TFTStatus(DateTime RefreshedAt, string Rank, int LP);
 
-        public record ApexStatus(DateTime RefreshedAt, string Tier, int RP, string RankGoal);
+        public record ApexStatus(DateTime RefreshedAt, string Tier, int RP);
 
         private sealed class ValorantMmrResponseModel
         {

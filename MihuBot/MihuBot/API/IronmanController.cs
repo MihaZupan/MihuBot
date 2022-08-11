@@ -46,16 +46,16 @@ namespace MihuBot.API
 
             var iconTier = tierAndRank?.Tier?.Replace(' ', '_') ?? "Iron_1";
 
-            var rankGoal = tierAndRank.RankGoal;
-            var goalIcon = rankGoal.Replace(' ', '_') ?? "Iron_1";
+            const string RankGoal = "Ascendant 3";
+            const string GoalIcon = "Ascendant_3";
 
             return new RankModel(
                 tierAndRank?.RefreshedAt,
                 tierAndRank?.Tier ?? "Unknown",
                 tierAndRank?.RankInTier ?? 0,
                 $"{ImagePathBase}/valorant/{iconTier}.png",
-                rankGoal,
-                $"{ImagePathBase}/valorant/{goalIcon}.png",
+                RankGoal,
+                $"{ImagePathBase}/valorant/{GoalIcon}.png",
                 GetIsCompleted("Ironman.Valorant.Completed", iconTier, static tier => ContainsAny(tier, "Ascendant_3", "Immortal", "Radiant")));
         }
 
@@ -69,16 +69,16 @@ namespace MihuBot.API
 
             var iconRank = rankAndLP?.Rank?.Split(' ')[0] ?? "Iron";
 
-            var rankGoal = rankAndLP.RankGoal;
-            var goalIcon = rankGoal.Split(' ')[0] ?? "Iron";
+            const string RankGoal = "Diamond 1";
+            const string GoalIcon = "Diamond";
 
             return new RankModel(
                 rankAndLP?.RefreshedAt,
                 rankAndLP?.Rank ?? "Unknown",
                 rankAndLP?.LP ?? 0,
                 $"{ImagePathBase}/tft/{iconRank}.webp",
-                rankGoal,
-                $"{ImagePathBase}/tft/{goalIcon}.webp",
+                RankGoal,
+                $"{ImagePathBase}/tft/{GoalIcon}.webp",
                 GetIsCompleted("Ironman.TFT.Completed", iconRank, static rank => ContainsAny(rank, "Master", "Grandmaster", "Challenger")));
         }
 
@@ -95,19 +95,16 @@ namespace MihuBot.API
                 ? "Apex_Predator.png"
                 : $"{iconName}.webp";
 
-            var goalRank = tierAndRP.RankGoal;
-            var goalIconName = goalRank.Replace(' ', '_') ?? "Rookie_4";
-            var goalIconPath = goalIconName.Contains("Apex", StringComparison.OrdinalIgnoreCase)
-                ? "Apex_Predator.png"
-                : $"{goalIconName}.webp";
+            const string RankGoal = "Diamond 3";
+            const string GoalIcon = "Diamond_3";
 
             return new RankModel(
                 tierAndRP?.RefreshedAt,
                 tierAndRP?.Tier ?? "Unknown",
                 tierAndRP?.RP ?? 0,
                 $"{ImagePathBase}/apex/{iconPath}",
-                goalRank,
-                $"{ImagePathBase}/apex/{goalIconPath}",
+                RankGoal,
+                $"{ImagePathBase}/apex/{GoalIcon}.webp",
                 GetIsCompleted("Ironman.Apex.Completed", iconPath, static rank => ContainsAny(rank, "Diamond_3", "Diamond_2", "Diamond_1", "Master", "Predator")));
         }
 
