@@ -293,7 +293,7 @@ public class Startup
         {
             OnPrepareResponse = ctx =>
             {
-                if (Path.GetExtension(ctx.File.Name.AsSpan()) is ".png" or ".webp")
+                if (Path.GetExtension(ctx.File.Name.AsSpan()) is ".png" or ".webp" or ".jpg" or ".mp4" or ".jfif")
                 {
                     ctx.Context.Response.Headers.CacheControl = "public,max-age=604800";
                 }
