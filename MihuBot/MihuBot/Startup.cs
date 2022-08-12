@@ -208,6 +208,9 @@ public class Startup
                     context.User.IsAdmin()));
         });
 
+        services.AddReverseProxy()
+            .LoadFromConfig(Configuration.GetSection("ReverseProxy"));
+
         Console.WriteLine("Services configured.");
     }
 
@@ -309,6 +312,7 @@ public class Startup
         {
             endpoints.MapControllers();
             endpoints.MapBlazorHub();
+            endpoints.MapReverseProxy();
             endpoints.MapFallbackToPage("/_Host");
         });
     }
