@@ -393,4 +393,6 @@ public static class Helpers
 
         return false;
     }
+
+    public static int IndexOf<T>(this T[] array, T element) => Array.IndexOf(array, element);
 }

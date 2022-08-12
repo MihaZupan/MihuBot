@@ -12,6 +12,39 @@ namespace MihuBot.API
         private const int HotCacheRefreshSeconds = MinimumFreshnessSeconds - 5;
         private const int CacheControlMaxAge = 15;
 
+        private static readonly string[] s_valorantRankOrder = new[]
+        {
+            "Iron 1", "Iron 2", "Iron 3",
+            "Bronze 1", "Bronze 2", "Bronze 3",
+            "Silver 1", "Silver 2", "Silver 3",
+            "Gold 1", "Gold 2", "Gold 3",
+            "Platinum 1", "Platinum 2", "Platinum 3",
+            "Diamond 1", "Diamond 2", "Diamond 3",
+            "Ascendant 1", "Ascendant 2", "Ascendant 3",
+            "Immortal 1", "Immortal 2", "Immortal 3",
+            "Radiant", "Radiant"
+        };
+        private static readonly string[] s_tftRankOrder = new[]
+        {
+            "Iron IV", "Iron III", "Iron II", "Iron I",
+            "Bronze IV", "Bronze III", "Bronze II", "Bronze I",
+            "Silver IV", "Silver III", "Silver II", "Silver I",
+            "Gold IV", "Gold III", "Gold II", "Gold I",
+            "Platinum IV", "Platinum III", "Platinum II", "Platinum I",
+            "Diamond IV", "Diamond III", "Diamond II", "Diamond I",
+            "Master I", "Grandmaster I", "Challenger I", "Challenger", "Challenger",
+        };
+        private static readonly string[] s_apexRankOrder = new[]
+        {
+            "Rookie 4", "Rookie 3", "Rookie 2", "Rookie 1",
+            "Bronze 4", "Bronze 3", "Bronze 2", "Bronze 1",
+            "Silver 4", "Silver 3", "Silver 2", "Silver 1",
+            "Gold 4", "Gold 3", "Gold 2", "Gold 1",
+            "Platinum 4", "Platinum 3", "Platinum 2", "Platinum 1",
+            "Diamond 4", "Diamond 3", "Diamond 2", "Diamond 1",
+            "Master", "Apex Predator", "Apex Predator"
+        };
+
         private static readonly Timer s_hotCacheTimer = new(_ => {
             if (Environment.TickCount64 - Volatile.Read(ref s_lastAccessedTicks) < HotCacheDurationSeconds * 1000)
             {
@@ -44,19 +77,25 @@ namespace MihuBot.API
                 static (ironman, cancellation) => ironman.GetValorantRankAsync(cancellation),
                 static stats => stats.RefreshedAt);
 
-            var iconTier = tierAndRank?.Tier?.Replace(' ', '_') ?? "Iron_1";
+            var tier = tierAndRank?.Tier ?? "Iron 1";
+            var iconTier = tier.Replace(' ', '_');
+
+            var nextRank = s_valorantRankOrder[s_valorantRankOrder.IndexOf(tier) + 1];
+            var nextRankIcon = nextRank.Replace(' ', '_');
 
             const string RankGoal = "Ascendant 3";
             const string GoalIcon = "Ascendant_3";
 
             return new RankModel(
                 tierAndRank?.RefreshedAt,
-                tierAndRank?.Tier ?? "Unknown",
+                tier,
                 tierAndRank?.RankInTier ?? 0,
                 $"{ImagePathBase}/valorant/{iconTier}.png",
                 RankGoal,
                 $"{ImagePathBase}/valorant/{GoalIcon}.png",
-                GetIsCompleted("Ironman.Valorant.Completed", iconTier, static tier => ContainsAny(tier, "Ascendant_3", "Immortal", "Radiant")));
+                nextRank,
+                $"{ImagePathBase}/valorant/{nextRankIcon}.png",
+                GetIsCompleted("Ironman.Valorant.Completed", tier, static rank => s_valorantRankOrder.IndexOf(rank) >= s_valorantRankOrder.IndexOf(RankGoal)));
         }
 
         [HttpGet]
@@ -67,19 +106,25 @@ namespace MihuBot.API
                 static (ironman, cancellation) => ironman.GetTFTRankAsync(cancellation),
                 static stats => stats.RefreshedAt);
 
-            var iconRank = rankAndLP?.Rank?.Split(' ')[0] ?? "Iron";
+            var rank = rankAndLP?.Rank ?? "Iron IV";
+            var iconRank = rank.Split(' ')[0];
+
+            var nextRank = s_tftRankOrder[s_tftRankOrder.IndexOf(rank) + 1];
+            var nextRankIcon = nextRank.Split(' ')[0];
 
             const string RankGoal = "Diamond 1";
             const string GoalIcon = "Diamond";
 
             return new RankModel(
                 rankAndLP?.RefreshedAt,
-                rankAndLP?.Rank ?? "Unknown",
+                rank,
                 rankAndLP?.LP ?? 0,
                 $"{ImagePathBase}/tft/{iconRank}.webp",
                 RankGoal,
                 $"{ImagePathBase}/tft/{GoalIcon}.webp",
-                GetIsCompleted("Ironman.TFT.Completed", iconRank, static rank => ContainsAny(rank, "Master", "Grandmaster", "Challenger")));
+                nextRank,
+                $"{ImagePathBase}/tft/{nextRankIcon}.webp",
+                GetIsCompleted("Ironman.TFT.Completed", rank, static rank => s_tftRankOrder.IndexOf(rank) >= s_tftRankOrder.IndexOf(RankGoal)));
         }
 
         [HttpGet]
@@ -90,10 +135,17 @@ namespace MihuBot.API
                 static (ironman, cancellation) => ironman.GetApexRankAsync(cancellation),
                 static stats => stats.RefreshedAt);
 
-            var iconName = tierAndRP?.Tier?.Replace(' ', '_') ?? "Rookie_4";
+            var tier = tierAndRP?.Tier ?? "Rookie 4";
+            var iconName = tier.Replace(' ', '_');
             var iconPath = iconName.Contains("Apex", StringComparison.OrdinalIgnoreCase)
                 ? "Apex_Predator.png"
                 : $"{iconName}.webp";
+
+            var nextRank = s_apexRankOrder[s_apexRankOrder.IndexOf(tier) + 1];
+            var nextRankIconName = nextRank.Replace(' ', '_');
+            var nextRankIconPath = nextRankIconName.Contains("Apex", StringComparison.OrdinalIgnoreCase)
+                ? "Apex_Predator.png"
+                : $"{nextRankIconName}.webp";
 
             const string RankGoal = "Diamond 3";
             const string GoalIcon = "Diamond_3";
@@ -105,7 +157,9 @@ namespace MihuBot.API
                 $"{ImagePathBase}/apex/{iconPath}",
                 RankGoal,
                 $"{ImagePathBase}/apex/{GoalIcon}.webp",
-                GetIsCompleted("Ironman.Apex.Completed", iconPath, static rank => ContainsAny(rank, "Diamond_3", "Diamond_2", "Diamond_1", "Master", "Predator")));
+                nextRank,
+                $"{ImagePathBase}/apex/{nextRankIconPath}",
+                GetIsCompleted("Ironman.Apex.Completed", tier, static rank => s_apexRankOrder.IndexOf(rank) >= s_apexRankOrder.IndexOf(RankGoal)));
         }
 
         [HttpGet]
@@ -136,7 +190,11 @@ namespace MihuBot.API
             return new CombinedModel(valorant, tft, apex);
         }
 
-        public record RankModel(DateTime? RefreshedAt, string Rank, int PointsInRank, string RankIconUrl, string RankGoal, string RankGoalIcon, bool ReachedTop1Percent);
+        public record RankModel(DateTime? RefreshedAt,
+            string Rank, int PointsInRank, string RankIconUrl,
+            string RankGoal, string RankGoalIcon,
+            string NextRank, string NextRankIcon,
+            bool ReachedTop1Percent);
 
         public record CombinedModel(RankModel Valorant, RankModel TFT, RankModel Apex);
 
