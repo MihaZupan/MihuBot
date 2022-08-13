@@ -164,7 +164,7 @@ namespace MihuBot.API
             int rankIndex = s_apexRankOrder.IndexOf(tier);
             int pointsForCurrentRank = s_apexRankPoints[rankIndex];
             int pointsForNextRank = s_apexRankPoints[rankIndex + 1];
-            int progressionInRank = (int)((currentPoints - pointsForCurrentRank) / (double)(pointsForNextRank - pointsForCurrentRank));
+            int progressionInRank = (int)(100d * (currentPoints - pointsForCurrentRank) / (pointsForNextRank - pointsForCurrentRank));
 
             return new RankModel(
                 tierAndRP?.RefreshedAt,
