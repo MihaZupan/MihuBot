@@ -312,8 +312,8 @@ public class Startup
         {
             endpoints.MapControllers();
             endpoints.MapBlazorHub();
-            endpoints.MapReverseProxy();
             endpoints.MapFallbackToPage("/_Host");
+            endpoints.MapReverseProxy();
         });
     }
 
