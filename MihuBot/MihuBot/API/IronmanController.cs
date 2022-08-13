@@ -82,6 +82,9 @@ namespace MihuBot.API
         [HttpGet]
         public async Task<RankModel> Valorant()
         {
+            const string RankGoal = "Ascendant 3";
+            const string GoalIcon = "Ascendant_3";
+
             var tierAndRank = await GetRankAsync(
                 static ironman => ironman.TryGetValorantRank(),
                 static (ironman, cancellation) => ironman.GetValorantRankAsync(cancellation),
@@ -90,11 +93,11 @@ namespace MihuBot.API
             var tier = tierAndRank?.Tier ?? "Iron 1";
             var iconTier = tier.Replace(' ', '_');
 
-            var nextRank = s_valorantRankOrder[s_valorantRankOrder.IndexOf(tier) + 1];
-            var nextRankIcon = nextRank.Replace(' ', '_');
+            int rankIndex = s_valorantRankOrder.IndexOf(tier);
+            int goalIndex = s_valorantRankOrder.IndexOf(RankGoal);
 
-            const string RankGoal = "Ascendant 3";
-            const string GoalIcon = "Ascendant_3";
+            var nextRank = s_valorantRankOrder[rankIndex + 1];
+            var nextRankIcon = nextRank.Replace(' ', '_');
 
             return new RankModel(
                 tierAndRank?.RefreshedAt,
@@ -105,12 +108,17 @@ namespace MihuBot.API
                 $"{ImagePathBase}/valorant/{GoalIcon}.png",
                 nextRank,
                 $"{ImagePathBase}/valorant/{nextRankIcon}.png",
-                GetIsCompleted("Ironman.Valorant.Completed", tier, static rank => s_valorantRankOrder.IndexOf(rank) >= s_valorantRankOrder.IndexOf(RankGoal)));
+                rankIndex,
+                goalIndex,
+                GetIsCompleted("Ironman.Valorant.Completed", rankIndex >= goalIndex));
         }
 
         [HttpGet]
         public async Task<RankModel> TFT()
         {
+            const string RankGoal = "Diamond I";
+            const string GoalIcon = "Diamond";
+
             var rankAndLP = await GetRankAsync(
                 static ironman => ironman.TryGetTFTRank(),
                 static (ironman, cancellation) => ironman.GetTFTRankAsync(cancellation),
@@ -119,11 +127,11 @@ namespace MihuBot.API
             var rank = rankAndLP?.Rank ?? "Iron IV";
             var iconRank = rank.Split(' ')[0];
 
-            var nextRank = s_tftRankOrder[s_tftRankOrder.IndexOf(rank) + 1];
-            var nextRankIcon = nextRank.Split(' ')[0];
+            int rankIndex = s_tftRankOrder.IndexOf(rank);
+            int goalIndex = s_tftRankOrder.IndexOf(RankGoal);
 
-            const string RankGoal = "Diamond 1";
-            const string GoalIcon = "Diamond";
+            var nextRank = s_tftRankOrder[rankIndex + 1];
+            var nextRankIcon = nextRank.Split(' ')[0];
 
             return new RankModel(
                 rankAndLP?.RefreshedAt,
@@ -134,12 +142,17 @@ namespace MihuBot.API
                 $"{ImagePathBase}/tft/{GoalIcon}.webp",
                 nextRank,
                 $"{ImagePathBase}/tft/{nextRankIcon}.webp",
-                GetIsCompleted("Ironman.TFT.Completed", rank, static rank => s_tftRankOrder.IndexOf(rank) >= s_tftRankOrder.IndexOf(RankGoal)));
+                rankIndex,
+                goalIndex,
+                GetIsCompleted("Ironman.TFT.Completed", rankIndex >= goalIndex));
         }
 
         [HttpGet]
         public async Task<RankModel> Apex()
         {
+            const string RankGoal = "Diamond 3";
+            const string GoalIcon = "Diamond_3";
+
             var tierAndRP = await GetRankAsync(
                 static ironman => ironman.TryGetApexRank(),
                 static (ironman, cancellation) => ironman.GetApexRankAsync(cancellation),
@@ -151,16 +164,15 @@ namespace MihuBot.API
                 ? "Apex_Predator.png"
                 : $"{iconName}.webp";
 
-            var nextRank = s_apexRankOrder[s_apexRankOrder.IndexOf(tier) + 1];
+            int rankIndex = s_apexRankOrder.IndexOf(tier);
+            int goalIndex = s_apexRankOrder.IndexOf(RankGoal);
+
+            var nextRank = s_apexRankOrder[rankIndex + 1];
             var nextRankIconName = nextRank.Replace(' ', '_');
             var nextRankIconPath = nextRankIconName.Contains("Apex", StringComparison.OrdinalIgnoreCase)
                 ? "Apex_Predator.png"
                 : $"{nextRankIconName}.webp";
 
-            const string RankGoal = "Diamond 3";
-            const string GoalIcon = "Diamond_3";
-
-            int rankIndex = s_apexRankOrder.IndexOf(tier);
             int pointsForCurrentRank = s_apexRankPoints[rankIndex];
             int pointsForNextRank = s_apexRankPoints[rankIndex + 1];
             int currentPoints = tierAndRP?.RP ?? pointsForCurrentRank;
@@ -175,7 +187,9 @@ namespace MihuBot.API
                 $"{ImagePathBase}/apex/{GoalIcon}.webp",
                 nextRank,
                 $"{ImagePathBase}/apex/{nextRankIconPath}",
-                GetIsCompleted("Ironman.Apex.Completed", tier, static rank => s_apexRankOrder.IndexOf(rank) >= s_apexRankOrder.IndexOf(RankGoal)));
+                rankIndex,
+                goalIndex,
+                GetIsCompleted("Ironman.Apex.Completed", rankIndex >= goalIndex));
         }
 
         [HttpGet]
@@ -210,6 +224,7 @@ namespace MihuBot.API
             string Rank, int PointsInRank, string RankIconUrl,
             string RankGoal, string RankGoalIcon,
             string NextRank, string NextRankIcon,
+            int CurrentRankIndex, int GoalRankIndex,
             bool ReachedTop1Percent);
 
         public record CombinedModel(RankModel Valorant, RankModel TFT, RankModel Apex);
@@ -232,30 +247,17 @@ namespace MihuBot.API
             return rank;
         }
 
-        private bool GetIsCompleted<T>(string configKey, T state, Func<T, bool> checkCompleted)
+        private bool GetIsCompleted(string configKey, bool currentIsCompleted)
         {
             if (_configuration.TryGet(null, configKey, out _))
             {
                 return true;
             }
 
-            if (checkCompleted(state))
+            if (currentIsCompleted)
             {
                 _configuration.Set(null, configKey, "1");
                 return true;
-            }
-
-            return false;
-        }
-
-        private static bool ContainsAny(string text, params string[] substrings)
-        {
-            foreach (string s in substrings)
-            {
-                if (text.Contains(s, StringComparison.Ordinal))
-                {
-                    return true;
-                }
             }
 
             return false;
