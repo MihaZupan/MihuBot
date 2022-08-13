@@ -44,6 +44,16 @@ namespace MihuBot.API
             "Diamond 4", "Diamond 3", "Diamond 2", "Diamond 1",
             "Master", "Apex Predator", "Apex Predator"
         };
+        private static readonly int[] s_apexRankPoints = new[]
+        {
+            0, 250, 500, 750,
+            1000, 1500, 2000, 2500,
+            3000, 3600, 4200, 4800,
+            5400, 6100, 6800, 7500,
+            8200, 9000, 9800, 10600,
+            11400, 12300, 13200, 14100,
+            15000, 100000, 100000
+        };
 
         private static readonly Timer s_hotCacheTimer = new(_ => {
             if (Environment.TickCount64 - Volatile.Read(ref s_lastAccessedTicks) < HotCacheDurationSeconds * 1000)
@@ -150,10 +160,16 @@ namespace MihuBot.API
             const string RankGoal = "Diamond 3";
             const string GoalIcon = "Diamond_3";
 
+            int currentPoints = tierAndRP?.RP ?? 0;
+            int rankIndex = s_apexRankOrder.IndexOf(tier);
+            int pointsForCurrentRank = s_apexRankPoints[rankIndex];
+            int pointsForNextRank = s_apexRankPoints[rankIndex + 1];
+            int progressionInRank = (int)((currentPoints - pointsForCurrentRank) / (double)(pointsForNextRank - pointsForCurrentRank));
+
             return new RankModel(
                 tierAndRP?.RefreshedAt,
-                tierAndRP?.Tier ?? "Unknown",
-                tierAndRP?.RP ?? 0,
+                tier,
+                progressionInRank,
                 $"{ImagePathBase}/apex/{iconPath}",
                 RankGoal,
                 $"{ImagePathBase}/apex/{GoalIcon}.webp",
