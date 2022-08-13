@@ -150,8 +150,8 @@ namespace MihuBot.API
         [HttpGet]
         public async Task<RankModel> Apex()
         {
-            const string RankGoal = "Diamond 3";
-            const string GoalIcon = "Diamond_3";
+            const string RankGoal = "Diamond 4";
+            const string GoalIcon = "Diamond_4";
 
             var tierAndRP = await GetRankAsync(
                 static ironman => ironman.TryGetApexRank(),
