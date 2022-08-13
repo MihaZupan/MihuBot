@@ -160,10 +160,10 @@ namespace MihuBot.API
             const string RankGoal = "Diamond 3";
             const string GoalIcon = "Diamond_3";
 
-            int currentPoints = tierAndRP?.RP ?? 0;
             int rankIndex = s_apexRankOrder.IndexOf(tier);
             int pointsForCurrentRank = s_apexRankPoints[rankIndex];
             int pointsForNextRank = s_apexRankPoints[rankIndex + 1];
+            int currentPoints = tierAndRP?.RP ?? pointsForCurrentRank;
             int progressionInRank = (int)(100d * (currentPoints - pointsForCurrentRank) / (pointsForNextRank - pointsForCurrentRank));
 
             return new RankModel(
