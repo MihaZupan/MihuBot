@@ -99,11 +99,14 @@ namespace MihuBot.API
             var nextRank = s_valorantRankOrder[rankIndex + 1];
             var nextRankIcon = nextRank.Replace(' ', '_');
 
+            int rr = tierAndRank?.RankInTier ?? 0;
+
             return new RankModel(
                 tierAndRank?.RefreshedAt,
                 tier,
-                tierAndRank?.RankInTier ?? 0,
+                rr,
                 $"{ImagePathBase}/valorant/{iconTier}.png",
+                $"{rr} RR",
                 RankGoal,
                 $"{ImagePathBase}/valorant/{GoalIcon}.png",
                 nextRank,
@@ -133,11 +136,14 @@ namespace MihuBot.API
             var nextRank = s_tftRankOrder[rankIndex + 1];
             var nextRankIcon = nextRank.Split(' ')[0];
 
+            int lp = rankAndLP?.LP ?? 0;
+
             return new RankModel(
                 rankAndLP?.RefreshedAt,
                 rank,
-                rankAndLP?.LP ?? 0,
+                lp,
                 $"{ImagePathBase}/tft/{iconRank}.webp",
+                $"{lp} LP",
                 RankGoal,
                 $"{ImagePathBase}/tft/{GoalIcon}.webp",
                 nextRank,
@@ -183,6 +189,7 @@ namespace MihuBot.API
                 tier,
                 progressionInRank,
                 $"{ImagePathBase}/apex/{iconPath}",
+                $"{currentPoints} RR",
                 RankGoal,
                 $"{ImagePathBase}/apex/{GoalIcon}.webp",
                 nextRank,
@@ -222,6 +229,7 @@ namespace MihuBot.API
 
         public record RankModel(DateTime? RefreshedAt,
             string Rank, int PointsInRank, string RankIconUrl,
+            string PointsDisplayValue,
             string RankGoal, string RankGoalIcon,
             string NextRank, string NextRankIcon,
             int CurrentRankIndex, int GoalRankIndex,
