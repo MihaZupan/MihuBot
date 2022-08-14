@@ -141,6 +141,7 @@ namespace MihuBot.API
                 rankIndex >= s_tftRankOrder.IndexOf("Grandmaster 1") ? lp / 5 :
                 rankIndex >= s_tftRankOrder.IndexOf("Master 1") ? lp / 2 :
                 lp;
+            progressionInRank = Math.Min(100, progressionInRank);
 
             return new RankModel(
                 rankAndLP?.RefreshedAt,
