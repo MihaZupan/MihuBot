@@ -137,11 +137,15 @@ namespace MihuBot.API
             var nextRankIcon = nextRank.Split(' ')[0];
 
             int lp = rankAndLP?.LP ?? 0;
+            int progressionInRank =
+                rankIndex >= s_tftRankOrder.IndexOf("Grandmaster 1") ? lp / 5 :
+                rankIndex >= s_tftRankOrder.IndexOf("Master 1") ? lp / 2 :
+                lp;
 
             return new RankModel(
                 rankAndLP?.RefreshedAt,
                 rank,
-                lp,
+                progressionInRank,
                 $"{ImagePathBase}/tft/{iconRank}.webp",
                 $"{lp} LP",
                 RankGoal,
