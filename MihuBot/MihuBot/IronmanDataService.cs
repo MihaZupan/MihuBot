@@ -49,9 +49,19 @@ namespace MihuBot
             {
                 string apiKey = configurationService.Get(null, "RiotGames:ApiKey");
 
-                var response = await _httpClient.GetFromJsonAsync<TFTResponseModel[]>(
+                byte[] responseJson = await _httpClient.GetByteArrayAsync(
                     $"https://na1.api.riotgames.com/tft/league/v1/entries/by-summoner/_YQwcaIf4O3y-NR8j2jXthwJE-acdSCxvpgXYq39sWoNkTn15AQj0gXa-w?api_key={apiKey}",
                     CancellationToken.None);
+
+                TFTResponseModel[]? response;
+                try
+                {
+                    response = JsonSerializer.Deserialize<TFTResponseModel[]>(responseJson);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Failed to parse json: {Encoding.ASCII.GetString(responseJson)}", ex);
+                }
 
                 var current = response?.FirstOrDefault();
                 if (current?.Tier is null)
