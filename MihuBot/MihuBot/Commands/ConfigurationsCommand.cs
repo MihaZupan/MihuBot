@@ -69,7 +69,7 @@ public sealed class ConfigurationsCommand : CommandBase
                             return;
                         }
 
-                        value = string.Join('\n', ctx.ArgumentLines.AsSpan(1).ToArray());
+                        value = string.Join("\r\n", ctx.ArgumentLines.AsSpan(1).ToArray());
                     }
                     else
                     {
