@@ -8,6 +8,7 @@ using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -45,6 +46,31 @@ public class Startup
 
             services.AddLettuceEncrypt()
                 .PersistDataToDirectory(certDir, "certpass123");
+
+            services.Configure<KestrelServerOptions>(options =>
+            {
+                int counter = 0;
+
+                options.ConfigureHttpsDefaults(https =>
+                {
+                    var originalSelector = https.ServerCertificateSelector;
+                    Console.WriteLine(originalSelector.Target);
+
+                    https.ServerCertificateSelector = (context, domain) =>
+                    {
+                        var cert = originalSelector(context, domain);
+
+                        int count = Interlocked.Increment(ref counter);
+                        if (count <= 10)
+                        {
+                            File.WriteAllText($"{domain}-{count}.pem", cert.ExportCertificatePem());
+                            File.WriteAllBytes($"{domain}-{count}-raw.pem", cert.RawData);
+                        }
+
+                        return cert;
+                    };
+                });
+            });
         }
 
         services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
