@@ -7,6 +7,7 @@ using LettuceEncrypt;
 using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -45,6 +46,8 @@ public class Startup
             services.AddLettuceEncrypt()
                 .PersistDataToDirectory(certDir, "certpass123");
         }
+
+        services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
 
         services.AddApplicationInsightsTelemetry(options =>
         {
@@ -290,7 +293,8 @@ public class Startup
 
         app.UseCors();
 
-        app.UseHttpsRedirection();
+        app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
+            app => app.UseHttpsRedirection());
 
         app.UseStaticFiles(new StaticFileOptions
         {
