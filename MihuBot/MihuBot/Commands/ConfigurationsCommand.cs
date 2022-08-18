@@ -60,13 +60,31 @@ public sealed class ConfigurationsCommand : CommandBase
             case "set":
                 if (await ctx.RequirePermissionAsync("configuration.write"))
                 {
-                    if (ctx.Arguments.Length < 4)
+                    string value;
+                    if (ctx.ArgumentLines.Length > 1)
                     {
-                        await ctx.ReplyAsync(Usage);
-                        return;
+                        if (ctx.Arguments.Length > 3)
+                        {
+                            await ctx.ReplyAsync("Multi-line value must start at the second line");
+                            return;
+                        }
+
+                        value = string.Join('\n', ctx.ArgumentLines.AsSpan(1).ToArray());
+                    }
+                    else
+                    {
+                        if (ctx.Arguments.Length < 4)
+                        {
+                            await ctx.ReplyAsync(Usage);
+                            return;
+                        }
+
+                        value = ctx.Arguments.Length == 4
+                            ? ctx.Arguments[3]
+                            : string.Join(' ', ctx.Arguments.AsSpan(3).ToArray());
                     }
 
-                    _configuration.Set(context, key, ctx.Arguments[3]);
+                    _configuration.Set(context, key, value);
                     await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                 }
                 break;
