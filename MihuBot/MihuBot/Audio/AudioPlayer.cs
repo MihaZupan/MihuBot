@@ -31,10 +31,10 @@ public sealed class AudioCommands : CommandBase
     private readonly SpotifyClient _spotifyClient;
     private readonly YouTubeService _youtubeService;
 
-    public AudioCommands(AudioService audioService, SpotifyClient spotifyClient, YouTubeService youtubeService)
+    public AudioCommands(AudioService audioService, IEnumerable<SpotifyClient> spotifyClients, YouTubeService youtubeService)
     {
         _audioService = audioService;
-        _spotifyClient = spotifyClient;
+        _spotifyClient = spotifyClients.SingleOrDefault();
         _youtubeService = youtubeService;
     }
 
@@ -176,6 +176,11 @@ public sealed class AudioCommands : CommandBase
                     }
                     else if (TryParseSpotifyPlaylistId(argument, out playlistId))
                     {
+                        if (_spotifyClient is null)
+                        {
+                            return;
+                        }
+
                         var page = await _spotifyClient.Playlists.GetItems(playlistId);
 
                         bool foundAny = false;
@@ -200,6 +205,11 @@ public sealed class AudioCommands : CommandBase
                     }
                     else if (TryParseSpotifyTrackId(argument, out string trackId))
                     {
+                        if (_spotifyClient is null)
+                        {
+                            return;
+                        }
+
                         FullTrack track = await _spotifyClient.Tracks.Get(trackId);
                         IVideo searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
                         if (searchResult is not null)

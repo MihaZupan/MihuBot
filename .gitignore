@@ -7,3 +7,4 @@ node_modules
 State
 YoutubeAudioCache
 artifacts
+credentials.json

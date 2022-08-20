@@ -13,13 +13,19 @@ public sealed class VodsCommand : CommandBase
 
     public VodsCommand(IConfiguration configuration)
     {
-        BlobContainerClient = new BlobContainerClient(
-            configuration["AzureStorage:ConnectionString"],
-            "vods");
+        if (Program.AzureEnabled)
+        {
+            BlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString"],
+                "vods");
+        }
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
+        if (!Program.AzureEnabled)
+            return;
+
         if (!await ctx.RequirePermissionAsync("vods"))
             return;
 

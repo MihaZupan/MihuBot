@@ -7,6 +7,8 @@ namespace MihuBot;
 
 public class Program
 {
+    public static bool AzureEnabled => false;
+
     public static async Task Main(string[] args)
     {
         Console.WriteLine("Starting ...");
@@ -48,13 +50,20 @@ public class Program
         Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((context, config) =>
             {
-                TokenCredential credential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
-                    ? new ManagedIdentityCredential()
-                    : new AzureCliCredential();
+                if (AzureEnabled)
+                {
+                    TokenCredential credential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                        ? new ManagedIdentityCredential()
+                        : new AzureCliCredential();
 
-                config.AddAzureKeyVault(
-                    new Uri("https://mihubotkv.vault.azure.net/"),
-                    credential);
+                    config.AddAzureKeyVault(
+                        new Uri("https://mihubotkv.vault.azure.net/"),
+                        credential);
+                }
+                else
+                {
+                    config.AddJsonFile("credentials.json", optional: true);
+                }
             })
             .ConfigureWebHostDefaults(webBuilder =>
             {

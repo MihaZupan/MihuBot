@@ -130,6 +130,11 @@ public sealed class Logger
     {
         await foreach (var (FileName, FilePath, Message, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
         {
+            if (!Program.AzureEnabled)
+            {
+                continue;
+            }
+
             try
             {
                 string blobName = FilePath
@@ -470,9 +475,12 @@ public sealed class Logger
         _http = httpClient;
         Options = options;
 
-        BlobContainerClient = new BlobContainerClient(
-            configuration["AzureStorage:ConnectionString"],
-            "discord");
+        if (Program.AzureEnabled)
+        {
+            BlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString"],
+                "discord");
+        }
 
         Directory.CreateDirectory(Options.LogsRoot);
         Directory.CreateDirectory(Options.FilesRoot);

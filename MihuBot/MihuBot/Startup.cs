@@ -49,21 +49,24 @@ public class Startup
 
         services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
 
-        services.AddApplicationInsightsTelemetry(options =>
+        if (Program.AzureEnabled)
         {
-            options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
-        });
-
-        services.ConfigureTelemetryModule<EventCounterCollectionModule>((module, options) =>
-        {
-            foreach (var (eventSource, counters) in RuntimeEventCounters.EventCounters)
+            services.AddApplicationInsightsTelemetry(options =>
             {
-                foreach (string counter in counters)
+                options.ConnectionString = Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+            });
+
+            services.ConfigureTelemetryModule<EventCounterCollectionModule>((module, options) =>
+            {
+                foreach (var (eventSource, counters) in RuntimeEventCounters.EventCounters)
                 {
-                    module.Counters.Add(new EventCounterCollectionRequest(eventSource, counter));
+                    foreach (string counter in counters)
+                    {
+                        module.Counters.Add(new EventCounterCollectionRequest(eventSource, counter));
+                    }
                 }
-            }
-        });
+            });
+        }
 
         services.AddHttpLogging(logging =>
         {
@@ -82,26 +85,29 @@ public class Startup
         };
         services.AddSingleton(httpClient);
 
-        services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
-            Configuration["Twitter:ConsumerKey"],
-            Configuration["Twitter:ConsumerSecret"],
-            Configuration["Twitter:AccessToken"],
-            Configuration["Twitter:AccessTokenSecret"])
+        if (Program.AzureEnabled)
         {
-            BearerToken = Configuration["Twitter:BearerToken"]
-        }));
+            services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
+                Configuration["Twitter:ConsumerKey"],
+                Configuration["Twitter:ConsumerSecret"],
+                Configuration["Twitter:AccessToken"],
+                Configuration["Twitter:AccessTokenSecret"])
+            {
+                BearerToken = Configuration["Twitter:BearerToken"]
+            }));
 
-        services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
-            new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
-            httpClient,
-            disposeHttpClient: false)
-        {
-            Endpoint = Configuration["AzureComputerVision:Endpoint"]
-        });
+            services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
+                new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
+                httpClient,
+                disposeHttpClient: false)
+            {
+                Endpoint = Configuration["AzureComputerVision:Endpoint"]
+            });
 
-        services.AddSingleton(new TextAnalyticsClient(
-            new Uri(Configuration["AzureTextAnalytics:Endpoint"], UriKind.Absolute),
-            new AzureKeyCredential(Configuration["AzureTextAnalytics:SubscriptionKey"])));
+            services.AddSingleton(new TextAnalyticsClient(
+                new Uri(Configuration["AzureTextAnalytics:Endpoint"], UriKind.Absolute),
+                new AzureKeyCredential(Configuration["AzureTextAnalytics:SubscriptionKey"])));
+        }
 
         var discord = new InitializedDiscordClient(
             new DiscordSocketConfig()
@@ -130,7 +136,7 @@ public class Startup
 
         services.AddSingleton<Logger>();
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
         {
             AddPrivateDiscordClient(services, httpClient);
 
@@ -156,10 +162,13 @@ public class Startup
             AddDownBadProviders(services);
         }
 
-        services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
-            .WithAuthenticator(new ClientCredentialsAuthenticator(
-                Configuration["Spotify:ClientId"],
-                Configuration["Spotify:ClientSecret"]))));
+        if (Program.AzureEnabled)
+        {
+            services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
+                .WithAuthenticator(new ClientCredentialsAuthenticator(
+                    Configuration["Spotify:ClientId"],
+                    Configuration["Spotify:ClientSecret"]))));
+        }
 
         services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
         {
@@ -219,7 +228,10 @@ public class Startup
 
     private static void AddDownBadProviders(IServiceCollection services)
     {
-        services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
+        if (Program.AzureEnabled)
+        {
+            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
+        }
     }
 
     private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient)
