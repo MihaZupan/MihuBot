@@ -290,7 +290,7 @@ namespace MihuBot
                                     {
                                         if (++_consecutiveFailures == 10)
                                         {
-                                            _consecutiveFailures = 0;
+                                            _consecutiveFailures = -90;
                                             await _logger.DebugAsync($"Failed to fetch new {typeof(T).Name} rank information: {ex}", truncateToFile: true);
                                         }
                                     }
