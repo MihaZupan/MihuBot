@@ -23,7 +23,7 @@ namespace MihuBot
             _valorantDataSource = new DataSource<ValorantStatus>(logger, async () =>
             {
                 byte[] responseJson = await _httpClient.GetByteArrayAsync(
-                    "https://api.henrikdev.xyz/valorant/v2/mmr/na/ironmanchallenge/iron",
+                    "https://api.henrikdev.xyz/valorant/v2/mmr/na/Edisonparklive/iron",
                     CancellationToken.None);
 
                 ValorantMmrResponseModel? response;
