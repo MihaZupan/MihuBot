@@ -7,7 +7,7 @@ namespace MihuBot;
 
 public class Program
 {
-    public static bool AzureEnabled => false;
+    public static bool AzureEnabled => true;
 
     public static async Task Main(string[] args)
     {
