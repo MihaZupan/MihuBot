@@ -136,13 +136,6 @@ public class Startup
 
         services.AddSingleton<Logger>();
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
-        {
-            AddPrivateDiscordClient(services, httpClient);
-
-            services.AddHostedService<TwitterBioUpdater>();
-        }
-
         services.AddSingleton<IPermissionsService, PermissionsService>();
 
         services.AddSingleton<IConfigurationService, ConfigurationService>();
@@ -175,6 +168,14 @@ public class Startup
             ApiKey = Configuration["Youtube:ApiKey"],
             ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
         }));
+
+        AddPrivateDiscordClients(services, httpClient);
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
+        {
+
+            services.AddHostedService<TwitterBioUpdater>();
+        }
 
         services.AddSingleton<AudioService>();
 
@@ -234,7 +235,7 @@ public class Startup
         }
     }
 
-    private void AddPrivateDiscordClient(IServiceCollection services, HttpClient httpClient)
+    private void AddPrivateDiscordClients(IServiceCollection services, HttpClient httpClient)
     {
         var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
         var customLogger = new PrivateLogger(httpClient,
@@ -242,6 +243,13 @@ public class Startup
             Configuration);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
         services.AddHostedService(_ => customLogger);
+        services.AddSingleton(services =>
+            new PrivateMihuBotService(
+                services,
+                privateDiscordClient,
+                customLogger.Logger,
+                services.GetRequiredService<IPermissionsService>()));
+        services.AddHostedService(services => services.GetRequiredService<PrivateMihuBotService>());
 
         var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
         var ddsLogger = new DDsLogger(httpClient,
