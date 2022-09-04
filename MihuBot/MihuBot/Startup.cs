@@ -169,10 +169,9 @@ public class Startup
             ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
         }));
 
-        AddPrivateDiscordClients(services, httpClient);
-
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
         {
+            AddPrivateDiscordClients(services, httpClient);
 
             services.AddHostedService<TwitterBioUpdater>();
         }
