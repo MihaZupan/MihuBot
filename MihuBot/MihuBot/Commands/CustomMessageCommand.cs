@@ -3,7 +3,7 @@
 public sealed class CustomMessageCommand : CommandBase
 {
     public override string Command => "message";
-    public override string[] Aliases => new[] { "msg" };
+    public override string[] Aliases => new[] { "msg", "regionalmsg" };
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
@@ -43,7 +43,19 @@ public sealed class CustomMessageCommand : CommandBase
             }
             else
             {
-                await channel.SendMessageAsync(ctx.Content.AsSpan(lines[0].Length + 1).Trim(stackalloc char[] { ' ', '\t', '\r', '\n' }).ToString());
+                string message = ctx.Content.AsSpan(lines[0].Length + 1).Trim(stackalloc char[] { ' ', '\t', '\r', '\n' }).ToString();
+
+                if (ctx.Command == "regionalmsg")
+                {
+                    for (int i = 'A'; i <= 'Z'; i++)
+                    {
+                        string replacement = $"\uD83C{(char)('\uDDE6' + (i - 'A'))}​";
+                        message = message.Replace($"{(char)i}", replacement);
+                        message = message.Replace($"{(char)(i | 0x20)}", replacement);
+                    }
+                }
+
+                await channel.SendMessageAsync(message);
             }
         }
         catch (Exception ex)
