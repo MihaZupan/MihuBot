@@ -9,10 +9,12 @@ public sealed class WhitelistCommand : CommandBase
 
     private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _whitelist = new("whitelist-bush-nation.json");
     private readonly MinecraftRCON _rcon;
+    private readonly HttpClient _http;
 
-    public WhitelistCommand(MinecraftRCON rcon)
+    public WhitelistCommand(MinecraftRCON rcon, HttpClient http)
     {
         _rcon = rcon ?? throw new ArgumentNullException(nameof(rcon));
+        _http = http ?? throw new ArgumentNullException(nameof(http));
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -78,6 +80,16 @@ public sealed class WhitelistCommand : CommandBase
                 await ctx.ReplyAsync("Enter a valid username: `!whitelist username`", mention: true);
                 return;
             }
+
+            try
+            {
+                if (string.IsNullOrEmpty(await _http.GetStringAsync($"https://api.mojang.com/users/profiles/minecraft/{args}")))
+                {
+                    await ctx.ReplyAsync("That username isn't recognized by Mojang", mention: true);
+                    return;
+                }
+            }
+            catch { }
 
             if (!ctx.IsFromAdmin &&
                 !ctx.Author.Roles.Any(r => r.Id == 963676838079655956ul) && // Twitch Subscriber
