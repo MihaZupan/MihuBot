@@ -205,7 +205,7 @@ public abstract class PollingDownBadProviderBase : IDownBadProvider
                 return false;
             }
 
-            if (faces.Count != 0 && faces.All(f => f.Age < 14))
+            if (faces.Count != 0 && faces.All(f => f.Age > 0 && f.Age < 14))
             {
                 _logger.DebugLog($"Skipping {photoUrl} as only young people were detected");
                 return false;
