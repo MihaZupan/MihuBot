@@ -5,19 +5,6 @@ using System.Runtime.InteropServices;
 
 namespace MihuBot;
 
-public class PrivateMihuBotService : MihuBotService
-{
-    public PrivateMihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
-        : base(services, discord, logger, permissions)
-    { }
-
-    protected override bool UseNonCommandHandlers => false;
-
-    protected override string CommandSuffix => "_pvt";
-
-    protected override string CommandPermissionRequired => "PrivateTestCommand";
-}
-
 public class MihuBotService : IHostedService
 {
     private readonly InitializedDiscordClient _discord;
@@ -26,10 +13,6 @@ public class MihuBotService : IHostedService
 
     private readonly CompactPrefixTree<CommandBase> _commands = new(ignoreCase: true);
     private readonly List<INonCommandHandler> _nonCommandHandlers = new();
-
-    protected virtual bool UseNonCommandHandlers => true;
-    protected virtual string CommandSuffix => string.Empty;
-    protected virtual string CommandPermissionRequired => string.Empty;
 
     public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
     {
@@ -45,10 +28,10 @@ public class MihuBotService : IHostedService
             if (typeof(CommandBase).IsAssignableFrom(type))
             {
                 var instance = ActivatorUtilities.CreateInstance(services, type) as CommandBase;
-                _commands.Add(instance.Command.ToLowerInvariant() + CommandSuffix, instance);
+                _commands.Add(instance.Command.ToLowerInvariant(), instance);
                 foreach (string alias in instance.Aliases)
                 {
-                    _commands.Add(alias.ToLowerInvariant() + CommandSuffix, instance);
+                    _commands.Add(alias.ToLowerInvariant(), instance);
                 }
                 _nonCommandHandlers.Add(instance);
             }
@@ -115,13 +98,6 @@ public class MihuBotService : IHostedService
             {
                 var command = match.Value;
 
-                string permission = CommandPermissionRequired;
-                if (!string.IsNullOrEmpty(permission) && !_permissions.HasPermission(permission, message.Author.Id))
-                {
-                    await _logger.DebugAsync($"Skipping command '{command}' for '{message.Author.Username}' due to missing permissions.", message);
-                    return;
-                }
-
                 var context = new CommandContext(_discord, message, match.Key, _logger, _permissions);
 
                 if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
@@ -144,7 +120,7 @@ public class MihuBotService : IHostedService
                 }
             }
         }
-        else if (UseNonCommandHandlers)
+        else
         {
             var messageContext = new MessageContext(_discord, message, _logger);
 

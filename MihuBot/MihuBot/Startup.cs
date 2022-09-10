@@ -244,13 +244,6 @@ public class Startup
             Configuration);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
         services.AddHostedService(_ => customLogger);
-        services.AddSingleton(services =>
-            new PrivateMihuBotService(
-                services,
-                privateDiscordClient,
-                customLogger.Logger,
-                services.GetRequiredService<IPermissionsService>()));
-        services.AddHostedService(services => services.GetRequiredService<PrivateMihuBotService>());
 
         var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
         var ddsLogger = new DDsLogger(httpClient,
