@@ -2,12 +2,12 @@
 
 namespace MihuBot.NonCommandHandlers;
 
-public sealed class DeadIsSus : NonCommandHandler
+public sealed class DeafIsSus : NonCommandHandler
 {
     private readonly DiscordSocketClient _discord;
     private readonly IConfigurationService _configurationService;
 
-    public DeadIsSus(DiscordSocketClient discord, IConfigurationService configurationService)
+    public DeafIsSus(DiscordSocketClient discord, IConfigurationService configurationService)
     {
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
