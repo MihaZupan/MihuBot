@@ -203,6 +203,15 @@ public class MihuBotService : IHostedService
         {
             try
             {
+                if (message.Channel is IDMChannel &&
+                    !string.IsNullOrWhiteSpace(message.Content) &&
+                    _discord.GetGuild(Guilds.TheBoys).GetUser(message.Author.Id).Roles.Any(r => r.Id == 1037147650547523645ul) &&
+                    _discord.GetTextChannel(1037148292859048026ul) is { } channel)
+                {
+                    await channel.SendMessageAsync($"Secret santa says: {message.Content}");
+                    return;
+                }
+
                 await Client_MessageReceived(message);
             }
             catch (Exception ex)
