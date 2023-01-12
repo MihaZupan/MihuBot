@@ -173,7 +173,7 @@ public class Startup
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
         {
-            AddPrivateDiscordClients(services, httpClient);
+            //AddPrivateDiscordClients(services, httpClient);
 
             services.AddHostedService<TwitterBioUpdater>();
         }
