@@ -51,7 +51,7 @@ public class EmailController : ControllerBase
             using var reader = new StreamReader(Request.Body);
             string json = await reader.ReadToEndAsync(HttpContext.RequestAborted);
 
-            await channel.SendTextFileAsync(json, "Email.json");
+            await channel.SendTextFileAsync("Email.json", json);
         }
         catch (Exception ex)
         {
