@@ -43,10 +43,17 @@ public class EmailController : ControllerBase
             _discord.GetTextChannel(channelId) is not SocketTextChannel channel)
         {
             await _logger.DebugAsync("No or invalid Email-ChannelId in config");
-            return Problem();
+            return Problem("No email channel");
         }
 
-        await channel.SendFileAsync(Request.Body, "Email.txt");
+        try
+        {
+            await channel.SendFileAsync(Request.Body, "Email.txt");
+        }
+        catch (Exception ex)
+        {
+            await _logger.DebugAsync($"Failed to send email to channel: '{ex}'");
+        }
 
         return Ok();
     }
