@@ -20,18 +20,19 @@ public class ManagementController : ControllerBase
     {
         if (!Request.Headers.TryGetValue("X-Run-Number", out var runNumberValue) || !uint.TryParse(runNumberValue, out uint runNumber))
         {
-            _logger.DebugLog($"No X-Run-Number header received");
+            _logger.DebugLog("No X-Run-Number header received");
             return Unauthorized();
         }
 
         if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
         {
-            _logger.DebugLog($"No X-Update-Token header received");
+            _logger.DebugLog("No X-Update-Token header received");
             return Unauthorized();
         }
 
         if (!CheckToken(_updateToken, updateToken))
         {
+            _logger.DebugLog("Invalid X-Update-Token received");
             return Unauthorized();
         }
 
@@ -69,7 +70,7 @@ public class ManagementController : ControllerBase
         }
     }
 
-    private static bool CheckToken(string expected, string actual)
+    public static bool CheckToken(string expected, string actual)
     {
         if (expected is null || actual is null)
             return false;

@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using MihuBot.Configuration;
 
 namespace MihuBot.Data;
 
@@ -6,19 +7,46 @@ namespace MihuBot.Data;
 public class EmailController : ControllerBase
 {
     private readonly DiscordSocketClient _discord;
+    private readonly Logger _logger;
+    private readonly IConfigurationService _configuration;
 
-    public EmailController(DiscordSocketClient discord)
+    public EmailController(DiscordSocketClient discord, Logger logger, IConfigurationService configuration)
     {
         _discord = discord;
+        _logger = logger;
+        _configuration = configuration;
     }
 
     [HttpPost]
-    public async Task<OkResult> ReceiveDA07A01F888363A1D30F8236DD617302B3231E21BCA8CA79644820AF11835F73()
+    public async Task<IActionResult> Receive()
     {
-        if (_discord.GetTextChannel(Channels.Email) is SocketTextChannel channel)
+        if (!Request.Headers.TryGetValue("X-Email-Api-Key", out var apiKey))
         {
-            await channel.SendFileAsync(Request.Body, "Email.txt");
+            _logger.DebugLog("No X-Email-Api-Key header received");
+            return Unauthorized();
         }
+
+        if (!_configuration.TryGet(null, "Email-Api-Key", out string actualKey))
+        {
+            _logger.DebugLog("No Email-Api-Key in config");
+            return Unauthorized();
+        }
+
+        if (!ManagementController.CheckToken(actualKey, apiKey))
+        {
+            _logger.DebugLog("Invalid X-Email-Api-Key received");
+            return Unauthorized();
+        }
+
+        if (!_configuration.TryGet(null, "Email-ChannelId", out string emailChannelId) ||
+            !ulong.TryParse(emailChannelId, out ulong channelId) ||
+            _discord.GetTextChannel(channelId) is not SocketTextChannel channel)
+        {
+            await _logger.DebugAsync("No or invalid Email-ChannelId in config");
+            return Problem();
+        }
+
+        await channel.SendFileAsync(Request.Body, "Email.txt");
 
         return Ok();
     }
