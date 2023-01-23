@@ -139,7 +139,7 @@ namespace MihuBot
                 }
                 else
                 {
-                    if (!_completed)
+                    if (_completed)
                     {
                         break;
                     }
