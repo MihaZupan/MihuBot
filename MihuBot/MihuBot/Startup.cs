@@ -14,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
 using MihuBot.Configuration;
-using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
@@ -149,8 +148,6 @@ public class Startup
         services.AddSingleton<IConfigurationService, ConfigurationService>();
 
         services.AddSingleton<IReminderService, ReminderService>();
-
-        services.AddSingleton<IHusbandoService, HusbandoService>();
 
         services.AddSingleton<IWeatherService, WeatherService>();
 
