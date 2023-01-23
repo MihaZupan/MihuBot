@@ -1,7 +1,6 @@
 using Azure.Identity;
 using Azure.Core;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Logging;
 
 namespace MihuBot;
 

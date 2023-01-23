@@ -18,6 +18,7 @@ using MihuBot.Husbando;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
+using Octokit;
 using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
 using Tweetinvi;
@@ -87,6 +88,11 @@ public class Startup
         };
         services.AddSingleton(httpClient);
 
+        services.AddSingleton(new GitHubClient(new ProductHeaderValue("MihuBot"))
+        {
+            Credentials = new Credentials(Configuration["GitHub:Token"]),
+        });
+
         if (Program.AzureEnabled)
         {
             services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
@@ -147,6 +153,8 @@ public class Startup
         services.AddSingleton<IHusbandoService, HusbandoService>();
 
         services.AddSingleton<IWeatherService, WeatherService>();
+
+        services.AddSingleton<RuntimeUtilsService>();
 
         services.AddSingleton<IronmanDataService>();
 
