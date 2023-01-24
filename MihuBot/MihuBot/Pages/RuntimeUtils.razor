@@ -77,6 +77,8 @@ else
                             _lines.Enqueue(normalized);
                         }
                     }
+
+                    _ = InvokeAsync(StateHasChanged);
                 }
                 catch { }
             });

@@ -3,6 +3,7 @@ using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerInstance;
 using Azure.ResourceManager.ContainerInstance.Models;
+using MihuBot.Configuration;
 using Octokit;
 using System.Runtime.CompilerServices;
 
@@ -13,12 +14,15 @@ namespace MihuBot
         private const string IssueRepositoryOwner = "MihuBot";
         private const string IssueRepositoryName = "runtime-utils";
 
-        private readonly Logger _logger;
-        private readonly GitHubClient _github;
-        private readonly IConfiguration _configuration;
+        private RuntimeUtilsService _parent;
         private readonly RollingLog _logs = new(50_000);
         private string _corelibDiffs;
         private string _frameworkDiffs;
+
+        private Logger Logger => _parent.Logger;
+        private GitHubClient Github => _parent.Github;
+        private IConfiguration Configuration => _parent.Configuration;
+        private IConfigurationService ConfigurationService => _parent.ConfigurationService;
 
         public Stopwatch Stopwatch { get; private set; } = new();
         public PullRequest PullRequest { get; private set; }
@@ -31,11 +35,9 @@ namespace MihuBot
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
-        public RuntimeUtilsJob(Logger logger, GitHubClient github, IConfiguration configuration, PullRequest pullRequest, string jobId, string externalId)
+        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string jobId, string externalId)
         {
-            _logger = logger;
-            _github = github;
-            _configuration = configuration;
+            _parent = parent;
             JobId = jobId;
             ExternalId = externalId;
             PullRequest = pullRequest;
@@ -54,7 +56,7 @@ namespace MihuBot
                 return;
             }
 
-            TrackingIssue = await _github.Issue.Create(
+            TrackingIssue = await Github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
                 new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
@@ -91,7 +93,7 @@ namespace MihuBot
                 containerGroupData.ImageRegistryCredentials.Add(new ContainerGroupImageRegistryCredential("runtimeutils.azurecr.io")
                 {
                     Username = "runtimeutils",
-                    Password = _configuration["AzureContainerRegistry:Password"]
+                    Password = Configuration["AzureContainerRegistry:Password"]
                 });
 
                 LogsReceived("Starting an Azure Container Instance ...");
@@ -113,9 +115,17 @@ namespace MihuBot
                 }
                 finally
                 {
-                    LogsReceived("Deleting the container instance");
-
-                    await containerGroupResource.DeleteAsync(WaitUntil.Completed);
+                    if (!ConfigurationService.TryGet(null, "RuntimeUtils.ShouldDeleteContainer", out string shouldDeleteStr) ||
+                        !bool.TryParse(shouldDeleteStr, out bool shouldDelete) ||
+                        shouldDelete)
+                    {
+                        LogsReceived("Deleting the container instance");
+                        await containerGroupResource.DeleteAsync(WaitUntil.Completed);
+                    }
+                    else
+                    {
+                        LogsReceived("Configuration opted not to delete the container instance");
+                    }
                 }
 
                 Stopwatch.Stop();
@@ -134,7 +144,7 @@ namespace MihuBot
             }
             catch (Exception ex)
             {
-                await _logger.DebugAsync(ex.ToString());
+                await Logger.DebugAsync(ex.ToString());
 
                 await UpdateIssueBodyAsync($"Something went wrong with the [Build]({ProgressDashboardUrl}) :man_shrugging:");
             }
@@ -169,7 +179,7 @@ namespace MihuBot
         {
             IssueUpdate update = TrackingIssue.ToUpdate();
             update.Body = newBody;
-            await _github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, update);
+            await Github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, update);
         }
 
         public void LogsReceived(string line)
@@ -260,18 +270,20 @@ namespace MihuBot
 
     public sealed class RuntimeUtilsService
     {
-        private readonly Logger _logger;
-        private readonly GitHubClient _github;
-        private readonly IConfiguration _configuration;
-
-        public RuntimeUtilsService(Logger logger, GitHubClient github, IConfiguration configuration)
-        {
-            _logger = logger;
-            _github = github;
-            _configuration = configuration;
-        }
-
         private readonly Dictionary<string, RuntimeUtilsJob> _jobs = new(StringComparer.Ordinal);
+
+        public readonly Logger Logger;
+        public readonly GitHubClient Github;
+        public readonly IConfiguration Configuration;
+        public readonly IConfigurationService ConfigurationService;
+
+        public RuntimeUtilsService(Logger logger, GitHubClient github, IConfiguration configuration, IConfigurationService configurationService)
+        {
+            Logger = logger;
+            Github = github;
+            Configuration = configuration;
+            ConfigurationService = configurationService;
+        }
 
         public bool TryGetJob(string jobId, bool publicId, out RuntimeUtilsJob job)
         {
@@ -287,7 +299,7 @@ namespace MihuBot
             string jobId = Guid.NewGuid().ToString("N");
             string externalId = Guid.NewGuid().ToString("N");
 
-            var job = new RuntimeUtilsJob(_logger, _github, _configuration, pullRequest, jobId, externalId);
+            var job = new RuntimeUtilsJob(this, pullRequest, jobId, externalId);
 
             lock (_jobs)
             {
@@ -314,7 +326,7 @@ namespace MihuBot
                 }
                 catch (Exception ex)
                 {
-                    await _logger.DebugAsync(ex.ToString());
+                    await Logger.DebugAsync(ex.ToString());
                 }
             });
 
