@@ -1,4 +1,5 @@
 ﻿using Octokit;
+using System.Runtime.CompilerServices;
 
 namespace MihuBot
 {
@@ -10,10 +11,11 @@ namespace MihuBot
         private readonly Logger _logger;
         private readonly GitHubClient _github;
         private readonly RollingLog _logs = new(50_000);
-        private readonly PullRequest _pullRequest;
         private string _corelibDiffs;
         private string _frameworkDiffs;
-        private volatile bool _completed;
+
+        public PullRequest PullRequest { get; private set; }
+        public bool Completed { get; private set; }
 
         public string JobId { get; private set; }
         public string ExternalId { get; private set; }
@@ -26,7 +28,7 @@ namespace MihuBot
             _github = github;
             JobId = jobId;
             ExternalId = externalId;
-            _pullRequest = pullRequest;
+            PullRequest = pullRequest;
         }
 
         public async Task RunJobAsync()
@@ -36,7 +38,7 @@ namespace MihuBot
             Issue issue = await _github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
-                new NewIssue($"[{_pullRequest.User.Login}] {_pullRequest.Title}")
+                new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
             {
                 Body = $"Build is in progress - see {ProgressUrl}"
             });
@@ -71,7 +73,7 @@ namespace MihuBot
             }
             finally
             {
-                _completed = true;
+                Completed = true;
             }
         }
 
@@ -117,6 +119,21 @@ namespace MihuBot
 
         public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
         {
+            await foreach (string line in StreamLogsAsync(cancellationToken))
+            {
+                if (line is null)
+                {
+                    await writer.FlushAsync();
+                }
+                else
+                {
+                    await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
+                }
+            }
+        }
+
+        public async IAsyncEnumerable<string> StreamLogsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+        {
             int position = 0;
             int cooldown = 100;
             string[] lines = new string[100];
@@ -127,8 +144,7 @@ namespace MihuBot
 
                 for (int i = 0; i < read; i++)
                 {
-                    await writer.WriteLineAsync(lines[i].AsMemory(), cancellationToken);
-                    await writer.FlushAsync();
+                    yield return lines[i];
                 }
 
                 lines.AsSpan(0, read).Clear();
@@ -136,10 +152,11 @@ namespace MihuBot
                 if (read > 0)
                 {
                     cooldown = 0;
+                    yield return null;
                 }
                 else
                 {
-                    if (_completed)
+                    if (Completed)
                     {
                         break;
                     }

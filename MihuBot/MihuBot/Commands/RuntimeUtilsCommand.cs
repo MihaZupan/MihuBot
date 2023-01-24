@@ -43,7 +43,7 @@ namespace MihuBot.Commands
 
             RuntimeUtilsJob job = _runtimeUtilsService.StartJob(pullRequest);
 
-            await ctx.ReplyAsync($"{job.ProgressUrl}\nPrivate id: `{job.JobId}`");
+            await ctx.ReplyAsync($"https://mihubot.xyz/runtime-utils/{job.ExternalId}\nPrivate id: `{job.JobId}`");
         }
     }
 }

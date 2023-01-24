@@ -1,0 +1,79 @@
+﻿@page "/runtime-utils/{jobId}"
+@using System.Collections.Concurrent;
+@inject RuntimeUtilsService runtimeUtils
+@implements IDisposable
+
+@if (_job is null)
+{
+    <div>Can't find a job with that id :/</div>
+}
+else
+{
+    <h1><a href="@_job.PullRequest.HtmlUrl">@_job.PullRequest.Title (#@_job.PullRequest.Number)</a> by @_job.PullRequest.User?.Login</h1>
+    <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
+    <br />
+    @if (_job.Completed)
+    {
+        <div>The build has completed.</div>
+    }
+    else
+    {
+        <div>The build is still in progress ...</div>
+    }
+    <br />
+    <pre><code>
+        @foreach (string line in _lines)
+        {
+            @line
+            <br />
+        }
+    </code></pre>
+}
+
+@code
+{
+    private const int NumLines = 30;
+
+    private readonly CancellationTokenSource _cts = new();
+    private readonly ConcurrentQueue<string> _lines = new();
+
+    [Parameter]
+    public string JobId { get; set; }
+
+    private RuntimeUtilsJob _job;
+
+    protected override void OnInitialized()
+    {
+        if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (string line in _job.StreamLogsAsync(_cts.Token))
+                    {
+                        if (line is null)
+                        {
+                            _ = InvokeAsync(StateHasChanged);
+                        }
+                        else
+                        {
+                            if (_lines.Count == NumLines)
+                            {
+                                _lines.TryDequeue(out _);
+                            }
+
+                            _lines.Enqueue(line);
+                        }
+                    }
+                }
+                catch { }
+            });
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+    }
+}
