@@ -202,8 +202,9 @@ namespace MihuBot
         {
             using var buffer = new MemoryStream(new byte[128 * 1024]);
             await contentStream.CopyToAsync(buffer, cancellationToken);
-
-            byte[] bytes = buffer.GetBuffer().AsSpan(0, (int)buffer.Position).ToArray();
+            buffer.SetLength(buffer.Position);
+            buffer.Position = 0;
+            byte[] bytes = buffer.ToArray();
 
             if (fileName == "diff-corelib.txt")
             {
@@ -315,7 +316,7 @@ namespace MihuBot
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromDays(1));
+                await Task.Delay(TimeSpan.FromDays(7));
 
                 lock (_jobs)
                 {
