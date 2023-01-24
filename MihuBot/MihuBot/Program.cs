@@ -51,13 +51,13 @@ public class Program
             {
                 if (AzureEnabled)
                 {
-                    TokenCredential credential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                    AzureCredential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
                         ? new ManagedIdentityCredential()
                         : new AzureCliCredential();
 
                     config.AddAzureKeyVault(
                         new Uri("https://mihubotkv.vault.azure.net/"),
-                        credential);
+                        AzureCredential);
                 }
                 else
                 {
@@ -69,6 +69,8 @@ public class Program
                 webBuilder.UseUrls("http://*:80", "https://*:443");
                 webBuilder.UseStartup<Startup>();
             });
+
+    internal static TokenCredential AzureCredential { get; private set; }
 
     internal static readonly TaskCompletionSource BotStopTCS = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
