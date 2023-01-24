@@ -66,7 +66,7 @@ namespace MihuBot
 
             try
             {
-                using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(3));
+                using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
                 var jobTimeout = jobTimeoutCts.Token;
 
                 var armClient = new ArmClient(Program.AzureCredential);
@@ -120,7 +120,7 @@ namespace MihuBot
                         shouldDelete)
                     {
                         LogsReceived("Deleting the container instance");
-                        await containerGroupResource.DeleteAsync(WaitUntil.Completed);
+                        await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
                     }
                     else
                     {
@@ -130,17 +130,23 @@ namespace MihuBot
 
                 Stopwatch.Stop();
 
-                await UpdateIssueBodyAsync(
-                    $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n\n" +
+                string corelibDiffs =
                     $"### CoreLib diffs\n\n" +
                     $"```\n" +
                     $"{_corelibDiffs}\n" +
                     $"```\n" +
-                    $"\n\n" +
+                    $"\n\n";
+
+                string frameworksDiffs =
                     $"### Frameworks diffs\n\n" +
                     $"```\n" +
                     $"{_frameworkDiffs}\n" +
-                    $"```\n");
+                    $"```\n";
+
+                await UpdateIssueBodyAsync(
+                    $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n\n" +
+                    (_corelibDiffs is not null ? corelibDiffs : "") +
+                    (_frameworkDiffs is not null ? frameworksDiffs : ""));
             }
             catch (Exception ex)
             {
