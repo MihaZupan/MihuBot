@@ -14,7 +14,9 @@ namespace MihuBot
         private string _corelibDiffs;
         private string _frameworkDiffs;
 
+        public Stopwatch Stopwatch { get; private set; } = new();
         public PullRequest PullRequest { get; private set; }
+        public Issue TrackingIssue { get; private set; }
         public bool Completed { get; private set; }
 
         public string JobId { get; private set; }
@@ -33,9 +35,11 @@ namespace MihuBot
 
         public async Task RunJobAsync()
         {
+            Stopwatch.Start();
+
             LogsReceived(new[] { "Starting ..." });
 
-            Issue issue = await _github.Issue.Create(
+            TrackingIssue = await _github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
                 new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
@@ -45,16 +49,14 @@ namespace MihuBot
 
             return;
 
-            Stopwatch stopwatch = Stopwatch.StartNew();
-
             try
             {
                 await Task.Delay(30_000);
 
-                stopwatch.Stop();
+                Stopwatch.Stop();
 
-                await UpdateIssueBodyAsync(issue,
-                    $"[Build]({ProgressUrl}) completed in {GetElapsedTime(stopwatch)}.\n\n" +
+                await UpdateIssueBodyAsync(
+                    $"[Build]({ProgressUrl}) completed in {GetElapsedTime()}.\n\n" +
                     $"### CoreLib diffs\n\n" +
                     $"```\n" +
                     $"{_corelibDiffs}\n" +
@@ -69,7 +71,7 @@ namespace MihuBot
             {
                 await _logger.DebugAsync(ex.ToString());
 
-                await UpdateIssueBodyAsync(issue, $"Something went wrong with the [Build]({ProgressUrl}) :man_shrugging:");
+                await UpdateIssueBodyAsync( $"Something went wrong with the [Build]({ProgressUrl}) :man_shrugging:");
             }
             finally
             {
@@ -77,23 +79,32 @@ namespace MihuBot
             }
         }
 
-        private string GetElapsedTime(Stopwatch stopwatch)
+        public string GetElapsedTime()
         {
-            TimeSpan elapsed = stopwatch.Elapsed;
+            TimeSpan elapsed = Stopwatch.Elapsed;
+
+            int minutes = elapsed.Minutes;
+            string minutesStr = $"{minutes} minute{GetPlural(minutes)}";
 
             if (elapsed.TotalHours >= 1)
             {
-                return $"{(int)elapsed.TotalHours} hours {elapsed.Minutes} minutes";
+                int hours = (int)elapsed.TotalHours;
+                return $"{hours} hour{GetPlural(hours)} {minutesStr}";
             }
 
-            return $"{elapsed.Minutes} minutes";
+            return minutesStr;
+
+            static string GetPlural(int num)
+            {
+                return num == 1 ? "" : "s";
+            }
         }
 
-        private async Task UpdateIssueBodyAsync(Issue issue, string newBody)
+        private async Task UpdateIssueBodyAsync(string newBody)
         {
-            IssueUpdate update = issue.ToUpdate();
+            IssueUpdate update = TrackingIssue.ToUpdate();
             update.Body = newBody;
-            await _github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, issue.Number, update);
+            await _github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, update);
         }
 
         public void LogsReceived(string[] lines)
