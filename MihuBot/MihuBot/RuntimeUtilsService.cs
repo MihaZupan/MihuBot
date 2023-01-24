@@ -186,15 +186,16 @@ namespace MihuBot
         {
             using var buffer = new MemoryStream(new byte[128 * 1024]);
             await contentStream.CopyToAsync(buffer, cancellationToken);
-            buffer.Position = 0;
+
+            byte[] bytes = buffer.GetBuffer().AsSpan(0, (int)buffer.Position).ToArray();
 
             if (fileName == "diff-corelib.txt")
             {
-                _corelibDiffs = Encoding.UTF8.GetString(buffer.ToArray());
+                _corelibDiffs = Encoding.UTF8.GetString(bytes);
             }
             else if (fileName == "diff-frameworks.txt")
             {
-                _frameworkDiffs = Encoding.UTF8.GetString(buffer.ToArray());
+                _frameworkDiffs = Encoding.UTF8.GetString(bytes);
             }
         }
 
