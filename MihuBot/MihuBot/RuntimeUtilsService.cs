@@ -139,12 +139,18 @@ namespace MihuBot
 
                 string frameworksDiffs =
                     $"### Frameworks diffs\n\n" +
+                    $"<details>\n<summary>Diffs</summary>\n\n" +
                     $"```\n" +
                     $"{_frameworkDiffs}\n" +
-                    $"```\n";
+                    $"```\n" +
+                    $"\n</details>\n";
+
+                bool gotAnyDiffs = _corelibDiffs is not null || _frameworkDiffs is not null;
 
                 await UpdateIssueBodyAsync(
-                    $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n\n" +
+                    $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
+                    (gotAnyDiffs ? PullRequest.HtmlUrl : "") +
+                    "\n\n" +
                     (_corelibDiffs is not null ? corelibDiffs : "") +
                     (_frameworkDiffs is not null ? frameworksDiffs : ""));
             }
