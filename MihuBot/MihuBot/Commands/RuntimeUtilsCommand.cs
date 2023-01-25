@@ -1,4 +1,5 @@
 ﻿using Octokit;
+using System.Linq;
 
 namespace MihuBot.Commands
 {
@@ -30,20 +31,36 @@ namespace MihuBot.Commands
                 return;
             }
 
+            await ExecuteAsync(ctx.Channel, $"https://github.com/dotnet/runtime/pull/{prNumber}");
+        }
+
+        public async Task ExecuteAsync(ISocketMessageChannel channel, string dotnetRuntimePR)
+        {
+            if (!Uri.TryCreate(dotnetRuntimePR, UriKind.Absolute, out var uri) ||
+                !(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) ||
+                !uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
+                !uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) ||
+                !int.TryParse(uri.AbsolutePath.Split('/').Last(), out int prNumber))
+            {
+                await channel.SendMessageAsync($"Can't recognize the PR link.");
+                return;
+            }
+
             PullRequest pullRequest;
             try
             {
                 pullRequest = await _github.PullRequest.Get("dotnet", "runtime", prNumber);
+                ArgumentNullException.ThrowIfNull(pullRequest);
             }
             catch
             {
-                await ctx.ReplyAsync($"Failed to get PR #{prNumber}");
+                await channel.SendMessageAsync($"Failed to fetch PR #{prNumber} from GitHub's API.");
                 return;
             }
 
             RuntimeUtilsJob job = _runtimeUtilsService.StartJob(pullRequest);
 
-            await ctx.ReplyAsync($"{job.ProgressDashboardUrl}\nPrivate id: `{job.JobId}`");
+            await channel.SendMessageAsync(job.ProgressDashboardUrl);
         }
     }
 }

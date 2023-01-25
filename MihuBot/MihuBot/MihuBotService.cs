@@ -1,4 +1,5 @@
-﻿using MihuBot.Configuration;
+﻿using MihuBot.Commands;
+using MihuBot.Configuration;
 using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System.Reflection;
@@ -208,6 +209,16 @@ public class MihuBotService : IHostedService
         {
             try
             {
+                if (message.Channel is IDMChannel &&
+                    !string.IsNullOrEmpty(message.Content) &&
+                    message.Content.Contains("dotnet/runtime", StringComparison.OrdinalIgnoreCase) &&
+                    _commands.Select(c => c.Value).OfType<RuntimeUtilsCommand>().FirstOrDefault() is { } runtimeUtilsCommand &&
+                    _permissions.HasPermission(runtimeUtilsCommand.Command, message.Author.Id))
+                {
+                    await runtimeUtilsCommand.ExecuteAsync(message.Channel, message.Content);
+                    return;
+                }
+
                 if (message.Channel is IDMChannel &&
                     (!string.IsNullOrWhiteSpace(message.Content) || message.Attachments.Any()) &&
                     _configuration.TryGet(null, "SecretSantaRole", out string roleIdString) &&
