@@ -3,6 +3,8 @@ using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerInstance;
 using Azure.ResourceManager.ContainerInstance.Models;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using MihuBot.Configuration;
 using Octokit;
 using System.Runtime.CompilerServices;
@@ -16,6 +18,7 @@ namespace MihuBot
 
         private RuntimeUtilsService _parent;
         private readonly RollingLog _logs = new(50_000);
+        private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
         private string _corelibDiffs;
         private string _frameworkDiffs;
 
@@ -128,6 +131,8 @@ namespace MihuBot
                     }
                 }
 
+                await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
+
                 Stopwatch.Stop();
 
                 string corelibDiffs =
@@ -143,7 +148,8 @@ namespace MihuBot
                     $"```\n" +
                     $"{_frameworkDiffs}\n" +
                     $"```\n" +
-                    $"\n</details>\n";
+                    $"\n</details>\n" +
+                    $"\n\n";
 
                 bool gotAnyDiffs = _corelibDiffs is not null || _frameworkDiffs is not null;
 
@@ -152,7 +158,27 @@ namespace MihuBot
                     (gotAnyDiffs ? PullRequest.HtmlUrl : "") +
                     "\n\n" +
                     (_corelibDiffs is not null ? corelibDiffs : "") +
-                    (_frameworkDiffs is not null ? frameworksDiffs : ""));
+                    (_frameworkDiffs is not null ? frameworksDiffs : "") +
+                    (gotAnyDiffs ? GetArtifactList() : ""));
+
+                string GetArtifactList()
+                {
+                    var builder = new StringBuilder();
+
+                    builder.AppendLine("Artifacts:");
+
+                    lock (_artifacts)
+                    {
+                        foreach (var (FileName, Url, Size) in _artifacts)
+                        {
+                            builder.AppendLine($"- [{FileName}]({Url}) ({GetRoughSizeString(Size)})");
+                        }
+                    }
+
+                    builder.AppendLine();
+
+                    return builder.ToString();
+                }
             }
             catch (Exception ex)
             {
@@ -187,6 +213,19 @@ namespace MihuBot
             }
         }
 
+        private static string GetRoughSizeString(long size)
+        {
+            double kb = size / 1024d;
+            double mb = kb / 1024d;
+
+            if (mb >= 1)
+            {
+                return $"{(int)mb} MB";
+            }
+
+            return $"{(int)kb} KB";
+        }
+
         private async Task UpdateIssueBodyAsync(string newBody)
         {
             IssueUpdate update = TrackingIssue.ToUpdate();
@@ -206,20 +245,41 @@ namespace MihuBot
 
         public async Task ArtifactReceivedAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
         {
-            using var buffer = new MemoryStream(new byte[128 * 1024]);
-            await contentStream.CopyToAsync(buffer, cancellationToken);
-            buffer.SetLength(buffer.Position);
-            buffer.Position = 0;
-            byte[] bytes = buffer.ToArray();
+            if (fileName is "diff-corelib.txt" or "diff-frameworks.txt")
+            {
+                using var buffer = new MemoryStream(new byte[128 * 1024]);
+                await contentStream.CopyToAsync(buffer, cancellationToken);
+                buffer.SetLength(buffer.Position);
+                buffer.Position = 0;
+                byte[] bytes = buffer.ToArray();
+                contentStream = new MemoryStream(bytes);
 
-            if (fileName == "diff-corelib.txt")
-            {
-                _corelibDiffs = Encoding.UTF8.GetString(bytes);
+                if (fileName == "diff-corelib.txt")
+                {
+                    _corelibDiffs = Encoding.UTF8.GetString(bytes);
+                }
+                else if (fileName == "diff-frameworks.txt")
+                {
+                    _frameworkDiffs = Encoding.UTF8.GetString(bytes);
+                }
             }
-            else if (fileName == "diff-frameworks.txt")
+
+            BlobClient blobClient = _parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
+
+            await blobClient.UploadAsync(contentStream, new BlobUploadOptions
             {
-                _frameworkDiffs = Encoding.UTF8.GetString(bytes);
+                AccessTier = AccessTier.Hot
+            }, cancellationToken);
+
+            var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
+            long size = properties.Value.ContentLength;
+
+            lock (_artifacts)
+            {
+                _artifacts.Add((fileName, blobClient.Uri.AbsoluteUri, size));
             }
+
+            LogsReceived($"Saved artifact '{fileName}' to {blobClient.Uri.AbsoluteUri} ({GetRoughSizeString(size)})");
         }
 
         public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
@@ -289,6 +349,7 @@ namespace MihuBot
         public readonly GitHubClient Github;
         public readonly IConfiguration Configuration;
         public readonly IConfigurationService ConfigurationService;
+        public readonly BlobContainerClient ArtifactsBlobContainerClient;
 
         public RuntimeUtilsService(Logger logger, GitHubClient github, IConfiguration configuration, IConfigurationService configurationService)
         {
@@ -296,6 +357,13 @@ namespace MihuBot
             Github = github;
             Configuration = configuration;
             ConfigurationService = configurationService;
+
+            if (Program.AzureEnabled)
+            {
+                ArtifactsBlobContainerClient = new BlobContainerClient(
+                    configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                    "artifacts");
+            }
         }
 
         public bool TryGetJob(string jobId, bool publicId, out RuntimeUtilsJob job)

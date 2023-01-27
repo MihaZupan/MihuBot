@@ -42,6 +42,7 @@ namespace MihuBot.API
         }
 
         [HttpPost("Jobs/Artifact/{jobId}/{fileName}")]
+        [RequestSizeLimit(1536 * 1024 * 1024)] // 1.5 GB
         public async Task<IActionResult> UploadArtifact([FromRoute] string jobId, [FromRoute] string fileName)
         {
             if (!_jobs.TryGetJob(jobId, publicId: false, out var job))

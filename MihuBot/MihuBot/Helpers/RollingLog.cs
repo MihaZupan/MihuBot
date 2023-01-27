@@ -52,5 +52,19 @@ namespace MihuBot.Helpers
                 return available;
             }
         }
+
+        public override string ToString()
+        {
+            var builder = new StringBuilder();
+            lock (this)
+            {
+                foreach (string line in _lines)
+                {
+                    builder.Append(line);
+                    builder.Append('\n');
+                }
+            }
+            return builder.ToString();
+        }
     }
 }
