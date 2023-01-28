@@ -7,6 +7,7 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using MihuBot.Configuration;
 using Octokit;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace MihuBot
@@ -17,6 +18,7 @@ namespace MihuBot
         private const string IssueRepositoryName = "runtime-utils";
 
         private RuntimeUtilsService _parent;
+        private readonly bool _fromGithubComment;
         private readonly RollingLog _logs = new(50_000);
         private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
         private string _corelibDiffs;
@@ -38,12 +40,13 @@ namespace MihuBot
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
-        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string jobId, string externalId)
+        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, bool fromGithubComment, string jobId, string externalId)
         {
             _parent = parent;
             JobId = jobId;
             ExternalId = externalId;
             PullRequest = pullRequest;
+            _fromGithubComment = fromGithubComment;
         }
 
         public async Task RunJobAsync()
@@ -64,13 +67,26 @@ namespace MihuBot
                 IssueRepositoryName,
                 new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
             {
-                Body = $"Build is in progress - see {ProgressDashboardUrl}"
+                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (_fromGithubComment ? $"{PullRequest.HtmlUrl}\n" : "")
             });
 
             try
             {
                 using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
                 var jobTimeout = jobTimeoutCts.Token;
+
+                double memoryInGB = 16;
+                double cpuCount = 4;
+
+                if (ConfigurationService.TryGet(null, "RuntimeUtils.MemoryGB", out string memoryInGBString))
+                {
+                    memoryInGB = double.Parse(memoryInGBString, CultureInfo.InvariantCulture);
+                }
+
+                if (ConfigurationService.TryGet(null, "RuntimeUtils.CPUCount", out string cpuCountString))
+                {
+                    cpuCount = double.Parse(cpuCountString, CultureInfo.InvariantCulture);
+                }
 
                 var armClient = new ArmClient(Program.AzureCredential);
                 var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
@@ -79,7 +95,7 @@ namespace MihuBot
                 var container = new ContainerInstanceContainer(
                     $"runner-{ExternalId}",
                     "runtimeutils.azurecr.io/runner:latest",
-                    new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB: 16, cpu: 4)));
+                    new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB, cpuCount)));
 
                 container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_ID") { Value = JobId });
                 container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_REPO") { Value = PullRequest.Head.Repository.FullName });
@@ -364,6 +380,102 @@ namespace MihuBot
                     configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                     "artifacts");
             }
+
+            Task.Run(async () =>
+            {
+                List<(int Id, Stopwatch Timestamp)> processedMentions = new();
+
+                DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
+                DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
+
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+                while (await timer.WaitForNextTickAsync())
+                {
+                    const string Owner = "dotnet";
+                    const string Repo = "runtime";
+
+                    try
+                    {
+                        processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 1);
+
+                        IReadOnlyList<PullRequestReviewComment> pullReviewComments = await github.PullRequest.ReviewComment.GetAllForRepository(Owner, Repo, new PullRequestReviewCommentRequest
+                        {
+                            Since = lastCheckTimeReviewComments
+                        }, new ApiOptions { PageCount = 100 });
+
+                        if (pullReviewComments.Count > 0)
+                        {
+                            lastCheckTimeReviewComments = pullReviewComments.Max(c => c.CreatedAt);
+                        }
+
+                        foreach (PullRequestReviewComment reviewComment in pullReviewComments)
+                        {
+                            await Process(reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User);
+                        }
+
+                        IReadOnlyList<IssueComment> issueComments = await github.Issue.Comment.GetAllForRepository(Owner, Repo, new IssueCommentRequest
+                        {
+                            Since = lastCheckTimeIssueComments,
+                            Sort = IssueCommentSort.Created,
+                        }, new ApiOptions { PageCount = 100 });
+
+                        if (issueComments.Count > 0)
+                        {
+                            lastCheckTimeIssueComments = issueComments.Max(c => c.CreatedAt);
+                        }
+
+                        var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
+
+                        if (recentTimestamp > lastCheckTimeIssueComments)
+                        {
+                            lastCheckTimeIssueComments = recentTimestamp;
+                        }
+
+                        if (recentTimestamp > lastCheckTimeReviewComments)
+                        {
+                            lastCheckTimeReviewComments = recentTimestamp;
+                        }
+
+                        foreach (IssueComment issueComment in issueComments)
+                        {
+                            if (issueComment.HtmlUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                            {
+                                await Process(issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User);
+                            }
+                        }
+
+                        async Task Process(int commentId, string pullRequestUrl, string body, User user)
+                        {
+                            if (user.Type == AccountType.User &&
+                                body.Contains("@MihuBot", StringComparison.Ordinal) &&
+                                !processedMentions.Any(c => c.Id == commentId))
+                            {
+                                processedMentions.Add((commentId, Stopwatch.StartNew()));
+
+                                int pullRequestNumber = int.Parse(new Uri(pullRequestUrl, UriKind.Absolute).AbsolutePath.Split('/').Last());
+
+                                PullRequest pullRequest = await github.PullRequest.Get(Owner, Repo, pullRequestNumber);
+
+                                if (pullRequest.State.Value == ItemState.Open)
+                                {
+                                    if (ConfigurationService.TryGet(null, $"RuntimeUtils.AuthorizedUser.{user.Login}", out string allowedString) &&
+                                        bool.TryParse(allowedString, out bool allowed) &&
+                                        allowed)
+                                    {
+                                        StartJob(pullRequest, fromGithubComment: true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
+                        lastCheckTimeIssueComments = DateTime.UtcNow;
+                        Logger.DebugLog($"Failed to fetch GitHub notifications: {ex}");
+                    }
+                }
+            });
         }
 
         public bool TryGetJob(string jobId, bool publicId, out RuntimeUtilsJob job)
@@ -375,12 +487,12 @@ namespace MihuBot
             }
         }
 
-        public RuntimeUtilsJob StartJob(PullRequest pullRequest)
+        public RuntimeUtilsJob StartJob(PullRequest pullRequest, bool fromGithubComment = false)
         {
             string jobId = Guid.NewGuid().ToString("N");
             string externalId = Guid.NewGuid().ToString("N");
 
-            var job = new RuntimeUtilsJob(this, pullRequest, jobId, externalId);
+            var job = new RuntimeUtilsJob(this, pullRequest, fromGithubComment, jobId, externalId);
 
             lock (_jobs)
             {
