@@ -46,12 +46,14 @@ namespace MihuBot.Commands
         private readonly HttpClient _http;
         private readonly IConfigurationService _configurationService;
         private readonly string _apiKey;
+        private readonly string[] _commandAndAliases;
 
         public Magic8BallCommand(HttpClient http, IConfiguration configuration, IConfigurationService configurationService)
         {
             _http = http;
             _configurationService = configurationService;
             _apiKey = configuration["RapidAPI:Key"];
+            _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
         }
 
         private async Task<double> QueryTextSimilarityAsync(string text1, string text2)
@@ -239,17 +241,37 @@ namespace MihuBot.Commands
             }
         }
 
-        public override async Task ExecuteAsync(CommandContext ctx)
+        public override Task ExecuteAsync(CommandContext ctx)
+        {
+            return HandleAsync(ctx.Channel, ctx.AuthorId, ctx.ArgumentStringTrimmed);
+        }
+
+        public override Task HandleAsync(MessageContext ctx)
+        {
+            string content = ctx.Content;
+
+            foreach (string command in _commandAndAliases)
+            {
+                if (content.StartsWith(command, StringComparison.OrdinalIgnoreCase))
+                {
+                    return HandleAsync(ctx.Channel, ctx.AuthorId, content.Substring(command.Length).Trim());
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private async Task HandleAsync(SocketTextChannel channel, ulong authorId, string prompt)
         {
             UserState userState;
             lock (s_userStates)
             {
-                userState = CollectionsMarshal.GetValueRefOrAddDefault(s_userStates, ctx.AuthorId, out _) ??= new(this);
+                userState = CollectionsMarshal.GetValueRefOrAddDefault(s_userStates, authorId, out _) ??= new(this);
             }
 
-            string response = await userState.GetResponseAsync(ctx.ArgumentStringTrimmed);
+            string response = await userState.GetResponseAsync(prompt);
 
-            await ctx.ReplyAsync(response);
+            await channel.SendMessageAsync(response);
         }
     }
 }
