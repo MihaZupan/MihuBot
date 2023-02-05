@@ -157,11 +157,6 @@ public class Startup
 
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            AddDownBadProviders(services);
-        }
-
         if (Program.AzureEnabled)
         {
             services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
@@ -231,14 +226,6 @@ public class Startup
             .LoadFromConfig(Configuration.GetSection("ReverseProxy"));
 
         Console.WriteLine("Services configured.");
-    }
-
-    private static void AddDownBadProviders(IServiceCollection services)
-    {
-        if (Program.AzureEnabled)
-        {
-            services.AddSingleton<DownBadProviders.IDownBadProvider, DownBadProviders.TwitterProvider>();
-        }
     }
 
     private void AddPrivateDiscordClients(IServiceCollection services, HttpClient httpClient)
