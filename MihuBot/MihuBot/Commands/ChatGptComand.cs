@@ -1,6 +1,7 @@
 ﻿using MihuBot.Configuration;
 using Newtonsoft.Json.Linq;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace MihuBot.Commands
@@ -15,6 +16,7 @@ namespace MihuBot.Commands
         private readonly IConfigurationService _configurationService;
         private readonly string _apiKey;
         private readonly string[] _commandAndAliases;
+        private readonly Dictionary<ulong, List<HistoryEntry>> _chatHistory = new();
 
         public ChatGptComand(Logger logger, HttpClient http, IConfiguration configuration, IConfigurationService configurationService)
         {
@@ -25,26 +27,86 @@ namespace MihuBot.Commands
             _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
         }
 
-        private async Task<string> QueryCompletionsAsync(string model, string prompt, int maxTokens, ulong authorId)
+        private record HistoryEntry(string Role, string Content);
+
+        private async Task<string> QueryCompletionsAsync(SocketTextChannel channel, ulong authorId, string prompt, string model, int maxTokens, int maxChatHistory)
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/completions");
+            bool useChatHistory = maxChatHistory > 1;
+
+            string uri = useChatHistory
+                ? "https://api.openai.com/v1/chat/completions"
+                : "https://api.openai.com/v1/completions";
+
+            var request = new HttpRequestMessage(HttpMethod.Post, uri);
             request.Headers.Add("Authorization", $"Bearer {_apiKey}");
-            request.Content = JsonContent.Create(new
+
+            string userHash = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{authorId}")));
+
+            if (useChatHistory)
             {
-                model,
-                prompt,
-                max_tokens = maxTokens,
-                user = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{authorId}")))
-            });
+                List<HistoryEntry> history = null;
+
+                lock (_chatHistory)
+                {
+                    if (_chatHistory.TryGetValue(channel.Id, out var historyList))
+                    {
+                        history = historyList.ToList();
+                    }
+                }
+
+                history ??= new();
+                history.Add(new HistoryEntry("user", prompt));
+
+                request.Content = JsonContent.Create(new
+                {
+                    model,
+                    messages = history,
+                    max_tokens = maxTokens,
+                    user = userHash
+                });
+            }
+            else
+            {
+                request.Content = JsonContent.Create(new
+                {
+                    model,
+                    prompt,
+                    max_tokens = maxTokens,
+                    user = userHash
+                });
+            }
 
             using HttpResponseMessage response = await _http.SendAsync(request);
             string responseJson = await response.Content.ReadAsStringAsync();
 
-            _logger.DebugLog($"ChatGPT response for {authorId} with model={model} maxTokens={maxTokens} prompt='{prompt}' was '{responseJson}'");
+            _logger.DebugLog($"ChatGPT response for {authorId} in channel={channel.Id} with model={model} maxTokens={maxTokens} prompt='{prompt}' was '{responseJson}'");
 
-            string text = JToken.Parse(responseJson)["choices"].AsJEnumerable().First()["text"].ToObject<string>();
+            JToken choice = JToken.Parse(responseJson)["choices"].AsJEnumerable().First();
 
-            text = text.ReplaceLineEndings("\n").Trim('\n');
+            string text = useChatHistory
+                ? choice["message"]["content"].ToObject<string>()
+                : choice["text"].ToObject<string>();
+
+            text = text
+                .ReplaceLineEndings("\n")
+                .TrimStart('.', ',', '?', '!', ':', '\n', ' ')
+                .TrimEnd('\n', ' ');
+
+            if (useChatHistory)
+            {
+                lock (_chatHistory)
+                {
+                    var history = CollectionsMarshal.GetValueRefOrAddDefault(_chatHistory, channel.Id, out _) ??= new();
+
+                    history.Add(new HistoryEntry("user", prompt));
+                    history.Add(new HistoryEntry("assistant", text));
+
+                    if (history.Count > maxChatHistory)
+                    {
+                        history.RemoveRange(0, history.Count - maxChatHistory);
+                    }
+                }
+            }
 
             return text;
         }
@@ -76,6 +138,11 @@ namespace MihuBot.Commands
                 model = "text-davinci-003";
             }
 
+            if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.ChatModel", out string chatModel))
+            {
+                chatModel = "gpt-3.5-turbo";
+            }
+
             if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.MaxTokens", out string maxTokensString) ||
                 !uint.TryParse(maxTokensString, out uint maxTokens) ||
                 maxTokens > 2048)
@@ -83,7 +150,14 @@ namespace MihuBot.Commands
                 maxTokens = 200;
             }
 
-            string response = await QueryCompletionsAsync(model, prompt, (int)maxTokens, authorId);
+            if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.MaxChatHistory", out string maxChatHistoryString) ||
+                !uint.TryParse(maxChatHistoryString, out uint maxChatHistory) ||
+                maxChatHistory > 1000)
+            {
+                maxChatHistory = 20;
+            }
+
+            string response = await QueryCompletionsAsync(channel, authorId, prompt, maxChatHistory > 1 ? chatModel : model, (int)maxTokens, (int)maxChatHistory);
 
             await channel.SendMessageAsync(response);
         }
