@@ -184,6 +184,8 @@ public class Startup
 
         services.AddCors(options =>
         {
+            options.AddPolicy("noCors", policy => { });
+
             options.AddDefaultPolicy(policy => policy
                 .AllowAnyOrigin()
                 .DisallowCredentials());
@@ -316,6 +318,8 @@ public class Startup
         });
 
         app.UseRouting();
+
+        app.UseCors();
 
         app.UseAuthentication();
         app.UseAuthorization();
