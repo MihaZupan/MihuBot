@@ -49,6 +49,11 @@ namespace MihuBot
             _fromGithubComment = fromGithubComment;
         }
 
+        private bool ShouldLinkToPR =>
+            !ConfigurationService.TryGet(null, "RuntimeUtils.LinkToPR", out string shouldLinkToPRString) ||
+            !bool.TryParse(shouldLinkToPRString, out bool shouldLinkToPr) ||
+            shouldLinkToPr;
+
         public async Task RunJobAsync()
         {
             Stopwatch.Start();
@@ -67,7 +72,7 @@ namespace MihuBot
                 IssueRepositoryName,
                 new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
             {
-                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (_fromGithubComment ? $"{PullRequest.HtmlUrl}\n" : "")
+                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (_fromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
             });
 
             try
@@ -75,8 +80,8 @@ namespace MihuBot
                 using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
                 var jobTimeout = jobTimeoutCts.Token;
 
-                double memoryInGB = 16;
-                double cpuCount = 4;
+                double memoryInGB = 32;
+                double cpuCount = 8;
 
                 if (ConfigurationService.TryGet(null, "RuntimeUtils.MemoryGB", out string memoryInGBString))
                 {
@@ -115,7 +120,7 @@ namespace MihuBot
                     Password = Configuration["AzureContainerRegistry:Password"]
                 });
 
-                LogsReceived("Starting an Azure Container Instance ...");
+                LogsReceived($"Starting an Azure Container Instance (CPU={cpuCount} Memory={memoryInGB}) ...");
 
                 var containerGroups = resourceGroup.GetContainerGroups();
                 var containerGroupResource = (await containerGroups.CreateOrUpdateAsync(WaitUntil.Completed, container.Name, containerGroupData, jobTimeout)).Value;
@@ -171,7 +176,7 @@ namespace MihuBot
 
                 await UpdateIssueBodyAsync(
                     $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
-                    (gotAnyDiffs ? PullRequest.HtmlUrl : "") +
+                    (gotAnyDiffs && ShouldLinkToPR ? PullRequest.HtmlUrl : "") +
                     "\n\n" +
                     (_corelibDiffs is not null ? corelibDiffs : "") +
                     (_frameworkDiffs is not null ? frameworksDiffs : "") +
