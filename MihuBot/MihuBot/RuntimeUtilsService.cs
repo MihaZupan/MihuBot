@@ -3,6 +3,7 @@ using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerInstance;
 using Azure.ResourceManager.ContainerInstance.Models;
+using Azure.ResourceManager.Resources;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using MihuBot.Configuration;
@@ -54,6 +55,11 @@ namespace MihuBot
             !bool.TryParse(shouldLinkToPRString, out bool shouldLinkToPr) ||
             shouldLinkToPr;
 
+        private bool ShouldDeleteContainer =>
+            !ConfigurationService.TryGet(null, "RuntimeUtils.ShouldDeleteContainer", out string shouldDeleteStr) ||
+            !bool.TryParse(shouldDeleteStr, out bool shouldDelete) ||
+            shouldDelete;
+
         public async Task RunJobAsync()
         {
             Stopwatch.Start();
@@ -80,77 +86,11 @@ namespace MihuBot
                 using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
                 var jobTimeout = jobTimeoutCts.Token;
 
-                double memoryInGB = 32;
-                double cpuCount = 8;
-
-                if (ConfigurationService.TryGet(null, "RuntimeUtils.MemoryGB", out string memoryInGBString))
-                {
-                    memoryInGB = double.Parse(memoryInGBString, CultureInfo.InvariantCulture);
-                }
-
-                if (ConfigurationService.TryGet(null, "RuntimeUtils.CPUCount", out string cpuCountString))
-                {
-                    cpuCount = double.Parse(cpuCountString, CultureInfo.InvariantCulture);
-                }
-
                 var armClient = new ArmClient(Program.AzureCredential);
                 var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
                 var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
 
-                var container = new ContainerInstanceContainer(
-                    $"runner-{ExternalId}",
-                    "runtimeutils.azurecr.io/runner:latest",
-                    new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB, cpuCount)));
-
-                container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_ID") { Value = JobId });
-                container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_REPO") { Value = PullRequest.Head.Repository.FullName });
-                container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_BRANCH") { Value = PullRequest.Head.Ref });
-
-                var containerGroupData = new ContainerGroupData(
-                    AzureLocation.EastUS2,
-                    new[] { container },
-                    ContainerInstanceOperatingSystemType.Linux)
-                {
-                    RestartPolicy = ContainerGroupRestartPolicy.Never
-                };
-
-                containerGroupData.ImageRegistryCredentials.Add(new ContainerGroupImageRegistryCredential("runtimeutils.azurecr.io")
-                {
-                    Username = "runtimeutils",
-                    Password = Configuration["AzureContainerRegistry:Password"]
-                });
-
-                LogsReceived($"Starting an Azure Container Instance (CPU={cpuCount} Memory={memoryInGB}) ...");
-
-                var containerGroups = resourceGroup.GetContainerGroups();
-                var containerGroupResource = (await containerGroups.CreateOrUpdateAsync(WaitUntil.Completed, container.Name, containerGroupData, jobTimeout)).Value;
-
-                try
-                {
-                    containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
-
-                    while (containerGroupResource.Data?.Containers?.FirstOrDefault()?.InstanceView?.CurrentState is { } currentState
-                        && currentState.FinishOn is null)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(30));
-
-                        containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
-                    }
-                }
-                finally
-                {
-                    if (!ConfigurationService.TryGet(null, "RuntimeUtils.ShouldDeleteContainer", out string shouldDeleteStr) ||
-                        !bool.TryParse(shouldDeleteStr, out bool shouldDelete) ||
-                        shouldDelete)
-                    {
-                        LogsReceived("Deleting the container instance");
-                        await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
-                    }
-                    else
-                    {
-                        LogsReceived("Configuration opted not to delete the container instance");
-                    }
-                }
+                await RunContainerInstanceAsync(resourceGroup, jobTimeout);
 
                 await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
 
@@ -210,6 +150,75 @@ namespace MihuBot
             finally
             {
                 Completed = true;
+            }
+        }
+
+        private async Task RunContainerInstanceAsync(ResourceGroupResource resourceGroup, CancellationToken jobTimeout)
+        {
+            double memoryInGB = 32;
+            double cpuCount = 8;
+
+            if (ConfigurationService.TryGet(null, "RuntimeUtils.MemoryGB", out string memoryInGBString))
+            {
+                memoryInGB = double.Parse(memoryInGBString, CultureInfo.InvariantCulture);
+            }
+
+            if (ConfigurationService.TryGet(null, "RuntimeUtils.CPUCount", out string cpuCountString))
+            {
+                cpuCount = double.Parse(cpuCountString, CultureInfo.InvariantCulture);
+            }
+
+            var container = new ContainerInstanceContainer(
+                $"runner-{ExternalId}",
+                "runtimeutils.azurecr.io/runner:latest",
+                new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB, cpuCount)));
+
+            container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_ID") { Value = JobId });
+            container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_REPO") { Value = PullRequest.Head.Repository.FullName });
+            container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_BRANCH") { Value = PullRequest.Head.Ref });
+
+            var containerGroupData = new ContainerGroupData(
+                AzureLocation.EastUS2,
+                new[] { container },
+                ContainerInstanceOperatingSystemType.Linux)
+            {
+                RestartPolicy = ContainerGroupRestartPolicy.Never
+            };
+
+            containerGroupData.ImageRegistryCredentials.Add(new ContainerGroupImageRegistryCredential("runtimeutils.azurecr.io")
+            {
+                Username = "runtimeutils",
+                Password = Configuration["AzureContainerRegistry:Password"]
+            });
+
+            LogsReceived($"Starting an Azure Container Instance (CPU={cpuCount} Memory={memoryInGB}) ...");
+
+            var containerGroups = resourceGroup.GetContainerGroups();
+            var containerGroupResource = (await containerGroups.CreateOrUpdateAsync(WaitUntil.Completed, container.Name, containerGroupData, jobTimeout)).Value;
+
+            try
+            {
+                containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
+
+                while (containerGroupResource.Data?.Containers?.FirstOrDefault()?.InstanceView?.CurrentState is { } currentState
+                    && currentState.FinishOn is null)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+
+                    containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
+                }
+            }
+            finally
+            {
+                if (ShouldDeleteContainer)
+                {
+                    LogsReceived("Deleting the container instance");
+                    await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
+                }
+                else
+                {
+                    LogsReceived("Configuration opted not to delete the container instance");
+                }
             }
         }
 
