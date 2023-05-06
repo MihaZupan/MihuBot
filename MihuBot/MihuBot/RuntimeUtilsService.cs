@@ -22,6 +22,7 @@ namespace MihuBot
         private readonly bool _fromGithubComment;
         private readonly RollingLog _logs = new(50_000);
         private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
+        private string _corelibDiffs;
         private string _frameworkDiffs;
 
         private Logger Logger => _parent.Logger;
@@ -95,20 +96,30 @@ namespace MihuBot
 
                 Stopwatch.Stop();
 
-                string diffs =
-                    $"### Diffs\n\n" +
+                string corelibDiffs =
+                    $"### CoreLib diffs\n\n" +
                     $"```\n" +
-                    $"{_frameworkDiffs}\n" +
+                    $"{_corelibDiffs}\n" +
                     $"```\n" +
                     $"\n\n";
 
-                bool gotAnyDiffs = _frameworkDiffs is not null;
+                string frameworksDiffs =
+                    $"### Frameworks diffs\n\n" +
+                    $"<details>\n<summary>Diffs</summary>\n\n" +
+                    $"```\n" +
+                    $"{_frameworkDiffs}\n" +
+                    $"```\n" +
+                    $"\n</details>\n" +
+                    $"\n\n";
+
+                bool gotAnyDiffs = _corelibDiffs is not null || _frameworkDiffs is not null;
 
                 await UpdateIssueBodyAsync(
                     $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
                     (gotAnyDiffs && ShouldLinkToPR ? PullRequest.HtmlUrl : "") +
                     "\n\n" +
-                    (_frameworkDiffs is not null ? diffs : "") +
+                    (_corelibDiffs is not null ? corelibDiffs : "") +
+                    (_frameworkDiffs is not null ? frameworksDiffs : "") +
                     (gotAnyDiffs ? GetArtifactList() : ""));
 
                 string GetArtifactList()
@@ -264,7 +275,7 @@ namespace MihuBot
 
         public async Task ArtifactReceivedAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
         {
-            if (fileName is "diff-frameworks.txt")
+            if (fileName is "diff-corelib.txt" or "diff-frameworks.txt")
             {
                 using var buffer = new MemoryStream(new byte[128 * 1024]);
                 await contentStream.CopyToAsync(buffer, cancellationToken);
@@ -273,7 +284,14 @@ namespace MihuBot
                 byte[] bytes = buffer.ToArray();
                 contentStream = new MemoryStream(bytes);
 
-                _frameworkDiffs = Encoding.UTF8.GetString(bytes);
+                if (fileName == "diff-corelib.txt")
+                {
+                    _corelibDiffs = Encoding.UTF8.GetString(bytes);
+                }
+                else if (fileName == "diff-frameworks.txt")
+                {
+                    _frameworkDiffs = Encoding.UTF8.GetString(bytes);
+                }
             }
 
             BlobClient blobClient = _parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
