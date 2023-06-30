@@ -52,15 +52,22 @@ namespace MihuBot
             _githubCommenterLogin = githubCommenterLogin;
         }
 
-        private bool ShouldLinkToPR =>
-            !ConfigurationService.TryGet(null, "RuntimeUtils.LinkToPR", out string shouldLinkToPRString) ||
-            !bool.TryParse(shouldLinkToPRString, out bool shouldLinkToPr) ||
-            shouldLinkToPr;
+        private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true);
 
-        private bool ShouldDeleteContainer =>
-            !ConfigurationService.TryGet(null, "RuntimeUtils.ShouldDeleteContainer", out string shouldDeleteStr) ||
-            !bool.TryParse(shouldDeleteStr, out bool shouldDelete) ||
-            shouldDelete;
+        private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
+
+        private bool ShouldMentionJobInitiator => GetConfigFlag("ShouldMentionJobInitiator", true);
+
+        private bool GetConfigFlag(string name, bool @default)
+        {
+            if (ConfigurationService.TryGet(null, $"RuntimeUtils.{name}", out string flagStr) &&
+                bool.TryParse(flagStr, out bool flag))
+            {
+                return flag;
+            }
+
+            return @default;
+        }
 
         public async Task RunJobAsync()
         {
@@ -124,7 +131,7 @@ namespace MihuBot
                     (_frameworkDiffs is not null ? frameworksDiffs : "") +
                     (gotAnyDiffs ? GetArtifactList() : ""));
 
-                if (FromGithubComment)
+                if (FromGithubComment && ShouldMentionJobInitiator)
                 {
                     await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, $"@{_githubCommenterLogin}");
                 }
