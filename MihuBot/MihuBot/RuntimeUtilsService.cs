@@ -424,7 +424,7 @@ namespace MihuBot
 
                     try
                     {
-                        processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 1);
+                        processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 14);
 
                         IReadOnlyList<PullRequestReviewComment> pullReviewComments = await github.PullRequest.ReviewComment.GetAllForRepository(Owner, Repo, new PullRequestReviewCommentRequest
                         {
