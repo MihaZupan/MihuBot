@@ -131,11 +131,6 @@ namespace MihuBot
                     (_frameworkDiffs is not null ? frameworksDiffs : "") +
                     (gotAnyDiffs ? GetArtifactList() : ""));
 
-                if (FromGithubComment && ShouldMentionJobInitiator)
-                {
-                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, $"@{_githubCommenterLogin}");
-                }
-
                 string GetArtifactList()
                 {
                     var builder = new StringBuilder();
@@ -164,6 +159,18 @@ namespace MihuBot
             finally
             {
                 Completed = true;
+
+                if (FromGithubComment && ShouldMentionJobInitiator)
+                {
+                    try
+                    {
+                        await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, $"@{_githubCommenterLogin}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.DebugLog($"Failed to mention job initiator ({_githubCommenterLogin}): {ex}");
+                    }
+                }
             }
         }
 
