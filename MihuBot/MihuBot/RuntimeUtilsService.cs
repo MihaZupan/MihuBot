@@ -19,11 +19,13 @@ namespace MihuBot
         private const string IssueRepositoryName = "runtime-utils";
 
         private RuntimeUtilsService _parent;
-        private readonly bool _fromGithubComment;
+        private readonly string _githubCommenterLogin;
         private readonly RollingLog _logs = new(50_000);
         private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
         private string _corelibDiffs;
         private string _frameworkDiffs;
+
+        public bool FromGithubComment => _githubCommenterLogin is not null;
 
         private Logger Logger => _parent.Logger;
         private GitHubClient Github => _parent.Github;
@@ -41,13 +43,13 @@ namespace MihuBot
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
-        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, bool fromGithubComment, string jobId, string externalId)
+        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string jobId, string externalId)
         {
             _parent = parent;
             JobId = jobId;
             ExternalId = externalId;
             PullRequest = pullRequest;
-            _fromGithubComment = fromGithubComment;
+            _githubCommenterLogin = githubCommenterLogin;
         }
 
         private bool ShouldLinkToPR =>
@@ -78,7 +80,7 @@ namespace MihuBot
                 IssueRepositoryName,
                 new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
             {
-                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (_fromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
+                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (FromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
             });
 
             try
@@ -121,6 +123,11 @@ namespace MihuBot
                     (_corelibDiffs is not null ? corelibDiffs : "") +
                     (_frameworkDiffs is not null ? frameworksDiffs : "") +
                     (gotAnyDiffs ? GetArtifactList() : ""));
+
+                if (FromGithubComment)
+                {
+                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, $"@{_githubCommenterLogin}");
+                }
 
                 string GetArtifactList()
                 {
@@ -476,7 +483,7 @@ namespace MihuBot
                                         bool.TryParse(allowedString, out bool allowed) &&
                                         allowed)
                                     {
-                                        StartJob(pullRequest, fromGithubComment: true);
+                                        StartJob(pullRequest, githubCommenterLogin: user.Login);
                                     }
                                 }
                             }
@@ -501,12 +508,12 @@ namespace MihuBot
             }
         }
 
-        public RuntimeUtilsJob StartJob(PullRequest pullRequest, bool fromGithubComment = false)
+        public RuntimeUtilsJob StartJob(PullRequest pullRequest, string githubCommenterLogin = null)
         {
             string jobId = Guid.NewGuid().ToString("N");
             string externalId = Guid.NewGuid().ToString("N");
 
-            var job = new RuntimeUtilsJob(this, pullRequest, fromGithubComment, jobId, externalId);
+            var job = new RuntimeUtilsJob(this, pullRequest, githubCommenterLogin, jobId, externalId);
 
             lock (_jobs)
             {
