@@ -499,6 +499,13 @@ namespace MihuBot
                                     {
                                         StartJob(pullRequest, githubCommenterLogin: user.Login);
                                     }
+                                    else
+                                    {
+                                        if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            await Logger.DebugAsync($"User {user.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
+                                        }
+                                    }
                                 }
                             }
                         }
