@@ -10,10 +10,10 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
 
-    - name: Setup .NET 7.0
+    - name: Setup .NET 8.0
       uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: '7.0.x'
+        dotnet-version: '8.0.x'
 
     - name: Dotnet restore
       run: dotnet restore MihuBot
