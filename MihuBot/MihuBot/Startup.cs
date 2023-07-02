@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
-using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
@@ -151,8 +150,6 @@ public class Startup
             ApiKey = Configuration["Youtube:ApiKey"],
             ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
         }));
-
-        services.AddSingleton<AudioService>();
 
         services.AddHostedService<MihuBotService>();
 
