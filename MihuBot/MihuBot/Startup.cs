@@ -100,7 +100,7 @@ public class Startup
                 MessageCacheSize = 1024 * 16,
                 ConnectionTimeout = 30_000,
                 AlwaysDownloadUsers = true,
-                GatewayIntents = GatewayIntents.MessageContent,
+                GatewayIntents = GatewayIntents.All | GatewayIntents.GuildMembers | GatewayIntents.MessageContent,
             },
             TokenType.Bot,
 #if DEBUG
