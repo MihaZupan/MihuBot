@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
@@ -153,8 +152,6 @@ public class Startup
 
         services.AddSingleton<RuntimeUtilsService>();
 
-        services.AddSingleton<IronmanDataService>();
-
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
 
         if (Program.AzureEnabled)
@@ -224,9 +221,6 @@ public class Startup
                     context.User.IsAdmin()));
         });
 
-        services.AddReverseProxy()
-            .LoadFromConfig(Configuration.GetSection("ReverseProxy"));
-
         Console.WriteLine("Services configured.");
     }
 
@@ -276,7 +270,6 @@ public class Startup
             endpoints.MapControllers();
             endpoints.MapBlazorHub();
             endpoints.MapFallbackToPage("/_Host");
-            endpoints.MapReverseProxy();
         });
     }
 

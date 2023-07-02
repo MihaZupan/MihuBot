@@ -25,7 +25,6 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.0.0" />
     <PackageReference Include="TweetinviAPI" Version="5.0.4" />
-    <PackageReference Include="Yarp.ReverseProxy" Version="2.0.0" />
     <PackageReference Include="YoutubeExplode" Version="6.2.14" />
   </ItemGroup>
 
