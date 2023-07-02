@@ -23,7 +23,7 @@ namespace MihuBot.API
                 return;
             }
 
-            Response.Headers.Add("Content-Type", "text/event-stream");
+            Response.Headers["Content-Type"] = "text/event-stream";
 
             await job.StreamLogsAsync(new StreamWriter(Response.Body), HttpContext.RequestAborted);
         }

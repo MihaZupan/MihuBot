@@ -359,7 +359,7 @@ namespace MihuBot
             {
                 if (line is null)
                 {
-                    await writer.FlushAsync();
+                    await writer.FlushAsync(cancellationToken);
                 }
                 else
                 {
