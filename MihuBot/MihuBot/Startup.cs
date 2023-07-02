@@ -19,8 +19,6 @@ using MihuBot.Weather;
 using Octokit;
 using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
-using Tweetinvi;
-using Tweetinvi.Models;
 
 namespace MihuBot;
 
@@ -93,15 +91,6 @@ public class Startup
 
         if (Program.AzureEnabled)
         {
-            services.AddSingleton<ITwitterClient>(new TwitterClient(new TwitterCredentials(
-                Configuration["Twitter:ConsumerKey"],
-                Configuration["Twitter:ConsumerSecret"],
-                Configuration["Twitter:AccessToken"],
-                Configuration["Twitter:AccessTokenSecret"])
-            {
-                BearerToken = Configuration["Twitter:BearerToken"]
-            }));
-
             services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
                 new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
                 httpClient,
@@ -167,13 +156,6 @@ public class Startup
             ApiKey = Configuration["Youtube:ApiKey"],
             ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
         }));
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && Program.AzureEnabled)
-        {
-            //AddPrivateDiscordClients(services, httpClient);
-
-            services.AddHostedService<TwitterBioUpdater>();
-        }
 
         services.AddSingleton<AudioService>();
 

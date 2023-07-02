@@ -24,7 +24,6 @@
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.0.0" />
-    <PackageReference Include="TweetinviAPI" Version="5.0.4" />
     <PackageReference Include="YoutubeExplode" Version="6.2.14" />
   </ItemGroup>
 
