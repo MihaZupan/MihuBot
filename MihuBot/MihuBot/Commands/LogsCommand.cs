@@ -6,34 +6,17 @@ namespace MihuBot.Commands;
 public sealed class LogsCommand : CommandBase
 {
     public override string Command => "logs";
-    public override string[] Aliases => new[] { "plogs", "pvtlogs", "privatelogs", "ddlogs" };
 
     private readonly Logger _logger;
-    private readonly CustomLogger[] _customLoggers;
 
-    public LogsCommand(Logger logger, IEnumerable<CustomLogger> customLogger)
+    public LogsCommand(Logger logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _customLoggers = customLogger.ToArray();
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
         if (!await ctx.RequirePermissionAsync("logs"))
-            return;
-
-        if (ctx.Command != Command && ctx.AuthorId != KnownUsers.Miha)
-            return;
-
-        Logger logger = _logger;
-        if (ctx.Command != Command)
-        {
-            logger = ctx.Command == "ddlogs"
-                ? (_customLoggers.FirstOrDefault(l => l is DDsLogger))?.Logger
-                : (_customLoggers.FirstOrDefault(l => l is PrivateLogger))?.Logger;
-        }
-
-        if (logger is null)
             return;
 
         if (ctx.ArgumentLines.Length == 0)
@@ -44,7 +27,7 @@ public sealed class LogsCommand : CommandBase
 
         if (ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase))
         {
-            await logger.ResetLogFileAsync();
+            await _logger.ResetLogFileAsync();
             return;
         }
 
@@ -242,7 +225,7 @@ public sealed class LogsCommand : CommandBase
             };
         };
 
-        (Logger.LogEvent[] logs, Exception[] errors) = await logger.GetLogsAsync(after, before, predicates.ToArray().All, rawJsonPredicate);
+        (Logger.LogEvent[] logs, Exception[] errors) = await _logger.GetLogsAsync(after, before, predicates.ToArray().All, rawJsonPredicate);
 
         if (errors.Length > 0)
         {

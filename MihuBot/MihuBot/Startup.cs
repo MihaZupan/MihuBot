@@ -230,59 +230,6 @@ public class Startup
         Console.WriteLine("Services configured.");
     }
 
-    private void AddPrivateDiscordClients(IServiceCollection services, HttpClient httpClient)
-    {
-        var privateDiscordClient = CreateDiscordClient(Configuration["Discord:PrivateAuthToken"]);
-        var customLogger = new PrivateLogger(httpClient,
-            CreateLoggerOptions(privateDiscordClient, "pvt_logs", "Private_"),
-            Configuration);
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, PrivateLogger>(_ => customLogger));
-        services.AddHostedService(_ => customLogger);
-
-        var ddsDiscordClient = CreateDiscordClient(Configuration["Discord:DDsPrivateAuthToken"]);
-        var ddsLogger = new DDsLogger(httpClient,
-            CreateLoggerOptions(ddsDiscordClient, "pvt_logs_dds", "Private_DDs_"),
-            Configuration);
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<CustomLogger, DDsLogger>(_ => ddsLogger));
-        services.AddHostedService(_ => ddsLogger);
-
-        static InitializedDiscordClient CreateDiscordClient(string authToken)
-        {
-            return new InitializedDiscordClient(
-                new DiscordSocketConfig()
-                {
-                    MessageCacheSize = 1024, // Is this needed?
-                    ConnectionTimeout = 30_000,
-                    AlwaysDownloadUsers = false,
-                    GatewayIntents = Intents,
-                },
-                /* TokenType.User */ 0,
-                authToken);
-        }
-
-        static LoggerOptions CreateLoggerOptions(InitializedDiscordClient discord, string dirPrefix, string filePrefix)
-        {
-            return new LoggerOptions(
-                    discord,
-                    $"{Constants.StateDirectory}/{dirPrefix}", filePrefix,
-                    Channels.Debug,
-                    806049221631410186ul,
-                    Channels.Files)
-            {
-                ShouldLogAttachments = static message =>
-                {
-                    if (message.Guild()?.GetUser(KnownUsers.MihuBot) is not SocketGuildUser user)
-                        return true;
-
-                    if (message.Channel is not SocketTextChannel channel)
-                        return true;
-
-                    return !user.GetPermissions(channel).ViewChannel;
-                }
-            };
-        }
-    }
-
     public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
     {
         if (env.IsDevelopment())
