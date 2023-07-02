@@ -1,6 +1,4 @@
-﻿using Discord.Rest;
-
-namespace MihuBot.Commands;
+﻿namespace MihuBot.Commands;
 
 public sealed class SfaeLinksCommand : CommandBase
 {

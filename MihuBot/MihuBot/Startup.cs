@@ -1,5 +1,4 @@
 using AspNet.Security.OAuth.Discord;
-using Azure;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
@@ -15,7 +14,6 @@ using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.Weather;
 using Octokit;
-using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
 
 namespace MihuBot;
@@ -134,14 +132,6 @@ public class Startup
         services.AddSingleton<RuntimeUtilsService>();
 
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
-
-        if (Program.AzureEnabled)
-        {
-            services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
-                .WithAuthenticator(new ClientCredentialsAuthenticator(
-                    Configuration["Spotify:ClientId"],
-                    Configuration["Spotify:ClientSecret"]))));
-        }
 
         services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
         {

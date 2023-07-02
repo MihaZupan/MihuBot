@@ -22,7 +22,6 @@
     <PackageReference Include="Octokit" Version="6.2.1" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.0.1" />
-    <PackageReference Include="SpotifyAPI.Web" Version="7.0.0" />
     <PackageReference Include="YoutubeExplode" Version="6.2.16" />
   </ItemGroup>
 

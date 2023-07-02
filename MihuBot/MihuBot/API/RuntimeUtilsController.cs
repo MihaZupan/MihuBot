@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using SpotifyAPI.Web;
 
 namespace MihuBot.API
 {
