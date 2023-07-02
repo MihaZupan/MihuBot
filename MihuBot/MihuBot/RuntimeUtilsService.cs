@@ -22,6 +22,8 @@ namespace MihuBot
         private readonly string _githubCommenterLogin;
         private readonly RollingLog _logs = new(50_000);
         private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
+        private long _artifactsCount;
+        private long _totalArtifactsSize;
         private string _corelibDiffs;
         private string _frameworkDiffs;
 
@@ -296,6 +298,13 @@ namespace MihuBot
 
         public async Task ArtifactReceivedAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
         {
+            if (Interlocked.Increment(ref _artifactsCount) > 128)
+            {
+                Interlocked.Decrement(ref _artifactsCount);
+                LogsReceived($"Too many artifacts received, skipping {fileName}");
+                return;
+            }
+
             if (fileName is "diff-corelib.txt" or "diff-frameworks.txt")
             {
                 using var buffer = new MemoryStream(new byte[128 * 1024]);
@@ -327,7 +336,18 @@ namespace MihuBot
 
             lock (_artifacts)
             {
+                const long GB = 1024 * 1024 * 1024;
+                const long ArtifactSizeLimit = 16 * GB;
+
+                if (ArtifactSizeLimit - _totalArtifactsSize < size)
+                {
+                    LogsReceived($"Artifact '{fileName}' was not saved because it would exceed the {GetRoughSizeString(ArtifactSizeLimit)} limit");
+                    blobClient.DeleteIfExists(cancellationToken: cancellationToken);
+                    return;
+                }
+
                 _artifacts.Add((fileName, blobClient.Uri.AbsoluteUri, size));
+                _totalArtifactsSize += size;
             }
 
             LogsReceived($"Saved artifact '{fileName}' to {blobClient.Uri.AbsoluteUri} ({GetRoughSizeString(size)})");
