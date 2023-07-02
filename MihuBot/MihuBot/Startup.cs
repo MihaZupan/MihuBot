@@ -22,8 +22,6 @@ namespace MihuBot;
 
 public class Startup
 {
-    public const GatewayIntents Intents = GatewayIntents.All | ((GatewayIntents)(1 << 15));
-
     public Startup(IConfiguration configuration)
     {
         Configuration = configuration;
@@ -104,7 +102,7 @@ public class Startup
                 MessageCacheSize = 1024 * 16,
                 ConnectionTimeout = 30_000,
                 AlwaysDownloadUsers = true,
-                GatewayIntents = Intents,
+                GatewayIntents = GatewayIntents.MessageContent,
             },
             TokenType.Bot,
 #if DEBUG
