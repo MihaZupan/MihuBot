@@ -460,10 +460,48 @@ namespace MihuBot
         {
             try
             {
+                var queue = new Queue<(string Md, bool Regression)>();
+
+                foreach (var regression in await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions: true)))
+                {
+                    queue.Enqueue((regression, true));
+                }
+
+                foreach (var improvement in await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions: false)))
+                {
+                    queue.Enqueue((improvement, false));
+                }
+
+                List<string> regressionsToShow = new();
+                List<string> improvementsToShow = new();
+
+                const int LengthLimit = 64_000;
+
+                int currentLength = 0;
+
+                while (queue.TryDequeue(out var entry) && LengthLimit - currentLength >= entry.Md.Length)
+                {
+                    currentLength += entry.Md.Length;
+                    (entry.Regression ? regressionsToShow : improvementsToShow).Add(entry.Md);
+                }
+
                 StringBuilder sb = new();
 
-                await AddDiffsAsync(ParseDiffEntries(_corelibDiffs, regressions: true), sb, regressions: true);
-                await AddDiffsAsync(ParseDiffEntries(_corelibDiffs, regressions: false), sb, regressions: false);
+                if (regressionsToShow.Count > 0)
+                {
+                    sb.AppendLine("## Top method regressions");
+                    sb.AppendLine();
+                    foreach (string md in regressionsToShow) sb.AppendLine(md);
+                    sb.AppendLine();
+                }
+
+                if (improvementsToShow.Count > 0)
+                {
+                    sb.AppendLine("## Top method improvements");
+                    sb.AppendLine();
+                    foreach (string md in improvementsToShow) sb.AppendLine(md);
+                    sb.AppendLine();
+                }
 
                 if (sb.Length == 0)
                 {
@@ -502,60 +540,69 @@ namespace MihuBot
                     .ToArray();
             }
 
-            async Task AddDiffsAsync((string Description, string Name)[] diffs, StringBuilder sb, bool regressions)
+            async Task<string[]> GetDiffMarkdownAsync((string Description, string Name)[] diffs)
             {
                 if (diffs.Length == 0)
                 {
-                    return;
+                    return Array.Empty<string>();
                 }
 
-                sb.AppendLine($"## Top method {(regressions ? "regressions" : "improvements")}");
-                sb.AppendLine();
-
-                foreach ((string description, string methodName) in diffs.Take(10))
-                {
-                    sb.AppendLine("<details>");
-                    sb.AppendLine($"<summary>{description} - {methodName}</summary>");
-                    sb.AppendLine();
-                    sb.AppendLine("```diff");
-
-                    using var baseFile = new TempFile("txt");
-                    using var prFile = new TempFile("txt");
-
-                    await File.WriteAllTextAsync(baseFile.Path, await TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, methodName));
-                    await File.WriteAllTextAsync(prFile.Path, await TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, methodName));
-
-                    List<string> lines = new();
-                    await ProcessHelper.RunProcessAsync("git", $"diff --minimal --no-index -U20000 {baseFile} {prFile}", lines);
-
-                    if (lines.Count == 0)
+                return await diffs
+                    .ToAsyncEnumerable()
+                    .SelectAwait(async diff =>
                     {
-                        sb.AppendLine("N/A");
-                    }
-                    else
-                    {
-                        foreach (string line in lines)
+                        StringBuilder sb = new();
+
+                        sb.AppendLine("<details>");
+                        sb.AppendLine($"<summary>{diff.Description} - {diff.Name}</summary>");
+                        sb.AppendLine();
+                        sb.AppendLine("```diff");
+
+                        using var baseFile = new TempFile("txt");
+                        using var prFile = new TempFile("txt");
+
+                        await File.WriteAllTextAsync(baseFile.Path, await TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, diff.Name));
+                        await File.WriteAllTextAsync(prFile.Path, await TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, diff.Name));
+
+                        List<string> lines = new();
+                        await ProcessHelper.RunProcessAsync("git", $"diff --minimal --no-index -U20000 {baseFile} {prFile}", lines);
+
+                        if (lines.Count == 0)
                         {
-                            if (line.StartsWith("diff --git", StringComparison.Ordinal) ||
-                                line.StartsWith("+++", StringComparison.Ordinal) ||
-                                line.StartsWith("---", StringComparison.Ordinal) ||
-                                line.StartsWith("@@", StringComparison.Ordinal) ||
-                                line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal))
-                            {
-                                continue;
-                            }
-
-                            sb.AppendLine(line);
+                            return string.Empty;
                         }
-                    }
+                        else
+                        {
+                            foreach (string line in lines)
+                            {
+                                if (line.StartsWith("diff --git", StringComparison.Ordinal) ||
+                                    line.StartsWith("+++", StringComparison.Ordinal) ||
+                                    line.StartsWith("---", StringComparison.Ordinal) ||
+                                    line.StartsWith("@@", StringComparison.Ordinal) ||
+                                    line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal) ||
+                                    line.StartsWith("; ============================================================", StringComparison.Ordinal))
+                                {
+                                    continue;
+                                }
 
-                    sb.AppendLine("```");
-                    sb.AppendLine();
-                    sb.AppendLine("</details>");
-                    sb.AppendLine();
-                }
+                                sb.AppendLine(line);
+                            }
+                        }
 
-                sb.AppendLine();
+                        sb.AppendLine("```");
+                        sb.AppendLine();
+                        sb.AppendLine("</details>");
+                        sb.AppendLine();
+
+                        string result = sb.ToString();
+
+                        Logger.DebugLog($"Generated diff for '{diff.Name}':\n{result}");
+
+                        return result;
+                    })
+                    .Where(diff => !string.IsNullOrEmpty(diff))
+                    .Take(10)
+                    .ToArrayAsync();
             }
 
             static async Task<string> TryGetMethodDumpAsync(string diffPath, string methodName)
