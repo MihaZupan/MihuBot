@@ -8,8 +8,12 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using MihuBot.Configuration;
 using Octokit;
+using System.Buffers;
 using System.Globalization;
+using System.IO.Compression;
+using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace MihuBot
 {
@@ -26,6 +30,8 @@ namespace MihuBot
         private long _totalArtifactsSize;
         private string _corelibDiffs;
         private string _frameworkDiffs;
+        private readonly TempFile _corelibDiffsBaseFile = new("txt");
+        private readonly TempFile _corelibDiffsPRFile = new("txt");
 
         public bool FromGithubComment => _githubCommenterLogin is not null;
 
@@ -59,6 +65,8 @@ namespace MihuBot
         private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
 
         private bool ShouldMentionJobInitiator => GetConfigFlag("ShouldMentionJobInitiator", true);
+
+        private bool ShouldPostDiffsComment => GetConfigFlag("ShouldPostDiffsComment", true);
 
         private bool GetConfigFlag(string name, bool @default)
         {
@@ -133,6 +141,11 @@ namespace MihuBot
                     (_frameworkDiffs is not null ? frameworksDiffs : "") +
                     (gotAnyDiffs ? GetArtifactList() : ""));
 
+                if (_corelibDiffs is not null && ShouldPostDiffsComment)
+                {
+                    await PostCorelibDiffExamplesAsync();
+                }
+
                 string GetArtifactList()
                 {
                     var builder = new StringBuilder();
@@ -173,6 +186,9 @@ namespace MihuBot
                         Logger.DebugLog($"Failed to mention job initiator ({_githubCommenterLogin}): {ex}");
                     }
                 }
+
+                _corelibDiffsBaseFile.Dispose();
+                _corelibDiffsPRFile.Dispose();
             }
         }
 
@@ -351,6 +367,35 @@ namespace MihuBot
             }
 
             LogsReceived($"Saved artifact '{fileName}' to {blobClient.Uri.AbsoluteUri} ({GetRoughSizeString(size)})");
+
+            if (fileName is "jit-diffs-corelib.zip")
+            {
+                LogsReceived("Processing jit-diffs-corelib.zip");
+
+                using var tempFile = new TempFile("zip");
+
+                await using (var fs = File.OpenWrite(tempFile.Path))
+                {
+                    await blobClient.DownloadToAsync(fs, cancellationToken);
+                }
+
+                await using Stream zipStream = File.OpenRead(tempFile.Path);
+
+                using var zip = new ZipArchive(zipStream, ZipArchiveMode.Read);
+
+                foreach (var entry in zip.Entries)
+                {
+                    if (entry.FullName.EndsWith("System.Private.CoreLib.dasm", StringComparison.Ordinal) &&
+                        entry.Length < int.MaxValue)
+                    {
+                        string destination = entry.FullName.Contains("dasmset_1", StringComparison.Ordinal)
+                            ? _corelibDiffsBaseFile.Path
+                            : _corelibDiffsPRFile.Path;
+
+                        entry.ExtractToFile(destination, overwrite: true);
+                    }
+                }
+            }
         }
 
         public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
@@ -406,6 +451,186 @@ namespace MihuBot
                     {
                         lastYield.Restart();
                         yield return null;
+                    }
+                }
+            }
+        }
+
+        private async Task PostCorelibDiffExamplesAsync()
+        {
+            try
+            {
+                StringBuilder sb = new();
+
+                await AddDiffsAsync(ParseDiffEntries(_corelibDiffs, regressions: true), sb, regressions: true);
+                await AddDiffsAsync(ParseDiffEntries(_corelibDiffs, regressions: false), sb, regressions: false);
+
+                if (sb.Length == 0)
+                {
+                    return;
+                }
+
+                await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Failed to post corelib diff examples: {ex}");
+            }
+
+            static (string Description, string Name)[] ParseDiffEntries(string diffSource, bool regressions)
+            {
+                ReadOnlySpan<char> text = diffSource.ReplaceLineEndings("\n");
+
+                string start = regressions ? "Top method regressions" : "Top method improvements";
+                int index = text.IndexOf(start, StringComparison.Ordinal);
+
+                if (index < 0)
+                {
+                    return Array.Empty<(string, string)>();
+                }
+
+                text = text.Slice(index);
+                text = text.Slice(text.IndexOf('\n') + 1);
+                text = text.Slice(0, text.IndexOf("\n\n", StringComparison.Ordinal));
+
+                return text
+                    .ToString()
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(line => Regex.Match(line, @" *(.*?) : .*? - (.*) ?"))
+                    .Where(m => m.Success)
+                    .Select(m => (m.Groups[1].Value, m.Groups[2].Value))
+                    .ToArray();
+            }
+
+            async Task AddDiffsAsync((string Description, string Name)[] diffs, StringBuilder sb, bool regressions)
+            {
+                if (diffs.Length == 0)
+                {
+                    return;
+                }
+
+                sb.AppendLine($"## Top method {(regressions ? "regressions" : "improvements")}");
+                sb.AppendLine();
+
+                foreach ((string description, string methodName) in diffs.Take(10))
+                {
+                    sb.AppendLine("<details>");
+                    sb.AppendLine($"<summary>{description} - {methodName}</summary>");
+                    sb.AppendLine();
+                    sb.AppendLine("```diff");
+
+                    using var baseFile = new TempFile("txt");
+                    using var prFile = new TempFile("txt");
+
+                    await File.WriteAllTextAsync(baseFile.Path, await TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, methodName));
+                    await File.WriteAllTextAsync(prFile.Path, await TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, methodName));
+
+                    List<string> lines = new();
+                    await ProcessHelper.RunProcessAsync("git", $"diff --minimal --no-index -U20000 {baseFile} {prFile}", lines);
+
+                    if (lines.Count == 0)
+                    {
+                        sb.AppendLine("N/A");
+                    }
+                    else
+                    {
+                        foreach (string line in lines)
+                        {
+                            if (line.StartsWith("diff --git", StringComparison.Ordinal) ||
+                                line.StartsWith("+++", StringComparison.Ordinal) ||
+                                line.StartsWith("---", StringComparison.Ordinal) ||
+                                line.StartsWith("@@", StringComparison.Ordinal) ||
+                                line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal))
+                            {
+                                continue;
+                            }
+
+                            sb.AppendLine(line);
+                        }
+                    }
+
+                    sb.AppendLine("```");
+                    sb.AppendLine();
+                    sb.AppendLine("</details>");
+                    sb.AppendLine();
+                }
+
+                sb.AppendLine();
+            }
+
+            static async Task<string> TryGetMethodDumpAsync(string diffPath, string methodName)
+            {
+                using var fs = File.OpenRead(diffPath);
+                var pipe = PipeReader.Create(fs);
+
+                bool foundPrefix = false;
+                bool foundSuffix = false;
+                byte[] prefix = Encoding.ASCII.GetBytes($"; Assembly listing for method {methodName}");
+                byte[] suffix = Encoding.ASCII.GetBytes("; ============================================================");
+
+                StringBuilder sb = new();
+
+                while (true)
+                {
+                    ReadResult result = await pipe.ReadAsync();
+                    ReadOnlySequence<byte> buffer = result.Buffer;
+                    SequencePosition? position = null;
+
+                    do
+                    {
+                        position = buffer.PositionOf((byte)'\n');
+
+                        if (position != null)
+                        {
+                            var line = buffer.Slice(0, position.Value);
+
+                            ProcessLine(
+                                line.IsSingleSegment ? line.FirstSpan : line.ToArray(),
+                                prefix, suffix, ref foundPrefix, ref foundSuffix);
+
+                            if (foundPrefix)
+                            {
+                                sb.AppendLine(Encoding.ASCII.GetString(line));
+
+                                if (sb.Length > 1024 * 1024)
+                                {
+                                    return string.Empty;
+                                }
+                            }
+
+                            if (foundSuffix)
+                            {
+                                return sb.ToString();
+                            }
+
+                            buffer = buffer.Slice(buffer.GetPosition(1, position.Value));
+                        }
+                    }
+                    while (position != null);
+
+                    pipe.AdvanceTo(buffer.Start, buffer.End);
+
+                    if (result.IsCompleted)
+                    {
+                        return string.Empty;
+                    }
+                }
+
+                static void ProcessLine(ReadOnlySpan<byte> line, byte[] prefix, byte[] suffix, ref bool foundPrefix, ref bool foundSuffix)
+                {
+                    if (foundPrefix)
+                    {
+                        if (line.StartsWith(suffix))
+                        {
+                            foundSuffix = true;
+                        }
+                    }
+                    else
+                    {
+                        if (line.StartsWith(prefix))
+                        {
+                            foundPrefix = true;
+                        }
                     }
                 }
             }

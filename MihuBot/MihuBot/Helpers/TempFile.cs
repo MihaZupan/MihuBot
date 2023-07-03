@@ -10,6 +10,7 @@ public sealed class TempFile : IDisposable
     public TempFile(string extension)
     {
         Path = $"{_tempFolder}/MihuBotTemp_{DateTime.UtcNow.ToISODateTime()}_{Interlocked.Increment(ref _counter)}.{extension.TrimStart('.')}";
+        Path = System.IO.Path.GetFullPath(Path);
     }
 
     ~TempFile()
