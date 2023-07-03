@@ -17,10 +17,11 @@ using System.Text.RegularExpressions;
 
 namespace MihuBot
 {
-    public sealed class RuntimeUtilsJob
+    public sealed partial class RuntimeUtilsJob
     {
         private const string IssueRepositoryOwner = "MihuBot";
         private const string IssueRepositoryName = "runtime-utils";
+        private const int CommentLengthLimit = 65_000;
 
         private RuntimeUtilsService _parent;
         private readonly string _githubCommenterLogin;
@@ -460,59 +461,61 @@ namespace MihuBot
         {
             try
             {
-                var queue = new Queue<(string Md, bool Regression)>();
+                string regressions = await GetCommentMarkdownAsync(regressions: true);
+                string improvements = await GetCommentMarkdownAsync(regressions: false);
 
-                foreach (var regression in await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions: true)))
+                int combinedLength = regressions.Length + improvements.Length;
+
+                if (combinedLength is > 0 and <= CommentLengthLimit)
                 {
-                    queue.Enqueue((regression, true));
+                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number,
+                        string.Concat(regressions, "\n\n", improvements));
                 }
-
-                foreach (var improvement in await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions: false)))
+                else
                 {
-                    queue.Enqueue((improvement, false));
+                    if (regressions.Length != 0)
+                    {
+                        await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, regressions);
+                    }
+
+                    if (improvements.Length != 0)
+                    {
+                        await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, improvements);
+                    }
                 }
-
-                List<string> regressionsToShow = new();
-                List<string> improvementsToShow = new();
-
-                const int LengthLimit = 64_000;
-
-                int currentLength = 0;
-
-                while (queue.TryDequeue(out var entry) && LengthLimit - currentLength >= entry.Md.Length)
-                {
-                    currentLength += entry.Md.Length;
-                    (entry.Regression ? regressionsToShow : improvementsToShow).Add(entry.Md);
-                }
-
-                StringBuilder sb = new();
-
-                if (regressionsToShow.Count > 0)
-                {
-                    sb.AppendLine("## Top method regressions");
-                    sb.AppendLine();
-                    foreach (string md in regressionsToShow) sb.AppendLine(md);
-                    sb.AppendLine();
-                }
-
-                if (improvementsToShow.Count > 0)
-                {
-                    sb.AppendLine("## Top method improvements");
-                    sb.AppendLine();
-                    foreach (string md in improvementsToShow) sb.AppendLine(md);
-                    sb.AppendLine();
-                }
-
-                if (sb.Length == 0)
-                {
-                    return;
-                }
-
-                await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, sb.ToString());
             }
             catch (Exception ex)
             {
                 Logger.DebugLog($"Failed to post corelib diff examples: {ex}");
+            }
+
+            async Task<string> GetCommentMarkdownAsync(bool regressions)
+            {
+                var queue = new Queue<string>(await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions)));
+                int currentLength = 0;
+
+                string[] changesToShow = queue
+                    .TakeWhile(change => (currentLength += change.Length) <= CommentLengthLimit)
+                    .ToArray();
+
+                if (changesToShow.Length == 0)
+                {
+                    return string.Empty;
+                }
+
+                StringBuilder sb = new();
+
+                sb.AppendLine($"## Top method {(regressions ? "regressions" : "improvements")}");
+                sb.AppendLine();
+
+                foreach (string md in changesToShow)
+                {
+                    sb.AppendLine(md);
+                }
+
+                sb.AppendLine();
+
+                return sb.ToString();
             }
 
             static (string Description, string Name)[] ParseDiffEntries(string diffSource, bool regressions)
@@ -534,7 +537,7 @@ namespace MihuBot
                 return text
                     .ToString()
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Select(line => Regex.Match(line, @" *(.*?) : .*? - (.*) ?"))
+                    .Select(line => JitDiffRegressionNameRegex().Match(line))
                     .Where(m => m.Success)
                     .Select(m => (m.Groups[1].Value, m.Groups[2].Value))
                     .ToArray();
@@ -575,12 +578,7 @@ namespace MihuBot
                         {
                             foreach (string line in lines)
                             {
-                                if (line.StartsWith("diff --git", StringComparison.Ordinal) ||
-                                    line.StartsWith("+++", StringComparison.Ordinal) ||
-                                    line.StartsWith("---", StringComparison.Ordinal) ||
-                                    line.StartsWith("@@", StringComparison.Ordinal) ||
-                                    line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal) ||
-                                    line.StartsWith("; ============================================================", StringComparison.Ordinal))
+                                if (ShouldSkipLine(line.AsSpan().TrimStart()))
                                 {
                                     continue;
                                 }
@@ -603,6 +601,18 @@ namespace MihuBot
                     .Where(diff => !string.IsNullOrEmpty(diff))
                     .Take(10)
                     .ToArrayAsync();
+
+                static bool ShouldSkipLine(ReadOnlySpan<char> line)
+                {
+                    return
+                        line.StartsWith("diff --git", StringComparison.Ordinal) ||
+                        line.StartsWith("index ", StringComparison.Ordinal) ||
+                        line.StartsWith("+++", StringComparison.Ordinal) ||
+                        line.StartsWith("---", StringComparison.Ordinal) ||
+                        line.StartsWith("@@", StringComparison.Ordinal) ||
+                        line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal) ||
+                        line.StartsWith("; ============================================================", StringComparison.Ordinal);
+                }
             }
 
             static async Task<string> TryGetMethodDumpAsync(string diffPath, string methodName)
@@ -682,6 +692,9 @@ namespace MihuBot
                 }
             }
         }
+
+        [GeneratedRegex(@" *(.*?) : .*? - ([^ ]*)")]
+        private static partial Regex JitDiffRegressionNameRegex();
     }
 
     public sealed class RuntimeUtilsService
