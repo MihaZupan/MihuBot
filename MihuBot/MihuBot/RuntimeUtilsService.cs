@@ -461,42 +461,60 @@ namespace MihuBot
         {
             try
             {
-                string regressions = await GetCommentMarkdownAsync(regressions: true);
-                string improvements = await GetCommentMarkdownAsync(regressions: false);
-
-                int combinedLength = regressions.Length + improvements.Length;
-
-                if (combinedLength is > 0 and <= CommentLengthLimit)
-                {
-                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number,
-                        string.Concat(regressions, "\n\n", improvements));
-                }
-                else
-                {
-                    if (regressions.Length != 0)
-                    {
-                        await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, regressions);
-                    }
-
-                    if (improvements.Length != 0)
-                    {
-                        await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, improvements);
-                    }
-                }
+                await PostCorelibDiffExamplesAsync(regressions: true);
+                await PostCorelibDiffExamplesAsync(regressions: false);
             }
             catch (Exception ex)
             {
                 Logger.DebugLog($"Failed to post corelib diff examples: {ex}");
             }
 
-            async Task<string> GetCommentMarkdownAsync(bool regressions)
+            async Task PostCorelibDiffExamplesAsync(bool regressions)
             {
-                var queue = new Queue<string>(await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions)));
+                var allChanges = await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions));
+
+                string changes = GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
+
+                if (changes.Length != 0)
+                {
+                    if (truncated)
+                    {
+                        changes = $"{changes}\n\nFull list of diffs: {await PostLargeDiffGistAsync(allChanges, regressions)}";
+                    }
+
+                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, changes);
+                }
+            }
+
+            async Task<string> PostLargeDiffGistAsync(string[] diffs, bool regressions)
+            {
+                var newGist = new NewGist
+                {
+                    Description = $"JIT diffs CoreLib {(regressions ? "regressions" : "improvements")} for {TrackingIssue.HtmlUrl}",
+                    Public = false
+                };
+
+                const int GistLengthLimit = 900 * 1024;
+
+                string md = GetCommentMarkdown(diffs, GistLengthLimit, regressions, out _);
+
+                newGist.Files.Add(regressions ? "Regressions.md" : "Improvements.md", md);
+
+                Gist gist = await Github.Gist.Create(newGist);
+
+                return gist.HtmlUrl;
+            }
+
+            static string GetCommentMarkdown(string[] diffs, int lengthLimit, bool regressions, out bool lengthLimitExceeded)
+            {
+                var queue = new Queue<string>(diffs);
                 int currentLength = 0;
 
                 string[] changesToShow = queue
-                    .TakeWhile(change => (currentLength += change.Length) <= CommentLengthLimit)
+                    .TakeWhile(change => (currentLength += change.Length) <= lengthLimit)
                     .ToArray();
+
+                lengthLimitExceeded = currentLength > lengthLimit;
 
                 if (changesToShow.Length == 0)
                 {
@@ -552,6 +570,7 @@ namespace MihuBot
 
                 return await diffs
                     .ToAsyncEnumerable()
+                    .Where(diff => !diff.Description.Contains("-100.00 % of base", StringComparison.Ordinal))
                     .SelectAwait(async diff =>
                     {
                         StringBuilder sb = new();
@@ -599,7 +618,7 @@ namespace MihuBot
                         return result;
                     })
                     .Where(diff => !string.IsNullOrEmpty(diff))
-                    .Take(10)
+                    .Take(20)
                     .ToArrayAsync();
 
                 static bool ShouldSkipLine(ReadOnlySpan<char> line)
