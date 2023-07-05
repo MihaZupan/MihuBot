@@ -40,6 +40,17 @@ namespace MihuBot.API
             return Ok();
         }
 
+        [HttpGet("Jobs/Metadata/{jobId}")]
+        public IActionResult GetMetadata([FromRoute] string jobId)
+        {
+            if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
+            {
+                return NotFound();
+            }
+
+            return new JsonResult(job.Metadata);
+        }
+
         [HttpPost("Jobs/Artifact/{jobId}/{fileName}")]
         [RequestSizeLimit(1536 * 1024 * 1024)] // 1.5 GB
         public async Task<IActionResult> UploadArtifact([FromRoute] string jobId, [FromRoute] string fileName)

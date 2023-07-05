@@ -23,19 +23,21 @@ namespace MihuBot.Commands
                 return;
             }
 
-            if (ctx.Arguments.Length != 1 ||
-                !int.TryParse(ctx.Arguments[0].Split('/').Last().Split('#').First(), out int prNumber))
+            if (ctx.Arguments.Length < 1 ||
+                !int.TryParse(ctx.Arguments[0].Split('/').Last().Split('#').First(), out _))
             {
                 await ctx.ReplyAsync("Need the pull request number");
                 return;
             }
 
-            await ExecuteAsync(ctx.Channel, $"https://github.com/dotnet/runtime/pull/{prNumber}");
+            await ExecuteAsync(ctx.Channel, ctx.Content);
         }
 
-        public async Task ExecuteAsync(ISocketMessageChannel channel, string dotnetRuntimePR)
+        public async Task ExecuteAsync(ISocketMessageChannel channel, string messageContent)
         {
-            if (!Uri.TryCreate(dotnetRuntimePR, UriKind.Absolute, out var uri) ||
+            string[] parts = messageContent.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (!Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) ||
                 !(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) ||
                 !uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
                 !uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) ||
@@ -57,7 +59,9 @@ namespace MihuBot.Commands
                 return;
             }
 
-            RuntimeUtilsJob job = _runtimeUtilsService.StartJob(pullRequest);
+            string arguments = parts.Length > 1 ? parts[1] : null;
+
+            RuntimeUtilsJob job = _runtimeUtilsService.StartJob(pullRequest, arguments: arguments);
 
             await channel.SendMessageAsync(job.ProgressDashboardUrl);
         }

@@ -26,7 +26,7 @@ public static class StringHelpers
 
     public static string NormalizeNewLines(this string source)
     {
-        return source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return source.ReplaceLineEndings("\n");
     }
 
     public static string[] SplitLines(this string source, bool removeEmpty = false)

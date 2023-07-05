@@ -46,19 +46,30 @@ namespace MihuBot
         public Issue TrackingIssue { get; private set; }
         public bool Completed { get; private set; }
 
-        public string JobId { get; private set; }
-        public string ExternalId { get; private set; }
+        public string JobId { get; } = Guid.NewGuid().ToString("N");
+        public string ExternalId { get; } = Guid.NewGuid().ToString("N");
+        public Dictionary<string, string> Metadata { get; }
 
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
-        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string jobId, string externalId)
+        public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
         {
             _parent = parent;
-            JobId = jobId;
-            ExternalId = externalId;
             PullRequest = pullRequest;
             _githubCommenterLogin = githubCommenterLogin;
+
+            arguments ??= string.Empty;
+            arguments = arguments.NormalizeNewLines().Split('\n')[0].Trim();
+
+            Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "JobId", JobId },
+                { "ExternalId", ExternalId },
+                { "PrRepo", PullRequest.Head.Repository.FullName },
+                { "PrBranch", PullRequest.Head.Ref },
+                { "CustomArguments", arguments },
+            };
         }
 
         private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true);
@@ -214,8 +225,6 @@ namespace MihuBot
                 new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB, cpuCount)));
 
             container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_ID") { Value = JobId });
-            container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_REPO") { Value = PullRequest.Head.Repository.FullName });
-            container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_PR_BRANCH") { Value = PullRequest.Head.Ref });
 
             var containerGroupData = new ContainerGroupData(
                 AzureLocation.EastUS2,
@@ -293,7 +302,12 @@ namespace MihuBot
                 return $"{(int)mb} MB";
             }
 
-            return $"{(int)kb} KB";
+            if (kb >= 1)
+            {
+                return $"{(int)kb} KB";
+            }
+
+            return $"{size} B";
         }
 
         private async Task UpdateIssueBodyAsync(string newBody)
@@ -821,7 +835,9 @@ namespace MihuBot
                                         bool.TryParse(allowedString, out bool allowed) &&
                                         allowed)
                                     {
-                                        StartJob(pullRequest, githubCommenterLogin: user.Login);
+                                        string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.Ordinal) + "@MihuBot".Length).Trim().ToString();
+
+                                        StartJob(pullRequest, githubCommenterLogin: user.Login, arguments);
                                     }
                                     else
                                     {
@@ -853,17 +869,14 @@ namespace MihuBot
             }
         }
 
-        public RuntimeUtilsJob StartJob(PullRequest pullRequest, string githubCommenterLogin = null)
+        public RuntimeUtilsJob StartJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
         {
-            string jobId = Guid.NewGuid().ToString("N");
-            string externalId = Guid.NewGuid().ToString("N");
-
-            var job = new RuntimeUtilsJob(this, pullRequest, githubCommenterLogin, jobId, externalId);
+            var job = new RuntimeUtilsJob(this, pullRequest, githubCommenterLogin, arguments);
 
             lock (_jobs)
             {
-                _jobs.Add(jobId, job);
-                _jobs.Add(externalId, job);
+                _jobs.Add(job.JobId, job);
+                _jobs.Add(job.ExternalId, job);
             }
 
             _ = Task.Run(async () =>
@@ -872,8 +885,8 @@ namespace MihuBot
 
                 lock (_jobs)
                 {
-                    _jobs.Remove(jobId);
-                    _jobs.Remove(externalId);
+                    _jobs.Remove(job.JobId);
+                    _jobs.Remove(job.ExternalId);
                 }
             });
 
