@@ -129,6 +129,8 @@ public class Startup
 
         services.AddSingleton<IWeatherService, WeatherService>();
 
+        services.AddSingleton<HetznerClient>();
+
         services.AddSingleton<RuntimeUtilsService>();
 
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));

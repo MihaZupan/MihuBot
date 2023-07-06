@@ -3,7 +3,6 @@ using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.ContainerInstance;
 using Azure.ResourceManager.ContainerInstance.Models;
-using Azure.ResourceManager.Resources;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using MihuBot.Configuration;
@@ -12,8 +11,11 @@ using System.Buffers;
 using System.Globalization;
 using System.IO.Compression;
 using System.IO.Pipelines;
+using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using static MihuBot.Helpers.HetznerClient;
 
 namespace MihuBot
 {
@@ -22,6 +24,7 @@ namespace MihuBot
         private const string IssueRepositoryOwner = "MihuBot";
         private const string IssueRepositoryName = "runtime-utils";
         private const int CommentLengthLimit = 65_000;
+        private const int IdleTimeoutMs = 5 * 60 * 1000;
 
         private RuntimeUtilsService _parent;
         private readonly string _githubCommenterLogin;
@@ -33,22 +36,27 @@ namespace MihuBot
         private string _frameworkDiffs;
         private readonly TempFile _corelibDiffsBaseFile = new("txt");
         private readonly TempFile _corelibDiffsPRFile = new("txt");
+        private readonly CancellationTokenSource _idleTimeoutCts = new();
+        private readonly TaskCompletionSource _jobCompletionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public bool FromGithubComment => _githubCommenterLogin is not null;
 
         private Logger Logger => _parent.Logger;
         private GitHubClient Github => _parent.Github;
+        private HttpClient Http => _parent.Http;
         private IConfiguration Configuration => _parent.Configuration;
         private IConfigurationService ConfigurationService => _parent.ConfigurationService;
+        private HetznerClient Hetzner => _parent.Hetzner;
 
         public Stopwatch Stopwatch { get; private set; } = new();
         public PullRequest PullRequest { get; private set; }
         public Issue TrackingIssue { get; private set; }
-        public bool Completed { get; private set; }
+        public bool Completed => _jobCompletionTcs.Task.IsCompleted;
 
         public string JobId { get; } = Guid.NewGuid().ToString("N");
         public string ExternalId { get; } = Guid.NewGuid().ToString("N");
         public Dictionary<string, string> Metadata { get; }
+        public string CustomArguments => Metadata["CustomArguments"];
 
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
@@ -91,6 +99,16 @@ namespace MihuBot
             return @default;
         }
 
+        private string GetConfigFlag(string name, string @default)
+        {
+            if (ConfigurationService.TryGet(null, $"RuntimeUtils.{name}", out string flag))
+            {
+                return flag;
+            }
+
+            return @default;
+        }
+
         public async Task RunJobAsync()
         {
             Stopwatch.Start();
@@ -100,7 +118,7 @@ namespace MihuBot
             if (!Program.AzureEnabled)
             {
                 LogsReceived("No Azure support. Aborting ...");
-                Completed = true;
+                NotifyJobCompletion();
                 return;
             }
 
@@ -117,11 +135,23 @@ namespace MihuBot
                 using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
                 var jobTimeout = jobTimeoutCts.Token;
 
-                var armClient = new ArmClient(Program.AzureCredential);
-                var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
-                var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
+                using var ctsReg = _idleTimeoutCts.Token.Register(() =>
+                {
+                    LogsReceived("Job idle timeout exceeded, terminating ...");
+                    jobTimeoutCts.Cancel();
+                    _jobCompletionTcs.TrySetCanceled();
+                });
 
-                await RunContainerInstanceAsync(resourceGroup, jobTimeout);
+                LogsReceived($"Using custom arguments: '{CustomArguments}'");
+
+                if (CustomArguments.Contains("hetzner", StringComparison.OrdinalIgnoreCase))
+                {
+                    await RunHetznerVirtualMachineAsync(jobTimeout);
+                }
+                else
+                {
+                    await RunAzureContainerInstanceAsync(jobTimeout);
+                }
 
                 await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
 
@@ -185,7 +215,7 @@ namespace MihuBot
             }
             finally
             {
-                Completed = true;
+                NotifyJobCompletion();
 
                 if (FromGithubComment && ShouldMentionJobInitiator)
                 {
@@ -204,17 +234,21 @@ namespace MihuBot
             }
         }
 
-        private async Task RunContainerInstanceAsync(ResourceGroupResource resourceGroup, CancellationToken jobTimeout)
+        private async Task RunAzureContainerInstanceAsync(CancellationToken jobTimeout)
         {
-            double memoryInGB = 32;
-            double cpuCount = 8;
+            var armClient = new ArmClient(Program.AzureCredential);
+            var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
+            var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
 
-            if (ConfigurationService.TryGet(null, "RuntimeUtils.MemoryGB", out string memoryInGBString))
+            double memoryInGB = 16;
+            double cpuCount = 4;
+
+            if (ConfigurationService.TryGet(null, "RuntimeUtils.Azure.MemoryGB", out string memoryInGBString))
             {
                 memoryInGB = double.Parse(memoryInGBString, CultureInfo.InvariantCulture);
             }
 
-            if (ConfigurationService.TryGet(null, "RuntimeUtils.CPUCount", out string cpuCountString))
+            if (ConfigurationService.TryGet(null, "RuntimeUtils.Azure.CPUCount", out string cpuCountString))
             {
                 cpuCount = double.Parse(cpuCountString, CultureInfo.InvariantCulture);
             }
@@ -267,6 +301,67 @@ namespace MihuBot
                 else
                 {
                     LogsReceived("Configuration opted not to delete the container instance");
+                }
+
+                NotifyJobCompletion();
+            }
+        }
+
+        private async Task RunHetznerVirtualMachineAsync(CancellationToken jobTimeout)
+        {
+            string architecture = "x64";
+
+            string serverType = GetConfigFlag($"HetznerServerType{architecture}", "cpx41");
+
+            LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
+
+            string userData =
+                $"""
+                #cloud-config
+                runcmd:
+                    - apt-get update
+                    - apt-get install -y dotnet-sdk-6.0
+                    - cd /home
+                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
+                    - cd runtime-utils/Runner
+                    - DOTNET_CLI_HOME=/root JOB_ID={JobId} dotnet run -c Release
+                """;
+
+            HetznerServerResponse server = await Hetzner.CreateServerAsync(
+                $"runner-{ExternalId}",
+                GetConfigFlag($"HetznerImage{architecture}", "ubuntu-22.04"),
+                GetConfigFlag($"HetznerLocation{architecture}", "ash"),
+                serverType,
+                userData,
+                jobTimeout);
+
+            HetznerServerResponse.HetznerServer serverInfo = server.Server ?? throw new Exception("No server info");
+            HetznerServerResponse.HetznerServerType? vmType = serverInfo.ServerType;
+
+            try
+            {
+                LogsReceived($"VM starting (Arch={vmType?.Architecture} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
+
+                await _jobCompletionTcs.Task.WaitAsync(jobTimeout);
+            }
+            finally
+            {
+                if (ShouldDeleteContainer)
+                {
+                    LogsReceived("Deleting the VM");
+
+                    try
+                    {
+                        await Hetzner.DeleteServerAsync(serverInfo.Id, CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        await Logger.DebugAsync($"Failed to delete Hetzner VM {serverInfo.Id}: {ex}");
+                    }
+                }
+                else
+                {
+                    LogsReceived("Configuration opted not to delete the VM");
                 }
             }
         }
@@ -325,6 +420,7 @@ namespace MihuBot
         public void LogsReceived(string[] lines)
         {
             _logs.AddLines(lines);
+            _idleTimeoutCts.CancelAfter(IdleTimeoutMs);
         }
 
         public async Task ArtifactReceivedAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
@@ -426,6 +522,12 @@ namespace MihuBot
                     await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
                 }
             }
+        }
+
+        public void NotifyJobCompletion()
+        {
+            _jobCompletionTcs.TrySetResult();
+            _idleTimeoutCts.CancelAfter(Timeout.InfiniteTimeSpan);
         }
 
         public async IAsyncEnumerable<string> StreamLogsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -736,16 +838,20 @@ namespace MihuBot
 
         public readonly Logger Logger;
         public readonly GitHubClient Github;
+        public readonly HttpClient Http;
         public readonly IConfiguration Configuration;
         public readonly IConfigurationService ConfigurationService;
+        public readonly HetznerClient Hetzner;
         public readonly BlobContainerClient ArtifactsBlobContainerClient;
 
-        public RuntimeUtilsService(Logger logger, GitHubClient github, IConfiguration configuration, IConfigurationService configurationService)
+        public RuntimeUtilsService(Logger logger, GitHubClient github, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
         {
             Logger = logger;
             Github = github;
+            Http = http;
             Configuration = configuration;
             ConfigurationService = configurationService;
+            Hetzner = hetzner;
 
             if (Program.AzureEnabled)
             {
