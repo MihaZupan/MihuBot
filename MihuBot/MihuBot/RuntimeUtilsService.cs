@@ -324,7 +324,7 @@ namespace MihuBot
                     - cd /home
                     - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
                     - cd runtime-utils/Runner
-                    - DOTNET_CLI_HOME=/root JOB_ID={JobId} dotnet run -c Release
+                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
                 """;
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
