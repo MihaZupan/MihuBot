@@ -449,7 +449,7 @@ public sealed class Logger
                 }
                 else
                 {
-                    debugMessage = debugMessage.Substring(0, 1995) + " ...";
+                    debugMessage = debugMessage.TruncateWithDotDotDot(2000);
                 }
             }
 

@@ -9,7 +9,7 @@
 }
 else
 {
-    <h1><a href="@_job.PullRequest.HtmlUrl">@_job.PullRequest.Title (#@_job.PullRequest.Number)</a> by @_job.PullRequest.User?.Login</h1>
+    <h1><a href="@_job.PullRequest.HtmlUrl">@_job.PullRequest.Title</a> by @_job.PullRequest.User?.Login [@_job.Architecture]</h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
     <br />
     @if (_job.TrackingIssue is not null)
@@ -68,11 +68,7 @@ else
                                 _lines.TryDequeue(out _);
                             }
 
-                            string normalized = line;
-                            if (normalized.Length > 190)
-                            {
-                                normalized = string.Concat(normalized.AsSpan(0, 186), " ...");
-                            }
+                            string normalized = line.TruncateWithDotDotDot(190);
 
                             _lines.Enqueue(normalized);
                         }

@@ -2,6 +2,16 @@
 
 public static class StringHelpers
 {
+    public static string TruncateWithDotDotDot(this string text, int maxLength)
+    {
+        if (text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        return string.Concat(text.AsSpan(0, maxLength - 4), " ...");
+    }
+
     public static bool StartsWith(this ReadOnlySpan<char> span, char c)
     {
         return 0 < (uint)span.Length && span[0] == c;

@@ -57,14 +57,20 @@ namespace MihuBot
         public string ExternalId { get; } = Guid.NewGuid().ToString("N");
         public Dictionary<string, string> Metadata { get; }
 
-        public string CustomArguments
+        private string CustomArguments
         {
             get => Metadata["CustomArguments"];
             set => Metadata["CustomArguments"] = value;
         }
 
-        public bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
-        public bool UseHetzner => GetConfigFlag("ForceHetzner", false) || Fast || CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
+        public string Architecture => UseArm ? "ARM64" : "X64";
+
+        private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
+        private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+
+        public bool UseHetzner =>
+            GetConfigFlag("ForceHetzner", false) || UseArm || Fast ||
+            CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
@@ -133,7 +139,7 @@ namespace MihuBot
             TrackingIssue = await Github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
-                new NewIssue($"[{PullRequest.User.Login}] {PullRequest.Title}")
+                new NewIssue($"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99))
             {
                 Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (FromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
             });
@@ -317,13 +323,11 @@ namespace MihuBot
 
         private async Task RunHetznerVirtualMachineAsync(CancellationToken jobTimeout)
         {
-            string architecture = "x64";
-
             string serverType = Fast
-                ? GetConfigFlag($"HetznerServerTypeFast{architecture}", "cpx51")
-                : GetConfigFlag($"HetznerServerType{architecture}", "cpx41");
+                ? GetConfigFlag($"HetznerServerTypeFast{Architecture}", UseArm ? "cax41" : "cpx51")
+                : GetConfigFlag($"HetznerServerType{Architecture}", UseArm ? "cax31" : "cpx41");
 
-            if (serverType is "cpx41" or "cpx51" &&
+            if (serverType is "cpx41" or "cpx51" or "cax31" or "cax41" &&
                 !CustomArguments.Contains("force-frameworks-", StringComparison.OrdinalIgnoreCase))
             {
                 CustomArguments += " -force-frameworks-parallel";
@@ -345,8 +349,8 @@ namespace MihuBot
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
                 $"runner-{ExternalId}",
-                GetConfigFlag($"HetznerImage{architecture}", "ubuntu-22.04"),
-                GetConfigFlag($"HetznerLocation{architecture}", "ash"),
+                GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
+                GetConfigFlag($"HetznerLocation{Architecture}", UseArm ? "fsn1" : "ash"),
                 serverType,
                 userData,
                 jobTimeout);
