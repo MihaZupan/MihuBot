@@ -702,7 +702,7 @@ namespace MihuBot
 
                 return await diffs
                     .ToAsyncEnumerable()
-                    .Where(diff => !diff.Description.Contains("-100.00 % of base", StringComparison.Ordinal))
+                    .Where(diff => !diff.Description.Contains("-100.", StringComparison.Ordinal))
                     .SelectAwait(async diff =>
                     {
                         StringBuilder sb = new();
