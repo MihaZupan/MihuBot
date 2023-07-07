@@ -703,6 +703,7 @@ namespace MihuBot
                 return await diffs
                     .ToAsyncEnumerable()
                     .Where(diff => !diff.Description.Contains("-100.", StringComparison.Ordinal))
+                    .Where(diff => !diff.Description.Contains("∞ of base", StringComparison.Ordinal))
                     .SelectAwait(async diff =>
                     {
                         StringBuilder sb = new();
