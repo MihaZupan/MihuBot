@@ -611,7 +611,7 @@ namespace MihuBot
                 {
                     if (truncated)
                     {
-                        changes = $"{changes}\n\nFull list of diffs: {await PostLargeDiffGistAsync(allChanges, regressions)}";
+                        changes = $"{changes}\n\nLarger list of diffs: {await PostLargeDiffGistAsync(allChanges, regressions)}";
                     }
 
                     await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, changes);
