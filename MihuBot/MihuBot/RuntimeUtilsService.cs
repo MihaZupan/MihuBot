@@ -56,7 +56,15 @@ namespace MihuBot
         public string JobId { get; } = Guid.NewGuid().ToString("N");
         public string ExternalId { get; } = Guid.NewGuid().ToString("N");
         public Dictionary<string, string> Metadata { get; }
-        public string CustomArguments => Metadata["CustomArguments"];
+
+        public string CustomArguments
+        {
+            get => Metadata["CustomArguments"];
+            set => Metadata["CustomArguments"] = value;
+        }
+
+        public bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+        public bool UseHetzner => GetConfigFlag("ForceHetzner", false) || Fast || CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
         public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
         public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
@@ -144,7 +152,7 @@ namespace MihuBot
 
                 LogsReceived($"Using custom arguments: '{CustomArguments}'");
 
-                if (CustomArguments.Contains("hetzner", StringComparison.OrdinalIgnoreCase))
+                if (UseHetzner)
                 {
                     await RunHetznerVirtualMachineAsync(jobTimeout);
                 }
@@ -311,7 +319,15 @@ namespace MihuBot
         {
             string architecture = "x64";
 
-            string serverType = GetConfigFlag($"HetznerServerType{architecture}", "cpx41");
+            string serverType = Fast
+                ? GetConfigFlag($"HetznerServerTypeFast{architecture}", "cpx51")
+                : GetConfigFlag($"HetznerServerType{architecture}", "cpx41");
+
+            if (serverType is "cpx41" or "cpx51" &&
+                !CustomArguments.Contains("force-frameworks-", StringComparison.OrdinalIgnoreCase))
+            {
+                CustomArguments += " -force-frameworks-parallel";
+            }
 
             LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
