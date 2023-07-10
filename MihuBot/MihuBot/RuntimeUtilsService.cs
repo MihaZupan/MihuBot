@@ -171,20 +171,27 @@ namespace MihuBot
 
                 Stopwatch.Stop();
 
+                const string DetailsStart = "<details>\n<summary>Diffs</summary>\n\n";
+                const string DetailsEnd = "\n</details>\n";
+
+                bool shouldHideCorelibDiffs = _corelibDiffs?.Length > CommentLengthLimit / 2;
+
                 string corelibDiffs =
                     $"### CoreLib diffs\n\n" +
+                    (shouldHideCorelibDiffs ? DetailsStart : "") +
                     $"```\n" +
                     $"{_corelibDiffs}\n" +
                     $"```\n" +
+                    (shouldHideCorelibDiffs ? DetailsEnd : "") +
                     $"\n\n";
 
                 string frameworksDiffs =
                     $"### Frameworks diffs\n\n" +
-                    $"<details>\n<summary>Diffs</summary>\n\n" +
+                    DetailsStart +
                     $"```\n" +
                     $"{_frameworkDiffs}\n" +
                     $"```\n" +
-                    $"\n</details>\n" +
+                    DetailsEnd +
                     $"\n\n";
 
                 bool gotAnyDiffs = _corelibDiffs is not null || _frameworkDiffs is not null;
