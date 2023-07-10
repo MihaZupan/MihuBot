@@ -666,7 +666,7 @@ namespace MihuBot
                         continue;
                     }
 
-                    if ((currentLength += change.Length) <= lengthLimit)
+                    if ((currentLength += change.Length) > lengthLimit)
                     {
                         lengthLimitExceeded = true;
                         break;
