@@ -611,6 +611,8 @@ namespace MihuBot
 
                 string changes = GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
 
+                Logger.DebugLog($"Found {allChanges.Length} changes, comment length={changes.Length} for {nameof(regressions)}={regressions}");
+
                 if (changes.Length != 0)
                 {
                     if (truncated)
@@ -643,18 +645,34 @@ namespace MihuBot
 
             static string GetCommentMarkdown(string[] diffs, int lengthLimit, bool regressions, out bool lengthLimitExceeded)
             {
-                var queue = new Queue<string>(diffs);
-                int currentLength = 0;
+                lengthLimitExceeded = false;
 
-                string[] changesToShow = queue
-                    .TakeWhile(change => (currentLength += change.Length) <= lengthLimit)
-                    .ToArray();
-
-                lengthLimitExceeded = currentLength > lengthLimit;
-
-                if (changesToShow.Length == 0)
+                if (diffs.Length == 0)
                 {
                     return string.Empty;
+                }
+
+                int currentLength = 0;
+                bool someChangesSkipped = false;
+
+                List<string> changesToShow = new();
+
+                foreach (var change in diffs)
+                {
+                    if (change.Length > lengthLimit)
+                    {
+                        someChangesSkipped = true;
+                        lengthLimitExceeded = true;
+                        continue;
+                    }
+
+                    if ((currentLength += change.Length) <= lengthLimit)
+                    {
+                        lengthLimitExceeded = true;
+                        break;
+                    }
+
+                    changesToShow.Add(change);
                 }
 
                 StringBuilder sb = new();
@@ -668,6 +686,12 @@ namespace MihuBot
                 }
 
                 sb.AppendLine();
+
+                if (someChangesSkipped)
+                {
+                    sb.AppendLine("Note: some changes were skipped as they were too large to fit into a comment.");
+                    sb.AppendLine();
+                }
 
                 return sb.ToString();
             }
