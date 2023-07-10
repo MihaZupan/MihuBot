@@ -94,7 +94,7 @@ namespace MihuBot
             };
         }
 
-        private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true);
+        private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true) && !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
         private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
 
