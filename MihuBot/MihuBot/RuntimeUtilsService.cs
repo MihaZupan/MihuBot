@@ -132,7 +132,7 @@ namespace MihuBot
                 int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
                 if (offset < 0) return null;
 
-                arguments = arguments.Slice(argument.Length);
+                arguments = arguments.Slice(offset + argument.Length);
 
                 int length = arguments.IndexOf(' ');
                 if (length >= 0)
