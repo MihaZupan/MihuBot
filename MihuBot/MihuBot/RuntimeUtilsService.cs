@@ -19,6 +19,8 @@ namespace MihuBot
 {
     public sealed partial class RuntimeUtilsJob
     {
+        private const string DotnetRuntimeRepoOwner = "dotnet";
+        private const string DotnetRuntimeRepoName = "runtime";
         private const string IssueRepositoryOwner = "MihuBot";
         private const string IssueRepositoryName = "runtime-utils";
         private const int CommentLengthLimit = 65_000;
@@ -92,6 +94,61 @@ namespace MihuBot
             };
         }
 
+        private async Task ParsePRListAsync(string arguments, string argument)
+        {
+            if (TryParseList(arguments, argument) is not int[] prs || prs.Length == 0)
+            {
+                return;
+            }
+
+            LogsReceived($"Found {argument} PRs: {string.Join(", ", prs)}");
+
+            List<(string Repo, string Branch)> prInfos = new();
+
+            foreach (int pr in prs)
+            {
+                try
+                {
+                    PullRequest prInfo = await Github.PullRequest.Get(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, pr);
+                    string repo = prInfo.Head.Repository.FullName;
+                    string branch = prInfo.Head.Ref;
+
+                    LogsReceived($"PR {pr}: {repo}/{branch}");
+                    prInfos.Add((repo, branch));
+                }
+                catch
+                {
+                    LogsReceived($"Failed to get PR info for {pr}");
+                    throw;
+                }
+            }
+
+            Metadata.Add(argument, string.Join(',', prInfos.Select(pr => $"{pr.Repo};{pr.Branch}")));
+
+            static int[] TryParseList(ReadOnlySpan<char> arguments, string argument)
+            {
+                argument = $"-{argument} ";
+
+                int offset = argument.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+                if (offset < 0) return null;
+
+                arguments = arguments.Slice(argument.Length);
+
+                int length = arguments.IndexOf(' ');
+                if (length >= 0)
+                {
+                    arguments = arguments.Slice(0, length);
+                }
+
+                return arguments.ToString()
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(number => number.TrimStart('#'))
+                    .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
+                    .Select(int.Parse)
+                    .ToArray();
+            }
+        }
+
         private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true) && !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
         private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
@@ -155,6 +212,9 @@ namespace MihuBot
                 });
 
                 LogsReceived($"Using custom arguments: '{CustomArguments}'");
+
+                await ParsePRListAsync(CustomArguments, "dependsOn");
+                await ParsePRListAsync(CustomArguments, "combineWith");
 
                 if (UseHetzner)
                 {
@@ -1002,12 +1062,16 @@ namespace MihuBot
                                                 Usage: @MihuBot [options]
 
                                                 Options:
-                                                  -?|-help          Show help information
+                                                  -?|-help              Show help information
 
-                                                  -arm              Get ARM64 diffs instead of x64.
-                                                  -hetzner          Run on a Hetzner VM instead of ACI (faster).
-                                                  -nocctors         Avoid passing --cctors to jit-diff.
-                                                  -tier0            Generate tier0 code.
+                                                  -arm                  Get ARM64 diffs instead of x64.
+                                                  -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
+                                                  -fast                 Run on a more powerful VM to save a few minutes of runtime (use sparingly).
+                                                  -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
+                                                  -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
+
+                                                  -nocctors             Avoid passing --cctors to jit-diff.
+                                                  -tier0                Generate tier0 code.
                                                 ```
                                                 """;
 
