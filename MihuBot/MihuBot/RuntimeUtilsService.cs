@@ -11,9 +11,7 @@ using System.Buffers;
 using System.Globalization;
 using System.IO.Compression;
 using System.IO.Pipelines;
-using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using static MihuBot.Helpers.HetznerClient;
 
@@ -834,7 +832,7 @@ namespace MihuBot
 
                             if (foundPrefix)
                             {
-                                sb.AppendLine(Encoding.ASCII.GetString(line));
+                                sb.AppendLine(Encoding.UTF8.GetString(line));
 
                                 if (sb.Length > 1024 * 1024)
                                 {
@@ -995,11 +993,34 @@ namespace MihuBot
                                     {
                                         string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.Ordinal) + "@MihuBot".Length).Trim().ToString();
 
+                                        if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                                            arguments is "-h" or "-H" or "?" or "-?")
+                                        {
+                                            string usageComment =
+                                                $"""
+                                                ```
+                                                Usage: @MihuBot [options]
+
+                                                Options:
+                                                  -?|-help          Show help information
+
+                                                  -arm              Get ARM64 diffs instead of x64.
+                                                  -hetzner          Run on a Hetzner VM instead of ACI (faster).
+                                                  -nocctors         Avoid passing --cctors to jit-diff.
+                                                  -tier0            Generate tier0 code.
+                                                ```
+                                                """;
+
+                                            await github.Issue.Comment.Create(Owner, Repo, pullRequestNumber, usageComment);
+                                            return;
+                                        }
+
                                         StartJob(pullRequest, githubCommenterLogin: user.Login, arguments);
                                     }
                                     else
                                     {
-                                        if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase))
+                                        if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
+                                            !user.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
                                         {
                                             await Logger.DebugAsync($"User {user.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
                                         }
