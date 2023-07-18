@@ -129,7 +129,7 @@ namespace MihuBot
             {
                 argument = $"-{argument} ";
 
-                int offset = argument.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+                int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
                 if (offset < 0) return null;
 
                 arguments = arguments.Slice(argument.Length);
