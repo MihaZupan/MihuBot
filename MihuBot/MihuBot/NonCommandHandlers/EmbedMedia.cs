@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using MihuBot.Configuration;
+using System.Text.RegularExpressions;
 
 namespace MihuBot.NonCommandHandlers;
 
@@ -19,10 +20,12 @@ public sealed class EmbedMedia : NonCommandHandler
         matchTimeout: TimeSpan.FromSeconds(5));
 
     private readonly HttpClient _http;
+    private readonly IConfigurationService _configuration;
 
-    public EmbedMedia(HttpClient httpClient)
+    public EmbedMedia(HttpClient httpClient, IConfigurationService configuration)
     {
         _http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
     public override Task HandleAsync(MessageContext ctx)
@@ -96,14 +99,23 @@ public sealed class EmbedMedia : NonCommandHandler
         using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         using Stream responseStream = await response.Content.ReadAsStreamAsync();
 
-        using var tempFile = new TempFile("mp4");
+        using var tempSourceFile = new TempFile("mp4");
 
-        using (var writeFs = File.OpenWrite(tempFile.Path))
+        using (var writeFs = File.OpenWrite(tempSourceFile.Path))
         {
             await responseStream.CopyToAsync(writeFs);
         }
 
-        using (var readFs = File.OpenRead(tempFile.Path))
+        using var tempTargetFile = new TempFile("mp4");
+
+        if (!_configuration.TryGet(null, "EmbedMedia.FFmpegArgs", out string ffmpegArgs))
+        {
+            ffmpegArgs = "-c:v libx264 -preset faster -crf 25 -b:v 1M -maxrate 1M -bufsize 2M -c:a libopus -b:a 64k";
+        }
+
+        await YoutubeHelper.FFMpegConvertAsync(tempSourceFile.Path, tempTargetFile.Path, ffmpegArgs);
+
+        using (var readFs = File.OpenRead(tempTargetFile.Path))
         {
             string filename = Path.GetFileNameWithoutExtension(metadata.Filename).Replace(".", "", StringComparison.Ordinal) + Path.GetExtension(metadata.Filename);
             await ctx.Channel.SendFileAsync(readFs, filename);
