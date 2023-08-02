@@ -19,6 +19,11 @@ public sealed class EmbedMedia : NonCommandHandler
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeout: TimeSpan.FromSeconds(5));
 
+    private static readonly Regex _instagramPostRegex = new(
+        @"https?:\/\/.*?instagram\.com\/p\/[\w\/&?=]+",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
+        matchTimeout: TimeSpan.FromSeconds(5));
+
     private readonly HttpClient _http;
     private readonly IConfigurationService _configuration;
 
@@ -58,16 +63,23 @@ public sealed class EmbedMedia : NonCommandHandler
                     Match match = _tiktokRegex.Match(message.Content);
                     if (match.Success)
                     {
-                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content, "tiktok");
                         break;
                     }
                 }
-                else if (message.Content.Contains("instagram.com/reel/", StringComparison.OrdinalIgnoreCase))
+                else if (message.Content.Contains("instagram.com", StringComparison.OrdinalIgnoreCase))
                 {
                     Match match = _instagramReelRegex.Match(message.Content);
                     if (match.Success)
                     {
-                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content);
+                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content, "instagram");
+                        break;
+                    }
+
+                    match = _instagramPostRegex.Match(message.Content);
+                    if (match.Success)
+                    {
+                        await TryExtractAndUploadVideoAsync(ctx, match.Value, message.Content, "instagram");
                         break;
                     }
                 }
@@ -75,11 +87,11 @@ public sealed class EmbedMedia : NonCommandHandler
         }
     }
 
-    private async Task TryExtractAndUploadVideoAsync(MessageContext ctx, string url, string content)
+    private async Task TryExtractAndUploadVideoAsync(MessageContext ctx, string url, string content, string platform)
     {
         try
         {
-            await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(url));
+            await UploadFileAsync(ctx, await YoutubeDl.GetMetadataAsync(url), platform);
         }
         catch (Exception ex)
         {
@@ -88,7 +100,7 @@ public sealed class EmbedMedia : NonCommandHandler
         }
     }
 
-    private async Task UploadFileAsync(MessageContext ctx, YoutubeDl.YoutubeDlMetadata metadata)
+    private async Task UploadFileAsync(MessageContext ctx, YoutubeDl.YoutubeDlMetadata metadata, string platform)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, metadata.Url);
         foreach (var header in metadata.HttpHeaders)
@@ -108,9 +120,16 @@ public sealed class EmbedMedia : NonCommandHandler
 
         using var tempTargetFile = new TempFile("mp4");
 
-        if (!_configuration.TryGet(null, "EmbedMedia.FFmpegArgs", out string ffmpegArgs))
+        if (!_configuration.TryGet(null, $"EmbedMedia.{platform}.FFmpegArgs", out string ffmpegArgs))
         {
-            ffmpegArgs = "-c:v libx264 -preset faster -crf 25 -b:v 1M -maxrate 1M -bufsize 2M -c:a libopus -b:a 64k";
+            if (platform == "tiktok")
+            {
+                ffmpegArgs = "-c:v libx264 -preset superfast -crf 25 -b:v 1M -maxrate 1M -bufsize 2M -c:a libopus -b:a 64k";
+            }
+            else
+            {
+                ffmpegArgs = "-c copy";
+            }
         }
 
         await YoutubeHelper.FFMpegConvertAsync(tempSourceFile.Path, tempTargetFile.Path, ffmpegArgs);
