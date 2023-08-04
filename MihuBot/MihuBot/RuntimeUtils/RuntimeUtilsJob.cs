@@ -51,6 +51,7 @@ public sealed class RuntimeUtilsJob
     public Issue TrackingIssue { get; private set; }
     public bool Completed => _jobCompletionTcs.Task.IsCompleted;
 
+    public string JobTitle { get; }
     public string JobId { get; } = Guid.NewGuid().ToString("N");
     public string ExternalId { get; } = Guid.NewGuid().ToString("N");
     public Dictionary<string, string> Metadata { get; }
@@ -90,6 +91,8 @@ public sealed class RuntimeUtilsJob
             { "PrBranch", PullRequest.Head.Ref },
             { "CustomArguments", arguments },
         };
+
+        JobTitle = $"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99);
     }
 
     private async Task ParsePRListAsync(string arguments, string argument)
@@ -192,7 +195,7 @@ public sealed class RuntimeUtilsJob
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
-            new NewIssue($"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99))
+            new NewIssue(JobTitle)
             {
                 Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (FromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
             });
@@ -645,7 +648,15 @@ public sealed class RuntimeUtilsJob
                 }
 
                 cooldown = Math.Clamp(cooldown + 10, 100, 1000);
-                await Task.Delay(cooldown, cancellationToken);
+
+                try
+                {
+                    await Task.Delay(cooldown, cancellationToken);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
 
                 if (lastYield.Elapsed.TotalSeconds > 10)
                 {
