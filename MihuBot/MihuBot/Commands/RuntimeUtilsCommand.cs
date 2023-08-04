@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using MihuBot.RuntimeUtils;
+using Octokit;
 
 namespace MihuBot.Commands;
 

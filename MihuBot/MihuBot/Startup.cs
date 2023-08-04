@@ -12,6 +12,7 @@ using Microsoft.Net.Http.Headers;
 using MihuBot.Configuration;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
+using MihuBot.RuntimeUtils;
 using MihuBot.Weather;
 using Octokit;
 using System.Runtime.InteropServices;
