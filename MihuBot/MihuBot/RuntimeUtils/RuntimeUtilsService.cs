@@ -121,21 +121,21 @@ public sealed class RuntimeUtilsService
                                         string usageComment =
                                             $"""
                                             ```
-                                                Usage: @MihuBot [options]
+                                            Usage: @MihuBot [options]
 
-                                                Options:
-                                                  -?|-help              Show help information
+                                            Options:
+                                                -?|-help              Show help information
 
-                                                  -arm                  Get ARM64 diffs instead of x64.
-                                                  -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
-                                                  -fast                 Run on a more powerful VM to save a few minutes of runtime (use sparingly).
-                                                  -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
-                                                  -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
+                                                -arm                  Get ARM64 diffs instead of x64.
+                                                -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
+                                                -fast                 Run on a more powerful VM to save a few minutes of runtime (use sparingly).
+                                                -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
+                                                -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
 
-                                                  -nocctors             Avoid passing --cctors to jit-diff.
-                                                  -tier0                Generate tier0 code.
-                                                ```
-                                                """;
+                                                -nocctors             Avoid passing --cctors to jit-diff.
+                                                -tier0                Generate tier0 code.
+                                            ```
+                                            """;
 
                                         await github.Issue.Comment.Create(Owner, Repo, pullRequestNumber, usageComment);
                                         return;

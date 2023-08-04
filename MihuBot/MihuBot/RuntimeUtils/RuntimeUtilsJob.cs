@@ -10,14 +10,12 @@ using Octokit;
 using System.Buffers;
 using System.Globalization;
 using System.IO.Compression;
-using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using static MihuBot.Helpers.HetznerClient;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed partial class RuntimeUtilsJob
+public sealed class RuntimeUtilsJob
 {
     private const string DotnetRuntimeRepoOwner = "dotnet";
     private const string DotnetRuntimeRepoName = "runtime";
@@ -410,7 +408,7 @@ public sealed partial class RuntimeUtilsJob
                     - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
                     - cd runtime-utils/Runner
                     - HOME=/root JOB_ID={JobId} dotnet run -c Release
-                """;
+            """;
 
         HetznerServerResponse server = await Hetzner.CreateServerAsync(
             $"runner-{ExternalId}",
@@ -672,9 +670,9 @@ public sealed partial class RuntimeUtilsJob
 
         async Task PostCorelibDiffExamplesAsync(bool regressions)
         {
-            var allChanges = await GetDiffMarkdownAsync(ParseDiffEntries(_corelibDiffs, regressions));
+            var allChanges = await GetDiffMarkdownAsync(JitDiffUtils.ParseDiffEntries(_corelibDiffs, regressions));
 
-            string changes = GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
+            string changes = JitDiffUtils.GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
 
             Logger.DebugLog($"Found {allChanges.Length} changes, comment length={changes.Length} for {nameof(regressions)}={regressions}");
 
@@ -699,91 +697,13 @@ public sealed partial class RuntimeUtilsJob
 
             const int GistLengthLimit = 900 * 1024;
 
-            string md = GetCommentMarkdown(diffs, GistLengthLimit, regressions, out _);
+            string md = JitDiffUtils.GetCommentMarkdown(diffs, GistLengthLimit, regressions, out _);
 
             newGist.Files.Add(regressions ? "Regressions.md" : "Improvements.md", md);
 
             Gist gist = await Github.Gist.Create(newGist);
 
             return gist.HtmlUrl;
-        }
-
-        static string GetCommentMarkdown(string[] diffs, int lengthLimit, bool regressions, out bool lengthLimitExceeded)
-        {
-            lengthLimitExceeded = false;
-
-            if (diffs.Length == 0)
-            {
-                return string.Empty;
-            }
-
-            int currentLength = 0;
-            bool someChangesSkipped = false;
-
-            List<string> changesToShow = new();
-
-            foreach (var change in diffs)
-            {
-                if (change.Length > lengthLimit)
-                {
-                    someChangesSkipped = true;
-                    lengthLimitExceeded = true;
-                    continue;
-                }
-
-                if ((currentLength += change.Length) > lengthLimit)
-                {
-                    lengthLimitExceeded = true;
-                    break;
-                }
-
-                changesToShow.Add(change);
-            }
-
-            StringBuilder sb = new();
-
-            sb.AppendLine($"## Top method {(regressions ? "regressions" : "improvements")}");
-            sb.AppendLine();
-
-            foreach (string md in changesToShow)
-            {
-                sb.AppendLine(md);
-            }
-
-            sb.AppendLine();
-
-            if (someChangesSkipped)
-            {
-                sb.AppendLine("Note: some changes were skipped as they were too large to fit into a comment.");
-                sb.AppendLine();
-            }
-
-            return sb.ToString();
-        }
-
-        static (string Description, string Name)[] ParseDiffEntries(string diffSource, bool regressions)
-        {
-            ReadOnlySpan<char> text = diffSource.ReplaceLineEndings("\n");
-
-            string start = regressions ? "Top method regressions" : "Top method improvements";
-            int index = text.IndexOf(start, StringComparison.Ordinal);
-
-            if (index < 0)
-            {
-                return Array.Empty<(string, string)>();
-            }
-
-            text = text.Slice(index);
-            text = text.Slice(text.IndexOf('\n') + 1);
-            text = text.Slice(0, text.IndexOf("\n\n", StringComparison.Ordinal));
-
-            return text
-                .ToString()
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(line => JitDiffRegressionNameRegex().Match(line))
-                .Where(m => m.Success)
-                .Select(m => (m.Groups[1].Value, m.Groups[2].Value))
-                .ToArray();
         }
 
         async Task<string[]> GetDiffMarkdownAsync((string Description, string Name)[] diffs)
@@ -809,8 +729,8 @@ public sealed partial class RuntimeUtilsJob
                     using var baseFile = new TempFile("txt");
                     using var prFile = new TempFile("txt");
 
-                    await File.WriteAllTextAsync(baseFile.Path, await TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, diff.Name));
-                    await File.WriteAllTextAsync(prFile.Path, await TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, diff.Name));
+                    await File.WriteAllTextAsync(baseFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, diff.Name));
+                    await File.WriteAllTextAsync(prFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, diff.Name));
 
                     List<string> lines = new();
                     await ProcessHelper.RunProcessAsync("git", $"diff --minimal --no-index -U20000 {baseFile} {prFile}", lines);
@@ -859,85 +779,5 @@ public sealed partial class RuntimeUtilsJob
                     line.StartsWith("; ============================================================", StringComparison.Ordinal);
             }
         }
-
-        static async Task<string> TryGetMethodDumpAsync(string diffPath, string methodName)
-        {
-            using var fs = File.OpenRead(diffPath);
-            var pipe = PipeReader.Create(fs);
-
-            bool foundPrefix = false;
-            bool foundSuffix = false;
-            byte[] prefix = Encoding.ASCII.GetBytes($"; Assembly listing for method {methodName}");
-            byte[] suffix = Encoding.ASCII.GetBytes("; ============================================================");
-
-            StringBuilder sb = new();
-
-            while (true)
-            {
-                ReadResult result = await pipe.ReadAsync();
-                ReadOnlySequence<byte> buffer = result.Buffer;
-                SequencePosition? position = null;
-
-                do
-                {
-                    position = buffer.PositionOf((byte)'\n');
-
-                    if (position != null)
-                    {
-                        var line = buffer.Slice(0, position.Value);
-
-                        ProcessLine(
-                            line.IsSingleSegment ? line.FirstSpan : line.ToArray(),
-                            prefix, suffix, ref foundPrefix, ref foundSuffix);
-
-                        if (foundPrefix)
-                        {
-                            sb.AppendLine(Encoding.UTF8.GetString(line));
-
-                            if (sb.Length > 1024 * 1024)
-                            {
-                                return string.Empty;
-                            }
-                        }
-
-                        if (foundSuffix)
-                        {
-                            return sb.ToString();
-                        }
-
-                        buffer = buffer.Slice(buffer.GetPosition(1, position.Value));
-                    }
-                }
-                while (position != null);
-
-                pipe.AdvanceTo(buffer.Start, buffer.End);
-
-                if (result.IsCompleted)
-                {
-                    return string.Empty;
-                }
-            }
-
-            static void ProcessLine(ReadOnlySpan<byte> line, byte[] prefix, byte[] suffix, ref bool foundPrefix, ref bool foundSuffix)
-            {
-                if (foundPrefix)
-                {
-                    if (line.StartsWith(suffix))
-                    {
-                        foundSuffix = true;
-                    }
-                }
-                else
-                {
-                    if (line.StartsWith(prefix))
-                    {
-                        foundPrefix = true;
-                    }
-                }
-            }
-        }
     }
-
-    [GeneratedRegex(@" *(.*?) : .*? - ([^ ]*)")]
-    private static partial Regex JitDiffRegressionNameRegex();
 }
