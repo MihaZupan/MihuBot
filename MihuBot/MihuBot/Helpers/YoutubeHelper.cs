@@ -1,4 +1,5 @@
 ﻿using Google.Apis.YouTube.v3;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Common;
@@ -6,11 +7,13 @@ using YoutubeExplode.Search;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
+#nullable enable
+
 namespace MihuBot.Helpers;
 
 internal static class YoutubeHelper
 {
-    public static bool TryParsePlaylistId(string playlistUrl, out string playlistId)
+    public static bool TryParsePlaylistId(string playlistUrl, [NotNullWhen(true)] out string? playlistId)
     {
         playlistId = null;
 
@@ -63,7 +66,7 @@ internal static class YoutubeHelper
         return !Regex.IsMatch(playlistId, @"[^0-9a-zA-Z_\-]");
     }
 
-    public static bool TryParseVideoId(string videoUrl, out string videoId)
+    public static bool TryParseVideoId(string videoUrl, [NotNullWhen(true)] out string? videoId)
     {
         videoId = null;
 
@@ -106,7 +109,7 @@ internal static class YoutubeHelper
     public static readonly YoutubeClient Youtube = new();
     public static readonly StreamClient Streams = Youtube.Videos.Streams;
 
-    public static async Task<List<IVideo>> GetVideosAsync(string playlistId, YouTubeService youtubeService = null)
+    public static async Task<List<IVideo>> GetVideosAsync(string playlistId, YouTubeService? youtubeService = null)
     {
         if (youtubeService is not null)
         {
@@ -174,7 +177,7 @@ internal static class YoutubeHelper
         }
     }
 
-    public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus, YouTubeService youtubeService = null)
+    public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus, YouTubeService? youtubeService = null)
     {
         try
         {
@@ -257,7 +260,7 @@ internal static class YoutubeHelper
 
     public static IStreamInfo GetBestAudio(StreamManifest manifest, out string extension)
     {
-        var audioOnly = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
+        IStreamInfo audioOnly = manifest.GetAudioOnlyStreams().GetWithHighestBitrate();
 
         if (audioOnly != null)
         {
@@ -265,13 +268,14 @@ internal static class YoutubeHelper
             return audioOnly;
         }
 
-        var bestAudio = manifest.GetMuxedStreams().TryGetWithHighestBitrate();
+        IStreamInfo bestAudio = manifest.GetMuxedStreams().TryGetWithHighestBitrate()
+            ?? throw new Exception("TryGetWithHighestBitrate returned null?");
 
         extension = bestAudio.Container.Name == "aac" ? ".aac" : ".vorbis";
         return bestAudio;
     }
 
-    public static async Task<IVideo> TrySearchAsync(string query, YouTubeService youtubeService = null)
+    public static async Task<IVideo?> TrySearchAsync(string query, YouTubeService? youtubeService = null)
     {
         try
         {
@@ -287,12 +291,8 @@ internal static class YoutubeHelper
                 if (searchListResponse.Items.Count != 0)
                 {
                     Google.Apis.YouTube.v3.Data.SearchResult bestMatch =
-                        searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
-
-                    if (bestMatch is null)
-                    {
-                        bestMatch = searchListResponse.Items.First();
-                    }
+                        searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ??
+                        searchListResponse.Items.First();
 
                     return Transform(bestMatch);
                 }
@@ -303,7 +303,7 @@ internal static class YoutubeHelper
 
                 if (results.Length != 0)
                 {
-                    VideoSearchResult titleMatch = results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
+                    VideoSearchResult? titleMatch = results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
                     if (titleMatch is not null)
                     {
                         return titleMatch;
@@ -318,7 +318,7 @@ internal static class YoutubeHelper
         return null;
     }
 
-    public static Task<IVideo> TryFindSongAsync(string title, string artist, YouTubeService youtubeService = null)
+    public static Task<IVideo?> TryFindSongAsync(string title, string artist, YouTubeService? youtubeService = null)
     {
         return TrySearchAsync($"{artist} {title}", youtubeService);
     }
@@ -337,7 +337,7 @@ internal static class YoutubeHelper
             searchResult.Id.VideoId,
             snippet.Title,
             new Author(snippet.ChannelId, snippet.ChannelTitle),
-            snippet.PublishedAt ?? new DateTime(3000, 1, 1),
+            snippet.PublishedAtDateTimeOffset ?? new DateTime(3000, 1, 1),
             snippet.Description,
             duration: null,
             thumbnails: new Thumbnail[] {
@@ -356,7 +356,7 @@ internal static class YoutubeHelper
             playlistItem.Id,
             snippet.Title,
             new Author(snippet.ChannelId, snippet.ChannelTitle),
-            snippet.PublishedAt ?? new DateTime(3000, 1, 1),
+            snippet.PublishedAtDateTimeOffset ?? new DateTime(3000, 1, 1),
             snippet.Description,
             duration: null,
             thumbnails: new Thumbnail[] {

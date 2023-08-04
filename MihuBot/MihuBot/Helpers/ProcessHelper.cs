@@ -1,4 +1,6 @@
-﻿namespace MihuBot.Helpers;
+﻿#nullable enable
+
+namespace MihuBot.Helpers;
 
 public static class ProcessHelper
 {

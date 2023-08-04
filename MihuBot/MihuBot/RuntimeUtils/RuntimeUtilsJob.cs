@@ -419,7 +419,7 @@ public sealed class RuntimeUtilsJob
             jobTimeout);
 
         HetznerServerResponse.HetznerServer serverInfo = server.Server ?? throw new Exception("No server info");
-        HetznerServerResponse.HetznerServerType? vmType = serverInfo.ServerType;
+        HetznerServerResponse.HetznerServerType vmType = serverInfo.ServerType;
 
         try
         {

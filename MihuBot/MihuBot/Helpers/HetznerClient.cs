@@ -2,6 +2,8 @@
 using System.Text.Json;
 using System.Net.Http.Json;
 
+#nullable enable
+
 namespace MihuBot.Helpers;
 
 public sealed class HetznerClient
