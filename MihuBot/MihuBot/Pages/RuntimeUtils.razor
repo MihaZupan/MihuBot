@@ -12,7 +12,9 @@
 
 <AuthorizeView Policy="GitHub">
     <Authorized>
-        <p>Logged in as @@@_githubUserLogin.</p>
+        <p>
+            <small class="text-muted">Logged in as @@@_githubUserLogin.</small>
+        </p>
 
         @if (_hasRuntimeUtilsPermissions)
         {
