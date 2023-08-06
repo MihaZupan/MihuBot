@@ -299,7 +299,7 @@
 
             RuntimeUtilsJob newJob = runtimeUtils.StartJob(pullRequest, arguments: _newJob.Arguments);
 
-            Navigation.NavigateTo(newJob.ProgressDashboardUrl);
+            Navigation.NavigateTo(newJob.ProgressDashboardUrl, forceLoad: true);
         }
         catch (Exception ex)
         {
