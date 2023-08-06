@@ -4,6 +4,7 @@
 @using System.Collections.Concurrent;
 @using System.ComponentModel.DataAnnotations;
 @using Octokit;
+@using System.Text.RegularExpressions;
 @inject RuntimeUtilsService runtimeUtils
 @inject NavigationManager Navigation
 @implements IDisposable
@@ -44,12 +45,12 @@
                                 }
 
                                 <div class="form-check">
-                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPR placeholder="PR to test" />
+                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link or branch to test" />
                                 </div>
                                 <br />
                                 <div class="form-check">
                                     <InputCheckbox @bind-Value=_newJob.MentionPrOnTrackingIssue id="mentionPrCheck" />
-                                    <label for="mentionPrCheck">Mention the PR on tracking issue</label>
+                                    <label for="mentionPrCheck">Mention the PR on the tracking issue</label>
                                 </div>
                                 <div class="form-check">
                                     <InputCheckbox @bind-Value=_newJob.RunOnHetzner id="runOnHetznerCheck" />
@@ -176,8 +177,10 @@
         private bool _runOnHetzner = false;
 
         [Required]
-        [RegularExpression(@"^\d{1,8}|https://github\.com/dotnet/runtime/pull/\d{1,8}(?:[\?#].+)?$", ErrorMessage = "Invalid PR number or link")]
-        public string InputPR { get; set; }
+        [RegularExpression(
+            pattern: @"^\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_]+/[A-Za-z\d-_]+/(?:tree|blob)/[A-Za-z\d-_]+)(?:[\?#/].*)?$",
+            ErrorMessage = "Invalid PR number / link / branch")]
+        public string InputPROrBranch { get; set; }
 
         public bool MentionPrOnTrackingIssue { get; set; } = true;
         public bool RunOnHetzner { get => _runOnHetzner || RunOnArm || FastJob; set => _runOnHetzner = value; }
@@ -280,31 +283,48 @@
 
         try
         {
-            string pr = _newJob.InputPR;
+            string prOrBranch = _newJob.InputPROrBranch;
+            RuntimeUtilsJob newJob;
 
-            if (!RuntimeUtilsCommand.TryParsePRNumber(pr, out int prNumber))
+            if (RuntimeUtilsCommand.TryParsePRNumber(prOrBranch, out int prNumber))
             {
-                _submittingJobError = "Failed to parse the PR number";
+                PullRequest pullRequest;
+                try
+                {
+                    pullRequest = await runtimeUtils.GetPullRequestAsync(prNumber);
+                }
+                catch
+                {
+                    _submittingJobError = "Failed to fetch the PR from GitHub";
+                    return;
+                }
+
+#if DEBUG
+                _submittingJobError = $"PR={pullRequest.Title}";
                 return;
-            }
+#endif
 
-            PullRequest pullRequest;
-            try
-            {
-                pullRequest = await runtimeUtils.GetPullRequestAsync(prNumber);
+                newJob = runtimeUtils.StartJob(pullRequest, _githubUserLogin, _newJob.Arguments);
             }
-            catch
+            else
             {
-                _submittingJobError = "Failed to fetch the PR from GitHub";
+                Match match = Regex.Match(prOrBranch, @"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$");
+                if (!match.Success)
+                {
+                    _submittingJobError = $"Failed to parse the PR number/link or branch";
+                    return;
+                }
+
+                string repository = match.Groups[1].Value;
+                string branch = match.Groups[2].Value;
+
+#if DEBUG
+                _submittingJobError = $"Repo={repository} Branch={branch}";
                 return;
+#endif
+
+                newJob = runtimeUtils.StartJob(repository, branch, _githubUserLogin, _newJob.Arguments);
             }
-
-            #if DEBUG
-            _submittingJobError = $"PR={pullRequest.Title}";
-            return;
-            #endif
-
-            RuntimeUtilsJob newJob = runtimeUtils.StartJob(pullRequest, arguments: _newJob.Arguments);
 
             Navigation.NavigateTo(newJob.ProgressDashboardUrl, forceLoad: true);
         }

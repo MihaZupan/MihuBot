@@ -54,7 +54,8 @@ public sealed class RuntimeUtilsJob
     public string JobTitle { get; }
     public string JobId { get; } = Guid.NewGuid().ToString("N");
     public string ExternalId { get; } = Guid.NewGuid().ToString("N");
-    public Dictionary<string, string> Metadata { get; }
+
+    public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     private string CustomArguments
     {
@@ -74,25 +75,37 @@ public sealed class RuntimeUtilsJob
     public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
     public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
+    public RuntimeUtilsJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+    {
+        _parent = parent;
+        _githubCommenterLogin = githubCommenterLogin;
+
+        InitMetadata(repository, branch, arguments);
+
+        JobTitle = $"[{Architecture}] {repository}/{branch}".TruncateWithDotDotDot(99);
+    }
+
     public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
     {
         _parent = parent;
         PullRequest = pullRequest;
         _githubCommenterLogin = githubCommenterLogin;
 
+        InitMetadata(PullRequest.Head.Repository.FullName, PullRequest.Head.Ref, arguments);
+
+        JobTitle = $"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+    }
+
+    private void InitMetadata(string repository, string branch, string arguments)
+    {
         arguments ??= string.Empty;
         arguments = arguments.NormalizeNewLines().Split('\n')[0].Trim();
 
-        Metadata = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "JobId", JobId },
-            { "ExternalId", ExternalId },
-            { "PrRepo", PullRequest.Head.Repository.FullName },
-            { "PrBranch", PullRequest.Head.Ref },
-            { "CustomArguments", arguments },
-        };
-
-        JobTitle = $"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+        Metadata.Add("JobId", JobId);
+        Metadata.Add("ExternalId", ExternalId);
+        Metadata.Add("PrRepo", repository);
+        Metadata.Add("PrBranch", branch);
+        Metadata.Add("CustomArguments", arguments);
     }
 
     private async Task ParsePRListAsync(string arguments, string argument)
@@ -150,7 +163,10 @@ public sealed class RuntimeUtilsJob
         }
     }
 
-    private bool ShouldLinkToPR => GetConfigFlag("LinkToPR", true) && !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
+    private bool ShouldLinkToPR =>
+        PullRequest is not null &&
+        GetConfigFlag("LinkToPR", true) &&
+        !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
     private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
 

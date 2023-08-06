@@ -177,40 +177,53 @@ public sealed class RuntimeUtilsService
         }
     }
 
+    public RuntimeUtilsJob StartJob(string repository, string branch, string githubCommenterLogin, string arguments)
+    {
+        var job = new RuntimeUtilsJob(this, repository, branch, githubCommenterLogin, arguments);
+        StartJobCore(job);
+        return job;
+    }
+
     public RuntimeUtilsJob StartJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
     {
         var job = new RuntimeUtilsJob(this, pullRequest, githubCommenterLogin, arguments);
+        StartJobCore(job);
+        return job;
+    }
 
+    private void StartJobCore(RuntimeUtilsJob job)
+    {
         lock (_jobs)
         {
             _jobs.Add(job.JobId, job);
             _jobs.Add(job.ExternalId, job);
         }
 
-        _ = Task.Run(async () =>
+        using (ExecutionContext.SuppressFlow())
         {
-            await Task.Delay(TimeSpan.FromDays(7));
-
-            lock (_jobs)
+            _ = Task.Run(async () =>
             {
-                _jobs.Remove(job.JobId);
-                _jobs.Remove(job.ExternalId);
-            }
-        });
+                await Task.Delay(TimeSpan.FromDays(7));
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await job.RunJobAsync();
-            }
-            catch (Exception ex)
-            {
-                await Logger.DebugAsync(ex.ToString());
-            }
-        });
+                lock (_jobs)
+                {
+                    _jobs.Remove(job.JobId);
+                    _jobs.Remove(job.ExternalId);
+                }
+            });
 
-        return job;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await job.RunJobAsync();
+                }
+                catch (Exception ex)
+                {
+                    await Logger.DebugAsync(ex.ToString());
+                }
+            });
+        }
     }
 
     public RuntimeUtilsJob[] GetAllActiveJobs() => _jobs
