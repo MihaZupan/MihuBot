@@ -9,6 +9,25 @@ public sealed class RuntimeUtilsService
     private const string RepoOwner = "dotnet";
     private const string RepoName = "runtime";
 
+    private const string UsageCommentMarkdown =
+        $"""
+        ```
+        Usage: @MihuBot [options]
+
+        Options:
+            -?|-help              Show help information
+
+            -arm                  Get ARM64 diffs instead of x64.
+            -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
+            -fast                 Run on a more powerful VM to save a few minutes of runtime.
+            -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
+            -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
+
+            -nocctors             Avoid passing --cctors to jit-diff.
+            -tier0                Generate tier0 code.
+        ```
+        """;
+
     private readonly Dictionary<string, RuntimeUtilsJob> _jobs = new(StringComparer.Ordinal);
 
     public readonly Logger Logger;
@@ -122,26 +141,7 @@ public sealed class RuntimeUtilsService
                                 if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
                                     arguments is "-h" or "-H" or "?" or "-?")
                                 {
-                                    string usageComment =
-                                        $"""
-                                        ```
-                                        Usage: @MihuBot [options]
-
-                                        Options:
-                                            -?|-help              Show help information
-
-                                            -arm                  Get ARM64 diffs instead of x64.
-                                            -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
-                                            -fast                 Run on a more powerful VM to save a few minutes of runtime.
-                                            -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
-                                            -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
-
-                                            -nocctors             Avoid passing --cctors to jit-diff.
-                                            -tier0                Generate tier0 code.
-                                        ```
-                                        """;
-
-                                    await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, usageComment);
+                                    await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
                                     return;
                                 }
 
