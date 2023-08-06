@@ -259,7 +259,8 @@
                                 logs.TryDequeue(out _);
                             }
 
-                            logs.Enqueue(line.TruncateWithDotDotDot(70));
+                            const int MaxLineLength = 90;
+                            logs.Enqueue(line.TruncateWithDotDotDot(MaxLineLength).PadRight(MaxLineLength, ' '));
                         }
                     }
 

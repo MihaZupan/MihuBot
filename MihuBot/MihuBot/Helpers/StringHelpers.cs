@@ -4,7 +4,7 @@ public static class StringHelpers
 {
     public static string TruncateWithDotDotDot(this string text, int maxLength)
     {
-        if (text.Length <= maxLength)
+        if (text.Length <= maxLength || text.Length <= 4)
         {
             return text;
         }
