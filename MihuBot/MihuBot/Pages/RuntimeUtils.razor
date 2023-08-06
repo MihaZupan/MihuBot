@@ -7,14 +7,16 @@
 @using System.Text.RegularExpressions;
 @inject RuntimeUtilsService runtimeUtils
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @implements IDisposable
 
-<h1>Runtime Utils</h1>
+<PageTitle>Runtime utils</PageTitle>
+<h1>Runtime utils</h1>
 
 <AuthorizeView Policy="GitHub">
     <Authorized>
         <p>
-            <small class="text-muted">Logged in as @@@_githubUserLogin.</small>
+            <small class="text-muted">Logged in as @@@_githubUserLogin</small>
         </p>
 
         @if (_hasRuntimeUtilsPermissions)
@@ -45,7 +47,9 @@
                                 }
 
                                 <div class="form-check">
-                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link or branch to test" />
+                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link or branch to test"
+                                        data-toggle="tooltip" data-html="true"
+                                        title="88394<br />https://github.com/dotnet/runtime/pull/88394<br />https://github.com/MihaZupan/runtime/tree/main<br />https://github.com/MihaZupan/runtime/blob/main/README.md" />
                                 </div>
                                 <br />
                                 <div class="form-check">
@@ -273,6 +277,14 @@
                 }
                 catch { }
             }, CancellationToken.None);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("addTooltips");
         }
     }
 
