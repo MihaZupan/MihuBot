@@ -1,6 +1,5 @@
 ﻿@page "/minecraft-remote"
 @attribute [Authorize]
-@inject IHttpContextAccessor httpContextAccessor
 @inject IPermissionsService permissions
 @inject MinecraftRCON minecraftRCON
 
@@ -34,15 +33,18 @@
 
 @code
 {
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
+
     private ulong userId;
     private string currentValue;
     private string lastResponse;
     private string exception;
     private bool working;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
+        userId = (await authenticationState).User.GetDiscordUserId();
     }
 
     private async Task SendCommandAsync()

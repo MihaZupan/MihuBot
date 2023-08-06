@@ -6,6 +6,9 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class RuntimeUtilsService
 {
+    private const string RepoOwner = "dotnet";
+    private const string RepoName = "runtime";
+
     private readonly Dictionary<string, RuntimeUtilsJob> _jobs = new(StringComparer.Ordinal);
 
     public readonly Logger Logger;
@@ -32,137 +35,137 @@ public sealed class RuntimeUtilsService
                 "artifacts");
         }
 
-        Task.Run(async () =>
+        using (ExecutionContext.SuppressFlow())
         {
-            List<(int Id, Stopwatch Timestamp)> processedMentions = new();
+            _ = Task.Run(WatchForGitHubMentionsAsync);
+        }
+    }
 
-            DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-            DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
+    private async Task WatchForGitHubMentionsAsync()
+    {
+        List<(int Id, Stopwatch Timestamp)> processedMentions = new();
 
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
-            while (await timer.WaitForNextTickAsync())
+        DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
+        DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
+
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
             {
-                const string Owner = "dotnet";
-                const string Repo = "runtime";
+                processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 14);
 
-                try
+                IReadOnlyList<PullRequestReviewComment> pullReviewComments = await Github.PullRequest.ReviewComment.GetAllForRepository(RepoOwner, RepoName, new PullRequestReviewCommentRequest
                 {
-                    processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 14);
+                    Since = lastCheckTimeReviewComments
+                }, new ApiOptions { PageCount = 100 });
 
-                    IReadOnlyList<PullRequestReviewComment> pullReviewComments = await github.PullRequest.ReviewComment.GetAllForRepository(Owner, Repo, new PullRequestReviewCommentRequest
-                    {
-                        Since = lastCheckTimeReviewComments
-                    }, new ApiOptions { PageCount = 100 });
+                if (pullReviewComments.Count > 0)
+                {
+                    lastCheckTimeReviewComments = pullReviewComments.Max(c => c.CreatedAt);
+                }
 
-                    if (pullReviewComments.Count > 0)
+                foreach (PullRequestReviewComment reviewComment in pullReviewComments)
+                {
+                    await Process(reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User);
+                }
+
+                IReadOnlyList<IssueComment> issueComments = await Github.Issue.Comment.GetAllForRepository(RepoOwner, RepoName, new IssueCommentRequest
+                {
+                    Since = lastCheckTimeIssueComments,
+                    Sort = IssueCommentSort.Created,
+                }, new ApiOptions { PageCount = 100 });
+
+                if (issueComments.Count > 0)
+                {
+                    lastCheckTimeIssueComments = issueComments.Max(c => c.CreatedAt);
+                }
+
+                var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
+
+                if (recentTimestamp > lastCheckTimeIssueComments)
+                {
+                    lastCheckTimeIssueComments = recentTimestamp;
+                }
+
+                if (recentTimestamp > lastCheckTimeReviewComments)
+                {
+                    lastCheckTimeReviewComments = recentTimestamp;
+                }
+
+                foreach (IssueComment issueComment in issueComments)
+                {
+                    if (issueComment.HtmlUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
                     {
-                        lastCheckTimeReviewComments = pullReviewComments.Max(c => c.CreatedAt);
+                        await Process(issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User);
                     }
+                }
 
-                    foreach (PullRequestReviewComment reviewComment in pullReviewComments)
+                async Task Process(int commentId, string pullRequestUrl, string body, User user)
+                {
+                    if (user.Type == AccountType.User &&
+                        body.Contains("@MihuBot", StringComparison.Ordinal) &&
+                        !processedMentions.Any(c => c.Id == commentId))
                     {
-                        await Process(reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User);
-                    }
+                        processedMentions.Add((commentId, Stopwatch.StartNew()));
 
-                    IReadOnlyList<IssueComment> issueComments = await github.Issue.Comment.GetAllForRepository(Owner, Repo, new IssueCommentRequest
-                    {
-                        Since = lastCheckTimeIssueComments,
-                        Sort = IssueCommentSort.Created,
-                    }, new ApiOptions { PageCount = 100 });
+                        int pullRequestNumber = int.Parse(new Uri(pullRequestUrl, UriKind.Absolute).AbsolutePath.Split('/').Last());
 
-                    if (issueComments.Count > 0)
-                    {
-                        lastCheckTimeIssueComments = issueComments.Max(c => c.CreatedAt);
-                    }
+                        PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, pullRequestNumber);
 
-                    var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
-
-                    if (recentTimestamp > lastCheckTimeIssueComments)
-                    {
-                        lastCheckTimeIssueComments = recentTimestamp;
-                    }
-
-                    if (recentTimestamp > lastCheckTimeReviewComments)
-                    {
-                        lastCheckTimeReviewComments = recentTimestamp;
-                    }
-
-                    foreach (IssueComment issueComment in issueComments)
-                    {
-                        if (issueComment.HtmlUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                        if (pullRequest.State.Value == ItemState.Open)
                         {
-                            await Process(issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User);
-                        }
-                    }
-
-                    async Task Process(int commentId, string pullRequestUrl, string body, User user)
-                    {
-                        if (user.Type == AccountType.User &&
-                            body.Contains("@MihuBot", StringComparison.Ordinal) &&
-                            !processedMentions.Any(c => c.Id == commentId))
-                        {
-                            processedMentions.Add((commentId, Stopwatch.StartNew()));
-
-                            int pullRequestNumber = int.Parse(new Uri(pullRequestUrl, UriKind.Absolute).AbsolutePath.Split('/').Last());
-
-                            PullRequest pullRequest = await github.PullRequest.Get(Owner, Repo, pullRequestNumber);
-
-                            if (pullRequest.State.Value == ItemState.Open)
+                            if (CheckGitHubUserPermissions(user.Login))
                             {
-                                if (ConfigurationService.TryGet(null, $"RuntimeUtils.AuthorizedUser.{user.Login}", out string allowedString) &&
-                                    bool.TryParse(allowedString, out bool allowed) &&
-                                    allowed)
+                                string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.Ordinal) + "@MihuBot".Length).Trim().ToString();
+
+                                if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                                    arguments is "-h" or "-H" or "?" or "-?")
                                 {
-                                    string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.Ordinal) + "@MihuBot".Length).Trim().ToString();
+                                    string usageComment =
+                                        $"""
+                                        ```
+                                        Usage: @MihuBot [options]
 
-                                    if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
-                                        arguments is "-h" or "-H" or "?" or "-?")
-                                    {
-                                        string usageComment =
-                                            $"""
-                                            ```
-                                            Usage: @MihuBot [options]
+                                        Options:
+                                            -?|-help              Show help information
 
-                                            Options:
-                                                -?|-help              Show help information
+                                            -arm                  Get ARM64 diffs instead of x64.
+                                            -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
+                                            -fast                 Run on a more powerful VM to save a few minutes of runtime.
+                                            -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
+                                            -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
 
-                                                -arm                  Get ARM64 diffs instead of x64.
-                                                -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
-                                                -fast                 Run on a more powerful VM to save a few minutes of runtime (use sparingly).
-                                                -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
-                                                -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
+                                            -nocctors             Avoid passing --cctors to jit-diff.
+                                            -tier0                Generate tier0 code.
+                                        ```
+                                        """;
 
-                                                -nocctors             Avoid passing --cctors to jit-diff.
-                                                -tier0                Generate tier0 code.
-                                            ```
-                                            """;
-
-                                        await github.Issue.Comment.Create(Owner, Repo, pullRequestNumber, usageComment);
-                                        return;
-                                    }
-
-                                    StartJob(pullRequest, githubCommenterLogin: user.Login, arguments);
+                                    await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, usageComment);
+                                    return;
                                 }
-                                else
+
+                                StartJob(pullRequest, githubCommenterLogin: user.Login, arguments);
+                            }
+                            else
+                            {
+                                if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
+                                    !user.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
-                                        !user.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        await Logger.DebugAsync($"User {user.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
-                                    }
+                                    await Logger.DebugAsync($"User {user.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
                                 }
                             }
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-                    lastCheckTimeIssueComments = DateTime.UtcNow;
-                    Logger.DebugLog($"Failed to fetch GitHub notifications: {ex}");
-                }
             }
-        });
+            catch (Exception ex)
+            {
+                lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
+                lastCheckTimeIssueComments = DateTime.UtcNow;
+                Logger.DebugLog($"Failed to fetch GitHub notifications: {ex}");
+            }
+        }
     }
 
     public bool TryGetJob(string jobId, bool publicId, out RuntimeUtilsJob job)
@@ -208,5 +211,24 @@ public sealed class RuntimeUtilsService
         });
 
         return job;
+    }
+
+    public RuntimeUtilsJob[] GetAllActiveJobs() => _jobs
+        .Where(pair => pair.Key == pair.Value.ExternalId)
+        .Select(pair => pair.Value)
+        .Where(job => !job.Completed)
+        .OrderByDescending(job => job.Stopwatch.Elapsed)
+        .ToArray();
+
+    public bool CheckGitHubUserPermissions(string userLogin) =>
+        ConfigurationService.TryGet(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", out string allowedString) &&
+        bool.TryParse(allowedString, out bool allowed) &&
+        allowed;
+
+    public async Task<PullRequest> GetPullRequestAsync(int prNumber)
+    {
+        PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, prNumber);
+        ArgumentNullException.ThrowIfNull(pullRequest);
+        return pullRequest;
     }
 }

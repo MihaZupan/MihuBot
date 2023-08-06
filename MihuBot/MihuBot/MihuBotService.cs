@@ -256,11 +256,13 @@ public class MihuBotService : IHostedService
 
         _discord.ReactionAdded += Client_ReactionAdded;
 
+#if !DEBUG
         try
         {
             await _discord.GetTextChannel(Channels.Debug).TrySendMessageAsync("Started");
         }
         catch { }
+#endif
     }
 
     private TaskCompletionSource _stopTcs;

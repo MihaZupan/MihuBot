@@ -1,4 +1,5 @@
-﻿using Discord.Rest;
+﻿using AspNet.Security.OAuth.Discord;
+using Discord.Rest;
 using System.Buffers;
 using System.Security.Claims;
 
@@ -23,83 +24,10 @@ public static class Helpers
         return (user as SocketGuildUser)?.GetName() ?? user.Username;
     }
 
-    public static bool IsAdmin(this ClaimsPrincipal claims)
-    {
-        return claims.TryGetUserId(out ulong userId)
-            && Constants.Admins.Contains(userId);
-    }
-
     public static string GetAvatarUrl(this ClaimsPrincipal claims, ushort size)
     {
-        return CDN.GetUserAvatarUrl(claims.GetUserId(), claims.FindFirstValue("urn:discord:avatar:hash"), size, ImageFormat.WebP);
-    }
-
-    public static bool HasWriteAccess(this SocketGuildChannel channel, ulong userId)
-    {
-        SocketGuildUser guildUser = channel.Guild.GetUser(userId);
-        if (guildUser is null)
-            return false;
-
-        var permissions = guildUser.GetPermissions(channel);
-
-        if (channel is ITextChannel)
-        {
-            return permissions.SendMessages;
-        }
-        else if (channel is IVoiceChannel)
-        {
-            return permissions.Connect && permissions.Speak;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    public static bool HasReadAccess(this SocketGuildChannel channel, ulong userId)
-    {
-        SocketGuildUser guildUser = channel.Guild.GetUser(userId);
-        if (guildUser is null)
-            return false;
-
-        var permissions = guildUser.GetPermissions(channel);
-
-        if (channel is ITextChannel)
-        {
-            return permissions.ViewChannel;
-        }
-        else if (channel is IVoiceChannel)
-        {
-            return permissions.Connect;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    public static string GetUserDiscriminator(this ClaimsPrincipal claims)
-    {
-        return claims.FindFirstValue("urn:discord:user:discriminator");
-    }
-
-    public static ulong GetUserId(this ClaimsPrincipal claims)
-    {
-        if (claims.TryGetUserId(out ulong userId))
-            return userId;
-
-        throw new Exception("Failed to get user id");
-    }
-
-    public static bool TryGetUserId(this ClaimsPrincipal claims, out ulong userId)
-    {
-        string id = claims.FindFirstValue(ClaimTypes.NameIdentifier);
-
-        if (id != null && ulong.TryParse(id, out userId))
-            return true;
-
-        userId = 0;
-        return false;
+        string avatarHash = claims.FindFirstValue(DiscordAuthenticationConstants.Claims.AvatarHash);
+        return CDN.GetUserAvatarUrl(claims.GetDiscordUserId(), avatarHash, size, ImageFormat.WebP);
     }
 
     public static IEnumerable<T> Unique<T>(this IEnumerable<T> source)
@@ -200,13 +128,8 @@ public static class Helpers
         return (channel as SocketGuildChannel)?.Guild;
     }
 
-    public static bool IsAdmin(this SocketUser user)
-    {
-        return Constants.Admins.Contains(user.Id);
-    }
-
     public static bool TryGetFirst<T>(this IEnumerable<T> entities, ulong id, out T entity)
-        where T : class, ISnowflakeEntity
+        where T : ISnowflakeEntity
     {
         foreach (var e in entities)
         {
@@ -217,12 +140,12 @@ public static class Helpers
             }
         }
 
-        entity = null;
+        entity = default;
         return false;
     }
 
     public static bool Any<T>(this IEnumerable<T> entities, ulong id)
-        where T : class, ISnowflakeEntity
+        where T : ISnowflakeEntity
     {
         foreach (var e in entities)
         {
@@ -236,7 +159,7 @@ public static class Helpers
     }
 
     public static bool SequenceIdEquals<T>(this IEnumerable<T> first, IEnumerable<T> second)
-        where T : class, ISnowflakeEntity
+        where T : ISnowflakeEntity
     {
         if (ReferenceEquals(first, second))
         {
@@ -395,4 +318,15 @@ public static class Helpers
     }
 
     public static int IndexOf<T>(this T[] array, T element) => Array.IndexOf(array, element);
+
+    public static T[] InitializeWithDefaultCtor<T>(this T[] array)
+        where T : new()
+    {
+        for (int i = 0; i < array.Length; i++)
+        {
+            array[i] = new T();
+        }
+
+        return array;
+    }
 }

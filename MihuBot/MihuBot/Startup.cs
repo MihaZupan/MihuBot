@@ -1,8 +1,8 @@
-using AspNet.Security.OAuth.Discord;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
 using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
@@ -16,6 +16,7 @@ using MihuBot.RuntimeUtils;
 using MihuBot.Weather;
 using Octokit;
 using System.Runtime.InteropServices;
+using System.Security.Claims;
 
 namespace MihuBot;
 
@@ -153,38 +154,73 @@ public class Startup
                 .DisallowCredentials());
         });
 
-        services.AddAuthentication(options =>
-            {
-                options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
-                options.DefaultChallengeScheme = DiscordAuthenticationDefaults.AuthenticationScheme;
-            })
+        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie()
             .AddDiscord(options =>
             {
+                options.SaveTokens = true;
                 options.ClientId = KnownUsers.MihuBot.ToString();
 #if DEBUG
                 options.ClientSecret = Configuration["Discord:ClientSecret-Dev"];
 #else
                 options.ClientSecret = Configuration["Discord:ClientSecret"];
 #endif
-                options.SaveTokens = true;
 
                 options.Scope.Add("guilds");
+
+                options.Events.OnTicketReceived = MergeIdentities;
+            })
+            .AddGitHub(options =>
+            {
+                options.SaveTokens = true;
+#if DEBUG
+                options.ClientId = Configuration["GitHub:ClientId-Dev"];
+                options.ClientSecret = Configuration["GitHub:ClientSecret-Dev"];
+#else
+                options.ClientId = Configuration["GitHub:ClientId"];
+                options.ClientSecret = Configuration["GitHub:ClientSecret"];
+#endif
+
+                options.Events.OnTicketReceived = MergeIdentities;
             });
 
-        services.AddHttpContextAccessor();
+        static async Task MergeIdentities(TicketReceivedContext context)
+        {
+            if (context.Principal is { } newPrincipal &&
+                newPrincipal.Identities.Single() is { } newIdentity &&
+                newIdentity.IsAuthenticated)
+            {
+                AuthenticateResult result = await context.HttpContext.AuthenticateAsync();
+
+                if (result.Succeeded &&
+                    result.Principal is { } currentPrincipal)
+                {
+                    foreach (ClaimsIdentity currentIdentity in currentPrincipal.Identities)
+                    {
+                        if (currentIdentity.IsAuthenticated &&
+                            currentIdentity.AuthenticationType != newIdentity.AuthenticationType)
+                        {
+                            newPrincipal.AddIdentity(currentIdentity);
+                        }
+                    }
+                }
+            }
+        }
 
         services.AddRazorPages();
         services.AddServerSideBlazor();
         services.AddControllers();
 
-        services.AddAuthorization(options =>
-        {
-            options.AddPolicy("Admin", policy =>
+        services.AddAuthorizationBuilder()
+            .AddPolicy("Admin", policy =>
                 policy.RequireAssertion(context =>
-                    context.User.IsAdmin()));
-        });
+                    context.User.IsAdmin()))
+            .AddPolicy("Discord", policy =>
+                policy.RequireAssertion(context =>
+                    context.User.TryGetDiscordUserId(out _)))
+            .AddPolicy("GitHub", policy =>
+                policy.RequireAssertion(context =>
+                    context.User.TryGetGitHubLogin(out _)));
 
         Console.WriteLine("Services configured.");
     }
@@ -198,6 +234,13 @@ public class Startup
         else
         {
             app.UseExceptionHandler("/Error");
+
+            app.UseWhen(context => context.User.IsAdmin(),
+                app => app.UseDeveloperExceptionPage());
+        }
+
+        if (env.IsProduction())
+        {
             app.UseHsts();
         }
 

@@ -9,12 +9,10 @@ public sealed class RuntimeUtilsCommand : CommandBase
     public override string[] Aliases => new[] { "jitdiff" };
 
     private readonly RuntimeUtilsService _runtimeUtilsService;
-    private readonly GitHubClient _github;
 
-    public RuntimeUtilsCommand(RuntimeUtilsService runtimeUtilsService, GitHubClient github)
+    public RuntimeUtilsCommand(RuntimeUtilsService runtimeUtilsService)
     {
         _runtimeUtilsService = runtimeUtilsService;
-        _github = github;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -38,11 +36,7 @@ public sealed class RuntimeUtilsCommand : CommandBase
     {
         string[] parts = messageContent.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (!Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) ||
-            !(uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) ||
-            !uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
-            !uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) ||
-            !int.TryParse(uri.AbsolutePath.Split('/').Last(), out int prNumber))
+        if (TryParsePRNumber(parts[0], out int prNumber))
         {
             await channel.SendMessageAsync($"Can't recognize the PR link.");
             return;
@@ -51,8 +45,7 @@ public sealed class RuntimeUtilsCommand : CommandBase
         PullRequest pullRequest;
         try
         {
-            pullRequest = await _github.PullRequest.Get("dotnet", "runtime", prNumber);
-            ArgumentNullException.ThrowIfNull(pullRequest);
+            pullRequest = await _runtimeUtilsService.GetPullRequestAsync(prNumber);
         }
         catch
         {
@@ -65,5 +58,22 @@ public sealed class RuntimeUtilsCommand : CommandBase
         RuntimeUtilsJob job = _runtimeUtilsService.StartJob(pullRequest, arguments: arguments);
 
         await channel.SendMessageAsync(job.ProgressDashboardUrl);
+    }
+
+    public static bool TryParsePRNumber(string input, out int prNumber)
+    {
+        string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (int.TryParse(parts[0], out prNumber) && prNumber > 0)
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+            uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+            uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
+            prNumber > 0;
     }
 }

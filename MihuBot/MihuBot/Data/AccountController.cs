@@ -4,16 +4,21 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace MihuBot.Data;
 
-[Route("[controller]/[action]")]
+[Route("[controller]")]
 public class AccountController : ControllerBase
 {
-    [HttpGet]
-    public IActionResult Login(string returnUrl = "/")
+    [HttpGet("Login/{provider}")]
+    public IActionResult Login([FromRoute] string provider, [FromQuery] string returnUrl = "/")
     {
-        return Challenge(new AuthenticationProperties { RedirectUri = returnUrl }, "Discord");
+        if (provider is not ("Discord" or "GitHub"))
+        {
+            return NotFound();
+        }
+
+        return Challenge(new AuthenticationProperties { RedirectUri = returnUrl }, provider);
     }
 
-    [HttpGet]
+    [HttpGet("Logout")]
     public async Task<IActionResult> Logout(string returnUrl = "/")
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

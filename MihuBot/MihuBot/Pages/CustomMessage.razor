@@ -1,7 +1,6 @@
 ﻿@page "/custom-message"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "Discord")]
 @inject DiscordSocketClient discord
-@inject IHttpContextAccessor httpContextAccessor
 @inject IPermissionsService permissions
 
 <form @onsubmit="SendMessageAsync">
@@ -32,14 +31,17 @@
 
 @code
 {
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
+
     private ulong userId;
     private string currentValue;
     private string exception;
     private SocketTextChannel textChannel;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        userId = httpContextAccessor.HttpContext.User.GetUserId();
+        userId = (await authenticationState).User.GetDiscordUserId();
     }
 
     private void OnChannelSelected(SocketTextChannel channel)

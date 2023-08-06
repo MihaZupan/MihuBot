@@ -1,0 +1,318 @@
+﻿@page "/runtime-utils"
+@using MihuBot.Commands;
+@using MihuBot.RuntimeUtils;
+@using System.Collections.Concurrent;
+@using System.ComponentModel.DataAnnotations;
+@using Octokit;
+@inject RuntimeUtilsService runtimeUtils
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<h1>Runtime Utils</h1>
+
+<AuthorizeView Policy="GitHub">
+    <Authorized>
+        <p>Logged in as @@@_githubUserLogin.</p>
+
+        @if (_hasRuntimeUtilsPermissions)
+        {
+            <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#newJobModal">
+                Submit new job
+            </button>
+
+            <div class="modal fade" id="newJobModal" tabindex="-1" role="dialog">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="newJobModalLabel">Submit a new job</h5>
+                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                <span>&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <EditForm Context="NewJobForm" Model="_newJob" OnValidSubmit="SubmitNewJobAsync">
+                                <DataAnnotationsValidator />
+                                <ValidationSummary />
+
+                                @if (!string.IsNullOrEmpty(_submittingJobError))
+                                {
+                                    <div class="alert alert-danger" role="alert">
+                                        Failed to submit the job: @_submittingJobError
+                                    </div>
+                                }
+
+                                <div class="form-check">
+                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPR placeholder="PR to test" />
+                                </div>
+                                <br />
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.MentionPrOnTrackingIssue id="mentionPrCheck" />
+                                    <label for="mentionPrCheck">Mention the PR on tracking issue</label>
+                                </div>
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.RunOnHetzner id="runOnHetznerCheck" />
+                                    <label for="runOnHetznerCheck">Run on a Hetzner VM instead of ACI (faster)</label>
+                                </div>
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.FastJob id="fastJobCheck" />
+                                    <label for="fastJobCheck">Run on a more powerful VM</label>
+                                </div>
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.RunOnArm id="runOnArmCheck" />
+                                    <label for="runOnArmCheck">Run on ARM64</label>
+                                </div>
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.RunCctors id="runCctorsCheck" />
+                                    <label for="runCctorsCheck">Pass --cctors to jit-diff</label>
+                                </div>
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value=_newJob.RunTier0 id="runTier0Check" />
+                                    <label for="runTier0Check">Generate tier0 code</label>
+                                </div>
+
+                                <p>
+                                    <button class="btn btn-secondary" type="button" data-toggle="collapse" data-target="#collapseAdvancedOptions">
+                                        Advanced options
+                                    </button>
+                                </p>
+                                <div class="collapse" id="collapseAdvancedOptions">
+                                    <div class="card card-body">
+                                        <div class="form-check">
+                                            <InputText style="width: 90%;" @bind-Value=_newJob.DependsOn placeholder="List of PRs this change depends on" />
+                                        </div>
+                                        <br />
+                                        <div class="form-check">
+                                            <InputText style="width: 90%;" @bind-Value=_newJob.CombineWith placeholder="List of PRs to combine with this one" />
+                                        </div>
+                                        <br />
+                                        <div class="form-check">
+                                            <InputText style="width: 90%;" @bind-Value=_newJob.CustomArguments placeholder="Custom arguments" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <p>
+                                    <small class="text-muted">@@MihuBot @_newJob.Arguments</small>
+                                </p>
+                                <input disabled="@_submittingJob" type="submit" class="btn btn-primary" value="@(_submittingJob ? "Submitting ..." : "Submit")" />
+                            </EditForm>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <p>Ask @@MihaZupan to grant you access.</p>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <a href="Account/Login/GitHub?returnUrl=%2Fruntime-utils">
+            <img src="github-mark.svg"/>
+            <strong style="font-size: 24px">Login with GitHub</strong>
+        </a>
+    </NotAuthorized>
+</AuthorizeView>
+
+<br />
+<br />
+<h2>Currently active jobs</h2>
+
+<table class="table">
+    <thead class="thead-light">
+        <tr>
+            <th scope="col">Title</th>
+            <th scope="col">Logs</th>
+        </tr>
+    </thead>
+    @foreach (var (job, logs) in _activeJobs.Zip(_logs))
+    {
+        <tr>
+            <td scope="row"><a href="@job.ProgressDashboardUrl">@job.JobTitle</a></td>
+            <td>
+                @foreach (string line in logs)
+                {
+                    @line
+                    <br />
+                }
+            </td>
+        </tr>
+    }
+    @if (_activeJobs.Length == 0)
+    {
+        <tr>
+            <td>No active jobs</td>
+            <td>N/A</td>
+        </tr>
+    }
+</table>
+
+@code
+{
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
+
+    private const int NumLinesPerJob = 3;
+    private readonly CancellationTokenSource _cts = new();
+    private RuntimeUtilsJob[] _activeJobs;
+    private ConcurrentQueue<string>[] _logs;
+    private int _logsChangeCounter;
+    private string _githubUserLogin;
+    private bool _hasRuntimeUtilsPermissions;
+
+    private bool _submittingJob;
+    private string _submittingJobError;
+
+    private readonly NewJobModel _newJob = new();
+
+    private class NewJobModel
+    {
+        private bool _runOnHetzner = false;
+
+        [Required]
+        [RegularExpression(@"^\d{1,8}|https://github\.com/dotnet/runtime/pull/\d{1,8}(?:[\?#].+)?$", ErrorMessage = "Invalid PR number or link")]
+        public string InputPR { get; set; }
+
+        public bool MentionPrOnTrackingIssue { get; set; } = true;
+        public bool RunOnHetzner { get => _runOnHetzner || RunOnArm || FastJob; set => _runOnHetzner = value; }
+        public bool FastJob { get; set; }
+        public bool RunOnArm { get; set; }
+        public bool RunCctors { get; set; } = true;
+        public bool RunTier0 { get; set; }
+
+        [RegularExpression(@"^\d{1,8}(?:,\d{1,8})*$", ErrorMessage = "Must be a comma-separated list of PR numbers")]
+        public string DependsOn { get; set; }
+
+        [RegularExpression(@"^\d{1,8}(?:,\d{1,8})*$", ErrorMessage = "Must be a comma-separated list of PR numbers")]
+        public string CombineWith { get; set; }
+
+        public string CustomArguments { get; set; }
+
+        public string Arguments =>
+            (MentionPrOnTrackingIssue ? "" : "-NoPRLink ") +
+            (RunOnHetzner ? "-hetzner " : "") +
+            (FastJob ? "-fast " : "") +
+            (RunOnArm ? "-arm " : "") +
+            (RunCctors ? "" : "-nocctors ") +
+            (RunTier0 ? "-tier0 " : "") +
+            (string.IsNullOrEmpty(DependsOn) ? "" : $"-dependsOn {DependsOn} ") +
+            (string.IsNullOrEmpty(CombineWith) ? "" : $"-combineWith {CombineWith} ") +
+            CustomArguments;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (authenticationState is not null &&
+            (await authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
+        {
+            _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions(_githubUserLogin);
+        }
+
+        _activeJobs = runtimeUtils.GetAllActiveJobs();
+        _logs = new ConcurrentQueue<string>[_activeJobs.Length].InitializeWithDefaultCtor();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                int lastCounter = 0;
+
+                while (!_cts.IsCancellationRequested)
+                {
+                    await Task.Delay(100, _cts.Token);
+
+                    int counter = Volatile.Read(ref _logsChangeCounter);
+
+                    if (counter != lastCounter)
+                    {
+                        lastCounter = counter;
+                        _ = InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch { }
+        }, CancellationToken.None);
+
+        for (int i = 0; i < _activeJobs.Length; i++)
+        {
+            RuntimeUtilsJob job = _activeJobs[i];
+            ConcurrentQueue<string> logs = _logs[i];
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (string line in job.StreamLogsAsync(_cts.Token))
+                    {
+                        if (line is null)
+                        {
+                            Interlocked.Increment(ref _logsChangeCounter);
+                        }
+                        else
+                        {
+                            if (logs.Count == NumLinesPerJob)
+                            {
+                                logs.TryDequeue(out _);
+                            }
+
+                            logs.Enqueue(line.TruncateWithDotDotDot(100));
+                        }
+                    }
+
+                    Interlocked.Increment(ref _logsChangeCounter);
+                }
+                catch { }
+            }, CancellationToken.None);
+        }
+    }
+
+    private async Task SubmitNewJobAsync()
+    {
+        _submittingJobError = null;
+        _submittingJob = true;
+
+        try
+        {
+            string pr = _newJob.InputPR;
+
+            if (!RuntimeUtilsCommand.TryParsePRNumber(pr, out int prNumber))
+            {
+                _submittingJobError = "Failed to parse the PR number";
+                return;
+            }
+
+            PullRequest pullRequest;
+            try
+            {
+                pullRequest = await runtimeUtils.GetPullRequestAsync(prNumber);
+            }
+            catch
+            {
+                _submittingJobError = "Failed to fetch the PR from GitHub";
+                return;
+            }
+
+            #if DEBUG
+            _submittingJobError = $"PR={pullRequest.Title}";
+            return;
+            #endif
+
+            RuntimeUtilsJob newJob = runtimeUtils.StartJob(pullRequest, arguments: _newJob.Arguments);
+
+            Navigation.NavigateTo(newJob.ProgressDashboardUrl);
+        }
+        catch (Exception ex)
+        {
+            _submittingJobError = ex.ToString();
+        }
+        finally
+        {
+            _submittingJob = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+    }
+}

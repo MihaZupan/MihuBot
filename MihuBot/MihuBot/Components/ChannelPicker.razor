@@ -1,6 +1,5 @@
-﻿@attribute [Authorize]
+﻿@attribute [Authorize(Policy = "Discord")]
 @inject DiscordSocketClient discord
-@inject IHttpContextAccessor httpContextAccessor
 @inject IJSRuntime jsRuntime
 
 <div class="dropdown form-group">
@@ -38,49 +37,54 @@
     </div>
 }
 
-@code {
-[Parameter]
-public Action<SocketTextChannel> OnChannelSelected { get; set; }
-
-[Parameter]
-public Action OnChannelCleared { get; set; }
-
-[Parameter]
-public Func<SocketGuild, SocketGuildUser, bool> GuildFilter { get; set; } = delegate { return true; };
-
-[Parameter]
-public Func<SocketTextChannel, SocketGuildUser, bool> ChannelFilter { get; set; } = delegate { return true; };
-
-
-ulong userId;
-SocketGuild[] guilds;
-SocketGuild selectedGuild;
-SocketTextChannel selectedChannel;
-
-protected override void OnInitialized()
+@code
 {
-    userId = httpContextAccessor.HttpContext.User.GetUserId();
-    guilds = (discord.GetUser(userId)?.MutualGuilds ?? Array.Empty<SocketGuild>())
-        .Where(g => GuildFilter(g, g.GetUser(userId)))
-        .ToArray();
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
 
-    if (guilds.Length == 1)
-        selectedGuild = guilds.Single();
-}
+    [Parameter]
+    public Action<SocketTextChannel> OnChannelSelected { get; set; }
 
-private void SetChannel(SocketTextChannel channel)
-{
-    if (selectedChannel != channel)
+    [Parameter]
+    public Action OnChannelCleared { get; set; }
+
+    [Parameter]
+    public Func<SocketGuild, SocketGuildUser, bool> GuildFilter { get; set; } = delegate { return true; };
+
+    [Parameter]
+    public Func<SocketTextChannel, SocketGuildUser, bool> ChannelFilter { get; set; } = delegate { return true; };
+
+
+    ulong userId;
+    SocketGuild[] guilds;
+    SocketGuild selectedGuild;
+    SocketTextChannel selectedChannel;
+
+    protected override async Task OnInitializedAsync()
     {
-        selectedChannel = channel;
-        if (channel is null)
+        userId = (await authenticationState).User.GetDiscordUserId();
+
+        guilds = (discord.GetUser(userId)?.MutualGuilds ?? Array.Empty<SocketGuild>())
+            .Where(g => GuildFilter(g, g.GetUser(userId)))
+            .ToArray();
+
+        if (guilds.Length == 1)
+            selectedGuild = guilds.Single();
+    }
+
+    private void SetChannel(SocketTextChannel channel)
+    {
+        if (selectedChannel != channel)
         {
-            OnChannelCleared();
-        }
-        else
-        {
-            OnChannelSelected(channel);
+            selectedChannel = channel;
+            if (channel is null)
+            {
+                OnChannelCleared();
+            }
+            else
+            {
+                OnChannelSelected(channel);
+            }
         }
     }
-}
 }

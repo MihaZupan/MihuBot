@@ -1,7 +1,8 @@
-﻿@inject IPermissionsService permissions 
+﻿@inject IPermissionsService permissions
+@inject NavigationManager Navigation
 
 <div class="top-row pl-4 navbar navbar-dark">
-    <AuthorizeView>
+    <AuthorizeView Policy="Discord">
         <Authorized>
             <img class="profile-image" src="@context.User.GetAvatarUrl(128)" alt="Avatar of @context.User.Identity.Name" />
             <a class="navbar-brand" href="">@context.User.Identity.Name</a>
@@ -17,23 +18,21 @@
 
 <div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
     <ul class="nav flex-column">
-        <AuthorizeView>
+        <AuthorizeView Policy="Discord">
             <NotAuthorized>
                 <li class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Login">
+                    <NavLink class="nav-link" href="@discordLoginHrefUrl">
                         <span class="oi oi-account-login" aria-hidden="true"></span> Log in
                     </NavLink>
                 </li>
             </NotAuthorized>
-        </AuthorizeView>
-        <AuthorizeView>
             <Authorized>
                 <li class="nav-item px-3">
                     <NavLink class="nav-link" href="reminders">
                         <span class="oi oi-timer" aria-hidden="true"></span> Reminders
                     </NavLink>
                 </li>
-                @if (permissions.HasPermission("custommessage", context.User.GetUserId()))
+                @if (permissions.HasPermission("custommessage", context.User.GetDiscordUserId()))
                 {
                     <li class="nav-item px-3">
                         <NavLink class="nav-link" href="custom-message">
@@ -41,7 +40,7 @@
                         </NavLink>
                     </li>
                 }
-                @if (permissions.HasPermission("mc", context.User.GetUserId()))
+                @if (permissions.HasPermission("mc", context.User.GetDiscordUserId()))
                 {
                     <li class="nav-item px-3">
                         <NavLink class="nav-link" href="minecraft-remote">
@@ -49,6 +48,11 @@
                         </NavLink>
                     </li>
                 }
+                <li class="nav-item px-3">
+                    <NavLink class="nav-link" href="runtime-utils">
+                        <span class="oi oi-wrench" aria-hidden="true"></span> Runtime utils
+                    </NavLink>
+                </li>
                 <li class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Logout">
                         <span class="oi oi-account-logout" aria-hidden="true"></span> Log out
@@ -60,12 +64,18 @@
 </div>
 
 @code {
-private bool collapseNavMenu = true;
+    private bool collapseNavMenu = true;
+    private string discordLoginHrefUrl;
 
-private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+    private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
 
-private void ToggleNavMenu()
-{
-    collapseNavMenu = !collapseNavMenu;
-}
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+
+    protected override void OnInitialized()
+    {
+        discordLoginHrefUrl = $"Account/Login/Discord?returnUrl=%2F{Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri))}";
+    }
 }
