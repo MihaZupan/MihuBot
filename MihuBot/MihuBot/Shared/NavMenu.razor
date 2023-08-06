@@ -18,6 +18,11 @@
 
 <div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
     <ul class="nav flex-column">
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="runtime-utils">
+                <span class="oi oi-wrench" aria-hidden="true"></span> Runtime utils
+            </NavLink>
+        </li>
         <AuthorizeView Policy="Discord">
             <NotAuthorized>
                 <li class="nav-item px-3">
@@ -48,11 +53,6 @@
                         </NavLink>
                     </li>
                 }
-                <li class="nav-item px-3">
-                    <NavLink class="nav-link" href="runtime-utils">
-                        <span class="oi oi-wrench" aria-hidden="true"></span> Runtime utils
-                    </NavLink>
-                </li>
                 <li class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Logout">
                         <span class="oi oi-account-logout" aria-hidden="true"></span> Log out
