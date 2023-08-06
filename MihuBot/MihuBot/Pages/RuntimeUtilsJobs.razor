@@ -10,7 +10,7 @@
 }
 else
 {
-    <h1><a href="@_job.PullRequest.HtmlUrl">@_job.PullRequest.Title</a> by @_job.PullRequest.User?.Login [@_job.Architecture]</h1>
+    <h1><a href="@_job.TestedPROrBranchLink">@_job.JobTitle</a></h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
     <br />
     @if (_job.TrackingIssue is not null)

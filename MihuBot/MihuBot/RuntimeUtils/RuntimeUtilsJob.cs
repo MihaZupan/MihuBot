@@ -52,6 +52,7 @@ public sealed class RuntimeUtilsJob
     public bool Completed => _jobCompletionTcs.Task.IsCompleted;
 
     public string JobTitle { get; }
+    public string TestedPROrBranchLink { get; }
     public string JobId { get; } = Guid.NewGuid().ToString("N");
     public string ExternalId { get; } = Guid.NewGuid().ToString("N");
 
@@ -83,6 +84,7 @@ public sealed class RuntimeUtilsJob
         InitMetadata(repository, branch, arguments);
 
         JobTitle = $"[{Architecture}] {repository}/{branch}".TruncateWithDotDotDot(99);
+        TestedPROrBranchLink = $"https://github.com/{repository}/tree/{branch}";
     }
 
     public RuntimeUtilsJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
@@ -93,7 +95,8 @@ public sealed class RuntimeUtilsJob
 
         InitMetadata(PullRequest.Head.Repository.FullName, PullRequest.Head.Ref, arguments);
 
-        JobTitle = $"[{PullRequest.User.Login}] [{Architecture}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+        JobTitle = $"[{Architecture}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+        TestedPROrBranchLink = PullRequest.HtmlUrl;
     }
 
     private void InitMetadata(string repository, string branch, string arguments)
@@ -163,8 +166,7 @@ public sealed class RuntimeUtilsJob
         }
     }
 
-    private bool ShouldLinkToPR =>
-        PullRequest is not null &&
+    private bool ShouldLinkToPROrBranch =>
         GetConfigFlag("LinkToPR", true) &&
         !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
@@ -213,7 +215,7 @@ public sealed class RuntimeUtilsJob
             IssueRepositoryName,
             new NewIssue(JobTitle)
             {
-                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (FromGithubComment && ShouldLinkToPR ? $"{PullRequest.HtmlUrl}\n" : "")
+                Body = $"Build is in progress - see {ProgressDashboardUrl}\n" + (FromGithubComment && ShouldLinkToPROrBranch ? $"{TestedPROrBranchLink}\n" : "")
             });
 
         try
@@ -273,7 +275,7 @@ public sealed class RuntimeUtilsJob
 
             await UpdateIssueBodyAsync(
                 $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
-                (gotAnyDiffs && ShouldLinkToPR ? PullRequest.HtmlUrl : "") +
+                (gotAnyDiffs && ShouldLinkToPROrBranch ? TestedPROrBranchLink : "") +
                 "\n\n" +
                 (_corelibDiffs is not null ? corelibDiffs : "") +
                 (_frameworkDiffs is not null ? frameworksDiffs : "") +
