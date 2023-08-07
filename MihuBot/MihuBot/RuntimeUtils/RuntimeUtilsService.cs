@@ -11,6 +11,8 @@ public sealed class RuntimeUtilsService
 
     private const string UsageCommentMarkdown =
         $"""
+        See <https://mihubot.xyz/runtime-utils> for an alternative way of submitting jobs.
+
         ```
         Usage: @MihuBot [options]
 
