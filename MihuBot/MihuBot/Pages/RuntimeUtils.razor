@@ -85,6 +85,14 @@
                                 <div class="collapse" id="collapseAdvancedOptions">
                                     <div class="card card-body">
                                         <div class="form-check">
+                                            <InputCheckbox @bind-Value=_newJob.IncludeNewMethodRegressions id="includeNewMethodsCheck" />
+                                            <label for="includeNewMethodsCheck">Include new method "regressions"</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <InputCheckbox @bind-Value=_newJob.IncludeRemovedMethodImprovements id="includeRemovedMethodsCheck" />
+                                            <label for="includeRemovedMethodsCheck">Include removed method "improvements"</label>
+                                        </div>
+                                        <div class="form-check">
                                             <InputText style="width: 90%;" @bind-Value=_newJob.DependsOn placeholder="List of PRs this change depends on" />
                                         </div>
                                         <br />
@@ -192,6 +200,8 @@
         public bool RunOnArm { get; set; }
         public bool RunCctors { get; set; } = true;
         public bool RunTier0 { get; set; }
+        public bool IncludeNewMethodRegressions { get; set; }
+        public bool IncludeRemovedMethodImprovements { get; set; }
 
         [RegularExpression(@"^\d{1,8}(?:,\d{1,8})*$", ErrorMessage = "Must be a comma-separated list of PR numbers")]
         public string DependsOn { get; set; }
@@ -208,6 +218,8 @@
             (RunOnArm ? "-arm " : "") +
             (RunCctors ? "" : "-nocctors ") +
             (RunTier0 ? "-tier0 " : "") +
+            (IncludeNewMethodRegressions ? "-includeNewMethodRegressions " : "") +
+            (IncludeRemovedMethodImprovements ? "-includeRemovedMethodImprovements " : "") +
             (string.IsNullOrEmpty(DependsOn) ? "" : $"-dependsOn {DependsOn} ") +
             (string.IsNullOrEmpty(CombineWith) ? "" : $"-combineWith {CombineWith} ") +
             CustomArguments;

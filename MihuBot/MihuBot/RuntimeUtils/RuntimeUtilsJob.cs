@@ -68,6 +68,8 @@ public sealed class RuntimeUtilsJob
 
     private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+    private bool IncludeNewMethodRegressions => CustomArguments.Contains("-includeNewMethodRegressions", StringComparison.OrdinalIgnoreCase);
+    private bool IncludeRemovedMethodImprovements => CustomArguments.Contains("-includeRemovedMethodImprovements", StringComparison.OrdinalIgnoreCase);
 
     public bool UseHetzner =>
         GetConfigFlag("ForceHetzner", false) || UseArm || Fast ||
@@ -742,10 +744,13 @@ public sealed class RuntimeUtilsJob
                 return Array.Empty<string>();
             }
 
+            bool includeRemovedMethod = IncludeRemovedMethodImprovements;
+            bool IncludeNewMethod = IncludeNewMethodRegressions;
+
             return await diffs
                 .ToAsyncEnumerable()
-                .Where(diff => !diff.Description.Contains("-100.", StringComparison.Ordinal))
-                .Where(diff => !diff.Description.Contains("∞ of base", StringComparison.Ordinal))
+                .Where(diff => includeRemovedMethod || !diff.Description.Contains("-100.", StringComparison.Ordinal))
+                .Where(diff => IncludeNewMethod || !diff.Description.Contains("∞ of base", StringComparison.Ordinal))
                 .SelectAwait(async diff =>
                 {
                     StringBuilder sb = new();
