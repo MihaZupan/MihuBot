@@ -362,8 +362,5 @@
         }
     }
 
-    public void Dispose()
-    {
-        _cts.Cancel();
-    }
+    public void Dispose() => _cts.Cancel();
 }

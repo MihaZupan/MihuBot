@@ -36,6 +36,7 @@ public sealed class RuntimeUtilsJob
     private readonly TempFile _corelibDiffsPRFile = new("txt");
     private readonly CancellationTokenSource _idleTimeoutCts = new();
     private readonly TaskCompletionSource _jobCompletionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly DateTime _startedAt = DateTime.UtcNow;
 
     public bool FromGithubComment => _githubCommenterLogin is not null;
 
@@ -288,6 +289,21 @@ public sealed class RuntimeUtilsJob
                 await PostCorelibDiffExamplesAsync();
             }
 
+            await _parent.SaveCompletedJobRecordAsync(new CompletedJobRecord
+            {
+                ExternalId = ExternalId,
+                JobTitle = JobTitle,
+                StartedAt = _startedAt,
+                Duration = Stopwatch.Elapsed,
+                TestedPROrBranchLink = TestedPROrBranchLink,
+                TrackingIssueUrl = TrackingIssue.HtmlUrl,
+                Metadata = Metadata,
+                LogsArtifactUrl = _artifacts.First(a => a.FileName == "build-logs.txt").Url,
+                Improvements = null,
+                Regressions = null,
+                SizeNeutral = null,
+            });
+
             string GetArtifactList()
             {
                 var builder = new StringBuilder();
@@ -474,8 +490,11 @@ public sealed class RuntimeUtilsJob
 
     public string GetElapsedTime()
     {
-        TimeSpan elapsed = Stopwatch.Elapsed;
+        return GetElapsedTime(Stopwatch.Elapsed);
+    }
 
+    public static string GetElapsedTime(TimeSpan elapsed)
+    {
         int minutes = elapsed.Minutes;
         string minutesStr = $"{minutes} minute{GetPlural(minutes)}";
 
@@ -561,7 +580,7 @@ public sealed class RuntimeUtilsJob
 
         await blobClient.UploadAsync(contentStream, new BlobUploadOptions
         {
-            AccessTier = AccessTier.Hot
+            AccessTier = Path.GetExtension(fileName) == "txt" ? AccessTier.Hot : AccessTier.Cool,
         }, cancellationToken);
 
         var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);

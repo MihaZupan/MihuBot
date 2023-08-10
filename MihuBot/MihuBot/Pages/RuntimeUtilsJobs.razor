@@ -4,11 +4,20 @@
 @inject RuntimeUtilsService runtimeUtils
 @implements IDisposable
 
-@if (_job is null)
+@if (_completedJob is not null)
 {
-    <div>Can't find a job with that id :/</div>
+    <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.JobTitle</a></h1>
+    <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @RuntimeUtilsJob.GetElapsedTime(_completedJob.Duration).</div>
+    <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
+    <div>You can download the logs <a href="@_completedJob.LogsArtifactUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
+    <br />
+    @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)
+    {
+        <p><small class="text-muted">Arguments: @customArguments</small></p>
+    }
+
 }
-else
+else if (_job is not null)
 {
     <h1><a href="@_job.TestedPROrBranchLink">@_job.JobTitle</a></h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
@@ -18,27 +27,26 @@ else
         <div>Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
         <br />
     }
-    @if (_job.Completed)
-    {
-        <div>The build has completed (took @_job.GetElapsedTime()).</div>
-    }
-    else
-    {
-        <div>The build is still in progress (@_job.GetElapsedTime()) ...</div>
-    }
+    <div>The build is still in progress (@_job.GetElapsedTime()) ...</div>
     <br />
-    <pre><code>
-        @foreach (string line in _lines)
-        {
-            @line
-            <br />
-        }
-    </code></pre>
+    <pre>
+        <code>
+            @foreach (string line in _lines)
+            {
+                @line
+                <br />
+            }
+        </code>
+    </pre>
+}
+else
+{
+    <div>Can't find a job with that id :/</div>
 }
 
 @code
 {
-    private const int NumLines = 30;
+    private const int NumberOfLogLines = 30;
 
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentQueue<string> _lines = new();
@@ -47,12 +55,16 @@ else
     public string JobId { get; set; }
 
     private RuntimeUtilsJob _job;
+    private CompletedJobRecord _completedJob;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
+        _completedJob = await runtimeUtils.TryGetCompletedJobRecordAsync(JobId, _cts.Token);
+
+        if (_completedJob is null &&
+            runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -60,11 +72,21 @@ else
                     {
                         if (line is null)
                         {
+                            if (_job.Completed)
+                            {
+                                _completedJob = await runtimeUtils.TryGetCompletedJobRecordAsync(JobId, _cts.Token);
+                            }
+
                             _ = InvokeAsync(StateHasChanged);
+
+                            if (_completedJob is not null)
+                            {
+                                break;
+                            }
                         }
                         else
                         {
-                            if (_lines.Count == NumLines)
+                            if (_lines.Count == NumberOfLogLines)
                             {
                                 _lines.TryDequeue(out _);
                             }
@@ -82,8 +104,5 @@ else
         }
     }
 
-    public void Dispose()
-    {
-        _cts.Cancel();
-    }
+    public void Dispose() => _cts.Cancel();
 }

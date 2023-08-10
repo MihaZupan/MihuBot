@@ -1,6 +1,7 @@
 ﻿using Azure.Storage.Blobs;
 using MihuBot.Configuration;
 using Octokit;
+using System.Text.Json;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -8,6 +9,11 @@ public sealed class RuntimeUtilsService
 {
     private const string RepoOwner = "dotnet";
     private const string RepoName = "runtime";
+
+    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    {
+        WriteIndented = true,
+    };
 
     private const string UsageCommentMarkdown =
         $"""
@@ -245,5 +251,54 @@ public sealed class RuntimeUtilsService
         PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, prNumber);
         ArgumentNullException.ThrowIfNull(pullRequest);
         return pullRequest;
+    }
+
+    private string GetCompletedJobRecordFilePath(string externalId)
+    {
+        if (!Guid.TryParseExact(externalId, "N", out _))
+        {
+            return "invalid";
+        }
+
+        return $"{Constants.StateDirectory}/RuntimeUtilsJobs/{externalId}.json";
+    }
+
+    public async Task<CompletedJobRecord> TryGetCompletedJobRecordAsync(string externalId, CancellationToken cancellationToken)
+    {
+        string filePath = GetCompletedJobRecordFilePath(externalId);
+
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                await using var fs = File.OpenRead(filePath);
+
+                return await JsonSerializer.DeserializeAsync<CompletedJobRecord>(fs, s_jsonOptions, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            await Logger.DebugAsync($"Error while loading completed job record: path={filePath} {ex}");
+        }
+
+        return null;
+    }
+
+    public async Task SaveCompletedJobRecordAsync(CompletedJobRecord record)
+    {
+        string filePath = GetCompletedJobRecordFilePath(record.ExternalId);
+
+        try
+        {
+            await using var fs = File.OpenWrite(filePath);
+
+            await JsonSerializer.SerializeAsync(fs, record, s_jsonOptions);
+        }
+        catch (Exception ex)
+        {
+            await Logger.DebugAsync($"Error while saving completed job record: path={filePath} {ex}");
+            throw;
+        }
     }
 }
