@@ -55,13 +55,13 @@ public sealed class WeatherCommand : CommandBase
 
         Color color = weather.FeelsLike switch
         {
-            var temp when temp < -10 => new Color(255, 255, 255),
-            var temp when temp < 0   => new Color(0, 255, 197),
-            var temp when temp < 10  => new Color(0, 255, 154),
-            var temp when temp < 20  => new Color(235, 255, 0),
-            var temp when temp < 30  => new Color(241, 187, 0),
-            var temp when temp < 40  => new Color(255, 142, 0),
-            _ => new Color(255, 0, 0)
+            < -10 => new Color(255, 255, 255),
+            < 0   => new Color(0, 255, 197),
+            < 10  => new Color(0, 255, 154),
+            < 20  => new Color(235, 255, 0),
+            < 30  => new Color(241, 187, 0),
+            < 40  => new Color(255, 142, 0),
+            _     => new Color(255, 0, 0)
         };
 
         string temperature = $"{weather.Temp:N1} °C / {ToFahrenheit(weather.Temp):N1} F";
