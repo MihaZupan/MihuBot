@@ -6,10 +6,10 @@ using Telegram.Bot.Types;
 
 namespace MihuBot;
 
-public sealed class TelegramService : IHostedService
+public sealed class TelegramService
 {
     private readonly TelegramBotClient _telegram;
-    private readonly DiscordSocketClient _discord;
+    private readonly InitializedDiscordClient _discord;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
 
@@ -21,10 +21,14 @@ public sealed class TelegramService : IHostedService
         _logger = logger;
         _discord = _logger.Options.Discord;
         _configuration = configuration;
+
+        _ = Task.Run(StartAsync);
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    private async Task StartAsync()
     {
+        await _discord.WaitUntilInitializedAsync();
+
         _discord.MessageReceived += message => OnMessageCreatedOrEditedAsync(message, update: false);
         _discord.MessageUpdated += (_, message, _) => OnMessageCreatedOrEditedAsync(message, update: true);
 
@@ -39,7 +43,7 @@ public sealed class TelegramService : IHostedService
         {
             try
             {
-                await _telegram.SetWebhookAsync(TelegramBotController.WebhookPath, secretToken: TelegramBotController.WebhookUpdateSecret, cancellationToken: cancellationToken);
+                await _telegram.SetWebhookAsync(TelegramBotController.WebhookPath, secretToken: TelegramBotController.WebhookUpdateSecret);
             }
             catch (Exception ex)
             {
@@ -47,8 +51,6 @@ public sealed class TelegramService : IHostedService
             }
         }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private async Task OnMessageCreatedOrEditedAsync(SocketMessage message, bool update)
     {

@@ -146,9 +146,9 @@ public class Startup
 
         services.AddSingleton(new TelegramBotClient(Configuration["TelegramBot:ApiKey"]));
 
-        services.AddHostedService<MihuBotService>();
+        services.AddSingleton<TelegramService>();
 
-        services.AddHostedService<TelegramService>();
+        services.AddHostedService<MihuBotService>();
 
         services.AddCors(options =>
         {

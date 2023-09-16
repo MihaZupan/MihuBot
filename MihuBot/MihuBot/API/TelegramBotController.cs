@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using MihuBot.Data;
+using Newtonsoft.Json;
 using System.Security.Cryptography;
 using Telegram.Bot.Types;
 
@@ -18,7 +19,8 @@ public sealed class TelegramBotController : ControllerBase
         _telegram = telegram;
     }
 
-    public IActionResult Update(Update update)
+    [HttpPost]
+    public async Task<IActionResult> Update()
     {
         if (!Request.Headers.TryGetValue("X-Telegram-Bot-Api-Secret-Token", out var secretToken) ||
             secretToken.Count != 1 ||
@@ -26,6 +28,11 @@ public sealed class TelegramBotController : ControllerBase
         {
             return Unauthorized();
         }
+
+        using var reader = new StreamReader(Request.Body);
+        string json = await reader.ReadToEndAsync(HttpContext.RequestAborted);
+
+        Update update = JsonConvert.DeserializeObject<Update>(json);
 
         using (ExecutionContext.SuppressFlow())
         {
