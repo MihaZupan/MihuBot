@@ -303,6 +303,25 @@ public static class Helpers
         }
     }
 
+    public static async Task<IUserMessage> TrySendFilesAsync(this ITextChannel channel, IEnumerable<FileAttachment> attachments, string text = null, Logger logger = null)
+    {
+        if (channel is null)
+        {
+            logger?.DebugLog($"Failed to send the files because the provided channel is null: Text='{text}', AttachmentCount='{attachments.Count()}'");
+            return null;
+        }
+
+        try
+        {
+            return await channel.SendFilesAsync(attachments, text);
+        }
+        catch (Exception ex)
+        {
+            logger?.DebugLog($"Failed to send the files because an exception was thrown: Text='{text}', AttachmentCount='{attachments.Count()}', Exception: {ex}", channel.GuildId, channel.Id);
+            return null;
+        }
+    }
+
     public static bool Remove<T>(this List<T> list, T element, IEqualityComparer<T> comparer)
     {
         for (int i = 0; i < list.Count; i++)

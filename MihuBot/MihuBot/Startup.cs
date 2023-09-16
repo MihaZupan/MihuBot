@@ -17,6 +17,7 @@ using MihuBot.Weather;
 using Octokit;
 using System.Runtime.InteropServices;
 using System.Security.Claims;
+using Telegram.Bot;
 
 namespace MihuBot;
 
@@ -143,7 +144,11 @@ public class Startup
             ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
         }));
 
+        services.AddSingleton(new TelegramBotClient(Configuration["TelegramBot:ApiKey"]));
+
         services.AddHostedService<MihuBotService>();
+
+        services.AddHostedService<TelegramService>();
 
         services.AddCors(options =>
         {

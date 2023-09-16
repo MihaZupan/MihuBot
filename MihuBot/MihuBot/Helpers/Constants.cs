@@ -11,6 +11,8 @@ public static class Constants
         KnownUsers.Jordan,
     };
 
+    public const long MihuTelegramId = 168175103;
+
     public const float VCDefaultVolume = 0.30f;
 
     public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
@@ -42,6 +44,8 @@ public static class Guilds
 public static class Channels
 {
     public const ulong Debug            = 806048964021190656ul;
+    public const ulong PrivateGeneral   = 750706594412757094ul;
+    public const ulong TheBoysTgRelay   = 1152429855355457617ul;
     public const ulong LogText          = 750706839431413870ul;
     public const ulong Files            = 774147493319540736ul;
     public const ulong TheBoysSpam      = 924503695738171402ul;
