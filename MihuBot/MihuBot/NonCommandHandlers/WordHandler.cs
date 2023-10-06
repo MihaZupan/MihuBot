@@ -12,10 +12,18 @@ public sealed class WordHandler : NonCommandHandler
 
         foreach (string word in new[] { "cock", "penis", "dick", "dicks", "wiener", "glizzy" })
         {
-            _wordHandlers.Add(word, TypingResponseHandler);
+            _wordHandlers.Add(word, async ctx => await ctx.Channel.TriggerTypingAsync());
         }
 
-        static async Task TypingResponseHandler(MessageContext ctx) => await ctx.Channel.TriggerTypingAsync();
+        var jacobCooldown = new CooldownTracker(TimeSpan.FromHours(1), cooldownTolerance: 0, adminOverride: false);
+
+        _wordHandlers.Add("Jacob", async ctx =>
+        {
+            if (jacobCooldown.TryEnter(ctx.AuthorId))
+            {
+                await ctx.Message.AddReactionAsync(Emotes.RegionalIndicator_K);
+            }
+        });
     }
 
     public override Task HandleAsync(MessageContext ctx)

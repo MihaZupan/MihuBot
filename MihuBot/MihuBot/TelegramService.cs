@@ -34,10 +34,11 @@ public sealed class TelegramService
 
         if (Debugger.IsAttached)
         {
-            _ = Task.Run(async () =>
-            {
-                await _telegram.ReceiveAsync((_, update, _) => HandleUpdateAsync(update), (_, _, _) => Task.CompletedTask);
-            }, CancellationToken.None);
+            // Disabled to prevent a debug session from breaking the webhook.
+            //_ = Task.Run(async () =>
+            //{
+            //    await _telegram.ReceiveAsync((_, update, _) => HandleUpdateAsync(update), (_, _, _) => Task.CompletedTask);
+            //}, CancellationToken.None);
         }
         else
         {
