@@ -56,11 +56,12 @@ public sealed class TelegramService
     private async Task OnMessageCreatedOrEditedAsync(SocketMessage message, bool update)
     {
         if (message.Author.IsBot ||
-            message.Guild().Id is not (Guilds.PrivateLogs or Guilds.TheBoys) ||
             message.Channel.Id is not (Channels.PrivateGeneral or Channels.TheBoysTgRelay))
         {
             return;
         }
+
+        _logger.DebugLog("Relaying Discord message to Telegram", message as SocketUserMessage);
 
         try
         {
@@ -125,6 +126,8 @@ public sealed class TelegramService
 
     private async Task<bool> TryHandleMessageAsync(Message message)
     {
+        _logger.DebugLog("Relaying Telegram message to Discord");
+
         var channel = _discord.GetTextChannel(Debugger.IsAttached ? Channels.PrivateGeneral : Channels.TheBoysTgRelay);
 
         if (message.Text is string text)
