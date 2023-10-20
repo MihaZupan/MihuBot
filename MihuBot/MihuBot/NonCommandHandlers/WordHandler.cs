@@ -17,13 +17,16 @@ public sealed class WordHandler : NonCommandHandler
 
         var jacobCooldown = new CooldownTracker(TimeSpan.FromHours(1), cooldownTolerance: 0, adminOverride: false);
 
-        _wordHandlers.Add("Jacob", async ctx =>
+        foreach (string word in new[] { "jacob", "jacob's" })
         {
-            if (jacobCooldown.TryEnter(ctx.AuthorId))
+            _wordHandlers.Add(word, async ctx =>
             {
-                await ctx.Message.AddReactionAsync(Emotes.RegionalIndicator_K);
-            }
-        });
+                if (jacobCooldown.TryEnter(ctx.AuthorId))
+                {
+                    await ctx.Message.AddReactionAsync(Emotes.RegionalIndicator_K);
+                }
+            });
+        }
     }
 
     public override Task HandleAsync(MessageContext ctx)
