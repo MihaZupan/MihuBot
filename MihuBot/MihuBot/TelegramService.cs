@@ -171,7 +171,8 @@ public sealed class TelegramService
 
             if (_lastLocationUpdateMessage is not null &&
                 _lastLocationUpdateMessage.Channel.Id == channel.Id &&
-                DateTime.UtcNow.Subtract(_lastLocationUpdateMessage.Timestamp.UtcDateTime) < TimeSpan.FromMinutes(3))
+                DateTime.UtcNow.Subtract(_lastLocationUpdateMessage.Timestamp.UtcDateTime) < TimeSpan.FromDays(1) &&
+                channel.GetCachedMessages(limit: 100).Any(m => m.Id == _lastLocationUpdateMessage.Id))
             {
                 await _lastLocationUpdateMessage.ModifyAsync(m => m.Content = newMessage);
                 return false;
