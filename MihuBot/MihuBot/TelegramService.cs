@@ -128,7 +128,15 @@ public sealed class TelegramService
     {
         _logger.DebugLog("Relaying Telegram message to Discord");
 
-        var channel = _discord.GetTextChannel(Debugger.IsAttached ? Channels.PrivateGeneral : Channels.TheBoysTgRelay);
+        ulong channelId = Debugger.IsAttached ? Channels.PrivateGeneral : Channels.TheBoysTgRelay;
+
+        if (_configuration.TryGet(null, "TelegramService.DiscordChannel", out string channelIdString) &&
+            ulong.TryParse(channelIdString, out ulong channelIdFromConfig))
+        {
+            channelId = channelIdFromConfig;
+        }
+
+        var channel = _discord.GetTextChannel(channelId);
 
         if (message.Text is string text)
         {
