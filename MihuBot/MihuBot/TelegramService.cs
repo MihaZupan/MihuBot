@@ -9,18 +9,23 @@ namespace MihuBot;
 public sealed class TelegramService
 {
     private readonly TelegramBotClient _telegram;
+    private readonly HttpClient _http;
     private readonly InitializedDiscordClient _discord;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
+    private readonly string _googleMapsApiKey;
 
     private IUserMessage _lastLocationUpdateMessage;
+    private List<(DateTime Timestamp, string Lat, string Lon)> _locationHistory = new();
 
-    public TelegramService(TelegramBotClient telegram, Logger logger, IConfigurationService configuration)
+    public TelegramService(TelegramBotClient telegram, HttpClient http, Logger logger, IConfigurationService configurationService, IConfiguration configuration)
     {
         _telegram = telegram;
+        _http = http;
         _logger = logger;
         _discord = _logger.Options.Discord;
-        _configuration = configuration;
+        _configuration = configurationService;
+        _googleMapsApiKey = configuration["GoogleMaps:ApiKey"];
 
         _ = Task.Run(StartAsync);
     }
@@ -166,9 +171,13 @@ public sealed class TelegramService
         }
         else if (message.Location is { } location)
         {
+            _locationHistory.RemoveAll(l => DateTime.UtcNow.Subtract(l.Timestamp) > TimeSpan.FromMinutes(15));
+
             string lat = location.Latitude.ToString(CultureInfo.InvariantCulture);
             string lon = location.Longitude.ToString(CultureInfo.InvariantCulture);
             float? uncertainty = location.HorizontalAccuracy;
+
+            _locationHistory.Add((DateTime.UtcNow, lat, lon));
 
             string newMessage = $"Mihu via Telegram: [Location](https://www.google.com/maps/place/{lat},{lon})";
 
@@ -177,17 +186,58 @@ public sealed class TelegramService
                 newMessage += $" +/- {(int)uncertainty.Value} meters";
             }
 
+            string googleMapsImageLink = "https://maps.googleapis.com/maps/api/staticmap";
+            googleMapsImageLink += $"?key={_googleMapsApiKey}";
+            googleMapsImageLink += "&size=480x270";
+            googleMapsImageLink += "&format=png";
+            googleMapsImageLink += "&language=en";
+            googleMapsImageLink += $"&markers={lat},{lon}";
+
+            if (_locationHistory.Count > 1)
+            {
+                googleMapsImageLink += $"&path={string.Join('|', _locationHistory.Select(l => $"{l.Lat},{l.Lon}"))}";
+
+                var prevLocation = _locationHistory[^2];
+                var currLocation = _locationHistory[^1];
+
+                double lastDistanceMeters = GetDistanceMeters(
+                    double.Parse(prevLocation.Lon, CultureInfo.InvariantCulture),
+                    double.Parse(prevLocation.Lat, CultureInfo.InvariantCulture),
+                    double.Parse(currLocation.Lon, CultureInfo.InvariantCulture),
+                    double.Parse(currLocation.Lat, CultureInfo.InvariantCulture));
+
+                double timeDeltaHours = (currLocation.Timestamp - prevLocation.Timestamp).TotalHours;
+
+                double speedKmph = lastDistanceMeters / 1000 / timeDeltaHours;
+
+                newMessage += $" ({speedKmph.ToString("F1", CultureInfo.InvariantCulture)} km/h)";
+            }
+
+            using TempFile tempImageFile = new("png");
+
+            await using (var tempImageFsWriteStream = System.IO.File.Create(tempImageFile.Path))
+            {
+                using Stream imageStream = await _http.GetStreamAsync(googleMapsImageLink);
+                await imageStream.CopyToAsync(tempImageFsWriteStream);
+            }
+
+            using var attachment = new FileAttachment(tempImageFile.Path, $"TelegramLocation-{DateTime.UtcNow.ToISODateTime()}.png");
+
             if (_lastLocationUpdateMessage is not null &&
                 _lastLocationUpdateMessage.Channel.Id == channel.Id &&
                 DateTime.UtcNow.Subtract(_lastLocationUpdateMessage.Timestamp.UtcDateTime) < TimeSpan.FromDays(1) &&
                 channel.GetCachedMessages(limit: 100).Any(m => m.Id == _lastLocationUpdateMessage.Id))
             {
-                await _lastLocationUpdateMessage.ModifyAsync(m => m.Content = newMessage);
+                await _lastLocationUpdateMessage.ModifyAsync(m =>
+                {
+                    m.Content = newMessage;
+                    m.Attachments = new[] { attachment };
+                });
                 return false;
             }
             else
             {
-                _lastLocationUpdateMessage = await channel.TrySendMessageAsync(newMessage, logger: _logger);
+                _lastLocationUpdateMessage = await channel.TrySendFilesAsync([attachment], newMessage, logger: _logger);
             }
         }
         else
@@ -203,7 +253,7 @@ public sealed class TelegramService
         using var tempSrcFile = new TempFile(sourceExt);
         using var tempDstFile = new TempFile(destinationExt ?? "");
 
-        using (var tempFileWriteFs = System.IO.File.OpenWrite(tempSrcFile.Path))
+        await using (var tempFileWriteFs = System.IO.File.OpenWrite(tempSrcFile.Path))
         {
             await _telegram.GetInfoAndDownloadFileAsync(telegramFile.FileId, tempFileWriteFs);
         }
@@ -220,5 +270,17 @@ public sealed class TelegramService
         fileName ??= $"tg-{telegramFile.FileUniqueId}.{destinationExt}";
 
         await channel.TrySendFilesAsync([new FileAttachment(destinationPath, fileName)], $"Mihu via Telegram: {caption}", _logger);
+    }
+
+    // https://stackoverflow.com/a/51839058/6845657
+    private static double GetDistanceMeters(double longitude, double latitude, double otherLongitude, double otherLatitude)
+    {
+        var d1 = latitude * (Math.PI / 180.0);
+        var num1 = longitude * (Math.PI / 180.0);
+        var d2 = otherLatitude * (Math.PI / 180.0);
+        var num2 = otherLongitude * (Math.PI / 180.0) - num1;
+        var d3 = Math.Pow(Math.Sin((d2 - d1) / 2.0), 2.0) + Math.Cos(d1) * Math.Cos(d2) * Math.Pow(Math.Sin(num2 / 2.0), 2.0);
+
+        return 6376500.0 * (2.0 * Math.Atan2(Math.Sqrt(d3), Math.Sqrt(1.0 - d3)));
     }
 }
