@@ -25,7 +25,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private IAudioClient _audioClient;
     private AudioOutStream _pcmStream;
 
-    private const int CopyLoopTimings = 512;
+    private const int CopyLoopTimings = 2048;
     private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
 
     public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers)
