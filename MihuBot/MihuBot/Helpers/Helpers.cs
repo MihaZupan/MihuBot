@@ -272,18 +272,6 @@ public static class Helpers
         return false;
     }
 
-    public static void Multiply(Span<short> samples, float multilpier)
-    {
-        Debug.Assert(multilpier >= 0 && multilpier <= 1);
-
-        // TODO: Vectorize
-
-        for (int i = 0; i < samples.Length; i++)
-        {
-            samples[i] = (short)(samples[i] * multilpier);
-        }
-    }
-
     public static async Task<IUserMessage> TrySendMessageAsync(this ITextChannel channel, string text = null, bool isTTS = false, Embed embed = null, RequestOptions options = null, AllowedMentions allowedMentions = null, MessageReference messageReference = null, MessageComponent components = null, ISticker[] stickers = null, Embed[] embeds = null, Logger logger = null)
     {
         if (channel is null)

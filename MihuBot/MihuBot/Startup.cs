@@ -9,12 +9,14 @@ using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
+using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
 using MihuBot.Weather;
 using Octokit;
+using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
 using System.Security.Claims;
 using Telegram.Bot;
@@ -33,6 +35,8 @@ public class Startup
     public void ConfigureServices(IServiceCollection services)
     {
         Console.WriteLine("Configuring services ...");
+
+        string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -106,12 +110,7 @@ public class Startup
                 GatewayIntents = GatewayIntents.All | GatewayIntents.GuildMembers | GatewayIntents.MessageContent,
             },
             TokenType.Bot,
-#if DEBUG
-            Configuration["Discord:AuthToken-Dev"]
-#else
-            Configuration["Discord:AuthToken"]
-#endif
-            );
+            Configuration[$"Discord:AuthToken{devSuffix}"]);
         services.AddSingleton(discord);
         services.AddSingleton<DiscordSocketClient>(discord);
 
@@ -138,11 +137,21 @@ public class Startup
 
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
 
+        if (Program.AzureEnabled)
+        {
+            services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
+                .WithAuthenticator(new ClientCredentialsAuthenticator(
+                    Configuration["Spotify:ClientId"],
+                    Configuration["Spotify:ClientSecret"]))));
+        }
+
         services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
         {
             ApiKey = Configuration["Youtube:ApiKey"],
-            ApplicationName = $"MihuBot{(Debugger.IsAttached ? "-dev" : "")}"
+            ApplicationName = $"MihuBot{devSuffix}"
         }));
+
+        services.AddSingleton<AudioService>();
 
         services.AddSingleton(new TelegramBotClient(Configuration["TelegramBot:ApiKey"]));
 
@@ -165,12 +174,7 @@ public class Startup
             {
                 options.SaveTokens = true;
                 options.ClientId = KnownUsers.MihuBot.ToString();
-#if DEBUG
-                options.ClientSecret = Configuration["Discord:ClientSecret-Dev"];
-#else
-                options.ClientSecret = Configuration["Discord:ClientSecret"];
-#endif
-
+                options.ClientSecret = Configuration[$"Discord:ClientSecret{devSuffix}"];
                 options.Scope.Add("guilds");
 
                 options.Events.OnTicketReceived = MergeIdentities;
@@ -178,13 +182,8 @@ public class Startup
             .AddGitHub(options =>
             {
                 options.SaveTokens = true;
-#if DEBUG
-                options.ClientId = Configuration["GitHub:ClientId-Dev"];
-                options.ClientSecret = Configuration["GitHub:ClientSecret-Dev"];
-#else
-                options.ClientId = Configuration["GitHub:ClientId"];
-                options.ClientSecret = Configuration["GitHub:ClientSecret"];
-#endif
+                options.ClientId = Configuration[$"GitHub:ClientId{devSuffix}"];
+                options.ClientSecret = Configuration[$"GitHub:ClientSecret{devSuffix}"];
 
                 options.Events.OnTicketReceived = MergeIdentities;
             });

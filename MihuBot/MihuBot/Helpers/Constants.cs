@@ -53,11 +53,9 @@ public static class Channels
 
 public static class KnownUsers
 {
-#if DEBUG
-    public const ulong MihuBot      = 767172321999585281ul;
-#else
-    public const ulong MihuBot      = 710370560596770856ul;
-#endif
+    public static ulong MihuBot = OperatingSystem.IsLinux()
+        ? 710370560596770856ul
+        : 767172321999585281ul;
 
     // Admins
     public const ulong Miha         = 162569877087977480ul;
