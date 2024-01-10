@@ -62,7 +62,11 @@ internal sealed class ReadAheadStream : Stream
     {
         if (_leftoverBuffer.IsEmpty)
         {
-            _leftoverBuffer = await _bufferChannel.Reader.ReadAsync(cancellationToken);
+            if (!await _bufferChannel.Reader.WaitToReadAsync(cancellationToken) ||
+                !_bufferChannel.Reader.TryRead(out _leftoverBuffer))
+            {
+                return 0;
+            }
         }
 
         int toCopy = Math.Min(buffer.Length, _leftoverBuffer.Length - _leftoverOffset);

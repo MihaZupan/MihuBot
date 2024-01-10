@@ -25,6 +25,8 @@ public sealed class AudioPlayer : IAsyncDisposable
     private IAudioClient _audioClient;
     private AudioOutStream _pcmStream;
 
+    private int _pcmBytesToSkip;
+
     private const int CopyLoopTimings = 2048;
     private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
 
@@ -84,6 +86,13 @@ public sealed class AudioPlayer : IAsyncDisposable
     public async Task SkipAsync()
     {
         await _scheduler.SkipAsync();
+        Unpause();
+    }
+
+    public void SkipInCurrentSource(TimeSpan duration)
+    {
+        int framesToSkip = (int)(duration.TotalSeconds / OpusConstants.FramesPerSecond);
+        Interlocked.Add(ref _pcmBytesToSkip, framesToSkip * OpusConstants.FrameBytes);
         Unpause();
     }
 
@@ -183,6 +192,7 @@ public sealed class AudioPlayer : IAsyncDisposable
                 previous = audioSource;
                 await sendCurrentlyPlayingTask.WaitAsync(_disposedCts.Token);
                 sendCurrentlyPlayingTask = SendCurrentlyPlayingAsync();
+                Volatile.Write(ref _pcmBytesToSkip, 0);
             }
 
             LogTiming("Read start");
@@ -218,10 +228,28 @@ public sealed class AudioPlayer : IAsyncDisposable
                 continue;
             }
 
+            Memory<byte> pcm = readBuffer.AsMemory(0, read);
+
+            int toSkip = Volatile.Read(ref _pcmBytesToSkip);
+            if (toSkip != 0)
+            {
+                toSkip = Math.Min(toSkip, read);
+                pcm = pcm.Slice(toSkip);
+                Interlocked.Add(ref _pcmBytesToSkip, -toSkip);
+
+                if (pcm.IsEmpty)
+                {
+                    LogTiming("Skipped PCM buffer");
+                    continue;
+                }
+
+                await pcmScheduler.ClearAsync();
+            }
+
             try
             {
                 LogTiming("Write buffer start");
-                await pcmScheduler.WritePcmSamplesAsync(readBuffer.AsMemory(0, read), _disposedCts.Token);
+                await pcmScheduler.WritePcmSamplesAsync(pcm, _disposedCts.Token);
             }
             catch
             {

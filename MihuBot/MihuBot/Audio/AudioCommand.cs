@@ -83,8 +83,23 @@ public sealed class AudioCommands : CommandBase
                     }
                     else if (command == "skip")
                     {
-                        SendThumbsUpReaction();
-                        await audioPlayer.SkipAsync();
+                        if (ctx.ArgumentString is { Length: > 0 } argument)
+                        {
+                            if (TryParseSimpleDurationString(argument, out TimeSpan duration))
+                            {
+                                SendThumbsUpReaction();
+                                audioPlayer.SkipInCurrentSource(duration);
+                            }
+                            else
+                            {
+                                await ctx.ReplyAsync("I didn't understand that time format. Try `!skip 10 sec`");
+                            }
+                        }
+                        else
+                        {
+                            SendThumbsUpReaction();
+                            await audioPlayer.SkipAsync();
+                        }
                     }
                     else if (command == "volume")
                     {
@@ -266,5 +281,56 @@ public sealed class AudioCommands : CommandBase
 
         trackId = path.Substring("/track/".Length);
         return !trackId.Contains('/');
+    }
+
+    private static bool TryParseSimpleDurationString(string argument, out TimeSpan duration)
+    {
+        string[] parts = argument.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        if (parts.Length > 2)
+        {
+            duration = default;
+            return false;
+        }
+
+        if (parts.Length == 1)
+        {
+            string part = parts[0];
+            int endOfNumber = part.AsSpan().IndexOfAnyExceptInRange('0', '9');
+            if (endOfNumber >= 0)
+            {
+                parts = [part.Substring(0, endOfNumber), part.Substring(endOfNumber)];
+            }
+        }
+
+        int multiplier = 1;
+
+        if (parts.Length == 2)
+        {
+            string modifier = parts[1].ToLowerInvariant();
+
+            if (modifier is "s" or "sec" or "secs" or "second" or "seconds")
+            {
+                multiplier = 1;
+            }
+            else if (modifier is "m" or "min" or "mins" or "minute" or "minutes")
+            {
+                multiplier = 60;
+            }
+            else
+            {
+                duration = default;
+                return false;
+            }
+        }
+
+        if (uint.TryParse(parts[0], out uint value) && value > 0)
+        {
+            duration = TimeSpan.FromSeconds(value * multiplier);
+            return true;
+        }
+
+        duration = default;
+        return false;
     }
 }

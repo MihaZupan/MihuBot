@@ -33,7 +33,9 @@ public sealed class CommandContext : MessageContext
         {
             if (_argumentString is null)
             {
-                _argumentString = Content.AsSpan(Command.Length + 1).Trim().ToString();
+                _argumentString = Content.Length <= Command.Length
+                    ? string.Empty
+                    : Content.AsSpan(Command.Length + 1).Trim().ToString();
             }
 
             return _argumentString;
