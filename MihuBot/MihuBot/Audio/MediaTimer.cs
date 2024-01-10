@@ -22,6 +22,7 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
     public Func<TFrameData, Task> OnFrameAsync { get; set; } = _ => Task.CompletedTask;
     public Func<Task> OnSilenceFrameAsync { get; set; } = () => Task.CompletedTask;
     public Func<Task> OnProlongedSilenceAsync { get; set; } = () => Task.CompletedTask;
+    public Func<TFrameData, Task> OnClearedFrameAsync { get; set; } = _ => Task.CompletedTask;
 
     private CancellationTokenRegistration RegisterCancellation(CancellationToken cancellationToken) =>
         cancellationToken.UnsafeRegister(static s => ((CancellationTokenSource)s!).Cancel(), _cts);
@@ -38,7 +39,6 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
         _frameChannel = Channel.CreateBounded<TFrameData>(new BoundedChannelOptions(framesToBuffer)
         {
             FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
             SingleWriter = true
         });
 
@@ -139,6 +139,14 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
         catch (Exception ex)
         {
             Console.WriteLine(ex);
+        }
+    }
+
+    public async Task ClearAsync()
+    {
+        while (_frameChannel.Reader.TryRead(out TFrameData? frame))
+        {
+            await OnClearedFrameAsync(frame);
         }
     }
 

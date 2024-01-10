@@ -9,13 +9,9 @@ public sealed class AudioScheduler : IAsyncDisposable
     private TaskCompletionSource _skipTcs;
     private TaskCompletionSource _enqueueTcs;
 
-    public void SetBitrateHint(int bitrateHint)
+    public void SetBitrate(int bitrateHintKb)
     {
-        if (bitrateHint % 1000 == 0) bitrateHint /= 1000;
-        else if (bitrateHint % 1024 == 0) bitrateHint /= 1024;
-        bitrateHint = Math.Max(bitrateHint, GlobalAudioSettings.MinBitrateKb);
-
-        _bitrateHintKbit = bitrateHint;
+        _bitrateHintKbit = bitrateHintKb;
     }
 
     public int QueueLength => _queue.Count;

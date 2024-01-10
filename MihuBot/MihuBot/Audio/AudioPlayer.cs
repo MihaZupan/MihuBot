@@ -42,15 +42,13 @@ public sealed class AudioPlayer : IAsyncDisposable
     {
         try
         {
-            _scheduler.SetBitrateHint(voiceChannel.Bitrate);
+            int bitrate = Math.Clamp(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate, GlobalAudioSettings.MaxBitrate);
+            _scheduler.SetBitrate(bitrate);
 
             VoiceChannel = voiceChannel;
             _audioClient = await voiceChannel.ConnectAsync();
 
-            int bitrate = Math.Clamp(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate, GlobalAudioSettings.MaxBitrate);
-            int packetLoss = GlobalAudioSettings.PacketLoss;
-
-            _pcmStream = _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, packetLoss);
+            _pcmStream = _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, GlobalAudioSettings.PacketLoss);
 
             _ = Task.Run(async () =>
             {
@@ -152,13 +150,16 @@ public sealed class AudioPlayer : IAsyncDisposable
         const int FramesPerBuffer = 2;
         byte[] readBuffer = new byte[OpusConstants.FrameBytes * FramesPerBuffer];
 
-        await using var pcmScheduler = new PcmAudioScheduler(_audioClient, _pcmStream);
-
         IAudioSource previous = null;
         Task sendCurrentlyPlayingTask = Task.CompletedTask;
 
         Stopwatch stopwatch = Stopwatch.StartNew();
         TimeSpan lastElapsed = stopwatch.Elapsed;
+
+        await using var pcmScheduler = new PcmAudioScheduler(_audioClient, _pcmStream, LogTiming)
+        {
+            AudioSettings = AudioSettings
+        };
 
         while (!_disposedCts.IsCancellationRequested)
         {
@@ -196,14 +197,11 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             if (read <= 0)
             {
+                await pcmScheduler.ClearAsync();
                 _scheduler.SkipCurrent(audioSource);
                 await audioSource.DisposeAsync();
                 continue;
             }
-
-            float rawVolume = AudioSettings.Volume.GetValueOrDefault(Constants.VCDefaultVolume);
-            float volume = rawVolume * rawVolume;
-            VolumeHelper.ApplyVolume(MemoryMarshal.Cast<byte, short>(readBuffer.AsSpan(0, read)), volume);
 
             try
             {

@@ -13,7 +13,7 @@ public static class Constants
 
     public const long MihuTelegramId = 168175103;
 
-    public const float VCDefaultVolume = 0.30f;
+    public const float VCDefaultVolume = 0.40f;
 
     public static readonly char[] SpaceAndQuotes = new[] { ' ', '\'', '\"' };
 
