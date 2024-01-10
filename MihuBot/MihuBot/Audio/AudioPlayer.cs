@@ -161,6 +161,8 @@ public sealed class AudioPlayer : IAsyncDisposable
             AudioSettings = AudioSettings
         };
 
+        var audioSourceCts = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
+
         while (!_disposedCts.IsCancellationRequested)
         {
             LogTiming("Start");
@@ -188,15 +190,28 @@ public sealed class AudioPlayer : IAsyncDisposable
             int read = 0;
             try
             {
-                read = await audioSource.ReadAsync(readBuffer, _disposedCts.Token);
+                audioSourceCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+                read = await audioSource.ReadAsync(readBuffer, audioSourceCts.Token);
+            }
+            catch (OperationCanceledException) when (audioSourceCts.IsCancellationRequested)
+            {
+                LogTiming("ReadAsync cancelled");
             }
             catch (Exception ex)
             {
                 _logger.DebugLog(ex.ToString(), guildId: Guild.Id, channelId: VoiceChannel.Id);
             }
 
+            if (!audioSourceCts.TryReset())
+            {
+                audioSourceCts.Dispose();
+                audioSourceCts = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
+            }
+
             if (read <= 0)
             {
+                LogTiming("Read EOF");
                 await pcmScheduler.ClearAsync();
                 _scheduler.SkipCurrent(audioSource);
                 await audioSource.DisposeAsync();
