@@ -6,10 +6,13 @@ namespace MihuBot.Audio;
 
 public sealed class PcmAudioScheduler : IAsyncDisposable
 {
+    private const int DecreasedVolumeFramesAfterSilence = 300 / OpusConstants.FrameMillis;
+
     private readonly MediaTimer<byte[]> _timer;
     private readonly Action<string> _debugLog;
     private int _leftoverBytes;
     private byte[]? _leftoverBuffer;
+    private int _framesAfterSilence;
 
     public GuildAudioSettings AudioSettings { get; set; }
 
@@ -32,7 +35,15 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
                     Memory<byte> frameBytes = frame.AsMemory(0, OpusConstants.FrameBytes);
 
                     float rawVolume = AudioSettings?.Volume ?? Constants.VCDefaultVolume;
+
+                    int framesAfterSilence = ++_framesAfterSilence;
+                    if (framesAfterSilence < DecreasedVolumeFramesAfterSilence)
+                    {
+                        rawVolume *= 1f / DecreasedVolumeFramesAfterSilence * framesAfterSilence;
+                    }
+
                     float volume = rawVolume * rawVolume;
+
                     VolumeHelper.ApplyVolume(MemoryMarshal.Cast<byte, short>(frameBytes.Span), volume);
 
                     await pcmStream.WriteAsync(frameBytes);
@@ -54,6 +65,7 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
             OnProlongedSilenceAsync = async () =>
             {
                 _debugLog("OnProlongedSilenceAsync");
+                _framesAfterSilence = 0;
                 await audioClient.SetSpeakingAsync(false);
             },
             OnClearedFrameAsync = frame =>
@@ -93,6 +105,7 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
     public async Task ClearAsync()
     {
         _leftoverBytes = 0;
+        _framesAfterSilence = 0;
         await _timer.ClearAsync();
     }
 

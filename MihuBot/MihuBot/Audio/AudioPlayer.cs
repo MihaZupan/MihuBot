@@ -222,7 +222,6 @@ public sealed class AudioPlayer : IAsyncDisposable
             if (read <= 0)
             {
                 LogTiming("Read EOF");
-                await pcmScheduler.ClearAsync();
                 _scheduler.SkipCurrent(audioSource);
                 await audioSource.DisposeAsync();
                 continue;
