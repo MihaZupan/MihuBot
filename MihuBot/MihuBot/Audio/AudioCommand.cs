@@ -106,17 +106,17 @@ public sealed partial class AudioCommands : CommandBase
                     {
                         string currentOrNew = "Current";
 
-                        if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
-                        {
-                            SendThumbsUpReaction();
-                            await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume / 100f);
-                            currentOrNew = "New";
-                        }
-                        else if (ctx.Arguments.Length > 0 && TryParseDb(ctx.ArgumentString, out float db))
+                        if (ctx.Arguments.Length > 0 && TryParseDb(ctx.ArgumentString, out float db))
                         {
                             SendThumbsUpReaction();
                             db = -Math.Abs(db);
                             await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, VolumeHelper.GetVolumeSliderForDecibels(db));
+                            currentOrNew = "New";
+                        }
+                        else if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
+                        {
+                            SendThumbsUpReaction();
+                            await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume / 100f);
                             currentOrNew = "New";
                         }
 
