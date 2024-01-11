@@ -168,7 +168,7 @@ public sealed class AudioPlayer : IAsyncDisposable
 
     private async Task CopyAudioAsync()
     {
-        const int FramesPerBuffer = 2;
+        const int FramesPerBuffer = 10;
         byte[] readBuffer = new byte[OpusConstants.FrameBytes * FramesPerBuffer];
 
         IAudioSource previous = null;

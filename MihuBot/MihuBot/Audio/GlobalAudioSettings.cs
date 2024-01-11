@@ -2,7 +2,7 @@
 
 public static class GlobalAudioSettings
 {
-    public static int StreamBufferMs = 500;
+    public static int StreamBufferMs = 800;
     public static int PacketLoss = 5;
     public static int MinBitrateKb = 96;
     public static int MinBitrate => MinBitrateKb * 1000;
