@@ -25,7 +25,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private IAudioClient _audioClient;
     private AudioOutStream _pcmStream;
 
-    private int _pcmBytesToSkip;
+    private long _pcmBytesToSkip;
 
     private const int CopyLoopTimings = 2048;
     private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
@@ -89,11 +89,23 @@ public sealed class AudioPlayer : IAsyncDisposable
         Unpause();
     }
 
-    public void SkipInCurrentSource(TimeSpan duration)
+    public async Task SkipInCurrentSourceAsync(TimeSpan duration)
     {
-        int framesToSkip = (int)(duration.TotalSeconds / OpusConstants.FramesPerSecond);
-        Interlocked.Add(ref _pcmBytesToSkip, framesToSkip * OpusConstants.FrameBytes);
-        Unpause();
+        if (!_scheduler.TryPeekCurrent(out IAudioSource audioSource))
+        {
+            return;
+        }
+
+        if (audioSource.Remaining is { } remaining && remaining <= duration)
+        {
+            await SkipAsync();
+        }
+        else
+        {
+            long numberOfFrames = (long)(duration.TotalSeconds * OpusConstants.FramesPerSecond);
+            Interlocked.Add(ref _pcmBytesToSkip, numberOfFrames * OpusConstants.FrameBytes);
+            Unpause();
+        }
     }
 
     public void Enqueue(IAudioSource audioSource)
@@ -229,11 +241,11 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             Memory<byte> pcm = readBuffer.AsMemory(0, read);
 
-            int toSkip = Volatile.Read(ref _pcmBytesToSkip);
+            long toSkip = Interlocked.Read(ref _pcmBytesToSkip);
             if (toSkip != 0)
             {
                 toSkip = Math.Min(toSkip, read);
-                pcm = pcm.Slice(toSkip);
+                pcm = pcm.Slice((int)toSkip);
                 Interlocked.Add(ref _pcmBytesToSkip, -toSkip);
 
                 if (pcm.IsEmpty)

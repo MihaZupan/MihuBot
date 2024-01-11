@@ -85,10 +85,10 @@ public sealed class AudioCommands : CommandBase
                     {
                         if (ctx.ArgumentString is { Length: > 0 } argument)
                         {
-                            if (TryParseSimpleDurationString(argument, out TimeSpan duration))
+                            if (TryParseSimpleDurationString(argument, out TimeSpan duration) && duration.TotalDays < 100)
                             {
                                 SendThumbsUpReaction();
-                                audioPlayer.SkipInCurrentSource(duration);
+                                await audioPlayer.SkipInCurrentSourceAsync(duration);
                             }
                             else
                             {

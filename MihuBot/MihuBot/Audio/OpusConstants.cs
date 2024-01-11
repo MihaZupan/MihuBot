@@ -13,5 +13,6 @@ internal static class OpusConstants
     public const int FrameSamples = FrameSamplesPerChannel * Channels;
     public const int FrameBytes = FrameSamplesPerChannel * SampleBytes;
 
-    public const int BytesPerMs = FramesPerSecond * FrameBytes / 1000;
+    public const int BytesPerSecond = FramesPerSecond * FrameBytes;
+    public const int BytesPerMs = BytesPerSecond / 1000;
 }
