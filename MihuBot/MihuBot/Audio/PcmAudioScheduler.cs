@@ -34,17 +34,17 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
                 {
                     Memory<byte> frameBytes = frame.AsMemory(0, OpusConstants.FrameBytes);
 
-                    float rawVolume = AudioSettings?.Volume ?? Constants.VCDefaultVolume;
+                    float userVolume = AudioSettings?.Volume ?? Constants.VCDefaultVolume;
 
                     int framesAfterSilence = ++_framesAfterSilence;
                     if (framesAfterSilence < DecreasedVolumeFramesAfterSilence)
                     {
-                        rawVolume *= 1f / DecreasedVolumeFramesAfterSilence * framesAfterSilence;
+                        userVolume *= 1f / DecreasedVolumeFramesAfterSilence * framesAfterSilence;
                     }
 
-                    float volume = rawVolume * rawVolume;
+                    float volumeFactor = VolumeHelper.GetAmplitudeFactorForVolumeSlider(userVolume);
 
-                    VolumeHelper.ApplyVolume(MemoryMarshal.Cast<byte, short>(frameBytes.Span), volume);
+                    VolumeHelper.ApplyVolume(MemoryMarshal.Cast<byte, short>(frameBytes.Span), volumeFactor);
 
                     await pcmStream.WriteAsync(frameBytes);
 

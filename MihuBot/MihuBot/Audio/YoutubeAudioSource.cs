@@ -34,7 +34,7 @@ public sealed class YoutubeAudioSource : AudioSourceBase
 
         _process = new Process
         {
-            StartInfo = new ProcessStartInfo("ffmpeg", $"-hide_banner -loglevel warning -i - -ac {OpusConstants.Channels} -f s16le -ar {OpusConstants.SamplingRate} -")
+            StartInfo = new ProcessStartInfo("ffmpeg", $"-hide_banner -loglevel warning -rtbufsize 1M -i - -filter:a loudnorm=i=-14 -ac {OpusConstants.Channels} -f s16le -ar {OpusConstants.SamplingRate} -")
             {
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,

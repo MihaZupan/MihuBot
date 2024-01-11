@@ -1,7 +1,6 @@
 ﻿using Discord.Audio;
 using Discord.Rest;
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
 using YoutubeExplode.Common;
 
 namespace MihuBot.Audio;

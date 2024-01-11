@@ -1,10 +1,11 @@
 ﻿using Google.Apis.YouTube.v3;
 using SpotifyAPI.Web;
+using System.Text.RegularExpressions;
 using YoutubeExplode.Videos;
 
 namespace MihuBot.Audio;
 
-public sealed class AudioCommands : CommandBase
+public sealed partial class AudioCommands : CommandBase
 {
     private static readonly string[] AvailableCommands = new[] { "p", "play", "pause", "unpause", "resume", "skip", "volume", "queue" };
 
@@ -103,14 +104,40 @@ public sealed class AudioCommands : CommandBase
                     }
                     else if (command == "volume")
                     {
+                        string currentOrNew = "Current";
+
                         if (ctx.Arguments.Length > 0 && uint.TryParse(ctx.Arguments[0].TrimEnd('%'), out uint volume) && volume > 0 && volume <= 100)
                         {
                             SendThumbsUpReaction();
                             await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, volume / 100f);
+                            currentOrNew = "New";
                         }
-                        else
+                        else if (ctx.Arguments.Length > 0 && TryParseDb(ctx.ArgumentString, out float db))
                         {
-                            await ctx.ReplyAsync("Please specify a volume like `!volume 50`", mention: true);
+                            SendThumbsUpReaction();
+                            db = -Math.Abs(db);
+                            await audioPlayer.AudioSettings.ModifyAsync((settings, volume) => settings.Volume = volume, VolumeHelper.GetVolumeSliderForDecibels(db));
+                            currentOrNew = "New";
+                        }
+
+                        float currentVolume = audioPlayer.AudioSettings.Volume ?? Constants.VCDefaultVolume;
+                        float factor = VolumeHelper.GetAmplitudeFactorForVolumeSlider(currentVolume);
+                        float volumeDB = VolumeHelper.GetVolumeAsDecibels(factor);
+
+                        await ctx.ReplyAsync($"{currentOrNew} volume is {(int)(currentVolume * 100)}% (amplitude factor {factor:N2} or {volumeDB:N2} dB)");
+
+                        static bool TryParseDb(string input, out float db)
+                        {
+                            input = input.Replace(',', '.');
+
+                            if (VolumeDbRegex().Match(input) is { Success: true } match &&
+                                float.TryParse(match.Groups[1].ValueSpan, out db))
+                            {
+                                return true;
+                            }
+
+                            db = default;
+                            return false;
                         }
                     }
                     else if (command == "queue")
@@ -333,4 +360,7 @@ public sealed class AudioCommands : CommandBase
         duration = default;
         return false;
     }
+
+    [GeneratedRegex(@"(-?\d+\.?\d*) ?db", RegexOptions.IgnoreCase)]
+    private static partial Regex VolumeDbRegex();
 }

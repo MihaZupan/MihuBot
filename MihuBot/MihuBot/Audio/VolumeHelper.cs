@@ -5,17 +5,41 @@ namespace MihuBot.Audio;
 
 internal static class VolumeHelper
 {
-    public static void ApplyVolume(Span<short> pcm, float volume)
+    public static float GetAmplitudeFactorForVolumeSlider(float volume)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(volume);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(volume, 1);
 
-        if (volume == 1)
+        return volume * volume;
+    }
+
+    public static float GetVolumeAsDecibels(float volume)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(volume);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(volume, 1);
+
+        return 20 * MathF.Log10(volume);
+    }
+
+    public static float GetVolumeSliderForDecibels(float decibels)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(decibels, 0);
+
+        float amplitudeFactor = MathF.Pow(10, decibels / 20);
+        return MathF.Sqrt(amplitudeFactor);
+    }
+
+    public static void ApplyVolume(Span<short> pcm, float factor)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(factor);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(factor, 1);
+
+        if (factor == 1)
         {
             return;
         }
 
-        Multiply(pcm, volume);
+        Multiply(pcm, factor);
     }
 
     private static void Multiply(Span<short> span, float factor)
