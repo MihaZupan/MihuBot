@@ -1,5 +1,6 @@
 ﻿using Google.Apis.YouTube.v3;
 using SpotifyAPI.Web;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using YoutubeExplode.Videos;
 
@@ -129,7 +130,7 @@ public sealed partial class AudioCommands : CommandBase
                             input = input.Replace(',', '.');
 
                             if (VolumeDbRegex().Match(input) is { Success: true } match &&
-                                float.TryParse(match.Groups[1].ValueSpan, out db))
+                                float.TryParse(match.Groups[1].ValueSpan, NumberStyles.Any, CultureInfo.InvariantCulture, out db))
                             {
                                 return true;
                             }
