@@ -1,7 +1,5 @@
-﻿
-using System.Buffers;
-using System.Runtime.InteropServices;
-using System.Threading.Channels;
+﻿using System.IO.Pipelines;
+using System.Runtime.ExceptionServices;
 
 namespace MihuBot.Audio;
 
@@ -9,48 +7,40 @@ internal sealed class ReadAheadStream : Stream
 {
     private readonly Stream _innerStream;
     private readonly CancellationTokenSource _cts = new();
-    private readonly Channel<Memory<byte>> _bufferChannel = Channel.CreateUnbounded<Memory<byte>>(new UnboundedChannelOptions
-    {
-        SingleWriter = true
-    });
-    private Memory<byte> _leftoverBuffer;
-    private int _leftoverOffset;
+    private readonly Pipe _pipe;
+    private readonly Stream _pipeReaderStream;
+    private int _pipeClosed = 0;
 
-    public ReadAheadStream(Stream innerStream)
+    public ReadAheadStream(Stream innerStream, long? bufferCapacity = null)
     {
         _innerStream = innerStream;
 
+        _pipe = new Pipe(new PipeOptions(pauseWriterThreshold: bufferCapacity ?? 0));
+        _pipeReaderStream = _pipe.Reader.AsStream(leaveOpen: false);
+
         using (ExecutionContext.SuppressFlow())
         {
-            Task.Run(ReadLoopAsync);
+            Task.Run(CopyStreamToPipeAsync);
         }
     }
 
-    private async Task ReadLoopAsync()
+    private async Task CopyStreamToPipeAsync()
     {
         try
         {
-            int read = 4096;
+            await _innerStream.CopyToAsync(_pipe.Writer, _cts.Token);
 
-            while (!_cts.IsCancellationRequested)
+            if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
             {
-                byte[] buffer = ArrayPool<byte>.Shared.Rent((int)Math.Clamp(read * 1.1d, 16, 64 * 1024));
-
-                read = await _innerStream.ReadAsync(buffer, _cts.Token);
-
-                if (read == 0)
-                {
-                    ArrayPool<byte>.Shared.Return(buffer);
-                    break;
-                }
-
-                _bufferChannel.Writer.TryWrite(buffer.AsMemory(0, read));
+                await _pipe.Writer.CompleteAsync();
             }
         }
-        catch { }
-        finally
+        catch (Exception ex)
         {
-            _bufferChannel.Writer.TryComplete();
+            if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
+            {
+                await _pipe.Writer.CompleteAsync(ex);
+            }
         }
     }
 
@@ -58,34 +48,8 @@ internal sealed class ReadAheadStream : Stream
     public override bool CanSeek => false;
     public override bool CanWrite => false;
 
-    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-    {
-        if (_leftoverBuffer.IsEmpty)
-        {
-            if (!await _bufferChannel.Reader.WaitToReadAsync(cancellationToken) ||
-                !_bufferChannel.Reader.TryRead(out _leftoverBuffer))
-            {
-                return 0;
-            }
-        }
-
-        int toCopy = Math.Min(buffer.Length, _leftoverBuffer.Length - _leftoverOffset);
-        _leftoverBuffer.Span.Slice(_leftoverOffset, toCopy).CopyTo(buffer.Span);
-        _leftoverOffset += toCopy;
-
-        if (_leftoverOffset == _leftoverBuffer.Length)
-        {
-            bool success = MemoryMarshal.TryGetArray(_leftoverBuffer, out ArraySegment<byte> segment);
-            Debug.Assert(success);
-
-            _leftoverBuffer = default;
-            _leftoverOffset = 0;
-
-            ArrayPool<byte>.Shared.Return(segment.Array);
-        }
-
-        return toCopy;
-    }
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+        _pipeReaderStream.ReadAsync(buffer, cancellationToken);
 
     public override void Flush() => throw new NotSupportedException();
     public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
@@ -97,20 +61,16 @@ internal sealed class ReadAheadStream : Stream
 
     public async override ValueTask DisposeAsync()
     {
-        _bufferChannel.Writer.TryComplete();
+        if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
+        {
+            await _pipe.Writer.CompleteAsync(ExceptionDispatchInfo.SetCurrentStackTrace(new ObjectDisposedException(nameof(ReadAheadStream))));
+        }
 
         _cts.Cancel();
 
         await base.DisposeAsync();
 
         await _innerStream.DisposeAsync();
-
-        while (_bufferChannel.Reader.TryRead(out var buffer))
-        {
-            bool success = MemoryMarshal.TryGetArray(buffer, out ArraySegment<byte> segment);
-            Debug.Assert(success);
-
-            ArrayPool<byte>.Shared.Return(segment.Array);
-        }
+        await _pipeReaderStream.DisposeAsync();
     }
 }

@@ -30,7 +30,14 @@ public sealed class YoutubeAudioSource : AudioSourceBase
         var bestAudio = ytMetadata.GetBestAudio();
 
         var downlaodStream = await _http.GetStreamAsync(bestAudio.Url, cancellationToken);
-        _downloadStream = new ReadAheadStream(downlaodStream);
+
+        double estimatedSourceBitrateKbit = bestAudio.Tbr ?? bestAudio.Abr ?? 128;
+        double durationToBuffer = Math.Clamp(ytMetadata.Duration, 60, 11 * 60 * 60); // 1 minute - 11 hours
+
+        double capacity = (estimatedSourceBitrateKbit * 1024 / 8) * durationToBuffer;
+        capacity = Math.Clamp(capacity, 64 * 1024, 1024 * 1024 * 1024); // 64 KB - 1 GB
+
+        _downloadStream = new ReadAheadStream(downlaodStream, (long)capacity);
 
         _process = new Process
         {
