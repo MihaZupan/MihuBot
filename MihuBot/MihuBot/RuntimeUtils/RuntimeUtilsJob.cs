@@ -381,15 +381,13 @@ public sealed class RuntimeUtilsJob
 
         try
         {
-            containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
-
-            while (containerGroupResource.Data?.Containers?.FirstOrDefault()?.InstanceView?.CurrentState is { } currentState
-                && currentState.FinishOn is null)
+            do
             {
-                await Task.Delay(TimeSpan.FromSeconds(30));
+                await Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None);
 
                 containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
             }
+            while (containerGroupResource.Data?.Containers?.FirstOrDefault()?.InstanceView?.CurrentState is { } state && state.FinishOn is null);
         }
         finally
         {

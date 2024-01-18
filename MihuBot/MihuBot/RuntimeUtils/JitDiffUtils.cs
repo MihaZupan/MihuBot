@@ -1,5 +1,4 @@
-﻿using Octokit;
-using System.Buffers;
+﻿using System.Buffers;
 using System.IO.Pipelines;
 using System.Text.RegularExpressions;
 
