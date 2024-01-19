@@ -228,7 +228,9 @@ public class Startup
                     context.User.TryGetGitHubLogin(out _)));
 
         services.AddTunnelServices();
-        services.AddReverseProxy();
+
+        services.AddReverseProxy()
+            .LoadFromConfig(Configuration.GetSection("ReverseProxy"));
 
         Console.WriteLine("Services configured.");
     }
