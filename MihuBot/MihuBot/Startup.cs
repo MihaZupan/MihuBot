@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
 using MihuBot.Configuration;
+using MihuBot.Data;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
@@ -226,6 +227,9 @@ public class Startup
                 policy.RequireAssertion(context =>
                     context.User.TryGetGitHubLogin(out _)));
 
+        services.AddTunnelServices();
+        services.AddReverseProxy();
+
         Console.WriteLine("Services configured.");
     }
 
@@ -282,7 +286,36 @@ public class Startup
             endpoints.MapControllers();
             endpoints.MapBlazorHub();
             endpoints.MapFallbackToPage("/_Host");
+
+            endpoints.MapHttp2Tunnel("/_yarp-tunnel")
+                .Add(ConfigureYarpTunnelAuth);
+
+            endpoints.MapReverseProxy();
         });
+    }
+
+    private static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
+    {
+        var next = builder.RequestDelegate;
+
+        builder.RequestDelegate = context =>
+        {
+            var config = context.RequestServices.GetRequiredService<IConfigurationService>();
+
+            if (!context.Request.Headers.TryGetValue(HeaderNames.Authorization, out var token) || token.Count != 1 ||
+                !context.Request.Query.TryGetValue("host", out var host) || host.Count != 1 ||
+                !config.TryGet(null, $"YarpTunnelAuth.{host}", out string expectedAuthorization) ||
+                !ManagementController.CheckToken(expectedAuthorization, token.ToString()))
+            {
+                context.Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+            }
+            else if (next is not null)
+            {
+                return next(context);
+            }
+
+            return Task.CompletedTask;
+        };
     }
 
     private sealed class IPLoggerMiddleware : IMiddleware
