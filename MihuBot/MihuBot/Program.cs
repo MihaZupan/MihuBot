@@ -66,6 +66,12 @@ public class Program
             })
             .ConfigureWebHostDefaults(webBuilder =>
             {
+                webBuilder.UseKestrel(options =>
+                {
+                    options.Limits.Http2.InitialStreamWindowSize *= 32;
+                    options.Limits.Http2.InitialConnectionWindowSize *= 32;
+                });
+
                 webBuilder.UseUrls("http://*:80", "https://*:443");
                 webBuilder.UseStartup<Startup>();
             });
