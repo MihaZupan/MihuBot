@@ -125,7 +125,7 @@ public sealed class RuntimeUtilsService
                 async Task Process(int commentId, string pullRequestUrl, string body, User user)
                 {
                     if (user.Type == AccountType.User &&
-                        body.Contains("@MihuBot", StringComparison.Ordinal) &&
+                        body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                         !processedMentions.Any(c => c.Id == commentId))
                     {
                         processedMentions.Add((commentId, Stopwatch.StartNew()));
