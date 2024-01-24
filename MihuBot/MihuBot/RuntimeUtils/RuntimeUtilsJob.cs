@@ -747,8 +747,8 @@ public sealed class RuntimeUtilsJob
 
             return await diffs
                 .ToAsyncEnumerable()
-                .Where(diff => includeRemovedMethod || !diff.Description.Contains("-100.", StringComparison.Ordinal))
-                .Where(diff => IncludeNewMethod || !diff.Description.Contains("∞ of base", StringComparison.Ordinal))
+                .Where(diff => includeRemovedMethod || !IsRemovedMethod(diff.Description))
+                .Where(diff => IncludeNewMethod || !IsNewMethod(diff.Description))
                 .SelectAwait(async diff =>
                 {
                     StringBuilder sb = new();
@@ -798,6 +798,13 @@ public sealed class RuntimeUtilsJob
                 .Where(diff => !string.IsNullOrEmpty(diff))
                 .Take(20)
                 .ToArrayAsync();
+
+            static bool IsRemovedMethod(ReadOnlySpan<char> description) =>
+                description.Contains("-100.", StringComparison.Ordinal);
+
+            static bool IsNewMethod(ReadOnlySpan<char> description) =>
+                description.Contains("∞ of base", StringComparison.Ordinal) ||
+                description.Contains("Infinity of base", StringComparison.Ordinal);
 
             static bool ShouldSkipLine(ReadOnlySpan<char> line)
             {
