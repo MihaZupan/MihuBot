@@ -138,7 +138,7 @@ public sealed class RuntimeUtilsService
                         {
                             if (CheckGitHubUserPermissions(user.Login))
                             {
-                                string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.Ordinal) + "@MihuBot".Length).Trim().ToString();
+                                string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
 
                                 if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
                                     arguments is "-h" or "-H" or "?" or "-?")
