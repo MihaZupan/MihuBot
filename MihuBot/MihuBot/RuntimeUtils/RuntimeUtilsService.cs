@@ -135,6 +135,8 @@ public sealed class RuntimeUtilsService : IHostedService
                         body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                         !processedMentions.Any(c => c.Id == commentId))
                     {
+                        Logger.DebugLog($"Processing mention from {user.Login} in {pullRequestUrl}: '{body}'");
+
                         processedMentions.Add((commentId, Stopwatch.StartNew()));
 
                         int pullRequestNumber = int.Parse(new Uri(pullRequestUrl, UriKind.Absolute).AbsolutePath.Split('/').Last());

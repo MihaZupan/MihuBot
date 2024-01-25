@@ -24,8 +24,7 @@ public sealed class RuntimeUtilsController : ControllerBase
             return;
         }
 
-        Response.Headers["Content-Type"] = "text/event-stream; charset=utf-8";
-
+        Response.Headers.ContentType = "text/event-stream; charset=utf-8";
 
         await job.StreamLogsAsync(new StreamWriter(Response.Body), HttpContext.RequestAborted);
     }
