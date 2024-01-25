@@ -135,6 +135,7 @@ public class Startup
         services.AddSingleton<HetznerClient>();
 
         services.AddSingleton<RuntimeUtilsService>();
+        services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 
         services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, Configuration["Minecraft:RconPassword"]));
 

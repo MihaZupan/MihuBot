@@ -4,7 +4,7 @@ using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class RuntimeUtilsService
+public sealed class RuntimeUtilsService : IHostedService
 {
     private const string RepoOwner = "dotnet";
     private const string RepoName = "runtime";
@@ -55,12 +55,19 @@ public sealed class RuntimeUtilsService
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "artifacts");
         }
+    }
 
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
         using (ExecutionContext.SuppressFlow())
         {
             _ = Task.Run(WatchForGitHubMentionsAsync);
         }
+
+        return Task.CompletedTask;
     }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private async Task WatchForGitHubMentionsAsync()
     {
