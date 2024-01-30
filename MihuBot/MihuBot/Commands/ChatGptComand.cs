@@ -8,8 +8,18 @@ namespace MihuBot.Commands;
 
 public sealed class ChatGptComand : CommandBase
 {
+    private const string JaredCommand = "askjared";
+
+    private static readonly IEmote[] JaredEmotes = new[]
+    {
+        new Emoji("🥛"),
+        new Emoji("👶"),
+        new Emoji("🍼"),
+        new Emoji("💩"),
+    };
+
     public override string Command => "chatgpt";
-    public override string[] Aliases => new[] { "gpt" };
+    public override string[] Aliases => new[] { "gpt", JaredCommand };
 
     private readonly Logger _logger;
     private readonly HttpClient _http;
@@ -29,7 +39,7 @@ public sealed class ChatGptComand : CommandBase
 
     private record HistoryEntry(string Role, string Content);
 
-    private async Task<string> QueryCompletionsAsync(SocketTextChannel channel, ulong authorId, string prompt, string model, int maxTokens, int maxChatHistory)
+    private async Task<string> QueryCompletionsAsync(SocketTextChannel channel, ulong authorId, string systemPrompt, string prompt, string model, int maxTokens, int maxChatHistory)
     {
         bool useChatHistory = maxChatHistory > 1;
 
@@ -56,6 +66,11 @@ public sealed class ChatGptComand : CommandBase
 
             history ??= new();
             history.Add(new HistoryEntry("user", prompt));
+
+            if (!string.IsNullOrEmpty(systemPrompt))
+            {
+                history.Insert(0, new HistoryEntry("system", systemPrompt));
+            }
 
             request.Content = JsonContent.Create(new
             {
@@ -113,7 +128,7 @@ public sealed class ChatGptComand : CommandBase
 
     public override Task ExecuteAsync(CommandContext ctx)
     {
-        return HandleAsync(ctx.Channel, ctx.AuthorId, ctx.ArgumentStringTrimmed);
+        return HandleAsync(ctx.Channel, ctx.AuthorId, ctx.Command, ctx.ArgumentStringTrimmed);
     }
 
     public override Task HandleAsync(MessageContext ctx)
@@ -124,15 +139,30 @@ public sealed class ChatGptComand : CommandBase
         {
             if (content.StartsWith(command, StringComparison.OrdinalIgnoreCase))
             {
-                return HandleAsync(ctx.Channel, ctx.AuthorId, content.Substring(command.Length).Trim());
+                return HandleAsync(ctx.Channel, ctx.AuthorId, command, content.Substring(command.Length).Trim());
             }
         }
 
         return Task.CompletedTask;
     }
 
-    private async Task HandleAsync(SocketTextChannel channel, ulong authorId, string prompt)
+    private async Task HandleAsync(SocketTextChannel channel, ulong authorId, string command, string prompt)
     {
+        bool isJared = command.Equals(JaredCommand, StringComparison.OrdinalIgnoreCase);
+
+        if (isJared)
+        {
+            int chance = _configurationService.TryGet(channel.Guild.Id, "ChatGPT.JaredBadResponseChance", out string chanceString) && int.TryParse(chanceString, out int chanceValue)
+                ? chanceValue
+                : 10;
+
+            if (Rng.Chance(chance))
+            {
+                await channel.SendMessageAsync(JaredEmotes.Random().Name);
+                return;
+            }
+        }
+
         if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.Model", out string model))
         {
             model = "text-davinci-003";
@@ -140,7 +170,7 @@ public sealed class ChatGptComand : CommandBase
 
         if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.ChatModel", out string chatModel))
         {
-            chatModel = "gpt-3.5-turbo";
+            chatModel = "gpt-4";
         }
 
         if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.MaxTokens", out string maxTokensString) ||
@@ -157,7 +187,21 @@ public sealed class ChatGptComand : CommandBase
             maxChatHistory = 20;
         }
 
-        string response = await QueryCompletionsAsync(channel, authorId, prompt, maxChatHistory > 1 ? chatModel : model, (int)maxTokens, (int)maxChatHistory);
+        if (!_configurationService.TryGet(channel.Guild.Id, $"ChatGPT.SystemPrompt{(isJared ? ".Jared" : "")}", out string? systemPrompt))
+        {
+            if (isJared)
+            {
+                systemPrompt = Rng.Bool()
+                    ? "Your name is Jared who speaks a bit funny."
+                    : "Your name is Jared who likes to turn everything into a joke.";
+            }
+            else
+            {
+                systemPrompt = "You are a helpful assistant named MihuBot.";
+            }
+        }
+
+        string response = await QueryCompletionsAsync(channel, authorId, systemPrompt, prompt, maxChatHistory > 1 ? chatModel : model, (int)maxTokens, (int)maxChatHistory);
 
         await channel.SendMessageAsync(response);
     }
