@@ -50,7 +50,7 @@ public class Startup
 
         services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
 
-        if (Program.AzureEnabled)
+        if (Program.AzureEnabled && OperatingSystem.IsLinux())
         {
             services.AddApplicationInsightsTelemetry(options =>
             {

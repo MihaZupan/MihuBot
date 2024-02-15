@@ -41,6 +41,23 @@ public sealed class RuntimeUtilsController : ControllerBase
         return Ok();
     }
 
+    [HttpPost("Jobs/SystemInfo/{jobId}")]
+    public IActionResult UpdateSystemInfo([FromRoute] string jobId, [FromBody] SystemHardwareInfo systemInfo)
+    {
+        if (systemInfo is null)
+        {
+            return BadRequest();
+        }
+
+        if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
+        {
+            return NotFound();
+        }
+
+        job.LastSystemInfo = systemInfo;
+        return Ok();
+    }
+
     [HttpGet("Jobs/Metadata/{jobId}")]
     public IActionResult GetMetadata([FromRoute] string jobId)
     {

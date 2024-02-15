@@ -58,6 +58,8 @@ public sealed class RuntimeUtilsJob
 
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public SystemHardwareInfo LastSystemInfo { get; set; }
+
     private string CustomArguments
     {
         get => Metadata["CustomArguments"];

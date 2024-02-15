@@ -25,6 +25,26 @@ else
     else
     {
         <div>The build is still in progress (@_job.GetElapsedTime()) ...</div>
+
+        <br />
+
+        @if (_job.LastSystemInfo is { } info)
+        {
+            var cpuUsageCaption = $"CPU usage: {info.CpuUsagePercentage}% ({info.CpuUsage:N1} / {info.CpuCoresAvailable:N1} cores)";
+            var memoryUsageCaption = $"Memory usage: {info.MemoryUsagePercentage}% ({info.MemoryUsageGB:N1} / {info.MemoryAvailableGB:N1} GB)";
+            var cpuUsageWidth = $"{info.CpuUsagePercentage}%";
+            var memoryUsageWidth = $"{info.MemoryUsagePercentage}%";
+
+            <div>@cpuUsageCaption</div>
+            <div class="progress" style="width: 25%">
+                <div class="progress-bar" role="progressbar" style="width: @cpuUsageWidth"></div>
+            </div>
+
+            <div>@memoryUsageCaption</div>
+            <div class="progress" style="width: 25%">
+                <div class="progress-bar" role="progressbar" style="width: @memoryUsageWidth"></div>
+            </div>
+        }
     }
     <br />
     <pre><code>
@@ -52,6 +72,28 @@ else
     {
         if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(0.1));
+                    SystemHardwareInfo previousSystemInfo = null;
+                    do
+                    {
+                        SystemHardwareInfo current = _job.LastSystemInfo;
+
+                        if (!ReferenceEquals(previousSystemInfo, current))
+                        {
+                            previousSystemInfo = current;
+
+                            _ = InvokeAsync(StateHasChanged);
+                        }
+                    }
+                    while (await timer.WaitForNextTickAsync(_cts.Token));
+                }
+                catch { }
+            });
+
             Task.Run(async () =>
             {
                 try
