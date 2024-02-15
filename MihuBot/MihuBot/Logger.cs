@@ -1013,13 +1013,15 @@ RecipientAdded
 
             if (fileCount % 20 == 0)
             {
-                var drive = DriveInfo.GetDrives()
-                    .OrderByDescending(d => d.TotalSize)
-                    .First();
+                var drive = DriveInfo.GetDrives().MaxBy(d => d.TotalSize);
 
-                string spaceMessage = $"Space available: {drive.AvailableFreeSpace / 1024 / 1024} / {drive.TotalSize / 1024 / 1024} MB";
+                long availableMB = drive.AvailableFreeSpace / 1024 / 1024;
+                long totalMB = drive.TotalSize / 1024 / 1024;
+                double used = (double)availableMB / totalMB;
 
-                if (fileCount % 100 == 0) await DebugAsync(spaceMessage, message);
+                string spaceMessage = $"Space available: {availableMB} / {totalMB} MB";
+
+                if (used > 0.75) await DebugAsync(spaceMessage, message);
                 else DebugLog(spaceMessage, message);
             }
         }
