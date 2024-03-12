@@ -30,10 +30,9 @@ public sealed class RuntimeUtilsJob
     private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
     private long _artifactsCount;
     private long _totalArtifactsSize;
-    private string _corelibDiffs;
-    private string _frameworkDiffs;
-    private readonly TempFile _corelibDiffsBaseFile = new("txt");
-    private readonly TempFile _corelibDiffsPRFile = new("txt");
+    private string _frameworksDiffSummary;
+    private readonly TempFile _frameworksDiffsZipFile = new("zip");
+    private readonly Dictionary<(string DasmFile, bool Main), TempFile> _frameworksDiffFiles = new();
     private readonly CancellationTokenSource _idleTimeoutCts = new();
     private readonly TaskCompletionSource _jobCompletionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -255,39 +254,29 @@ public sealed class RuntimeUtilsJob
             const string DetailsStart = "<details>\n<summary>Diffs</summary>\n\n";
             const string DetailsEnd = "\n</details>\n";
 
-            bool shouldHideCorelibDiffs = _corelibDiffs?.Length > CommentLengthLimit / 2;
-
-            string corelibDiffs =
-                $"### CoreLib diffs\n\n" +
-                (shouldHideCorelibDiffs ? DetailsStart : "") +
-                $"```\n" +
-                $"{_corelibDiffs}\n" +
-                $"```\n" +
-                (shouldHideCorelibDiffs ? DetailsEnd : "") +
-                $"\n\n";
+            bool shouldHideDiffs = _frameworksDiffSummary?.Length > CommentLengthLimit / 2;
 
             string frameworksDiffs =
-                $"### Frameworks diffs\n\n" +
-                DetailsStart +
+                $"### Diffs\n\n" +
+                (shouldHideDiffs ? DetailsStart : "") +
                 $"```\n" +
-                $"{_frameworkDiffs}\n" +
+                $"{_frameworksDiffSummary}\n" +
                 $"```\n" +
-                DetailsEnd +
+                (shouldHideDiffs ? DetailsEnd : "") +
                 $"\n\n";
 
-            bool gotAnyDiffs = _corelibDiffs is not null || _frameworkDiffs is not null;
+            bool gotAnyDiffs = _frameworksDiffSummary is not null;
 
             await UpdateIssueBodyAsync(
                 $"[Build]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
                 (gotAnyDiffs && ShouldLinkToPROrBranch ? TestedPROrBranchLink : "") +
                 "\n\n" +
-                (_corelibDiffs is not null ? corelibDiffs : "") +
-                (_frameworkDiffs is not null ? frameworksDiffs : "") +
+                (gotAnyDiffs ? frameworksDiffs : "") +
                 (gotAnyDiffs ? GetArtifactList() : ""));
 
-            if (_corelibDiffs is not null && ShouldPostDiffsComment)
+            if (gotAnyDiffs && ShouldPostDiffsComment)
             {
-                await PostCorelibDiffExamplesAsync();
+                await PostDiffExamplesAsync();
             }
 
             string GetArtifactList()
@@ -331,8 +320,12 @@ public sealed class RuntimeUtilsJob
                 }
             }
 
-            _corelibDiffsBaseFile.Dispose();
-            _corelibDiffsPRFile.Dispose();
+            _frameworksDiffsZipFile.Dispose();
+
+            foreach (TempFile file in _frameworksDiffFiles.Values)
+            {
+                file.Dispose();
+            }
         }
     }
 
@@ -538,7 +531,9 @@ public sealed class RuntimeUtilsJob
             return;
         }
 
-        if (fileName is "diff-corelib.txt" or "diff-frameworks.txt")
+        bool disposeStreamAfterUpload = false;
+
+        if (fileName == "diff-frameworks.txt")
         {
             using var buffer = new MemoryStream(new byte[128 * 1024]);
             await contentStream.CopyToAsync(buffer, cancellationToken);
@@ -547,14 +542,19 @@ public sealed class RuntimeUtilsJob
             byte[] bytes = buffer.ToArray();
             contentStream = new MemoryStream(bytes);
 
-            if (fileName == "diff-corelib.txt")
+            _frameworksDiffSummary = Encoding.UTF8.GetString(bytes);
+        }
+        else if (fileName == "jit-diffs-frameworks.zip")
+        {
+            LogsReceived("Saving jit-diffs-frameworks.zip");
+
+            await using (var fs = File.OpenWrite(_frameworksDiffsZipFile.Path))
             {
-                _corelibDiffs = Encoding.UTF8.GetString(bytes);
+                await contentStream.CopyToAsync(fs, cancellationToken);
             }
-            else if (fileName == "diff-frameworks.txt")
-            {
-                _frameworkDiffs = Encoding.UTF8.GetString(bytes);
-            }
+
+            contentStream = File.OpenRead(_frameworksDiffsZipFile.Path);
+            disposeStreamAfterUpload = true;
         }
 
         BlobClient blobClient = _parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
@@ -563,6 +563,11 @@ public sealed class RuntimeUtilsJob
         {
             AccessTier = AccessTier.Hot
         }, cancellationToken);
+
+        if (disposeStreamAfterUpload)
+        {
+            await contentStream.DisposeAsync();
+        }
 
         var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
         long size = properties.Value.ContentLength;
@@ -584,35 +589,6 @@ public sealed class RuntimeUtilsJob
         }
 
         LogsReceived($"Saved artifact '{fileName}' to {blobClient.Uri.AbsoluteUri} ({GetRoughSizeString(size)})");
-
-        if (fileName is "jit-diffs-corelib.zip")
-        {
-            LogsReceived("Processing jit-diffs-corelib.zip");
-
-            using var tempFile = new TempFile("zip");
-
-            await using (var fs = File.OpenWrite(tempFile.Path))
-            {
-                await blobClient.DownloadToAsync(fs, cancellationToken);
-            }
-
-            await using Stream zipStream = File.OpenRead(tempFile.Path);
-
-            using var zip = new ZipArchive(zipStream, ZipArchiveMode.Read);
-
-            foreach (var entry in zip.Entries)
-            {
-                if (entry.FullName.EndsWith("System.Private.CoreLib.dasm", StringComparison.Ordinal) &&
-                    entry.Length < int.MaxValue)
-                {
-                    string destination = entry.FullName.Contains("dasmset_1", StringComparison.Ordinal)
-                        ? _corelibDiffsBaseFile.Path
-                        : _corelibDiffsPRFile.Path;
-
-                    entry.ExtractToFile(destination, overwrite: true);
-                }
-            }
-        }
     }
 
     public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
@@ -687,21 +663,21 @@ public sealed class RuntimeUtilsJob
         }
     }
 
-    private async Task PostCorelibDiffExamplesAsync()
+    private async Task PostDiffExamplesAsync()
     {
         try
         {
-            await PostCorelibDiffExamplesAsync(regressions: true);
-            await PostCorelibDiffExamplesAsync(regressions: false);
+            await PostDiffExamplesAsync(regressions: true);
+            await PostDiffExamplesAsync(regressions: false);
         }
         catch (Exception ex)
         {
-            Logger.DebugLog($"Failed to post corelib diff examples: {ex}");
+            Logger.DebugLog($"Failed to post diff examples: {ex}");
         }
 
-        async Task PostCorelibDiffExamplesAsync(bool regressions)
+        async Task PostDiffExamplesAsync(bool regressions)
         {
-            var allChanges = await GetDiffMarkdownAsync(JitDiffUtils.ParseDiffEntries(_corelibDiffs, regressions));
+            var allChanges = await GetDiffMarkdownAsync(JitDiffUtils.ParseDiffEntries(_frameworksDiffSummary, regressions));
 
             string changes = JitDiffUtils.GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
 
@@ -722,7 +698,7 @@ public sealed class RuntimeUtilsJob
         {
             var newGist = new NewGist
             {
-                Description = $"JIT diffs CoreLib {(regressions ? "regressions" : "improvements")} for {TrackingIssue.HtmlUrl}",
+                Description = $"JIT diffs {(regressions ? "regressions" : "improvements")} for {TrackingIssue.HtmlUrl}",
                 Public = false
             };
 
@@ -737,12 +713,14 @@ public sealed class RuntimeUtilsJob
             return gist.HtmlUrl;
         }
 
-        async Task<string[]> GetDiffMarkdownAsync((string Description, string Name)[] diffs)
+        async Task<string[]> GetDiffMarkdownAsync((string Description, string DasmFile, string Name)[] diffs)
         {
             if (diffs.Length == 0)
             {
                 return Array.Empty<string>();
             }
+
+            await ExtractFrameworksDiffsZipAsync();
 
             bool includeRemovedMethod = IncludeRemovedMethodImprovements;
             bool IncludeNewMethod = IncludeNewMethodRegressions;
@@ -753,6 +731,14 @@ public sealed class RuntimeUtilsJob
                 .Where(diff => IncludeNewMethod || !IsNewMethod(diff.Description))
                 .SelectAwait(async diff =>
                 {
+                    if (!_frameworksDiffFiles.TryGetValue((diff.DasmFile, Main: true), out TempFile mainDiffsFile) ||
+                        !_frameworksDiffFiles.TryGetValue((diff.DasmFile, Main: false), out TempFile prDiffsFile))
+                    {
+                        return string.Empty;
+                    }
+
+                    LogsReceived($"Generating diffs for {diff.Name}");
+
                     StringBuilder sb = new();
 
                     sb.AppendLine("<details>");
@@ -763,8 +749,8 @@ public sealed class RuntimeUtilsJob
                     using var baseFile = new TempFile("txt");
                     using var prFile = new TempFile("txt");
 
-                    await File.WriteAllTextAsync(baseFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(_corelibDiffsBaseFile.Path, diff.Name));
-                    await File.WriteAllTextAsync(prFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(_corelibDiffsPRFile.Path, diff.Name));
+                    await File.WriteAllTextAsync(baseFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(mainDiffsFile.Path, diff.Name));
+                    await File.WriteAllTextAsync(prFile.Path, await JitDiffUtils.TryGetMethodDumpAsync(prDiffsFile.Path, diff.Name));
 
                     List<string> lines = new();
                     await ProcessHelper.RunProcessAsync("git", $"diff --minimal --no-index -U20000 {baseFile} {prFile}", lines);
@@ -818,6 +804,33 @@ public sealed class RuntimeUtilsJob
                     line.StartsWith("@@", StringComparison.Ordinal) ||
                     line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal) ||
                     line.StartsWith("; ============================================================", StringComparison.Ordinal);
+            }
+        }
+
+        async Task ExtractFrameworksDiffsZipAsync()
+        {
+            LogsReceived("Extracting Frameworks diffs zip ...");
+
+            await using Stream zipStream = File.OpenRead(_frameworksDiffsZipFile.Path);
+            using var zip = new ZipArchive(zipStream, ZipArchiveMode.Read);
+
+            foreach (var entry in zip.Entries)
+            {
+                string name = entry.FullName;
+                string dasmFile = Path.GetFileName(name);
+
+                if (!dasmFile.EndsWith(".dasm", StringComparison.Ordinal) ||
+                    !name.Contains("dasmset_", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                bool isMain = name.Contains("dasmset_1", StringComparison.Ordinal);
+
+                var tempFile = new TempFile("txt");
+                _frameworksDiffFiles.Add((dasmFile, isMain), tempFile);
+
+                entry.ExtractToFile(tempFile.Path, overwrite: true);
             }
         }
     }

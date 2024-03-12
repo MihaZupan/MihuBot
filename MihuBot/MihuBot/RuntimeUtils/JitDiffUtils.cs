@@ -59,7 +59,7 @@ public static partial class JitDiffUtils
         return sb.ToString();
     }
 
-    public static (string Description, string Name)[] ParseDiffEntries(string diffSource, bool regressions)
+    public static (string Description, string DasmFile, string Name)[] ParseDiffEntries(string diffSource, bool regressions)
     {
         ReadOnlySpan<char> text = diffSource.ReplaceLineEndings("\n");
 
@@ -68,7 +68,7 @@ public static partial class JitDiffUtils
 
         if (index < 0)
         {
-            return Array.Empty<(string, string)>();
+            return Array.Empty<(string, string, string)>();
         }
 
         text = text.Slice(index);
@@ -80,13 +80,13 @@ public static partial class JitDiffUtils
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(line => JitDiffRegressionNameRegex().Match(line))
             .Where(m => m.Success)
-            .Select(m => (m.Groups[1].Value, m.Groups[2].Value))
+            .Select(m => (m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value))
             .ToArray();
     }
 
     public static async Task<string> TryGetMethodDumpAsync(string diffPath, string methodName)
     {
-        using var fs = File.OpenRead(diffPath);
+        using var fs = File.Open(diffPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         var pipe = PipeReader.Create(fs);
 
         bool foundPrefix = false;
@@ -161,6 +161,6 @@ public static partial class JitDiffUtils
         }
     }
 
-    [GeneratedRegex(@" *(.*?) : .*? - ([^ ]*)")]
+    [GeneratedRegex(@" *(.*?) : (.*?) - ([^ ]*)")]
     private static partial Regex JitDiffRegressionNameRegex();
 }
