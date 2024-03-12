@@ -667,6 +667,8 @@ public sealed class RuntimeUtilsJob
     {
         try
         {
+            await ExtractFrameworksDiffsZipAsync();
+
             await PostDiffExamplesAsync(regressions: true);
             await PostDiffExamplesAsync(regressions: false);
         }
@@ -719,8 +721,6 @@ public sealed class RuntimeUtilsJob
             {
                 return Array.Empty<string>();
             }
-
-            await ExtractFrameworksDiffsZipAsync();
 
             bool includeRemovedMethod = IncludeRemovedMethodImprovements;
             bool IncludeNewMethod = IncludeNewMethodRegressions;
