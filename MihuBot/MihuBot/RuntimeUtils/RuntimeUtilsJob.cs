@@ -441,7 +441,7 @@ public sealed class RuntimeUtilsJob
                 osDiskSizeGiB = new { value = 64 },
                 virtualMachineSize = new { value = vmSize },
                 adminPassword = new { value = JobId },
-                customData = new { value = userData },
+                customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(userData)) },
                 imageReference = new
                 {
                     value = new
