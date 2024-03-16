@@ -440,7 +440,7 @@ public sealed class RuntimeUtilsJob
                 runnerId = new { value = ExternalId },
                 osDiskSizeGiB = new { value = 64 },
                 virtualMachineSize = new { value = vmSize },
-                adminPassword = new { value = JobId },
+                adminPassword = new { value = $"{JobId}aA1" },
                 customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(userData)) },
                 imageReference = new
                 {
