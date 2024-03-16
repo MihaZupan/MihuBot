@@ -414,7 +414,7 @@ public sealed class RuntimeUtilsJob
         string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
 
         string defaultVmSize = UseArm ? "DXpds_v5" : (UseIntelCpu ? "DXd_v5" : "DXads_v5");
-        defaultVmSize = $"Default_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
+        defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
 
         string vmSize = GetConfigFlag($"RuntimeUtils.Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
 
