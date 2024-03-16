@@ -204,6 +204,21 @@ public sealed class RuntimeUtilsJob
         return @default;
     }
 
+    private string CreateCloudInitScript()
+    {
+        return
+            $"""
+            #cloud-config
+                runcmd:
+                    - apt-get update
+                    - apt-get install -y dotnet-sdk-6.0
+                    - cd /home
+                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
+                    - cd runtime-utils/Runner
+                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
+            """;
+    }
+
     public async Task RunJobAsync()
     {
         LogsReceived("Starting ...");
@@ -420,18 +435,6 @@ public sealed class RuntimeUtilsJob
 
         string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
-        string userData =
-            $"""
-            #cloud-config
-                runcmd:
-                    - apt-get update
-                    - apt-get install -y dotnet-sdk-6.0
-                    - cd /home
-                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-                    - cd runtime-utils/Runner
-                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
-            """;
-
         var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
         {
             Template = BinaryData.FromString(templateJson),
@@ -441,7 +444,7 @@ public sealed class RuntimeUtilsJob
                 osDiskSizeGiB = new { value = 64 },
                 virtualMachineSize = new { value = vmSize },
                 adminPassword = new { value = $"{JobId}aA1" },
-                customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(userData)) },
+                customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(CreateCloudInitScript())) },
                 imageReference = new
                 {
                     value = new
@@ -508,24 +511,12 @@ public sealed class RuntimeUtilsJob
 
         LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
-        string userData =
-            $"""
-            #cloud-config
-                runcmd:
-                    - apt-get update
-                    - apt-get install -y dotnet-sdk-6.0
-                    - cd /home
-                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-                    - cd runtime-utils/Runner
-                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
-            """;
-
         HetznerServerResponse server = await Hetzner.CreateServerAsync(
             $"runner-{ExternalId}",
             GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
             GetConfigFlag($"HetznerLocation{cpuType}", UseArm || UseIntelCpu ? "fsn1" : "ash"),
             serverType,
-            userData,
+            CreateCloudInitScript(),
             jobTimeout);
 
         HetznerServerResponse.HetznerServer serverInfo = server.Server ?? throw new Exception("No server info");
