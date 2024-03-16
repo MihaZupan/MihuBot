@@ -12,6 +12,8 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using static MihuBot.Helpers.HetznerClient;
+using Azure.ResourceManager.Resources.Models;
+using Azure.ResourceManager.Resources;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -69,6 +71,8 @@ public sealed class RuntimeUtilsJob
 
     private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+    private bool UseAzureVM => CustomArguments.Contains("-azureVM", StringComparison.OrdinalIgnoreCase);
+    private bool UseIntelCpu => CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
     private bool IncludeNewMethodRegressions => CustomArguments.Contains("-includeNewMethodRegressions", StringComparison.OrdinalIgnoreCase);
     private bool IncludeRemovedMethodImprovements => CustomArguments.Contains("-includeRemovedMethodImprovements", StringComparison.OrdinalIgnoreCase);
 
@@ -242,7 +246,17 @@ public sealed class RuntimeUtilsJob
             }
             else
             {
-                await RunAzureContainerInstanceAsync(jobTimeout);
+                var armClient = new ArmClient(Program.AzureCredential);
+                var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
+
+                if (UseAzureVM)
+                {
+                    await RunAzureVirtualMachineAsync(subscription, jobTimeout);
+                }
+                else
+                {
+                    await RunAzureContainerInstanceAsync(subscription, jobTimeout);
+                }
             }
 
             await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
@@ -327,12 +341,8 @@ public sealed class RuntimeUtilsJob
         }
     }
 
-    private async Task RunAzureContainerInstanceAsync(CancellationToken jobTimeout)
+    private async Task RunAzureContainerInstanceAsync(SubscriptionResource subscription, CancellationToken jobTimeout)
     {
-        var armClient = new ArmClient(Program.AzureCredential);
-        var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
-        var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
-
         double memoryInGB = 16;
         double cpuCount = 4;
 
@@ -369,6 +379,7 @@ public sealed class RuntimeUtilsJob
 
         LogsReceived($"Starting an Azure Container Instance (CPU={cpuCount} Memory={memoryInGB}) ...");
 
+        var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
         var containerGroups = resourceGroup.GetContainerGroups();
         var containerGroupResource = (await containerGroups.CreateOrUpdateAsync(WaitUntil.Completed, container.Name, containerGroupData, jobTimeout)).Value;
 
@@ -398,11 +409,102 @@ public sealed class RuntimeUtilsJob
         }
     }
 
+    private async Task RunAzureVirtualMachineAsync(SubscriptionResource subscription, CancellationToken jobTimeout)
+    {
+        string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
+
+        string defaultVmSize = UseArm ? "DXpds_v5" : (UseIntelCpu ? "DXd_v5" : "DXads_v5");
+        defaultVmSize = $"Default_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
+
+        string vmSize = GetConfigFlag($"RuntimeUtils.Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
+
+        string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/2b2eca8917b416d1b7f062ab8e79be717f08a4f9/AzureVirtualMachineTemplate.json", jobTimeout);
+
+        string userData =
+            $"""
+            #cloud-config
+                runcmd:
+                    - apt-get update
+                    - apt-get install -y dotnet-sdk-6.0
+                    - cd /home
+                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
+                    - cd runtime-utils/Runner
+                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
+            """;
+
+        var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
+        {
+            Template = BinaryData.FromString(templateJson),
+            Parameters = BinaryData.FromObjectAsJson(new
+            {
+                runnerId = new { value = ExternalId },
+                osDiskSizeGiB = new { value = 64 },
+                virtualMachineSize = new { value = vmSize },
+                adminPassword = new { value = JobId },
+                customData = new { value = userData },
+                imageReference = new
+                {
+                    value = new
+                    {
+                        publisher = "canonical",
+                        offer = "0001-com-ubuntu-server-jammy",
+                        sku = UseArm ? "22_04-lts-arm64" : "22_04-lts-gen2",
+                        version = "latest"
+                    }
+                }
+            })
+        });
+
+        LogsReceived("Creating a new Azure resource group for this deployment ...");
+
+        string resourceGroupName = $"runtime-utils-runner-{ExternalId}";
+
+        var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
+        var resourceGroups = subscription.GetResourceGroups();
+        var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
+
+        try
+        {
+            LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
+
+            var armDeployments = resourceGroup.GetArmDeployments();
+            var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, deploymentContent, jobTimeout)).Value;
+
+            LogsReceived("Azure deployment complete");
+
+            await _jobCompletionTcs.Task.WaitAsync(jobTimeout);
+        }
+        finally
+        {
+            if (ShouldDeleteContainer)
+            {
+                LogsReceived("Deleting the VM resource group");
+
+                try
+                {
+                    await resourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken: CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    await Logger.DebugAsync($"Failed to delete Azure resource group {resourceGroupName}: {ex}");
+                }
+            }
+            else
+            {
+                LogsReceived("Configuration opted not to delete the VM");
+            }
+
+            NotifyJobCompletion();
+        }
+    }
+
     private async Task RunHetznerVirtualMachineAsync(CancellationToken jobTimeout)
     {
+        string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
+
         string serverType = Fast
-            ? GetConfigFlag($"HetznerServerTypeFast{Architecture}", UseArm ? "cax41" : "cpx51")
-            : GetConfigFlag($"HetznerServerType{Architecture}", UseArm ? "cax31" : "cpx41");
+            ? GetConfigFlag($"RuntimeUtils.Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (UseIntelCpu ? "cx51" : "cpx51"))
+            : GetConfigFlag($"RuntimeUtils.Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (UseIntelCpu ? "cx41" : "cpx41"));
 
         LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
@@ -421,7 +523,7 @@ public sealed class RuntimeUtilsJob
         HetznerServerResponse server = await Hetzner.CreateServerAsync(
             $"runner-{ExternalId}",
             GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
-            GetConfigFlag($"HetznerLocation{Architecture}", UseArm ? "fsn1" : "ash"),
+            GetConfigFlag($"HetznerLocation{cpuType}", UseArm || UseIntelCpu ? "fsn1" : "ash"),
             serverType,
             userData,
             jobTimeout);
@@ -431,7 +533,7 @@ public sealed class RuntimeUtilsJob
 
         try
         {
-            LogsReceived($"VM starting (Arch={vmType?.Architecture} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
+            LogsReceived($"VM starting (CpuType={cpuType} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
 
             await _jobCompletionTcs.Task.WaitAsync(jobTimeout);
         }
