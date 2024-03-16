@@ -404,12 +404,6 @@ public sealed class RuntimeUtilsJob
             ? GetConfigFlag($"HetznerServerTypeFast{Architecture}", UseArm ? "cax41" : "cpx51")
             : GetConfigFlag($"HetznerServerType{Architecture}", UseArm ? "cax31" : "cpx41");
 
-        if (serverType is "cpx41" or "cpx51" or "cax31" or "cax41" &&
-            !CustomArguments.Contains("force-frameworks-", StringComparison.OrdinalIgnoreCase))
-        {
-            CustomArguments += " -force-frameworks-parallel";
-        }
-
         LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
         string userData =
