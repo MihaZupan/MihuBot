@@ -416,7 +416,11 @@ public sealed class RuntimeUtilsJob
             if (ShouldDeleteContainer)
             {
                 LogsReceived("Deleting the container instance");
-                await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
+
+                QueueResourceDeletion(async () =>
+                {
+                    await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
+                }, container.Name);
             }
             else
             {
@@ -486,14 +490,10 @@ public sealed class RuntimeUtilsJob
             {
                 LogsReceived("Deleting the VM resource group");
 
-                try
+                QueueResourceDeletion(async () =>
                 {
                     await resourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken: CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    await Logger.DebugAsync($"Failed to delete Azure resource group {resourceGroupName}: {ex}");
-                }
+                }, resourceGroupName);
             }
             else
             {
@@ -537,20 +537,31 @@ public sealed class RuntimeUtilsJob
             {
                 LogsReceived("Deleting the VM");
 
-                try
+                QueueResourceDeletion(async () =>
                 {
                     await Hetzner.DeleteServerAsync(serverInfo.Id, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    await Logger.DebugAsync($"Failed to delete Hetzner VM {serverInfo.Id}: {ex}");
-                }
+                }, serverInfo.Id.ToString());
             }
             else
             {
                 LogsReceived("Configuration opted not to delete the VM");
             }
         }
+    }
+
+    private void QueueResourceDeletion(Func<Task> func, string info)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await func();
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync($"Failed to delete resource {info}: {ex}");
+            }
+        });
     }
 
     public string GetElapsedTime()
