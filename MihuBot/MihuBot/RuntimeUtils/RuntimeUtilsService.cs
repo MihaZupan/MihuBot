@@ -158,7 +158,18 @@ public sealed class RuntimeUtilsService : IHostedService
                                 if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
                                     arguments is "-h" or "-H" or "?" or "-?")
                                 {
-                                    await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
+                                    // Can't post on dotnet/runtime with MihuBot PAT.
+                                    // await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
+
+                                    var newIssue = await Github.Issue.Create(RuntimeUtilsJob.IssueRepositoryOwner, RuntimeUtilsJob.IssueRepositoryName,
+                                        new NewIssue("MihuBot instructions")
+                                        {
+                                            Body = $"{UsageCommentMarkdown}\n\n@{user.Login}\n{pullRequestUrl}"
+                                        });
+
+                                    var update = newIssue.ToUpdate();
+                                    update.State = ItemState.Closed;
+                                    await Github.Issue.Update(newIssue.Repository.Id, newIssue.Number, update);
                                     return;
                                 }
 

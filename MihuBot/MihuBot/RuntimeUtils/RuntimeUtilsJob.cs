@@ -21,8 +21,8 @@ public sealed class RuntimeUtilsJob
 {
     private const string DotnetRuntimeRepoOwner = "dotnet";
     private const string DotnetRuntimeRepoName = "runtime";
-    private const string IssueRepositoryOwner = "MihuBot";
-    private const string IssueRepositoryName = "runtime-utils";
+    public const string IssueRepositoryOwner = "MihuBot";
+    public const string IssueRepositoryName = "runtime-utils";
     private const int CommentLengthLimit = 65_000;
     private const int IdleTimeoutMs = 5 * 60 * 1000;
 
