@@ -933,6 +933,7 @@ public sealed class RuntimeUtilsJob
 
         async Task ExtractFrameworksDiffsZipAsync()
         {
+            Stopwatch extractTime = Stopwatch.StartNew();
             LogsReceived("Extracting Frameworks diffs zip ...");
 
             await using Stream zipStream = File.OpenRead(_frameworksDiffsZipFile.Path);
@@ -956,6 +957,8 @@ public sealed class RuntimeUtilsJob
 
                 entry.ExtractToFile(tempFile.Path, overwrite: true);
             }
+
+            LogsReceived($"Finished extracting Frameworks diffs zip in {extractTime.Elapsed.TotalSeconds:N1} seconds");
         }
     }
 }
