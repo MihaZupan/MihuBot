@@ -458,7 +458,6 @@ public sealed class RuntimeUtilsJob
         LogsReceived("Creating a new Azure resource group for this deployment ...");
 
         string resourceGroupName = $"runtime-utils-runner-{ExternalId}";
-
         var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
         var resourceGroups = subscription.GetResourceGroups();
         var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
@@ -467,8 +466,9 @@ public sealed class RuntimeUtilsJob
         {
             LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
 
+            string deploymentName = $"runner-deployment-{ExternalId}";
             var armDeployments = resourceGroup.GetArmDeployments();
-            var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, deploymentContent, jobTimeout)).Value;
+            var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
 
             LogsReceived("Azure deployment complete");
 
