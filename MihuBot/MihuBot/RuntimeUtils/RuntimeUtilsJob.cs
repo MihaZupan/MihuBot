@@ -45,10 +45,10 @@ public sealed class RuntimeUtilsJob
     private IConfigurationService ConfigurationService => _parent.ConfigurationService;
     private HetznerClient Hetzner => _parent.Hetzner;
 
-    public Stopwatch Stopwatch { get; private set; } = new();
+    public Stopwatch Stopwatch { get; private set; } = Stopwatch.StartNew();
     public PullRequest PullRequest { get; private set; }
     public Issue TrackingIssue { get; private set; }
-    public bool Completed => _jobCompletionTcs.Task.IsCompleted;
+    public bool Completed => !Stopwatch.IsRunning;
 
     public string JobTitle { get; }
     public string TestedPROrBranchLink { get; }
@@ -202,8 +202,6 @@ public sealed class RuntimeUtilsJob
 
     public async Task RunJobAsync()
     {
-        Stopwatch.Start();
-
         LogsReceived("Starting ...");
 
         if (!Program.AzureEnabled)
@@ -248,8 +246,6 @@ public sealed class RuntimeUtilsJob
             }
 
             await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
-
-            Stopwatch.Stop();
 
             const string DetailsStart = "<details>\n<summary>Diffs</summary>\n\n";
             const string DetailsEnd = "\n</details>\n";
@@ -306,6 +302,8 @@ public sealed class RuntimeUtilsJob
         }
         finally
         {
+            Stopwatch.Stop();
+
             NotifyJobCompletion();
 
             if (FromGithubComment && ShouldMentionJobInitiator)
