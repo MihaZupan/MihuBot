@@ -70,14 +70,15 @@ public sealed class RuntimeUtilsJob
     public string Architecture => UseArm ? "ARM64" : "X64";
 
     private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
-    private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
-    private bool UseAzureVM => CustomArguments.Contains("-azureVM", StringComparison.OrdinalIgnoreCase);
+    private bool UseAzureContainerInstance => CustomArguments.Contains("-aci", StringComparison.OrdinalIgnoreCase);
     private bool UseIntelCpu => CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
+    private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+    private bool IncludeKnownNoise => CustomArguments.Contains("-includeKnownNoise", StringComparison.OrdinalIgnoreCase);
     private bool IncludeNewMethodRegressions => CustomArguments.Contains("-includeNewMethodRegressions", StringComparison.OrdinalIgnoreCase);
     private bool IncludeRemovedMethodImprovements => CustomArguments.Contains("-includeRemovedMethodImprovements", StringComparison.OrdinalIgnoreCase);
 
     public bool UseHetzner =>
-        GetConfigFlag("ForceHetzner", false) || UseArm || Fast ||
+        GetConfigFlag("ForceHetzner", false) ||
         CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
     public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
@@ -264,15 +265,17 @@ public sealed class RuntimeUtilsJob
                 var armClient = new ArmClient(Program.AzureCredential);
                 var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
 
-                if (UseAzureVM)
-                {
-                    await RunAzureVirtualMachineAsync(subscription, jobTimeout);
-                }
-                else
+                if (UseAzureContainerInstance)
                 {
                     await RunAzureContainerInstanceAsync(subscription, jobTimeout);
                 }
+                else
+                {
+                    await RunAzureVirtualMachineAsync(subscription, jobTimeout);
+                }
             }
+
+            LastSystemInfo = null;
 
             await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
 
@@ -766,15 +769,20 @@ public sealed class RuntimeUtilsJob
         {
             var allChanges = await GetDiffMarkdownAsync(JitDiffUtils.ParseDiffEntries(_frameworksDiffSummary, regressions));
 
-            string changes = JitDiffUtils.GetCommentMarkdown(allChanges, CommentLengthLimit, regressions, out bool truncated);
+            string changes = JitDiffUtils.GetCommentMarkdown(allChanges.Diffs, CommentLengthLimit, regressions, out bool truncated);
 
-            Logger.DebugLog($"Found {allChanges.Length} changes, comment length={changes.Length} for {nameof(regressions)}={regressions}");
+            Logger.DebugLog($"Found {allChanges.Diffs.Length} changes, comment length={changes.Length} for {nameof(regressions)}={regressions}");
 
             if (changes.Length != 0)
             {
+                if (allChanges.NoisyDiffsRemoved)
+                {
+                    changes = $"{changes}\n\nNote: some changes were skipped as they were likely noise.";
+                }
+
                 if (truncated)
                 {
-                    changes = $"{changes}\n\nLarger list of diffs: {await PostLargeDiffGistAsync(allChanges, regressions)}";
+                    changes = $"{changes}\n\nLarger list of diffs: {await PostLargeDiffGistAsync(allChanges.Diffs, regressions)}";
                 }
 
                 await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, changes);
@@ -800,17 +808,19 @@ public sealed class RuntimeUtilsJob
             return gist.HtmlUrl;
         }
 
-        async Task<string[]> GetDiffMarkdownAsync((string Description, string DasmFile, string Name)[] diffs)
+        async Task<(string[] Diffs, bool NoisyDiffsRemoved)> GetDiffMarkdownAsync((string Description, string DasmFile, string Name)[] diffs)
         {
             if (diffs.Length == 0)
             {
-                return Array.Empty<string>();
+                return (Array.Empty<string>(), false);
             }
 
+            bool noisyMethodsRemoved = false;
+            bool includeKnownNoise = IncludeKnownNoise;
             bool includeRemovedMethod = IncludeRemovedMethodImprovements;
             bool IncludeNewMethod = IncludeNewMethodRegressions;
 
-            return await diffs
+            var result = await diffs
                 .ToAsyncEnumerable()
                 .Where(diff => includeRemovedMethod || !IsRemovedMethod(diff.Description))
                 .Where(diff => IncludeNewMethod || !IsNewMethod(diff.Description))
@@ -853,6 +863,12 @@ public sealed class RuntimeUtilsJob
                                 continue;
                             }
 
+                            if (!includeKnownNoise && LineIsIndicativeOfKnownNoise(line.AsSpan().TrimStart()))
+                            {
+                                noisyMethodsRemoved = true;
+                                return string.Empty;
+                            }
+
                             sb.AppendLine(line);
                         }
                     }
@@ -872,6 +888,8 @@ public sealed class RuntimeUtilsJob
                 .Take(20)
                 .ToArrayAsync();
 
+            return (result, noisyMethodsRemoved);
+
             static bool IsRemovedMethod(ReadOnlySpan<char> description) =>
                 description.Contains("-100.", StringComparison.Ordinal);
 
@@ -889,6 +907,16 @@ public sealed class RuntimeUtilsJob
                     line.StartsWith("@@", StringComparison.Ordinal) ||
                     line.StartsWith("\\ No newline at end of file", StringComparison.Ordinal) ||
                     line.StartsWith("; ============================================================", StringComparison.Ordinal);
+            }
+
+            static bool LineIsIndicativeOfKnownNoise(ReadOnlySpan<char> line)
+            {
+                if (line.IsEmpty || line[0] is not ('+' or '-'))
+                {
+                    return false;
+                }
+
+                return line.Contains("CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS", StringComparison.Ordinal);
             }
         }
 

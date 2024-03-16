@@ -19,14 +19,20 @@ public sealed class RuntimeUtilsService : IHostedService
         Options:
             -?|-help              Show help information
 
-            -arm                  Get ARM64 diffs instead of x64.
-            -hetzner              Run on a Hetzner VM instead of ACI (faster). Does not run inside a container.
-            -fast                 Run on a more powerful VM to save a few minutes of runtime.
+            -arm                  Get ARM64 diffs instead of X64.
+            -nocctors             Avoid passing --cctors to jit-diff.
+            -tier0                Generate tier0 code.
             -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
             -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
 
-            -nocctors             Avoid passing --cctors to jit-diff.
-            -tier0                Generate tier0 code.
+            -fast                 Run on a more powerful VM to save a few minutes.
+            -hetzner              Run on a Hetzner VM instead of Azure.
+            -aci                  Run on Azure Container Instances instead of a VM (slower, does not support -arm, -intel).
+            -intel                Run on an Intel-based VM instead of an AMD-based one.
+
+            -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).
+            -includeNewMethodRegressions        Display diffs for new methods.
+            -includeRemovedMethodImprovements   Display diffs for removed methods.
         ```
         """;
 
