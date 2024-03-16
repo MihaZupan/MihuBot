@@ -418,7 +418,7 @@ public sealed class RuntimeUtilsJob
 
         string vmSize = GetConfigFlag($"RuntimeUtils.Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
 
-        string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/2b2eca8917b416d1b7f062ab8e79be717f08a4f9/AzureVirtualMachineTemplate.json", jobTimeout);
+        string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
         string userData =
             $"""
