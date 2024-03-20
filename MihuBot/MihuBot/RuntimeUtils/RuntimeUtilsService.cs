@@ -62,7 +62,7 @@ public sealed class RuntimeUtilsService : IHostedService
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "artifacts");
 
-            ArtifactsBlobContainerClient = new BlobContainerClient(
+            RunnerBaselineBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "runner-baseline");
         }
