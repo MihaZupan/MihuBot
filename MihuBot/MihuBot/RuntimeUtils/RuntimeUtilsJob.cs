@@ -1,10 +1,13 @@
-﻿using Azure.Core;
-using Azure.ResourceManager.ContainerInstance.Models;
-using Azure.ResourceManager.ContainerInstance;
+﻿using Azure;
+using Azure.Core;
 using Azure.ResourceManager;
-using Azure.Storage.Blobs.Models;
+using Azure.ResourceManager.ContainerInstance;
+using Azure.ResourceManager.ContainerInstance.Models;
+using Azure.ResourceManager.Resources;
+using Azure.ResourceManager.Resources.Models;
 using Azure.Storage.Blobs;
-using Azure;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using MihuBot.Configuration;
 using Octokit;
 using System.Buffers;
@@ -12,8 +15,6 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Runtime.CompilerServices;
 using static MihuBot.Helpers.HetznerClient;
-using Azure.ResourceManager.Resources.Models;
-using Azure.ResourceManager.Resources;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -117,6 +118,10 @@ public sealed class RuntimeUtilsJob
         Metadata.Add("PrRepo", repository);
         Metadata.Add("PrBranch", branch);
         Metadata.Add("CustomArguments", arguments);
+
+        BlobClient blobClient = _parent.RunnerBaselineBlobContainerClient.GetBlobClient("RunnerBaseline.tar");
+        Uri sasUri = blobClient.GenerateSasUri(BlobSasPermissions.All, DateTimeOffset.UtcNow.AddHours(5));
+        Metadata.Add("RunnerBaselineBlob", sasUri.AbsoluteUri);
     }
 
     private async Task ParsePRListAsync(string arguments, string argument)
@@ -279,18 +284,15 @@ public sealed class RuntimeUtilsJob
 
             await ArtifactReceivedAsync("build-logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
 
-            const string DetailsStart = "<details>\n<summary>Diffs</summary>\n\n";
-            const string DetailsEnd = "\n</details>\n";
-
             bool shouldHideDiffs = _frameworksDiffSummary?.Length > CommentLengthLimit / 2;
 
             string frameworksDiffs =
                 $"### Diffs\n\n" +
-                (shouldHideDiffs ? DetailsStart : "") +
+                (shouldHideDiffs ? "<details>\n<summary>Diffs</summary>\n\n" : "") +
                 $"```\n" +
                 $"{_frameworksDiffSummary}\n" +
                 $"```\n" +
-                (shouldHideDiffs ? DetailsEnd : "") +
+                (shouldHideDiffs ? "\n</details>\n" : "") +
                 $"\n\n";
 
             bool gotAnyDiffs = _frameworksDiffSummary is not null;

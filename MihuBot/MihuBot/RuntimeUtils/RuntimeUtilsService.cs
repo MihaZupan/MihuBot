@@ -45,6 +45,7 @@ public sealed class RuntimeUtilsService : IHostedService
     public readonly IConfigurationService ConfigurationService;
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
+    public readonly BlobContainerClient RunnerBaselineBlobContainerClient;
 
     public RuntimeUtilsService(Logger logger, GitHubClient github, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
     {
@@ -60,6 +61,10 @@ public sealed class RuntimeUtilsService : IHostedService
             ArtifactsBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "artifacts");
+
+            ArtifactsBlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                "runner-baseline");
         }
     }
 
