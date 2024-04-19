@@ -8,6 +8,7 @@ public sealed class FileBackedHashSet
     public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null)
     {
         filePath = $"{Constants.StateDirectory}/{filePath}";
+        comparer ??= StringComparer.Ordinal;
 
         if (File.Exists(filePath))
         {

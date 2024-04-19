@@ -37,6 +37,7 @@ public sealed class RuntimeUtilsService : IHostedService
         """;
 
     private readonly Dictionary<string, RuntimeUtilsJob> _jobs = new(StringComparer.Ordinal);
+    private readonly FileBackedHashSet _processedMentions = new("ProcessedMentionComments.txt");
 
     public readonly Logger Logger;
     public readonly GitHubClient Github;
@@ -82,110 +83,72 @@ public sealed class RuntimeUtilsService : IHostedService
 
     private async Task WatchForGitHubMentionsAsync()
     {
-        List<(int Id, Stopwatch Timestamp)> processedMentions = new();
-
-        DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-        DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
-
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
-        while (await timer.WaitForNextTickAsync())
+        await foreach (GitHubComment comment in Github.PollCommentsAsync(RepoOwner, RepoName, Logger))
         {
             try
             {
-                processedMentions.RemoveAll(c => c.Timestamp.Elapsed.TotalDays > 14);
-
-                IReadOnlyList<PullRequestReviewComment> pullReviewComments = await Github.PullRequest.ReviewComment.GetAllForRepository(RepoOwner, RepoName, new PullRequestReviewCommentRequest
+                if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
                 {
-                    Since = lastCheckTimeReviewComments
-                }, new ApiOptions { PageCount = 100 });
-
-                if (pullReviewComments.Count > 0)
-                {
-                    lastCheckTimeReviewComments = pullReviewComments.Max(c => c.CreatedAt);
+                    await ProcessMihuBotMentions(comment);
                 }
 
-                foreach (PullRequestReviewComment reviewComment in pullReviewComments)
+                if (comment.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase) &&
+                    _processedMentions.TryAdd($"{comment.RepoOwner}/{comment.RepoName}/{comment.IssueId}") &&
+                    !ConfigurationService.TryGet(null, "RuntimeUtils.NclMentions.Disable", out _))
                 {
-                    await Process(reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User);
-                }
+                    ConfigurationService.TryGet(null, "RuntimeUtils.NclMentions.Text", out string mentions);
 
-                IReadOnlyList<IssueComment> issueComments = await Github.Issue.Comment.GetAllForRepository(RepoOwner, RepoName, new IssueCommentRequest
-                {
-                    Since = lastCheckTimeIssueComments,
-                    Sort = IssueCommentSort.Created,
-                }, new ApiOptions { PageCount = 100 });
-
-                if (issueComments.Count > 0)
-                {
-                    lastCheckTimeIssueComments = issueComments.Max(c => c.CreatedAt);
-                }
-
-                var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
-
-                if (recentTimestamp > lastCheckTimeIssueComments)
-                {
-                    lastCheckTimeIssueComments = recentTimestamp;
-                }
-
-                if (recentTimestamp > lastCheckTimeReviewComments)
-                {
-                    lastCheckTimeReviewComments = recentTimestamp;
-                }
-
-                foreach (IssueComment issueComment in issueComments)
-                {
-                    if (issueComment.HtmlUrl.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                    if (string.IsNullOrEmpty(mentions))
                     {
-                        await Process(issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User);
+                        mentions = "@MihaZupan @CarnaViire @karelz @antonfirsov @ManickaP @wfurt @rzikm @liveans";
                     }
-                }
 
-                async Task Process(int commentId, string pullRequestUrl, string body, User user)
-                {
-                    if (user.Type == AccountType.User &&
-                        body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                        !processedMentions.Any(c => c.Id == commentId))
-                    {
-                        Logger.DebugLog($"Processing mention from {user.Login} in {pullRequestUrl}: '{body}'");
-
-                        processedMentions.Add((commentId, Stopwatch.StartNew()));
-
-                        int pullRequestNumber = int.Parse(new Uri(pullRequestUrl, UriKind.Absolute).AbsolutePath.Split('/').Last());
-
-                        PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, pullRequestNumber);
-
-                        if (pullRequest.State.Value == ItemState.Open)
-                        {
-                            if (CheckGitHubUserPermissions(user.Login))
-                            {
-                                string arguments = body.AsSpan(body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
-
-                                if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
-                                    arguments is "-h" or "-H" or "?" or "-?")
-                                {
-                                    await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
-                                    return;
-                                }
-
-                                StartJob(pullRequest, githubCommenterLogin: user.Login, arguments);
-                            }
-                            else
-                            {
-                                if (!user.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
-                                    !user.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    await Logger.DebugAsync($"User {user.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
-                                }
-                            }
-                        }
-                    }
+                    await Github.Issue.Comment.Create(RepoOwner, RepoName, comment.IssueId, mentions);
                 }
             }
             catch (Exception ex)
             {
-                lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-                lastCheckTimeIssueComments = DateTime.UtcNow;
-                Logger.DebugLog($"Failed to fetch GitHub notifications: {ex}");
+                await Logger.DebugAsync($"Failure while processing comment {comment.Url} {comment.CommentId}: {ex}");
+            }
+        }
+
+        async Task ProcessMihuBotMentions(GitHubComment comment)
+        {
+            if (comment.User.Type == AccountType.User &&
+                comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
+                _processedMentions.TryAdd(comment.CommentId.ToString()))
+            {
+                Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
+
+                int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
+
+                PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, pullRequestNumber);
+
+                if (pullRequest.State.Value == ItemState.Open)
+                {
+                    if (CheckGitHubUserPermissions(comment.User.Login))
+                    {
+                        string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
+
+                        if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                            arguments is "-h" or "-H" or "?" or "-?")
+                        {
+                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
+                            return;
+                        }
+
+                        StartJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                    }
+                    else
+                    {
+                        if (!comment.User.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
+                            !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
+                            !comment.User.Login.Contains("dotnet-policy-service", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await Logger.DebugAsync($"User {comment.User.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
+                        }
+                    }
+                }
             }
         }
     }
