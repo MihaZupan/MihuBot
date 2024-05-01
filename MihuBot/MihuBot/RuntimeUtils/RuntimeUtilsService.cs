@@ -27,7 +27,6 @@ public sealed class RuntimeUtilsService : IHostedService
 
             -fast                 Run on a more powerful VM to save a few minutes.
             -hetzner              Run on a Hetzner VM instead of Azure.
-            -aci                  Run on Azure Container Instances instead of a VM (slower, does not support -arm, -intel).
             -intel                Run on an Intel-based VM instead of an AMD-based one.
 
             -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).

@@ -89,10 +89,6 @@
                                             <label for="runOnHetznerCheck">Run on a Hetzner VM instead of Azure</label>
                                         </div>
                                         <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.RunOnACI id="runOnACICheck" />
-                                            <label for="runOnACICheck">Run on Azure Container Instances</label>
-                                        </div>
-                                        <div class="form-check">
                                             <InputCheckbox @bind-Value=_newJob.RunOnIntel id="runOnIntelCheck" />
                                             <label for="runOnIntelCheck">Run on an Intel-based CPU instead of AMD</label>
                                         </div>
@@ -206,7 +202,6 @@
 
         public bool MentionPrOnTrackingIssue { get; set; } = true;
         public bool RunOnHetzner { get; set; }
-        public bool RunOnACI { get; set; }
         public bool RunOnIntel { get; set; }
         public bool FastJob { get; set; }
         public bool RunOnArm { get; set; }
@@ -232,7 +227,6 @@
             (RunTier0 ? "-tier0 " : "") +
             (IncludeKnownNoise ? "-includeKnownNoise " : "") +
             (RunOnHetzner ? "-hetzner " : "") +
-            (RunOnACI ? "-aci " : "") +
             (RunOnIntel ? "-intel " : "") +
             (IncludeNewMethodRegressions ? "-includeNewMethodRegressions " : "") +
             (IncludeRemovedMethodImprovements ? "-includeRemovedMethodImprovements " : "") +

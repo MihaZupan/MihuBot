@@ -71,7 +71,6 @@ public sealed class RuntimeUtilsJob
     public string Architecture => UseArm ? "ARM64" : "X64";
 
     private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
-    private bool UseAzureContainerInstance => CustomArguments.Contains("-aci", StringComparison.OrdinalIgnoreCase);
     private bool UseIntelCpu => CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
     private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     private bool IncludeKnownNoise => CustomArguments.Contains("-includeKnownNoise", StringComparison.OrdinalIgnoreCase);
@@ -183,7 +182,7 @@ public sealed class RuntimeUtilsJob
         GetConfigFlag("LinkToPR", true) &&
         !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShouldDeleteContainer => GetConfigFlag("ShouldDeleteContainer", true);
+    private bool ShouldDeleteVM => GetConfigFlag("ShouldDeleteVM", true);
 
     private bool ShouldMentionJobInitiator => GetConfigFlag("ShouldMentionJobInitiator", true);
 
@@ -267,17 +266,7 @@ public sealed class RuntimeUtilsJob
             }
             else
             {
-                var armClient = new ArmClient(Program.AzureCredential);
-                var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
-
-                if (UseAzureContainerInstance)
-                {
-                    await RunAzureContainerInstanceAsync(subscription, jobTimeout);
-                }
-                else
-                {
-                    await RunAzureVirtualMachineAsync(subscription, jobTimeout);
-                }
+                await RunAzureVirtualMachineAsync(jobTimeout);
             }
 
             LastSystemInfo = null;
@@ -361,86 +350,14 @@ public sealed class RuntimeUtilsJob
         }
     }
 
-    private async Task RunAzureContainerInstanceAsync(SubscriptionResource subscription, CancellationToken jobTimeout)
-    {
-        double memoryInGB = 16;
-        double cpuCount = 4;
-
-        if (ConfigurationService.TryGet(null, "RuntimeUtils.Azure.MemoryGB", out string memoryInGBString))
-        {
-            memoryInGB = double.Parse(memoryInGBString, CultureInfo.InvariantCulture);
-        }
-
-        if (ConfigurationService.TryGet(null, "RuntimeUtils.Azure.CPUCount", out string cpuCountString))
-        {
-            cpuCount = double.Parse(cpuCountString, CultureInfo.InvariantCulture);
-        }
-
-        var container = new ContainerInstanceContainer(
-            $"runner-{ExternalId}",
-            "runtimeutils.azurecr.io/runner:latest",
-            new ContainerResourceRequirements(new ContainerResourceRequestsContent(memoryInGB, cpuCount)));
-
-        container.EnvironmentVariables.Add(new ContainerEnvironmentVariable("JOB_ID") { Value = JobId });
-
-        var containerGroupData = new ContainerGroupData(
-            AzureLocation.EastUS2,
-            new[] { container },
-            ContainerInstanceOperatingSystemType.Linux)
-        {
-            RestartPolicy = ContainerGroupRestartPolicy.Never
-        };
-
-        containerGroupData.ImageRegistryCredentials.Add(new ContainerGroupImageRegistryCredential("runtimeutils.azurecr.io")
-        {
-            Username = "runtimeutils",
-            Password = Configuration["AzureContainerRegistry:Password"]
-        });
-
-        LogsReceived($"Starting an Azure Container Instance (CPU={cpuCount} Memory={memoryInGB}) ...");
-
-        var resourceGroup = (await subscription.GetResourceGroupAsync("runtime-utils", jobTimeout)).Value;
-        var containerGroups = resourceGroup.GetContainerGroups();
-        var containerGroupResource = (await containerGroups.CreateOrUpdateAsync(WaitUntil.Completed, container.Name, containerGroupData, jobTimeout)).Value;
-
-        try
-        {
-            do
-            {
-                await Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None);
-
-                containerGroupResource = (await containerGroupResource.GetAsync(jobTimeout)).Value;
-            }
-            while (containerGroupResource.Data?.Containers?.FirstOrDefault()?.InstanceView?.CurrentState is { } state && state.FinishOn is null);
-        }
-        finally
-        {
-            if (ShouldDeleteContainer)
-            {
-                LogsReceived("Deleting the container instance");
-
-                QueueResourceDeletion(async () =>
-                {
-                    await containerGroupResource.DeleteAsync(WaitUntil.Completed, CancellationToken.None);
-                }, container.Name);
-            }
-            else
-            {
-                LogsReceived("Configuration opted not to delete the container instance");
-            }
-
-            NotifyJobCompletion();
-        }
-    }
-
-    private async Task RunAzureVirtualMachineAsync(SubscriptionResource subscription, CancellationToken jobTimeout)
+    private async Task RunAzureVirtualMachineAsync(CancellationToken jobTimeout)
     {
         string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
 
         string defaultVmSize = UseArm ? "DXpds_v5" : (UseIntelCpu ? "DXds_v5" : "DXads_v5");
         defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
 
-        string vmSize = GetConfigFlag($"RuntimeUtils.Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
+        string vmSize = GetConfigFlag($"Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
 
         string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
@@ -469,6 +386,9 @@ public sealed class RuntimeUtilsJob
 
         LogsReceived("Creating a new Azure resource group for this deployment ...");
 
+        var armClient = new ArmClient(Program.AzureCredential);
+        var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
+
         string resourceGroupName = $"runtime-utils-runner-{ExternalId}";
         var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
         var resourceGroups = subscription.GetResourceGroups();
@@ -488,7 +408,7 @@ public sealed class RuntimeUtilsJob
         }
         finally
         {
-            if (ShouldDeleteContainer)
+            if (ShouldDeleteVM)
             {
                 LogsReceived("Deleting the VM resource group");
 
@@ -511,8 +431,8 @@ public sealed class RuntimeUtilsJob
         string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
 
         string serverType = Fast
-            ? GetConfigFlag($"RuntimeUtils.Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (UseIntelCpu ? "cx51" : "cpx51"))
-            : GetConfigFlag($"RuntimeUtils.Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (UseIntelCpu ? "cx41" : "cpx41"));
+            ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (UseIntelCpu ? "cx51" : "cpx51"))
+            : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (UseIntelCpu ? "cx41" : "cpx41"));
 
         LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
@@ -535,7 +455,7 @@ public sealed class RuntimeUtilsJob
         }
         finally
         {
-            if (ShouldDeleteContainer)
+            if (ShouldDeleteVM)
             {
                 LogsReceived("Deleting the VM");
 
