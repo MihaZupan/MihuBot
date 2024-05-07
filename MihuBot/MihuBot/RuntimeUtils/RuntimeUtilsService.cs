@@ -1,10 +1,12 @@
 ﻿using Azure.Storage.Blobs;
+using MihuBot.API;
 using MihuBot.Configuration;
 using Octokit;
+using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class RuntimeUtilsService : IHostedService
+public sealed partial class RuntimeUtilsService : IHostedService
 {
     private const string RepoOwner = "dotnet";
     private const string RepoName = "runtime";
@@ -32,6 +34,11 @@ public sealed class RuntimeUtilsService : IHostedService
             -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).
             -includeNewMethodRegressions        Display diffs for new methods.
             -includeRemovedMethodImprovements   Display diffs for removed methods.
+        ```
+
+        Or
+        ```
+        @MihuBot fuzz <fuzzer name>
         ```
         """;
 
@@ -125,18 +132,35 @@ public sealed class RuntimeUtilsService : IHostedService
 
                 if (pullRequest.State.Value == ItemState.Open)
                 {
+                    string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
+
+                    if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                        arguments is "-h" or "-H" or "?" or "-?")
+                    {
+                        await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
+                        return;
+                    }
+
                     if (CheckGitHubUserPermissions(comment.User.Login))
                     {
-                        string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
+                        var fuzzMatch = FuzzMatchRegex().Match(arguments);
 
-                        if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
-                            arguments is "-h" or "-H" or "?" or "-?")
+                        if (fuzzMatch.Success)
                         {
-                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
-                            return;
-                        }
+                            string fuzzerName = fuzzMatch.Groups[1].Value;
 
-                        StartJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                            if (fuzzerName.Length < 4)
+                            {
+                                await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Please specify a fuzzer name. For example: `@MihuBot fuzz HttpHeadersFuzzer`");
+                                return;
+                            }
+
+                            await StartFuzzJobAsync(pullRequest, fuzzerName);
+                        }
+                        else
+                        {
+                            StartJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                        }
                     }
                     else
                     {
@@ -149,6 +173,51 @@ public sealed class RuntimeUtilsService : IHostedService
                     }
                 }
             }
+        }
+    }
+
+    private async Task StartFuzzJobAsync(PullRequest pullRequest, string fuzzerName)
+    {
+        try
+        {
+            string repo = pullRequest.Head.Repository.FullName;
+            string branch = pullRequest.Head.Ref;
+
+            string scriptId = RunScriptController.AddScript(
+                token =>
+                    $$"""
+                    git clone --progress https://github.com/dotnet/runtime runtime
+                    cd runtime
+                    git log -1
+                    git config --global user.email build@build.foo
+                    git config --global user.name build
+                    git remote add pr https://github.com/{{repo}}
+                    git fetch pr {{branch}}
+                    git log pr/{{branch}} -1
+                    git merge --no-edit pr/{{branch}}
+
+                    ./build.cmd clr+libs+packs+host -rc Checked -c Debug
+
+                    cd src/libraries/Fuzzing/DotnetFuzzing
+                    ../../../../.dotnet/dotnet publish -o publish
+                    ../../../../.dotnet/dotnet tool install --tool-path . SharpFuzz.CommandLine
+                    publish/DotnetFuzzing.exe prepare-onefuzz deployment
+
+                    deployment/{{fuzzerName}}/local-run.bat -timeout=60 -max_total_time=3600
+                    """,
+                TimeSpan.FromMinutes(5));
+
+            await Github.Issue.Create(
+                "MihuBot",
+                "runtime-utils",
+                new NewIssue($"[Fuzz {fuzzerName}] [{pullRequest.User.Login}] {pullRequest.Title}".TruncateWithDotDotDot(99))
+                {
+                    Body = $"run-win-{scriptId}-\n\n{pullRequest.HtmlUrl}"
+                });
+        }
+        catch (Exception ex)
+        {
+            await Logger.DebugAsync($"Failed to start fuzz job for {pullRequest.HtmlUrl}: {ex}");
         }
     }
 
@@ -228,4 +297,7 @@ public sealed class RuntimeUtilsService : IHostedService
         ArgumentNullException.ThrowIfNull(pullRequest);
         return pullRequest;
     }
+
+    [GeneratedRegex("^fuzz ?([a-z]*)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex FuzzMatchRegex();
 }
