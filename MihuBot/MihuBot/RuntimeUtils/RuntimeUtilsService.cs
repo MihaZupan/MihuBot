@@ -184,27 +184,26 @@ public sealed partial class RuntimeUtilsService : IHostedService
             string branch = pullRequest.Head.Ref;
 
             string scriptId = RunScriptController.AddScript(
-                token =>
-                    $$"""
-                    git clone --progress https://github.com/dotnet/runtime runtime
-                    cd runtime
-                    git log -1
-                    git config --global user.email build@build.foo
-                    git config --global user.name build
-                    git remote add pr https://github.com/{{repo}}
-                    git fetch pr {{branch}}
-                    git log pr/{{branch}} -1
-                    git merge --no-edit pr/{{branch}}
+                $$"""
+                git clone --progress https://github.com/dotnet/runtime runtime
+                cd runtime
+                git log -1
+                git config --global user.email build@build.foo
+                git config --global user.name build
+                git remote add pr https://github.com/{{repo}}
+                git fetch pr {{branch}}
+                git log pr/{{branch}} -1
+                git merge --no-edit pr/{{branch}}
 
-                    ./build.cmd clr+libs+packs+host -rc Checked -c Debug
+                ./build.cmd clr+libs+packs+host -rc Checked -c Debug
 
-                    cd src/libraries/Fuzzing/DotnetFuzzing
-                    ../../../../.dotnet/dotnet publish -o publish
-                    ../../../../.dotnet/dotnet tool install --tool-path . SharpFuzz.CommandLine
-                    publish/DotnetFuzzing.exe prepare-onefuzz deployment
+                cd src/libraries/Fuzzing/DotnetFuzzing
+                ../../../../.dotnet/dotnet publish -o publish
+                ../../../../.dotnet/dotnet tool install --tool-path . SharpFuzz.CommandLine
+                publish/DotnetFuzzing.exe prepare-onefuzz deployment
 
-                    deployment/{{fuzzerName}}/local-run.bat -timeout=60 -max_total_time=3600
-                    """,
+                deployment/{{fuzzerName}}/local-run.bat -timeout=60 -max_total_time=3600
+                """,
                 TimeSpan.FromMinutes(5));
 
             await Github.Issue.Create(

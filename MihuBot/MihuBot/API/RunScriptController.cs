@@ -9,22 +9,22 @@ namespace MihuBot.API;
 [ApiController]
 public sealed class RunScriptController : ControllerBase
 {
-    private static readonly ConcurrentDictionary<string, Func<string, string>> s_scripts = new();
+    private static readonly ConcurrentDictionary<string, string> s_scripts = new();
 
     [HttpGet]
-    public async Task GetScript([FromQuery] string id, [FromQuery] string token)
+    public async Task GetScript([FromQuery] string id)
     {
-        if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(token))
+        if (string.IsNullOrEmpty(id))
         {
             Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
 
-        if (!s_scripts.TryGetValue(id, out var generator))
+        if (!s_scripts.TryGetValue(id, out string script))
         {
             if (id == "test")
             {
-                generator = token => $"echo 'Hello world. Token length: {token.Length}'";
+                script = $"echo 'Hello world'";
             }
             else
             {
@@ -33,14 +33,14 @@ public sealed class RunScriptController : ControllerBase
             }
         }
 
-        await Response.WriteAsync(generator(token));
+        await Response.WriteAsync(script);
     }
 
-    public static string AddScript(Func<string, string> generator, TimeSpan expiration)
+    public static string AddScript(string script, TimeSpan expiration)
     {
         string id = RandomNumberGenerator.GetHexString(32);
-        s_scripts.TryAdd(id, generator);
-        Task.Delay(expiration).ContinueWith(_ => s_scripts.TryRemove(id, out Func<string, string> _));
+        s_scripts.TryAdd(id, script);
+        Task.Delay(expiration).ContinueWith(_ => s_scripts.TryRemove(id, out string _));
         return id;
     }
 }
