@@ -1,5 +1,7 @@
 ﻿using System.Threading.Channels;
 
+#nullable enable
+
 namespace MihuBot.Audio;
 
 internal sealed class MediaTimer<TFrameData> : IAsyncDisposable

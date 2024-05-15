@@ -2,6 +2,8 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 
+#nullable enable
+
 namespace MihuBot.Audio;
 
 public sealed class PcmAudioScheduler : IAsyncDisposable
@@ -14,7 +16,7 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
     private byte[]? _leftoverBuffer;
     private int _framesAfterSilence;
 
-    public GuildAudioSettings AudioSettings { get; set; }
+    public GuildAudioSettings? AudioSettings { get; set; }
 
     public PcmAudioScheduler(IAudioClient audioClient, AudioOutStream pcmStream, Action<string> debugLog)
     {

@@ -187,7 +187,7 @@ public sealed class ChatGptComand : CommandBase
             maxChatHistory = 20;
         }
 
-        if (!_configurationService.TryGet(channel.Guild.Id, $"ChatGPT.SystemPrompt{(isJared ? ".Jared" : "")}", out string? systemPrompt))
+        if (!_configurationService.TryGet(channel.Guild.Id, $"ChatGPT.SystemPrompt{(isJared ? ".Jared" : "")}", out string systemPrompt))
         {
             if (isJared)
             {
