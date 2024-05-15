@@ -1,5 +1,4 @@
 ﻿using Azure.Storage.Blobs;
-using MihuBot.API;
 using MihuBot.Configuration;
 using Octokit;
 using System.Text.RegularExpressions;
@@ -42,7 +41,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ```
         """;
 
-    private readonly Dictionary<string, RuntimeUtilsJob> _jobs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
     private readonly FileBackedHashSet _processedMentions = new("ProcessedMentionComments.txt");
 
     public readonly Logger Logger;
@@ -52,7 +51,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly IConfigurationService ConfigurationService;
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
-    public readonly BlobContainerClient RunnerBaselineBlobContainerClient;
 
     public RuntimeUtilsService(Logger logger, GitHubClient github, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
     {
@@ -68,10 +66,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
             ArtifactsBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "artifacts");
-
-            RunnerBaselineBlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-                "runner-baseline");
         }
     }
 
@@ -79,7 +73,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     {
         using (ExecutionContext.SuppressFlow())
         {
-            _ = Task.Run(WatchForGitHubMentionsAsync);
+            _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
         }
 
         return Task.CompletedTask;
@@ -147,19 +141,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                         if (fuzzMatch.Success)
                         {
-                            string fuzzerName = fuzzMatch.Groups[1].Value;
-
-                            if (fuzzerName.Length < 4)
-                            {
-                                await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Please specify a fuzzer name. For example: `@MihuBot fuzz HttpHeadersFuzzer`");
-                                return;
-                            }
-
-                            await StartFuzzJobAsync(pullRequest, fuzzerName);
+                            StartFuzzLibrariesJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
                         }
                         else
                         {
-                            StartJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                            StartJitDiffJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
                         }
                     }
                     else
@@ -176,51 +162,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    private async Task StartFuzzJobAsync(PullRequest pullRequest, string fuzzerName)
-    {
-        try
-        {
-            string repo = pullRequest.Head.Repository.FullName;
-            string branch = pullRequest.Head.Ref;
-
-            string scriptId = RunScriptController.AddScript(
-                $$"""
-                git clone --progress https://github.com/dotnet/runtime runtime
-                cd runtime
-                git log -1
-                git config --global user.email build@build.foo
-                git config --global user.name build
-                git remote add pr https://github.com/{{repo}}
-                git fetch pr {{branch}}
-                git log pr/{{branch}} -1
-                git merge --no-edit pr/{{branch}}
-
-                ./build.cmd clr+libs+packs+host -rc Checked -c Debug
-
-                cd src/libraries/Fuzzing/DotnetFuzzing
-                ../../../../.dotnet/dotnet publish -o publish
-                ../../../../.dotnet/dotnet tool install --tool-path . SharpFuzz.CommandLine
-                publish/DotnetFuzzing.exe prepare-onefuzz deployment
-
-                deployment/{{fuzzerName}}/local-run.bat -timeout=60 -max_total_time=3600
-                """,
-                TimeSpan.FromMinutes(5));
-
-            await Github.Issue.Create(
-                "MihuBot",
-                "runtime-utils",
-                new NewIssue($"[Fuzz {fuzzerName}] [{pullRequest.User.Login}] {pullRequest.Title}".TruncateWithDotDotDot(99))
-                {
-                    Body = $"run-win-{scriptId}-\n\n{pullRequest.HtmlUrl}"
-                });
-        }
-        catch (Exception ex)
-        {
-            await Logger.DebugAsync($"Failed to start fuzz job for {pullRequest.HtmlUrl}: {ex}");
-        }
-    }
-
-    public bool TryGetJob(string jobId, bool publicId, out RuntimeUtilsJob job)
+    public bool TryGetJob(string jobId, bool publicId, out JobBase job)
     {
         lock (_jobs)
         {
@@ -229,21 +171,28 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    public RuntimeUtilsJob StartJob(string repository, string branch, string githubCommenterLogin, string arguments)
+    public JobBase StartJitDiffJob(string repository, string branch, string githubCommenterLogin, string arguments)
     {
-        var job = new RuntimeUtilsJob(this, repository, branch, githubCommenterLogin, arguments);
+        var job = new JitDiffJob(this, repository, branch, githubCommenterLogin, arguments);
         StartJobCore(job);
         return job;
     }
 
-    public RuntimeUtilsJob StartJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
     {
-        var job = new RuntimeUtilsJob(this, pullRequest, githubCommenterLogin, arguments);
+        var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments);
         StartJobCore(job);
         return job;
     }
 
-    private void StartJobCore(RuntimeUtilsJob job)
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
+    {
+        var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments);
+        StartJobCore(job);
+        return job;
+    }
+
+    private void StartJobCore(JobBase job)
     {
         lock (_jobs)
         {
@@ -278,7 +227,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    public RuntimeUtilsJob[] GetAllActiveJobs() => _jobs
+    public JobBase[] GetAllActiveJobs() => _jobs
         .Where(pair => pair.Key == pair.Value.ExternalId)
         .Select(pair => pair.Value)
         .Where(job => !job.Completed)

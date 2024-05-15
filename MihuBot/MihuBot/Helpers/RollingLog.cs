@@ -14,29 +14,30 @@ internal sealed class RollingLog
         _capacity = capacity;
     }
 
-    public void AddLines(string[] lines)
+    public void AddLines(ReadOnlySpan<string> lines)
     {
         lock (this)
         {
             int toAdd = Math.Min(_capacity - _lines.Count, lines.Length);
-            foreach (string line in lines.AsSpan(0, toAdd))
+            foreach (string line in lines.Slice(0, toAdd))
             {
                 _lines.Add(line);
             }
 
-            ReadOnlySpan<string> leftOver = lines.AsSpan(toAdd);
-            while (!leftOver.IsEmpty)
+            lines = lines.Slice(toAdd);
+
+            while (!lines.IsEmpty)
             {
-                int spaceNeeded = Math.Min(_capacity, leftOver.Length);
+                int spaceNeeded = Math.Min(_capacity, lines.Length);
                 _lines.RemoveRange(0, spaceNeeded);
                 _discarded += spaceNeeded;
 
-                foreach (string line in lines.AsSpan(0, spaceNeeded))
+                foreach (string line in lines.Slice(0, spaceNeeded))
                 {
                     _lines.Add(line);
                 }
 
-                leftOver = leftOver.Slice(spaceNeeded);
+                lines = lines.Slice(spaceNeeded);
             }
         }
     }

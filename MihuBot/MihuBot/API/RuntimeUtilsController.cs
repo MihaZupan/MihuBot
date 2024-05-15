@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MihuBot.Data;
 using MihuBot.RuntimeUtils;
 
 namespace MihuBot.API;
@@ -9,10 +10,12 @@ namespace MihuBot.API;
 public sealed class RuntimeUtilsController : ControllerBase
 {
     private readonly RuntimeUtilsService _jobs;
+    private readonly string _githubAuthToken;
 
     public RuntimeUtilsController(RuntimeUtilsService jobs)
     {
         _jobs = jobs;
+        _githubAuthToken = jobs.Configuration["RuntimeUtils:GitHubAuthToken"];
     }
 
     [HttpGet("Jobs/Progress/{jobId}")]
@@ -63,7 +66,13 @@ public sealed class RuntimeUtilsController : ControllerBase
     {
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
-            return NotFound();
+            if (!_jobs.TryGetJob(jobId, publicId: true, out job) ||
+                !Request.Headers.TryGetValue("X-Runtime-Utils-Token", out var token) ||
+                token.Count != 1 ||
+                !ManagementController.CheckToken(_githubAuthToken, token.ToString()))
+            {
+                return NotFound();
+            }
         }
 
         return new JsonResult(job.Metadata);

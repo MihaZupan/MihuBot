@@ -181,7 +181,7 @@
 
     private const int NumLinesPerJob = 3;
     private readonly CancellationTokenSource _cts = new();
-    private RuntimeUtilsJob[] _activeJobs;
+    private JobBase[] _activeJobs;
     private ConcurrentQueue<string>[] _logs;
     private int _logsChangeCounter;
     private string _githubUserLogin;
@@ -270,7 +270,7 @@
 
         for (int i = 0; i < _activeJobs.Length; i++)
         {
-            RuntimeUtilsJob job = _activeJobs[i];
+            JobBase job = _activeJobs[i];
             ConcurrentQueue<string> logs = _logs[i];
 
             _ = Task.Run(async () =>
@@ -320,7 +320,7 @@
         try
         {
             string prOrBranch = _newJob.InputPROrBranch;
-            RuntimeUtilsJob newJob;
+            JobBase newJob;
 
             if (TryParsePRNumber(prOrBranch, out int prNumber))
             {
@@ -340,7 +340,7 @@
                 return;
 #endif
 
-                newJob = runtimeUtils.StartJob(pullRequest, _githubUserLogin, _newJob.Arguments);
+                newJob = runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, _newJob.Arguments);
             }
             else
             {
@@ -359,7 +359,7 @@
                 return;
 #endif
 
-                newJob = runtimeUtils.StartJob(repository, branch, _githubUserLogin, _newJob.Arguments);
+                newJob = runtimeUtils.StartJitDiffJob(repository, branch, _githubUserLogin, _newJob.Arguments);
             }
 
             Navigation.NavigateTo(newJob.ProgressDashboardUrl, forceLoad: true);

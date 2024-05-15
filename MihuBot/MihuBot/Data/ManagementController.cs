@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 
 namespace MihuBot.Data;
 
@@ -72,17 +74,11 @@ public class ManagementController : ControllerBase
 
     public static bool CheckToken(string expected, string actual)
     {
-        if (expected is null || actual is null)
+        if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(actual))
             return false;
 
-        if (expected.Length != actual.Length)
-            return false;
-
-        int differentbits = 0;
-        for (int i = 0; i < expected.Length; ++i)
-        {
-            differentbits |= expected[i] ^ actual[i];
-        }
-        return differentbits == 0;
+        return CryptographicOperations.FixedTimeEquals(
+            MemoryMarshal.Cast<char, byte>(expected),
+            MemoryMarshal.Cast<char, byte>(actual));
     }
 }
