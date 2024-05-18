@@ -401,6 +401,7 @@ public sealed class JitDiffJob : JobBase
                 runcmd:
                     - apt-get update
                     - apt-get install -y dotnet-sdk-6.0
+                    - apt-get install -y dotnet-sdk-8.0
                     - cd /home
                     - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
                     - cd runtime-utils/Runner
