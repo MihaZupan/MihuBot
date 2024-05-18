@@ -272,9 +272,11 @@ public abstract class JobBase
         _logs.AddLines(lines);
         _idleTimeoutCts.CancelAfter(IdleTimeoutMs);
 
+        // [12:34:56] ERROR: System.Exception: foo
         if (lines.Length == 1 &&
-            lines[0].StartsWith("ERROR: ", StringComparison.Ordinal) &&
-            Interlocked.CompareExchange(ref _firstErrorMessage, lines[0], null) is null &&
+            lines[0] is { Length: > 18 } errorLine &&
+            errorLine.AsSpan("[12:34:56] ".Length).StartsWith("ERROR: ", StringComparison.Ordinal) &&
+            Interlocked.CompareExchange(ref _firstErrorMessage, errorLine, null) is null &&
             PullRequest is not null &&
             PostErrorAsGitHubComment)
         {
