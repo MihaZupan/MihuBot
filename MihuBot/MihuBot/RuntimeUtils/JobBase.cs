@@ -245,6 +245,11 @@ public abstract class JobBase
 
     protected string GetArtifactList()
     {
+        if (_artifacts.Count == 0)
+        {
+            return string.Empty;
+        }
+
         var builder = new StringBuilder();
 
         builder.AppendLine("Artifacts:");
