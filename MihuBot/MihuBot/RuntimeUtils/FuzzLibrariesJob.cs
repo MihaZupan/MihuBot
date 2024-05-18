@@ -18,7 +18,7 @@ public sealed class FuzzLibrariesJob : JobBase
         return
             $"""
             Job is in progress - see {ProgressDashboardUrl}
-            {(FromGithubComment && ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
 
             <!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->
             """;
@@ -35,6 +35,7 @@ public sealed class FuzzLibrariesJob : JobBase
         await UpdateIssueBodyAsync(
             $"""
             [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
+            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
             {error}
             {GetArtifactList()}
             """);

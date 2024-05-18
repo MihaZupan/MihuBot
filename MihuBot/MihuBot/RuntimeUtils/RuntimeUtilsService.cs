@@ -87,7 +87,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             try
             {
-                if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase) &&
+                    comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
+                    comment.User.Type == AccountType.User)
                 {
                     await ProcessMihuBotMentions(comment);
                 }
@@ -114,9 +116,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         async Task ProcessMihuBotMentions(GitHubComment comment)
         {
-            if (comment.User.Type == AccountType.User &&
-                comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                _processedMentions.TryAdd(comment.CommentId.ToString()))
+            if (_processedMentions.TryAdd(comment.CommentId.ToString()))
             {
                 Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
 
@@ -178,14 +178,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments)
     {
         var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments);
         StartJobCore(job);
         return job;
     }
 
-    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin = null, string arguments = null)
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments)
     {
         var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments);
         StartJobCore(job);

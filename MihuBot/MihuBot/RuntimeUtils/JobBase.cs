@@ -283,6 +283,11 @@ public abstract class JobBase
 
         void PostErrorComment()
         {
+            if (!GetConfigFlag("PostErrorComments", true))
+            {
+                return;
+            }
+
             Task.Run(async () =>
             {
                 try
