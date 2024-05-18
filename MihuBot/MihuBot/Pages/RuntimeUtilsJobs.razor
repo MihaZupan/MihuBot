@@ -20,11 +20,11 @@ else
     }
     @if (_job.Completed)
     {
-        <div>The build has completed (took @_job.GetElapsedTime()).</div>
+        <div>The job has completed (took @_job.GetElapsedTime()).</div>
     }
     else
     {
-        <div>The build is still in progress (@_job.GetElapsedTime()) ...</div>
+        <div>The job is still in progress (@_job.GetElapsedTime()) ...</div>
 
         <br />
 
