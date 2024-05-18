@@ -23,10 +23,18 @@ public sealed class FuzzCommand : CommandBase
             return;
         }
 
+        if (ctx.Arguments.Length != 2 ||
+            !uint.TryParse(ctx.Arguments[0], out uint prNumber) ||
+            ctx.Arguments[1] is not { Length: > 3 } fuzzerName)
+        {
+            await ctx.ReplyAsync("Invalid args");
+            return;
+        }
+
         var job = _runtimeUtilsService.StartFuzzLibrariesJob(
-            await _github.PullRequest.Get("dotnet", "runtime", 101993),
+            await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber),
             "MihaZupan",
-            "fuzz HttpHeadersFuzzer -NoPRLink");
+            $"fuzz {fuzzerName} -NoPRLink");
 
         await ctx.ReplyAsync(job.ProgressDashboardUrl);
     }
