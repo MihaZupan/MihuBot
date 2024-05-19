@@ -17,10 +17,10 @@ public abstract class JobBase
 
     private readonly RuntimeUtilsService _parent;
     private readonly RollingLog _logs = new(50_000);
-    private readonly List<(string FileName, string Url, long Size)> _artifacts = new();
     private long _artifactsCount;
     private long _totalArtifactsSize;
     private readonly CancellationTokenSource _idleTimeoutCts = new();
+    protected readonly List<(string FileName, string Url, long Size)> Artifacts = new();
 
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -98,7 +98,7 @@ public abstract class JobBase
         GetConfigFlag("LinkToPR", true) &&
         !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
-    protected bool ShouldMentionJobInitiator => GetConfigFlag("ShouldMentionJobInitiator", true);
+    protected bool ShouldMentionJobInitiator { get; set; }
 
     protected bool GetConfigFlag(string name, bool @default)
     {
@@ -134,6 +134,8 @@ public abstract class JobBase
             return;
         }
 
+        ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
+
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
@@ -168,7 +170,7 @@ public abstract class JobBase
 
             await UpdateIssueBodyAsync(
                 $"""
-                Something went wrong with the [Job]({ProgressDashboardUrl}) :man_shrugging:
+                Something went wrong with the [Job]({ProgressDashboardUrl}) after {GetElapsedTime()} :man_shrugging:
 
                 ```
                 {_firstErrorMessage ?? ex.ToString()}
@@ -218,7 +220,7 @@ public abstract class JobBase
         }
     }
 
-    private static string GetRoughSizeString(long size)
+    protected static string GetRoughSizeString(long size)
     {
         double kb = size / 1024d;
         double mb = kb / 1024d;
@@ -245,7 +247,7 @@ public abstract class JobBase
 
     protected string GetArtifactList()
     {
-        if (_artifacts.Count == 0)
+        if (Artifacts.Count == 0)
         {
             return string.Empty;
         }
@@ -254,9 +256,9 @@ public abstract class JobBase
 
         builder.AppendLine("Artifacts:");
 
-        lock (_artifacts)
+        lock (Artifacts)
         {
-            foreach (var (FileName, Url, Size) in _artifacts)
+            foreach (var (FileName, Url, Size) in Artifacts)
             {
                 builder.AppendLine($"- [{FileName}]({Url}) ({GetRoughSizeString(Size)})");
             }
@@ -345,7 +347,7 @@ public abstract class JobBase
         var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
         long size = properties.Value.ContentLength;
 
-        lock (_artifacts)
+        lock (Artifacts)
         {
             const long GB = 1024 * 1024 * 1024;
             const long ArtifactSizeLimit = 16 * GB;
@@ -357,7 +359,7 @@ public abstract class JobBase
                 return;
             }
 
-            _artifacts.Add((fileName, blobClient.Uri.AbsoluteUri, size));
+            Artifacts.Add((fileName, blobClient.Uri.AbsoluteUri, size));
             _totalArtifactsSize += size;
         }
 
@@ -365,6 +367,16 @@ public abstract class JobBase
     }
 
     protected virtual Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken) => Task.FromResult<Stream>(null);
+
+    protected async Task<(byte[] Bytes, Stream ReplacementStream)> ReadArtifactAndReplaceStreamAsync(Stream stream, int lengthLimitBytes, CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream(new byte[lengthLimitBytes]);
+        await stream.CopyToAsync(buffer, cancellationToken);
+        buffer.SetLength(buffer.Position);
+        buffer.Position = 0;
+        byte[] bytes = buffer.ToArray();
+        return (bytes, new MemoryStream(bytes));
+    }
 
     public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
     {

@@ -112,15 +112,9 @@ public sealed class JitDiffJob : JobBase
     {
         if (fileName == "diff-frameworks.txt")
         {
-            using var buffer = new MemoryStream(new byte[128 * 1024]);
-            await contentStream.CopyToAsync(buffer, cancellationToken);
-            buffer.SetLength(buffer.Position);
-            buffer.Position = 0;
-            byte[] bytes = buffer.ToArray();
-            contentStream = new MemoryStream(bytes);
-
+            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 128 * 1024, cancellationToken);
             _frameworksDiffSummary = Encoding.UTF8.GetString(bytes);
-            return contentStream;
+            return replacement;
         }
 
         if (fileName == "jit-diffs-frameworks.zip")
