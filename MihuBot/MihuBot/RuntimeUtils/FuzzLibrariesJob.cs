@@ -76,8 +76,20 @@ public sealed class FuzzLibrariesJob : JobBase
     {
         if (fileName == "stack.txt")
         {
-            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 128 * 1024, cancellationToken);
-            _errorStackTrace = Encoding.UTF8.GetString(bytes);
+            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
+            string stackTrace = Encoding.UTF8.GetString(bytes);
+
+            const int MaxLines = 60;
+
+            if (stackTrace.SplitLines(removeEmpty: false) is { Length: > MaxLines } lines)
+            {
+                string truncatedMessage = $"... Skipped {lines.Length - MaxLines} lines ...";
+                string marker = new('=', truncatedMessage.Length);
+                lines = [.. lines.Take(MaxLines / 2), "", marker, truncatedMessage, marker, "", .. lines.TakeLast(MaxLines / 2)];
+                stackTrace = string.Join('\n', lines);
+            }
+
+            _errorStackTrace = stackTrace;
             return replacement;
         }
 
