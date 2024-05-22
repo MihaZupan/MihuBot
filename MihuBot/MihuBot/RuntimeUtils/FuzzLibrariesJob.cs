@@ -28,6 +28,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
+        LogsReceived("Starting runner on GitHub actions ...");
+
         await JobCompletionTcs.Task;
 
         string error = FirstErrorMessage is { } message
