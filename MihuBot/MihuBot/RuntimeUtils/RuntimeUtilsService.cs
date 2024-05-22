@@ -250,6 +250,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return pullRequest;
     }
 
-    [GeneratedRegex(@"^fuzz ?([a-z\d]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"^fuzz (.+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex FuzzMatchRegex();
 }
