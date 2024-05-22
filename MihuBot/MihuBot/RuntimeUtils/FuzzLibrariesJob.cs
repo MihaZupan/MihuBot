@@ -9,7 +9,7 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool PostErrorAsGitHubComment => true;
 
-    private string _errorStackTrace;
+    private readonly Dictionary<string, string> _errorStackTraces = new();
 
     public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
         : base(parent, pullRequest, githubCommenterLogin, arguments)
@@ -34,47 +34,59 @@ public sealed class FuzzLibrariesJob : JobBase
             ? $"\n```\n{message}\n```\n"
             : string.Empty;
 
-        string errorStackTrace = _errorStackTrace is { } stackTrace
-            ? $"\n```\n{stackTrace}\n```\n"
-            : string.Empty;
+        string errorStackTraces = string.Empty;
+        if (_errorStackTraces.Count > 0)
+        {
+            errorStackTraces = string.Join("\n\n", _errorStackTraces.Select(error =>
+                $"""
+                ```
+                // {error.Key}
+                {error.Value}
+                ```
+                """));
+
+            errorStackTraces = $"\n{errorStackTraces}\n";
+        }
 
         await UpdateIssueBodyAsync(
             $"""
             [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
             {error}
-            {errorStackTrace}
+            {errorStackTraces}
             {GetArtifactList()}
             """);
 
-        if (!string.IsNullOrEmpty(errorStackTrace) &&
+        if (!string.IsNullOrEmpty(errorStackTraces) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
             PullRequest is not null)
         {
-            (string FileName, string Url, long Size) input = default;
+            ShouldMentionJobInitiator = false;
+
+            string artifacts;
             lock (Artifacts)
             {
-                input = Artifacts.Where(a => a.FileName.EndsWith("-input.bin", StringComparison.Ordinal)).FirstOrDefault();
+                artifacts = string.Join('\n', _errorStackTraces
+                    .Select(error => Artifacts.Where(a => a.FileName == $"{error.Key}-input.bin").FirstOrDefault())
+                    .Where(error => error.Url is not null)
+                    .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
             }
 
-            if (input.Url is not null)
-            {
-                ShouldMentionJobInitiator = false;
+            await Github.Issue.Comment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, PullRequest.Number,
+                $"""
+                {errorStackTraces}
 
-                await Github.Issue.Comment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, PullRequest.Number,
-                    $"""
-                    {errorStackTrace}
-
-                    [{input.FileName}]({input.Url}) ({GetRoughSizeString(input.Size)})
-                    """);
-            }
+                {artifacts}
+                """);
         }
     }
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        if (fileName == "stack.txt")
+        const string NameSuffix = "-stack.txt";
+
+        if (fileName.EndsWith(NameSuffix, StringComparison.Ordinal))
         {
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
             string stackTrace = Encoding.UTF8.GetString(bytes);
@@ -89,7 +101,11 @@ public sealed class FuzzLibrariesJob : JobBase
                 stackTrace = string.Join('\n', lines);
             }
 
-            _errorStackTrace = stackTrace;
+            lock (_errorStackTraces)
+            {
+                _errorStackTraces.Add(fileName.Substring(0, fileName.Length - NameSuffix.Length), stackTrace);
+            }
+
             return replacement;
         }
 

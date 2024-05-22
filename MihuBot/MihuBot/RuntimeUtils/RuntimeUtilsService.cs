@@ -37,7 +37,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         Or
         ```
-        @MihuBot fuzz <fuzzer name>
+        @MihuBot fuzz <fuzzer name pattern>
         ```
         """;
 
@@ -250,6 +250,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return pullRequest;
     }
 
-    [GeneratedRegex("^fuzz ?([a-z]{4,})", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"^fuzz ?([a-z\d]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex FuzzMatchRegex();
 }
