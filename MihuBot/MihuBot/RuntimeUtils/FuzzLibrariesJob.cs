@@ -102,10 +102,13 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        const string NameSuffix = "-stack.txt";
+        const string StackNameSuffix = "-stack.txt";
+        const string InputsNameSuffix = "-inputs.zip";
 
-        if (fileName.EndsWith(NameSuffix, StringComparison.Ordinal))
+        if (fileName.EndsWith(StackNameSuffix, StringComparison.Ordinal))
         {
+            string fuzzerName = fileName.Substring(0, fileName.Length - StackNameSuffix.Length);
+
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
             string stackTrace = Encoding.UTF8.GetString(bytes);
 
@@ -121,7 +124,42 @@ public sealed class FuzzLibrariesJob : JobBase
 
             lock (_errorStackTraces)
             {
-                _errorStackTraces.Add(fileName.Substring(0, fileName.Length - NameSuffix.Length), stackTrace);
+                _errorStackTraces.Add(fuzzerName, stackTrace);
+            }
+
+            return replacement;
+        }
+
+        if (fileName.EndsWith(InputsNameSuffix, StringComparison.Ordinal))
+        {
+            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 64 * 1024 * 1024, cancellationToken);
+
+            if (bytes.Length > 100_000)
+            {
+                try
+                {
+                    var blob = Parent.RunnerPersistentStateBlobContainerClient.GetBlobClient(fileName);
+
+                    if (await blob.ExistsAsync(cancellationToken))
+                    {
+                        var properties = await blob.GetPropertiesAsync(cancellationToken: cancellationToken);
+
+                        if ((DateTimeOffset.UtcNow - properties.Value.LastModified).TotalDays < 1 &&
+                            properties.Value.ContentLength > bytes.Length)
+                        {
+                            return replacement;
+                        }
+                    }
+
+                    await blob.DeleteAsync(cancellationToken: cancellationToken);
+                    await blob.UploadAsync(BinaryData.FromBytes(bytes), cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    string message = $"Failed to update inputs blob: {ex}";
+                    LogsReceived(message);
+                    await Logger.DebugAsync(message);
+                }
             }
 
             return replacement;

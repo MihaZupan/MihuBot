@@ -3,11 +3,14 @@ using Azure.Storage.Blobs;
 using MihuBot.Configuration;
 using Octokit;
 using System.Runtime.CompilerServices;
+using Azure.Storage.Sas;
 
 namespace MihuBot.RuntimeUtils;
 
 public abstract class JobBase
 {
+    private static readonly TimeSpan MaxJobDuration = TimeSpan.FromHours(5);
+
     protected const string DotnetRuntimeRepoOwner = "dotnet";
     protected const string DotnetRuntimeRepoName = "runtime";
     protected const string IssueRepositoryOwner = "MihuBot";
@@ -15,7 +18,8 @@ public abstract class JobBase
     protected const int CommentLengthLimit = 65_000;
     private const int IdleTimeoutMs = 5 * 60 * 1000;
 
-    private readonly RuntimeUtilsService _parent;
+    public readonly DateTime StartTime = DateTime.UtcNow;
+    protected readonly RuntimeUtilsService Parent;
     private readonly RollingLog _logs = new(50_000);
     private long _artifactsCount;
     private long _totalArtifactsSize;
@@ -28,11 +32,11 @@ public abstract class JobBase
     protected string GithubCommenterLogin { get; }
     public bool FromGithubComment => GithubCommenterLogin is not null;
 
-    protected Logger Logger => _parent.Logger;
-    protected GitHubClient Github => _parent.Github;
-    protected HttpClient Http => _parent.Http;
-    protected IConfigurationService ConfigurationService => _parent.ConfigurationService;
-    protected HetznerClient Hetzner => _parent.Hetzner;
+    protected Logger Logger => Parent.Logger;
+    protected GitHubClient Github => Parent.Github;
+    protected HttpClient Http => Parent.Http;
+    protected IConfigurationService ConfigurationService => Parent.ConfigurationService;
+    protected HetznerClient Hetzner => Parent.Hetzner;
 
     public Stopwatch Stopwatch { get; private set; } = Stopwatch.StartNew();
     public PullRequest PullRequest { get; private set; }
@@ -63,7 +67,7 @@ public abstract class JobBase
 
     public JobBase(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
     {
-        _parent = parent;
+        Parent = parent;
         GithubCommenterLogin = githubCommenterLogin;
 
         InitMetadata(repository, branch, arguments);
@@ -73,7 +77,7 @@ public abstract class JobBase
 
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
-        _parent = parent;
+        Parent = parent;
         PullRequest = pullRequest;
         GithubCommenterLogin = githubCommenterLogin;
         GitHubComment = comment;
@@ -94,6 +98,10 @@ public abstract class JobBase
         Metadata.Add("PrBranch", branch);
         Metadata.Add("CustomArguments", arguments);
         Metadata.Add("JobType", GetType().Name);
+
+        var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
+        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
+        Metadata.Add("PersistentStateSasUri", sasUri.AbsoluteUri);
     }
 
     protected bool ShouldLinkToPROrBranch =>
@@ -148,7 +156,7 @@ public abstract class JobBase
 
         try
         {
-            using var jobTimeoutCts = new CancellationTokenSource(TimeSpan.FromHours(5));
+            using var jobTimeoutCts = new CancellationTokenSource(MaxJobDuration);
             var jobTimeout = jobTimeoutCts.Token;
 
             using var ctsReg = _idleTimeoutCts.Token.Register(() =>
@@ -334,7 +342,7 @@ public abstract class JobBase
         Stream newStream = await InterceptArtifactAsync(fileName, contentStream, cancellationToken);
         contentStream = newStream ?? contentStream;
 
-        BlobClient blobClient = _parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
+        BlobClient blobClient = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
 
         await blobClient.UploadAsync(contentStream, new BlobUploadOptions
         {

@@ -51,6 +51,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly IConfigurationService ConfigurationService;
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
+    public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
 
     public RuntimeUtilsService(Logger logger, GitHubClient github, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
     {
@@ -66,6 +67,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
             ArtifactsBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "artifacts");
+
+            RunnerPersistentStateBlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                "runner-persistent");
         }
     }
 
