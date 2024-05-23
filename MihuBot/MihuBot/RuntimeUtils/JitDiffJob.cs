@@ -40,8 +40,8 @@ public sealed class JitDiffJob : JobBase
         : base(parent, repository, branch, githubCommenterLogin, arguments)
     { }
 
-    public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
-        : base(parent, pullRequest, githubCommenterLogin, arguments)
+    public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+        : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
     protected override string GetInitialIssueBody()

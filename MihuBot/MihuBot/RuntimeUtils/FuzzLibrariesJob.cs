@@ -11,8 +11,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
-    public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
-        : base(parent, pullRequest, githubCommenterLogin, arguments)
+    public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+        : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
     protected override string GetInitialIssueBody()
@@ -81,6 +81,22 @@ public sealed class FuzzLibrariesJob : JobBase
 
                 {artifacts}
                 """);
+        }
+
+        if (string.IsNullOrEmpty(errorStackTraces) &&
+            string.IsNullOrEmpty(FirstErrorMessage) &&
+            GitHubComment is not null)
+        {
+            var reaction = new NewReaction(Octokit.ReactionType.Plus1);
+
+            if (GitHubComment.IsPrReviewComment)
+            {
+                await Github.Reaction.PullRequestReviewComment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, GitHubComment.CommentId, reaction);
+            }
+            else
+            {
+                await Github.Reaction.IssueComment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, GitHubComment.CommentId, reaction);
+            }
         }
     }
 

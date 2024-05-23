@@ -24,6 +24,7 @@ public abstract class JobBase
 
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    protected GitHubComment GitHubComment { get; }
     protected string GithubCommenterLogin { get; }
     public bool FromGithubComment => GithubCommenterLogin is not null;
 
@@ -70,11 +71,12 @@ public abstract class JobBase
         TestedPROrBranchLink = $"https://github.com/{repository}/tree/{branch}";
     }
 
-    public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments)
+    public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         _parent = parent;
         PullRequest = pullRequest;
         GithubCommenterLogin = githubCommenterLogin;
+        GitHubComment = comment;
 
         InitMetadata(PullRequest.Head.Repository.FullName, PullRequest.Head.Ref, arguments);
 

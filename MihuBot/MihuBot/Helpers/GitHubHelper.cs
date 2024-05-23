@@ -28,7 +28,7 @@ public static class GitHubHelper
 
                 foreach (PullRequestReviewComment reviewComment in pullReviewComments)
                 {
-                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User));
+                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User, IsPrReviewComment: true));
                 }
 
                 IReadOnlyList<IssueComment> issueComments = await github.Issue.Comment.GetAllForRepository(repoOwner, repoName, new IssueCommentRequest
@@ -56,7 +56,7 @@ public static class GitHubHelper
 
                 foreach (IssueComment issueComment in issueComments)
                 {
-                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User));
+                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User, IsPrReviewComment: false));
                 }
             }
             catch (Exception ex)
@@ -76,7 +76,7 @@ public static class GitHubHelper
     }
 }
 
-public record GitHubComment(string RepoOwner, string RepoName, int CommentId, string Url, string Body, User User)
+public record GitHubComment(string RepoOwner, string RepoName, int CommentId, string Url, string Body, User User, bool IsPrReviewComment)
 {
     public int IssueId { get; } = int.Parse(new Uri(Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
 }

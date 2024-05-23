@@ -182,16 +182,16 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments)
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
-        var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments);
+        var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
         return job;
     }
 
-    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments)
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
-        var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments);
+        var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
         return job;
     }
