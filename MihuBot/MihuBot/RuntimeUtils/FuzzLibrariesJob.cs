@@ -149,9 +149,10 @@ public sealed class FuzzLibrariesJob : JobBase
                         {
                             return replacement;
                         }
+
+                        await blob.DeleteAsync(cancellationToken: cancellationToken);
                     }
 
-                    await blob.DeleteAsync(cancellationToken: cancellationToken);
                     await blob.UploadAsync(BinaryData.FromBytes(bytes), cancellationToken);
                 }
                 catch (Exception ex)
