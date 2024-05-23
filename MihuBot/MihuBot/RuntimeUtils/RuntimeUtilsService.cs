@@ -145,7 +145,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                         else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
                         {
-                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name>`");
+                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
                         }
                         else
                         {
@@ -250,6 +250,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return pullRequest;
     }
 
-    [GeneratedRegex(@"^fuzz (.+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"^fuzz ([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex FuzzMatchRegex();
 }
