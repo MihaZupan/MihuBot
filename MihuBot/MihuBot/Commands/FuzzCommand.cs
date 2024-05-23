@@ -25,7 +25,7 @@ public sealed class FuzzCommand : CommandBase
 
         if (ctx.Arguments.Length != 2 ||
             !uint.TryParse(ctx.Arguments[0], out uint prNumber) ||
-            ctx.Arguments[1] is not { Length: > 3 } fuzzerName)
+            ctx.Arguments[1] is not { Length: > 0 } fuzzerName)
         {
             await ctx.ReplyAsync("Invalid args");
             return;
