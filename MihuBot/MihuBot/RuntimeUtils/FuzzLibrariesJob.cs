@@ -87,16 +87,7 @@ public sealed class FuzzLibrariesJob : JobBase
             string.IsNullOrEmpty(FirstErrorMessage) &&
             GitHubComment is not null)
         {
-            var reaction = new NewReaction(Octokit.ReactionType.Plus1);
-
-            if (GitHubComment.IsPrReviewComment)
-            {
-                await Github.Reaction.PullRequestReviewComment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, GitHubComment.CommentId, reaction);
-            }
-            else
-            {
-                await Github.Reaction.IssueComment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, GitHubComment.CommentId, reaction);
-            }
+            await GitHubComment.AddReactionAsync(Octokit.ReactionType.Plus1);
         }
     }
 

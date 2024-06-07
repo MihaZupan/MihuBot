@@ -8,6 +8,7 @@ public static class GitHubHelper
     {
         List<GitHubComment> commentsToReturn = new();
 
+        int consecutiveFailureCount = 0;
         DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
         DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
 
@@ -28,7 +29,7 @@ public static class GitHubHelper
 
                 foreach (PullRequestReviewComment reviewComment in pullReviewComments)
                 {
-                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User, IsPrReviewComment: true));
+                    commentsToReturn.Add(new GitHubComment(github, repoOwner, repoName, reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User, IsPrReviewComment: true));
                 }
 
                 IReadOnlyList<IssueComment> issueComments = await github.Issue.Comment.GetAllForRepository(repoOwner, repoName, new IssueCommentRequest
@@ -56,14 +57,22 @@ public static class GitHubHelper
 
                 foreach (IssueComment issueComment in issueComments)
                 {
-                    commentsToReturn.Add(new GitHubComment(repoOwner, repoName, issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User, IsPrReviewComment: false));
+                    commentsToReturn.Add(new GitHubComment(github, repoOwner, repoName, issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User, IsPrReviewComment: false));
                 }
+
+                consecutiveFailureCount = 0;
             }
             catch (Exception ex)
             {
+                consecutiveFailureCount++;
                 lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
                 lastCheckTimeIssueComments = DateTime.UtcNow;
                 logger?.DebugLog($"Failed to fetch GitHub notifications: {ex}");
+
+                if (consecutiveFailureCount == 15 * 4) // 15 min
+                {
+                    await logger?.DebugAsync($"Failed to fetch GitHub notifications: {ex}");
+                }
             }
 
             foreach (GitHubComment comment in commentsToReturn)
@@ -76,7 +85,16 @@ public static class GitHubHelper
     }
 }
 
-public record GitHubComment(string RepoOwner, string RepoName, int CommentId, string Url, string Body, User User, bool IsPrReviewComment)
+public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, int CommentId, string Url, string Body, User User, bool IsPrReviewComment)
 {
     public int IssueId { get; } = int.Parse(new Uri(Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
+
+    public async Task<Reaction> AddReactionAsync(Octokit.ReactionType reactionType)
+    {
+        var reaction = new NewReaction(reactionType);
+
+        return await (IsPrReviewComment
+            ? Github.Reaction.PullRequestReviewComment.Create(RepoOwner, RepoName, CommentId, reaction)
+            : Github.Reaction.IssueComment.Create(RepoOwner, RepoName, CommentId, reaction));
+    }
 }
