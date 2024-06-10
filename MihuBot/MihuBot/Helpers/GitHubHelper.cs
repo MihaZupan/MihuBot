@@ -85,7 +85,7 @@ public static class GitHubHelper
     }
 }
 
-public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, int CommentId, string Url, string Body, User User, bool IsPrReviewComment)
+public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, long CommentId, string Url, string Body, User User, bool IsPrReviewComment)
 {
     public int IssueId { get; } = int.Parse(new Uri(Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
 
