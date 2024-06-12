@@ -73,6 +73,17 @@ public static class GitHubHelper
                 {
                     await logger?.DebugAsync($"Failed to fetch GitHub notifications: {ex}");
                 }
+
+                if (ex is RateLimitExceededException rateLimitEx)
+                {
+                    TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
+                    logger?.DebugLog($"GitHub polling toWait={toWait}");
+                    if (toWait > TimeSpan.FromMinutes(5))
+                    {
+                        toWait = TimeSpan.FromMinutes(5);
+                    }
+                    await Task.Delay(toWait);
+                }
             }
 
             foreach (GitHubComment comment in commentsToReturn)
