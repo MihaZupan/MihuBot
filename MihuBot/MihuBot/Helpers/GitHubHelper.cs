@@ -77,12 +77,15 @@ public static class GitHubHelper
                 if (ex is RateLimitExceededException rateLimitEx)
                 {
                     TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
-                    logger?.DebugLog($"GitHub polling toWait={toWait}");
-                    if (toWait > TimeSpan.FromMinutes(5))
+                    if (toWait.TotalSeconds > 1)
                     {
-                        toWait = TimeSpan.FromMinutes(5);
+                        logger?.DebugLog($"GitHub polling toWait={toWait}");
+                        if (toWait > TimeSpan.FromMinutes(5))
+                        {
+                            toWait = TimeSpan.FromMinutes(5);
+                        }
+                        await Task.Delay(toWait);
                     }
-                    await Task.Delay(toWait);
                 }
             }
 
