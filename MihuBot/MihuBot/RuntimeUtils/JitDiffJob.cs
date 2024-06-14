@@ -352,7 +352,10 @@ public sealed class JitDiffJob : JobBase
                     return false;
                 }
 
-                return line.Contains("CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS", StringComparison.Ordinal);
+                return
+                    line.Contains("CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS", StringComparison.Ordinal) ||
+                    line.Contains("ProcessorIdCache:RefreshCurrentProcessorId", StringComparison.Ordinal) ||
+                    line.Contains("Interop+Sys:SchedGetCpu()", StringComparison.Ordinal);
             }
         }
 
