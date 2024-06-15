@@ -378,7 +378,7 @@ public sealed class JitDiffJob : JobBase
                     continue;
                 }
 
-                bool isMain = name.Contains("dasmset_1", StringComparison.Ordinal);
+                bool isMain = name.Replace('\\', '/').Contains("/main/", StringComparison.Ordinal);
 
                 var tempFile = new TempFile("txt");
                 _frameworksDiffFiles.Add((dasmFile, isMain), tempFile);
