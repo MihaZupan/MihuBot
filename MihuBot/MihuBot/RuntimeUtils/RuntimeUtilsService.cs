@@ -152,6 +152,21 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
                         }
+                        else if (arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (pullRequest.Head.Repository.Permissions.Push)
+                            {
+                                StartRebaseJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                            }
+                            else
+                            {
+                                await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber,
+                                    $"""
+                                    I don't have push access to your repository.
+                                    You can add me as a collaborator at https://github.com/{pullRequest.Head.Repository.FullName}/settings/access
+                                    """);
+                            }
+                        }
                         else
                         {
                             StartJitDiffJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
@@ -197,6 +212,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
+        StartJobCore(job);
+        return job;
+    }
+
+    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    {
+        var job = new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
         return job;
     }

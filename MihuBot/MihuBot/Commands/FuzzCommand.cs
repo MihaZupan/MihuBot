@@ -9,6 +9,7 @@ public sealed class FuzzCommand : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "fuzz";
+    public override string[] Aliases => ["rebase"];
 
     public FuzzCommand(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -23,18 +24,42 @@ public sealed class FuzzCommand : CommandBase
             return;
         }
 
-        if (ctx.Arguments.Length != 2 ||
-            !uint.TryParse(ctx.Arguments[0], out uint prNumber) ||
-            ctx.Arguments[1] is not { Length: > 0 } fuzzerName)
+        if (ctx.Arguments.Length < 1 ||
+            !uint.TryParse(ctx.Arguments[0], out uint prNumber))
         {
             await ctx.ReplyAsync("Invalid args");
             return;
         }
 
-        var job = _runtimeUtilsService.StartFuzzLibrariesJob(
-            await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber),
-            "MihaZupan",
-            $"fuzz {fuzzerName} -NoPRLink");
+        PullRequest pr = await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
+
+        JobBase job;
+
+        if (ctx.Command == "fuzz")
+        {
+            if (ctx.Arguments.Length != 2 ||
+                ctx.Arguments[1] is not { Length: > 0 } fuzzerName)
+            {
+                await ctx.ReplyAsync("Invalid args");
+                return;
+            }
+
+            job = _runtimeUtilsService.StartFuzzLibrariesJob(
+                pr,
+                "MihaZupan",
+                $"fuzz {fuzzerName} -NoPRLink");
+        }
+        else if (ctx.Command == "rebase")
+        {
+            job = _runtimeUtilsService.StartRebaseJob(
+                pr,
+                "MihaZupan",
+                "rebase -NoPRLink");
+        }
+        else
+        {
+            throw new NotImplementedException(ctx.Command);
+        }
 
         await ctx.ReplyAsync(job.ProgressDashboardUrl);
     }
