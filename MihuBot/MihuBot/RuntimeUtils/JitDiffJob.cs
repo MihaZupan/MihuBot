@@ -410,8 +410,12 @@ public sealed class JitDiffJob : JobBase
     {
         string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
 
-        string defaultVmSize = UseArm ? "DXpds_v5" : (UseIntelCpu ? "DXds_v5" : "DXads_v6");
-        defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
+        string defaultVmSize =
+            UseArm ? "DXpds_v5" :
+            UseIntelCpu ? "DXds_v5" :
+            Fast ? "FXas_v6" :
+            "DXas_v6";
+        defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "32" : "16")}";
 
         string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
         string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
