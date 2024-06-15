@@ -291,9 +291,8 @@ public abstract class JobBase
 
         foreach (string line in lines)
         {
-            // [01:23:45] ERROR: System.Exception: foo
-            if (line.Length > 18 &&
-                line.AsSpan("[12:34:56] ".Length).StartsWith("ERROR: ", StringComparison.Ordinal) &&
+            // ERROR: System.Exception: foo
+            if (line.StartsWith("ERROR: ", StringComparison.Ordinal) &&
                 Interlocked.CompareExchange(ref _firstErrorMessage, line, null) is null &&
                 PullRequest is not null &&
                 PostErrorAsGitHubComment)
