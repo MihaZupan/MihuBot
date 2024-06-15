@@ -39,6 +39,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ```
         @MihuBot fuzz <fuzzer name pattern>
         ```
+
+        Or
+        ```
+        @MihuBot merge/rebase       Requires collaborator access on your fork
+        ```
         """;
 
     private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
