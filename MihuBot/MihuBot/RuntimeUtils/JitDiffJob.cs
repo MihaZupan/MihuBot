@@ -454,6 +454,7 @@ public sealed class JitDiffJob : JobBase
         try
         {
             LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
+            _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
 
             string deploymentName = $"runner-deployment-{ExternalId}";
             var armDeployments = resourceGroup.GetArmDeployments();

@@ -16,14 +16,14 @@ public abstract class JobBase
     protected const string IssueRepositoryOwner = "MihuBot";
     protected const string IssueRepositoryName = "runtime-utils";
     protected const int CommentLengthLimit = 65_000;
-    private const int IdleTimeoutMs = 5 * 60 * 1000;
+    protected const int IdleTimeoutMs = 5 * 60 * 1000;
 
     public readonly DateTime StartTime = DateTime.UtcNow;
     protected readonly RuntimeUtilsService Parent;
     private readonly RollingLog _logs = new(50_000);
     private long _artifactsCount;
     private long _totalArtifactsSize;
-    private readonly CancellationTokenSource _idleTimeoutCts = new();
+    protected readonly CancellationTokenSource _idleTimeoutCts = new();
     protected readonly List<(string FileName, string Url, long Size)> Artifacts = new();
 
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
