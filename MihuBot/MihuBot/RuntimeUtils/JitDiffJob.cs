@@ -413,7 +413,8 @@ public sealed class JitDiffJob : JobBase
         string defaultVmSize = UseArm ? "DXpds_v5" : (UseIntelCpu ? "DXds_v5" : "DXads_v5");
         defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "16" : "8")}";
 
-        string vmSize = GetConfigFlag($"Azure.VMSize{(Fast ? "Fast" : "")}{cpuType}", defaultVmSize);
+        string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
+        string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
 
         string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
@@ -423,7 +424,7 @@ public sealed class JitDiffJob : JobBase
             Parameters = BinaryData.FromObjectAsJson(new
             {
                 runnerId = new { value = ExternalId },
-                osDiskSizeGiB = new { value = 64 },
+                osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "64")) },
                 virtualMachineSize = new { value = vmSize },
                 adminPassword = new { value = $"{JobId}aA1" },
                 customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(CreateCloudInitScript())) },
