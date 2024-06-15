@@ -152,7 +152,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
                         }
-                        else if (arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase))
+                        else if (
+                            arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
+                            arguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase))
                         {
                             if (pullRequest.Head.Repository.Permissions.Push)
                             {
