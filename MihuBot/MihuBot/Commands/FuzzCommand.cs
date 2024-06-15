@@ -9,7 +9,7 @@ public sealed class FuzzCommand : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "fuzz";
-    public override string[] Aliases => ["rebase"];
+    public override string[] Aliases => ["rebase", "merge"];
 
     public FuzzCommand(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -55,6 +55,13 @@ public sealed class FuzzCommand : CommandBase
                 pr,
                 "MihaZupan",
                 "rebase -NoPRLink");
+        }
+        else if (ctx.Command == "merge")
+        {
+            job = _runtimeUtilsService.StartRebaseJob(
+                pr,
+                "MihaZupan",
+                "merge -NoPRLink");
         }
         else
         {
