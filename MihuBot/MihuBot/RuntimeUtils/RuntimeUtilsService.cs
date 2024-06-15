@@ -156,7 +156,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
                             arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
                             arguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase))
                         {
-                            if (pullRequest.Head.Repository.Permissions.Push)
+                            var repo = await Github.Repository.Get(pullRequest.Head.Repository.Id);
+                            Logger.DebugLog($"Have permissions: {pullRequest.Head.Repository?.Permissions} {repo?.Permissions}");
+
+                            if (repo.Permissions.Push)
                             {
                                 StartRebaseJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
                             }
