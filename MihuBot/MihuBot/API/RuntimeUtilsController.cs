@@ -12,15 +12,10 @@ public sealed class RuntimeUtilsController : ControllerBase
     private readonly RuntimeUtilsService _jobs;
     private readonly string _githubAuthToken;
 
-    private static bool ShouldFailForCompletedJob(JobBase job)
+    private BadRequestResult JobCompletedErrorResult()
     {
-        if (!job.Completed)
-        {
-            return false;
-        }
-
-        TimeSpan timeSinceCompletion = DateTime.UtcNow - job.StartTime - job.Stopwatch.Elapsed;
-        return timeSinceCompletion > TimeSpan.FromMinutes(5);
+        Response.Headers["X-Job-Completed"] = "true";
+        return BadRequest();
     }
 
     public RuntimeUtilsController(RuntimeUtilsService jobs)
@@ -51,9 +46,9 @@ public sealed class RuntimeUtilsController : ControllerBase
             return NotFound();
         }
 
-        if (ShouldFailForCompletedJob(job))
+        if (job.Completed)
         {
-            return BadRequest();
+            return JobCompletedErrorResult();
         }
 
         job.LogsReceived(lines);
@@ -73,9 +68,9 @@ public sealed class RuntimeUtilsController : ControllerBase
             return NotFound();
         }
 
-        if (ShouldFailForCompletedJob(job))
+        if (job.Completed)
         {
-            return BadRequest();
+            return JobCompletedErrorResult();
         }
 
         job.LastSystemInfo = systemInfo;
@@ -120,9 +115,9 @@ public sealed class RuntimeUtilsController : ControllerBase
             return NotFound();
         }
 
-        if (ShouldFailForCompletedJob(job))
+        if (job.Completed)
         {
-            return BadRequest();
+            return JobCompletedErrorResult();
         }
 
         await job.ArtifactReceivedAsync(fileName, Request.Body, HttpContext.RequestAborted);

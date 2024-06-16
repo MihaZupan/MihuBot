@@ -161,7 +161,11 @@ public abstract class JobBase
 
             using var ctsReg = _idleTimeoutCts.Token.Register(() =>
             {
-                LogsReceived("Job idle timeout exceeded, terminating ...");
+                if (FirstErrorMessage is null)
+                {
+                    LogsReceived("Job idle timeout exceeded, terminating ...");
+                }
+
                 jobTimeoutCts.Cancel();
                 JobCompletionTcs.TrySetCanceled();
             });
@@ -172,7 +176,7 @@ public abstract class JobBase
 
             LastSystemInfo = null;
 
-            await ArtifactReceivedAsync("logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), jobTimeout);
+            await ArtifactReceivedAsync("logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -457,5 +461,17 @@ public abstract class JobBase
                 }
             }
         }
+    }
+
+    public void FailFast(string message)
+    {
+        if (Completed || _idleTimeoutCts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _firstErrorMessage = $"!!! FailFast: {message}";
+        LogsReceived(_firstErrorMessage);
+        _idleTimeoutCts.Cancel();
     }
 }

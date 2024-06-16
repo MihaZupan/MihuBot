@@ -3,15 +3,15 @@ using Octokit;
 
 namespace MihuBot.Commands;
 
-public sealed class FuzzCommand : CommandBase
+public sealed class RuntimeUtilsCommands : CommandBase
 {
     private readonly GitHubClient _github;
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
-    public override string Command => "fuzz";
-    public override string[] Aliases => ["rebase", "merge", "format"];
+    public override string Command => "cancel";
+    public override string[] Aliases => ["fuzz", "rebase", "merge", "format"];
 
-    public FuzzCommand(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
+    public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
         _github = github;
         _runtimeUtilsService = runtimeUtilsService;
@@ -21,6 +21,25 @@ public sealed class FuzzCommand : CommandBase
     {
         if (!ctx.IsFromAdmin)
         {
+            return;
+        }
+
+        if (ctx.Command == "cancel")
+        {
+            if (ctx.Arguments.Length < 1)
+            {
+                await ctx.ReplyAsync("Invalid args");
+                return;
+            }
+
+            if (!_runtimeUtilsService.TryGetJob(ctx.Arguments[0], true, out JobBase jobToCancel) &&
+                !_runtimeUtilsService.TryGetJob(ctx.Arguments[0], false, out jobToCancel))
+            {
+                await ctx.ReplyAsync("Couldn't find that job");
+                return;
+            }
+
+            jobToCancel.FailFast("Terminated by admin");
             return;
         }
 
