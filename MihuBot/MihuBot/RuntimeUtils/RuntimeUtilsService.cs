@@ -99,7 +99,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
             {
                 if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase) &&
                     comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                    comment.User.Type == AccountType.User)
+                    comment.User.Type == AccountType.User &&
+                    !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
                 {
                     await ProcessMihuBotMentions(comment);
                 }
@@ -138,9 +139,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 {
                     string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
 
-                    if (!comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                        (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
-                        arguments is "-h" or "-H" or "?" or "-?"))
+                    if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                        arguments is "-h" or "-H" or "?" or "-?")
                     {
                         await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
                         return;
@@ -188,7 +188,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     else
                     {
                         if (!comment.User.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
-                            !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
                             !comment.User.Login.Contains("dotnet-policy-service", StringComparison.OrdinalIgnoreCase))
                         {
                             await Logger.DebugAsync($"User {comment.User.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
