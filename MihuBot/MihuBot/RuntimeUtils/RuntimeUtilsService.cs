@@ -175,6 +175,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
                                     I don't have push access to your repository.
                                     You can add me as a collaborator at https://github.com/{pullRequest.Head.Repository.FullName}/settings/access
                                     """);
+
+                                await Logger.DebugAsync($"User {comment.User.Login} requires collaborator access. <{pullRequest.HtmlUrl}>");
                             }
                         }
                         else
