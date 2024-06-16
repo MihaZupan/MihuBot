@@ -5,7 +5,12 @@ namespace MihuBot.RuntimeUtils;
 public sealed class RebaseJob : JobBase
 {
     private string _jobTitle;
-    public override string JobTitle => _jobTitle ??= $"[Rebase] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+    public override string JobTitle => _jobTitle ??= $"[{JobName}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+
+    private string JobName =>
+        CustomArguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ? "Rebase" :
+        CustomArguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase) ? "Merge" :
+        "Format";
 
     public RebaseJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     {
