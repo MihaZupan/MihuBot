@@ -428,7 +428,7 @@ public sealed class JitDiffJob : JobBase
             Parameters = BinaryData.FromObjectAsJson(new
             {
                 runnerId = new { value = ExternalId },
-                osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "64")) },
+                osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "256")) },
                 virtualMachineSize = new { value = vmSize },
                 adminPassword = new { value = $"{JobId}aA1" },
                 customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(CreateCloudInitScript())) },
