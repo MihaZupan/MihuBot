@@ -145,6 +145,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
 
                     if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                        arguments.StartsWith("help", StringComparison.OrdinalIgnoreCase) ||
                         arguments is "-h" or "-H" or "?" or "-?")
                     {
                         await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
