@@ -57,6 +57,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
             $"""
             [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+            Using arguments: ````{CustomArguments}````
             {error}
             {resultsMarkdown}
             {GetArtifactList()}

@@ -539,7 +539,7 @@ public abstract class JobBase
                 Parameters = BinaryData.FromObjectAsJson(new
                 {
                     runnerId = new { value = ExternalId },
-                    osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "256")) },
+                    osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "128")) },
                     virtualMachineSize = new { value = vmSize },
                     adminPassword = new { value = $"{JobId}aA1" },
                     customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(cloudInitScript)) },
