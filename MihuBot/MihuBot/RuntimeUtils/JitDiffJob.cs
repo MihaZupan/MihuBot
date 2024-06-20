@@ -1,11 +1,5 @@
-﻿using Azure.Core;
-using Azure.ResourceManager.Resources.Models;
-using Azure.ResourceManager.Resources;
-using Azure.ResourceManager;
-using Azure;
-using Octokit;
+﻿using Octokit;
 using System.IO.Compression;
-using static MihuBot.Helpers.HetznerClient;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -15,21 +9,11 @@ public sealed class JitDiffJob : JobBase
     private readonly TempFile _frameworksDiffsZipFile = new("zip");
     private readonly Dictionary<(string DasmFile, bool Main), TempFile> _frameworksDiffFiles = new();
 
-    public string Architecture => UseArm ? "ARM64" : "X64";
-
-    private bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
-    private bool UseIntelCpu => CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-    private bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     private bool IncludeKnownNoise => CustomArguments.Contains("-includeKnownNoise", StringComparison.OrdinalIgnoreCase);
     private bool IncludeNewMethodRegressions => CustomArguments.Contains("-includeNewMethodRegressions", StringComparison.OrdinalIgnoreCase);
     private bool IncludeRemovedMethodImprovements => CustomArguments.Contains("-includeRemovedMethodImprovements", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShouldDeleteVM => GetConfigFlag("ShouldDeleteVM", true);
     private bool ShouldPostDiffsComment => GetConfigFlag("ShouldPostDiffsComment", true);
-
-    public bool UseHetzner =>
-        GetConfigFlag("ForceHetzner", false) ||
-        CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
     private string _jobTitle;
     public override string JobTitle => _jobTitle ??= PullRequest is null
@@ -50,7 +34,6 @@ public sealed class JitDiffJob : JobBase
             $"""
             Job is in progress - see {ProgressDashboardUrl}
             {(FromGithubComment && ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-
             """;
     }
 
@@ -61,14 +44,7 @@ public sealed class JitDiffJob : JobBase
             await ParsePRListAsync(CustomArguments, "dependsOn");
             await ParsePRListAsync(CustomArguments, "combineWith");
 
-            if (UseHetzner)
-            {
-                await RunHetznerVirtualMachineAsync(jobTimeout);
-            }
-            else
-            {
-                await RunAzureVirtualMachineAsync(jobTimeout);
-            }
+            await RunOnNewVirtualMachineAsync(16, jobTimeout);
 
             LastSystemInfo = null;
 
@@ -86,11 +62,13 @@ public sealed class JitDiffJob : JobBase
             bool gotAnyDiffs = _frameworksDiffSummary is not null;
 
             await UpdateIssueBodyAsync(
-                $"[Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.\n" +
-                (gotAnyDiffs && ShouldLinkToPROrBranch ? TestedPROrBranchLink : "") +
-                "\n\n" +
-                (gotAnyDiffs ? frameworksDiffs : "") +
-                (gotAnyDiffs ? GetArtifactList() : ""));
+                $$"""
+                [Job]({{ProgressDashboardUrl}}) completed in {{GetElapsedTime()}}.
+                {{(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}}
+
+                {{(gotAnyDiffs ? frameworksDiffs : "")}}
+                {{GetArtifactList()}}
+                """);
 
             if (gotAnyDiffs && ShouldPostDiffsComment)
             {
@@ -388,163 +366,5 @@ public sealed class JitDiffJob : JobBase
 
             LogsReceived($"Finished extracting Frameworks diffs zip in {extractTime.Elapsed.TotalSeconds:N1} seconds");
         }
-    }
-
-    private string CreateCloudInitScript()
-    {
-        return
-            $"""
-            #cloud-config
-                runcmd:
-                    - apt-get update
-                    - apt-get install -y dotnet-sdk-6.0
-                    - apt-get install -y dotnet-sdk-8.0
-                    - cd /home
-                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-                    - cd runtime-utils/Runner
-                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
-            """;
-    }
-
-    private async Task RunAzureVirtualMachineAsync(CancellationToken jobTimeout)
-    {
-        string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
-
-        string defaultVmSize =
-            UseArm ? "DXpds_v5" :
-            UseIntelCpu ? "DXds_v5" :
-            Fast ? "FXas_v6" :
-            "DXas_v6";
-        defaultVmSize = $"Standard_{defaultVmSize.Replace("X", Fast ? "32" : "16")}";
-
-        string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
-        string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
-
-        string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
-
-        var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
-        {
-            Template = BinaryData.FromString(templateJson),
-            Parameters = BinaryData.FromObjectAsJson(new
-            {
-                runnerId = new { value = ExternalId },
-                osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "256")) },
-                virtualMachineSize = new { value = vmSize },
-                adminPassword = new { value = $"{JobId}aA1" },
-                customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(CreateCloudInitScript())) },
-                imageReference = new
-                {
-                    value = new
-                    {
-                        publisher = "canonical",
-                        offer = "0001-com-ubuntu-server-jammy",
-                        sku = UseArm ? "22_04-lts-arm64" : "22_04-lts-gen2",
-                        version = "latest"
-                    }
-                }
-            })
-        });
-
-        LogsReceived("Creating a new Azure resource group for this deployment ...");
-
-        var armClient = new ArmClient(Program.AzureCredential);
-        var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
-
-        string resourceGroupName = $"runtime-utils-runner-{ExternalId}";
-        var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
-        var resourceGroups = subscription.GetResourceGroups();
-        var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
-
-        try
-        {
-            LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
-            _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
-
-            string deploymentName = $"runner-deployment-{ExternalId}";
-            var armDeployments = resourceGroup.GetArmDeployments();
-            var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
-
-            LogsReceived("Azure deployment complete");
-
-            await JobCompletionTcs.Task.WaitAsync(jobTimeout);
-        }
-        finally
-        {
-            if (ShouldDeleteVM)
-            {
-                LogsReceived("Deleting the VM resource group");
-
-                QueueResourceDeletion(async () =>
-                {
-                    await resourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken: CancellationToken.None);
-                }, resourceGroupName);
-            }
-            else
-            {
-                LogsReceived("Configuration opted not to delete the VM");
-            }
-
-            NotifyJobCompletion();
-        }
-    }
-
-    private async Task RunHetznerVirtualMachineAsync(CancellationToken jobTimeout)
-    {
-        string cpuType = UseArm ? "ARM64" : (UseIntelCpu ? "X64Intel" : "X64Amd");
-
-        string serverType = Fast
-            ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (UseIntelCpu ? "cx51" : "cpx51"))
-            : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (UseIntelCpu ? "cx41" : "cpx41"));
-
-        LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
-
-        HetznerServerResponse server = await Hetzner.CreateServerAsync(
-            $"runner-{ExternalId}",
-            GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
-            GetConfigFlag($"HetznerLocation{cpuType}", UseArm || UseIntelCpu ? "fsn1" : "ash"),
-            serverType,
-            CreateCloudInitScript(),
-            jobTimeout);
-
-        HetznerServerResponse.HetznerServer serverInfo = server.Server ?? throw new Exception("No server info");
-        HetznerServerResponse.HetznerServerType vmType = serverInfo.ServerType;
-
-        try
-        {
-            LogsReceived($"VM starting (CpuType={cpuType} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
-
-            await JobCompletionTcs.Task.WaitAsync(jobTimeout);
-        }
-        finally
-        {
-            if (ShouldDeleteVM)
-            {
-                LogsReceived("Deleting the VM");
-
-                QueueResourceDeletion(async () =>
-                {
-                    await Hetzner.DeleteServerAsync(serverInfo.Id, CancellationToken.None);
-                }, serverInfo.Id.ToString());
-            }
-            else
-            {
-                LogsReceived("Configuration opted not to delete the VM");
-            }
-        }
-    }
-
-    private void QueueResourceDeletion(Func<Task> func, string info)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await func();
-            }
-            catch (Exception ex)
-            {
-                await Logger.DebugAsync($"Failed to delete resource {info}: {ex}");
-            }
-        });
     }
 }

@@ -42,6 +42,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         Or
         ```
+        @MihuBot benchmark <benchmarks filter>
+        ```
+
+        Or
+        ```
         @MihuBot merge/rebase/format    Requires collaborator access on your fork
         ```
         """;
@@ -149,6 +154,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     if (CheckGitHubUserPermissions(comment.User.Login))
                     {
                         var fuzzMatch = FuzzMatchRegex().Match(arguments);
+                        var benchmarksMatch = BenchmarkFilterNameRegex().Match(arguments);
 
                         if (fuzzMatch.Success)
                         {
@@ -157,6 +163,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
                         {
                             await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
+                        }
+                        else if (benchmarksMatch.Success && benchmarksMatch.Groups[1].Value != "*")
+                        {
+                            StartBenchmarkJob(pullRequest, githubCommenterLogin: comment.User.Location, arguments);
+                        }
+                        else if (arguments.StartsWith("benchmarks", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot benchmark <benchmarks filter>`");
                         }
                         else if (
                             arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
@@ -235,6 +249,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
+    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    {
+        var job = new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
+        StartJobCore(job);
+        return job;
+    }
+
     private void StartJobCore(JobBase job)
     {
         lock (_jobs)
@@ -291,4 +312,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     [GeneratedRegex(@"^fuzz ([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex FuzzMatchRegex();
+
+    [GeneratedRegex(@"^benchmark ([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex BenchmarkFilterNameRegex();
 }

@@ -9,7 +9,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "cancel";
-    public override string[] Aliases => ["fuzz", "rebase", "merge", "format"];
+    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format"];
 
     public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -54,26 +54,29 @@ public sealed class RuntimeUtilsCommands : CommandBase
 
         JobBase job;
 
-        if (ctx.Command == "fuzz")
+        const string Initiator = "MihaZupan";
+        string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
+
+        if (ctx.Command is "fuzz" or "benchmark")
         {
-            if (ctx.Arguments.Length != 2 ||
-                ctx.Arguments[1] is not { Length: > 0 } fuzzerName)
+            if (ctx.Arguments.Length < 2)
             {
                 await ctx.ReplyAsync("Invalid args");
                 return;
             }
 
-            job = _runtimeUtilsService.StartFuzzLibrariesJob(
-                pr,
-                "MihaZupan",
-                $"fuzz {fuzzerName} -NoPRLink");
+            if (ctx.Command == "fuzz")
+            {
+                job = _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments);
+            }
+            else
+            {
+                job = _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments);
+            }
         }
         else if (ctx.Command is "rebase" or "merge" or "format")
         {
-            job = _runtimeUtilsService.StartRebaseJob(
-                pr,
-                "MihaZupan",
-                $"{ctx.Command} -NoPRLink {string.Join(' ', ctx.Arguments.Skip(1))}".Trim());
+            job = _runtimeUtilsService.StartRebaseJob(pr, Initiator, arguments);
         }
         else
         {

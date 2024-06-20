@@ -7,7 +7,7 @@ public sealed class FuzzLibrariesJob : JobBase
     private string _jobTitle;
     public override string JobTitle => _jobTitle ??= $"[Fuzzing] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
 
-    protected override bool PostErrorAsGitHubComment => true;
+    protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
