@@ -51,6 +51,24 @@ public sealed class RuntimeUtilsController : ControllerBase
             return JobCompletedErrorResult();
         }
 
+        if (lines is null)
+        {
+            return BadRequest();
+        }
+
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i] is null)
+            {
+                return BadRequest();
+            }
+
+            if (lines[i].Length > 10_000)
+            {
+                lines[i] = lines[i].TruncateWithDotDotDot(10_000);
+            }
+        }
+
         job.LogsReceived(lines);
         return Ok();
     }
