@@ -12,6 +12,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private const string UsageCommentMarkdown =
         $"""
+        <details>
+        <summary>Usage instructions</summary>
+
         See <https://mihubot.xyz/runtime-utils> for an alternative way of submitting jobs.
 
         ```
@@ -33,22 +36,40 @@ public sealed partial class RuntimeUtilsService : IHostedService
             -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).
             -includeNewMethodRegressions        Display diffs for new methods.
             -includeRemovedMethodImprovements   Display diffs for removed methods.
+
+        Example:
+            @MihuBot
+            @MihuBot -arm -tier0
+        ```
+
+        Or
+        ```
+        @MihuBot benchmark <benchmarks filter> [options]
+
+        Options:
+            <link to a custom dotnet/performance branch>
+            -arm/intel
+            -medium/long
+
+        Example:
+            @MihuBot benchmark Regex
+            @MihuBot benchmark RustLang_Sherlock https://github.com/MihaZupan/performance/tree/compiled-regex-only -intel -medium
         ```
 
         Or
         ```
         @MihuBot fuzz <fuzzer name pattern>
-        ```
 
-        Or
-        ```
-        @MihuBot benchmark <benchmarks filter>
+        Example:
+            @MihuBot fuzz SearchValues
         ```
 
         Or
         ```
         @MihuBot merge/rebase/format    Requires collaborator access on your fork
         ```
+
+        </details>
         """;
 
     private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
