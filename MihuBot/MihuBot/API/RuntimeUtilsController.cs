@@ -74,7 +74,7 @@ public sealed class RuntimeUtilsController : ControllerBase
     }
 
     [HttpPost("Jobs/SystemInfo/{jobId}")]
-    public IActionResult UpdateSystemInfo([FromRoute] string jobId, [FromBody] SystemHardwareInfo systemInfo)
+    public IActionResult UpdateSystemInfo([FromRoute] string jobId, [FromBody] SystemHardwareInfo systemInfo, [FromQuery] string progressSummary)
     {
         if (systemInfo is null)
         {
@@ -91,7 +91,13 @@ public sealed class RuntimeUtilsController : ControllerBase
             return JobCompletedErrorResult();
         }
 
+        if (string.IsNullOrWhiteSpace(progressSummary))
+        {
+            progressSummary = null;
+        }
+
         job.LastSystemInfo = systemInfo;
+        job.LastProgressSummary = progressSummary?.TruncateWithDotDotDot(100);
         return Ok();
     }
 

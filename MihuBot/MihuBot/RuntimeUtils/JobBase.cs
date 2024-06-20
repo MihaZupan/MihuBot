@@ -61,6 +61,7 @@ public abstract class JobBase
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public SystemHardwareInfo LastSystemInfo { get; set; }
+    public string LastProgressSummary { get; set; }
 
     protected string CustomArguments
     {
