@@ -31,17 +31,22 @@ public sealed class BenchmarkLibrariesJob : JobBase
         string resultsMarkdown = string.Empty;
         if (!string.IsNullOrWhiteSpace(_resultsMarkdown))
         {
-            resultsMarkdown =
-                $$"""
+            resultsMarkdown = _resultsMarkdown;
 
-                <details>
-                <summary>Benchmark results</summary>
+            if (resultsMarkdown.Length > CommentLengthLimit * 0.8)
+            {
+                var newGist = new NewGist
+                {
+                    Description = $"Benchmark results for {TrackingIssue.HtmlUrl}",
+                    Public = false,
+                };
 
-                {{_resultsMarkdown}}
+                newGist.Files.Add("Results.md", resultsMarkdown);
 
-                </details>
+                Gist gist = await Github.Gist.Create(newGist);
 
-                """;
+                resultsMarkdown = $"See benchmark results at {gist.HtmlUrl}";
+            }
         }
 
         string error = FirstErrorMessage is { } message
