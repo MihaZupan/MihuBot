@@ -26,7 +26,7 @@ public abstract class JobBase
 
     public readonly DateTime StartTime = DateTime.UtcNow;
     protected readonly RuntimeUtilsService Parent;
-    private readonly RollingLog _logs = new(50_000);
+    private readonly RollingLog _logs = new(100_000);
     private long _artifactsCount;
     private long _totalArtifactsSize;
     protected readonly CancellationTokenSource _idleTimeoutCts = new();
