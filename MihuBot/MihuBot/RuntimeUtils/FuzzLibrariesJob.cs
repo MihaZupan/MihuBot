@@ -16,15 +16,6 @@ public sealed class FuzzLibrariesJob : JobBase
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
-    protected override string GetInitialIssueBody()
-    {
-        return
-            $"""
-            Job is in progress - see {ProgressDashboardUrl}
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            """;
-    }
-
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
         await JobCompletionTcs.Task;

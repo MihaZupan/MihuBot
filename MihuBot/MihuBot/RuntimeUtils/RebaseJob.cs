@@ -16,15 +16,6 @@ public sealed class RebaseJob : JobBase
         Metadata.Add("MihuBotPushToken", parent.Configuration["GitHub:Token"]);
     }
 
-    protected override string GetInitialIssueBody()
-    {
-        return
-            $"""
-            Job is in progress - see {ProgressDashboardUrl}
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            """;
-    }
-
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
         await JobCompletionTcs.Task;

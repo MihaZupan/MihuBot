@@ -36,7 +36,6 @@ public abstract class JobBase
 
     protected GitHubComment GitHubComment { get; }
     protected string GithubCommenterLogin { get; }
-    public bool FromGithubComment => GithubCommenterLogin is not null;
 
     protected Logger Logger => Parent.Logger;
     protected GitHubClient Github => Parent.Github;
@@ -147,8 +146,6 @@ public abstract class JobBase
         return @default;
     }
 
-    protected abstract string GetInitialIssueBody();
-
     protected virtual bool RunUsingGitHubActions => false;
 
     public async Task RunJobAsync()
@@ -164,18 +161,18 @@ public abstract class JobBase
 
         ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
 
-        string initialBody = GetInitialIssueBody();
-        if (RunUsingGitHubActions)
-        {
-            initialBody = $"{initialBody}\n\n<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->\n";
-        }
-
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
             new NewIssue(JobTitle)
             {
-                Body = initialBody
+                Body =
+                    $"""
+                    Job is in progress - see {ProgressDashboardUrl}
+                    {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+
+                    {(RunUsingGitHubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
+                    """
             });
 
         try
@@ -226,7 +223,7 @@ public abstract class JobBase
 
             NotifyJobCompletion();
 
-            if (FromGithubComment && ShouldMentionJobInitiator)
+            if (ShouldMentionJobInitiator && GithubCommenterLogin is not null)
             {
                 try
                 {
