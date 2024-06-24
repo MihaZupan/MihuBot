@@ -12,6 +12,8 @@ public sealed class RebaseJob : JobBase
         CustomArguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase) ? "Merge" :
         "Format";
 
+    protected override bool RunUsingGitHubActions => true;
+
     public RebaseJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     {
         Metadata.Add("MihuBotPushToken", parent.Configuration["GitHub:Token"]);
@@ -23,15 +25,11 @@ public sealed class RebaseJob : JobBase
             $"""
             Job is in progress - see {ProgressDashboardUrl}
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-
-            <!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->
             """;
     }
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        LogsReceived("Starting runner on GitHub actions ...");
-
         await JobCompletionTcs.Task;
 
         string error = FirstErrorMessage is { } message

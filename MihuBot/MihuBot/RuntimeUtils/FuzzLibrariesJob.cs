@@ -9,6 +9,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
+    protected override bool RunUsingGitHubActions => true;
+
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
     public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
@@ -21,15 +23,11 @@ public sealed class FuzzLibrariesJob : JobBase
             $"""
             Job is in progress - see {ProgressDashboardUrl}
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-
-            <!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->
             """;
     }
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        LogsReceived("Starting runner on GitHub actions ...");
-
         await JobCompletionTcs.Task;
 
         string error = FirstErrorMessage is { } message

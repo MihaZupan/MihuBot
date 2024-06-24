@@ -143,6 +143,8 @@ public abstract class JobBase
 
     protected abstract string GetInitialIssueBody();
 
+    protected virtual bool RunUsingGitHubActions => false;
+
     public async Task RunJobAsync()
     {
         LogsReceived("Starting ...");
@@ -156,12 +158,18 @@ public abstract class JobBase
 
         ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
 
+        string initialBody = GetInitialIssueBody();
+        if (RunUsingGitHubActions)
+        {
+            initialBody = $"{initialBody}\n\n<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->\n";
+        }
+
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
             new NewIssue(JobTitle)
             {
-                Body = GetInitialIssueBody()
+                Body = initialBody
             });
 
         try
@@ -181,6 +189,11 @@ public abstract class JobBase
             });
 
             LogsReceived($"Using custom arguments: '{CustomArguments}'");
+
+            if (RunUsingGitHubActions)
+            {
+                LogsReceived("Starting runner on GitHub actions ...");
+            }
 
             await RunJobAsyncCore(jobTimeout);
 
