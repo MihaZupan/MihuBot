@@ -5,6 +5,8 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class JitDiffJob : JobBase
 {
+    public override string JobTitlePrefix => $"JitDiff {Architecture}";
+
     private string _frameworksDiffSummary;
     private readonly TempFile _frameworksDiffsZipFile = new("zip");
     private readonly Dictionary<(string DasmFile, bool Main), TempFile> _frameworksDiffFiles = new();
@@ -14,11 +16,6 @@ public sealed class JitDiffJob : JobBase
     private bool IncludeRemovedMethodImprovements => CustomArguments.Contains("-includeRemovedMethodImprovements", StringComparison.OrdinalIgnoreCase);
 
     private bool ShouldPostDiffsComment => GetConfigFlag("ShouldPostDiffsComment", true);
-
-    private string _jobTitle;
-    public override string JobTitle => _jobTitle ??= PullRequest is null
-        ? $"[{Architecture}] {Metadata["PrRepo"]}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99)
-        : $"[{Architecture}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
 
     public JitDiffJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
         : base(parent, repository, branch, githubCommenterLogin, arguments)

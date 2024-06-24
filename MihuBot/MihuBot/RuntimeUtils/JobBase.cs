@@ -49,7 +49,13 @@ public abstract class JobBase
     public Issue TrackingIssue { get; private set; }
     public bool Completed => !Stopwatch.IsRunning;
 
-    public abstract string JobTitle { get; }
+    private string _jobTitle;
+    public string JobTitle => _jobTitle ??= PullRequest is null
+        ? $"[{JobTitlePrefix}] {Metadata["PrRepo"]}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99)
+        : $"[{JobTitlePrefix}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+
+    public abstract string JobTitlePrefix { get; }
+
     public string TestedPROrBranchLink { get; }
     public string JobId { get; } = Guid.NewGuid().ToString("N");
     public string ExternalId { get; } = Guid.NewGuid().ToString("N");

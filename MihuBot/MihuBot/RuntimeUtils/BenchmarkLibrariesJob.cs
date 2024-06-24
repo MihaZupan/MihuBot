@@ -4,8 +4,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class BenchmarkLibrariesJob : JobBase
 {
-    private string _jobTitle;
-    public override string JobTitle => _jobTitle ??= $"[Benchmark {Architecture}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+    public override string JobTitlePrefix => $"Benchmark {Architecture}";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 

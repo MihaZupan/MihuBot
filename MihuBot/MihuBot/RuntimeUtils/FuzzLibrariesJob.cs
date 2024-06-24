@@ -4,8 +4,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class FuzzLibrariesJob : JobBase
 {
-    private string _jobTitle;
-    public override string JobTitle => _jobTitle ??= $"[Fuzzing] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+    public override string JobTitlePrefix => "Fuzzing";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
