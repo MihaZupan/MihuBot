@@ -196,7 +196,7 @@
     {
         [Required]
         [RegularExpression(
-            pattern: @"^\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_]+/[A-Za-z\d-_]+/(?:tree|blob)/[A-Za-z\d-_]+)(?:[\?#/].*)?$",
+            pattern: @"^\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_\.]+/[A-Za-z\d-_\.]+/(?:tree|blob)/[A-Za-z\d-_\.]+)(?:[\?#/].*)?$",
             ErrorMessage = "Invalid PR number / link / branch")]
         public string InputPROrBranch { get; set; }
 
