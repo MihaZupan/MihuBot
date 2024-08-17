@@ -1,5 +1,4 @@
-﻿using MihuBot.Commands;
-using MihuBot.Configuration;
+﻿using MihuBot.Configuration;
 using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System.Reflection;
@@ -250,7 +249,29 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                await _discord.GetTextChannel(Channels.Debug).TrySendMessageAsync("Started");
+                var assembly = typeof(MihuBotService).Assembly;
+                var attribute = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+                string commit = attribute?.InformationalVersion;
+
+                if (commit is not null)
+                {
+                    int plusOffset = commit.IndexOf('+');
+                    if (plusOffset >= 0)
+                    {
+                        commit = commit.Substring(plusOffset + 1);
+                    }
+                }
+
+                var embed = new EmbedBuilder()
+                    .WithTitle("Started")
+                    .AddField("RID", $"`{RuntimeInformation.RuntimeIdentifier}`")
+                    .AddField("Version", $"`{RuntimeInformation.FrameworkDescription}`")
+                    .AddField("Build", commit is null ? "local" : $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/commit/{commit})")
+                    .AddField("WorkDir", $"`{Environment.CurrentDirectory}`")
+                    .AddField("Machine", $"`{Environment.MachineName}`")
+                    .Build();
+
+                await _discord.GetTextChannel(Channels.Debug).TrySendMessageAsync(embed: embed);
             }
             catch { }
         }
