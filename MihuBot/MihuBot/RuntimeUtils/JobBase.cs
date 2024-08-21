@@ -161,6 +161,18 @@ public abstract class JobBase
 
         ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
 
+        Exception prListException = null;
+        try
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+            await ParsePRListAsync(CustomArguments, "dependsOn", timeoutCts.Token);
+            await ParsePRListAsync(CustomArguments, "combineWith", timeoutCts.Token);
+        }
+        catch (Exception ex)
+        {
+            prListException = ex;
+        }
+
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
@@ -196,6 +208,11 @@ public abstract class JobBase
             if (RunUsingGitHubActions)
             {
                 LogsReceived("Starting runner on GitHub actions ...");
+            }
+
+            if (prListException is not null)
+            {
+                throw prListException;
             }
 
             await RunJobAsyncCore(jobTimeout);
@@ -238,6 +255,67 @@ public abstract class JobBase
     }
 
     protected abstract Task RunJobAsyncCore(CancellationToken jobTimeout);
+
+    private async Task ParsePRListAsync(string arguments, string argument, CancellationToken cancellationToken)
+    {
+        if (TryParseList(arguments, argument) is not int[] prs || prs.Length == 0)
+        {
+            return;
+        }
+
+        LogsReceived($"Found {argument} PRs: {string.Join(", ", prs)}");
+
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(prs.Length, 100);
+
+        List<(string Repo, string Branch)> prInfos = new();
+
+        foreach (int pr in prs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                PullRequest prInfo = await Github.PullRequest.Get(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, pr);
+                string repo = prInfo.Head.Repository.FullName;
+                string branch = prInfo.Head.Ref;
+
+                LogsReceived($"PR {pr}: {repo}/{branch}");
+                prInfos.Add((repo, branch));
+            }
+            catch
+            {
+                LogsReceived($"Failed to get PR info for {pr}");
+                throw;
+            }
+        }
+
+        string prInfoStr = string.Join(',', prInfos.Select(pr => $"{pr.Repo};{pr.Branch}"));
+        LogsReceived($"Adding {argument}: {prInfoStr}");
+        Metadata.Add(argument, prInfoStr);
+
+        static int[] TryParseList(ReadOnlySpan<char> arguments, string argument)
+        {
+            argument = $"-{argument} ";
+
+            int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+            if (offset < 0) return null;
+
+            arguments = arguments.Slice(offset + argument.Length);
+
+            int length = arguments.IndexOf(' ');
+            if (length >= 0)
+            {
+                arguments = arguments.Slice(0, length);
+            }
+
+            return arguments.ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(number => number.TrimStart('#'))
+                .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
+                .Select(int.Parse)
+                .ToArray();
+        }
+    }
 
     public string GetElapsedTime()
     {
