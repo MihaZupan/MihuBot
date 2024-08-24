@@ -10,6 +10,10 @@ public sealed class BenchmarkLibrariesJob : JobBase
 
     private string _resultsMarkdown;
 
+    public BenchmarkLibrariesJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+        : base(parent, repository, branch, githubCommenterLogin, arguments)
+    { }
+
     public BenchmarkLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }

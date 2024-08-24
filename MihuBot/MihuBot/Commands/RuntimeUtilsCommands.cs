@@ -43,14 +43,25 @@ public sealed class RuntimeUtilsCommands : CommandBase
             return;
         }
 
-        if (ctx.Arguments.Length < 1 ||
-            !uint.TryParse(ctx.Arguments[0], out uint prNumber))
+        PullRequest pr = null;
+        string repository = null;
+        string branch = null;
+
+        if (ctx.Arguments.Length < 1)
         {
             await ctx.ReplyAsync("Invalid args");
             return;
         }
 
-        PullRequest pr = await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
+        if (uint.TryParse(ctx.Arguments[0], out uint prNumber))
+        {
+            pr = await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
+        }
+        else if (!GitHubHelper.TryParseGithubRepoAndBranch(ctx.Arguments[0], out repository, out branch))
+        {
+            await ctx.ReplyAsync($"Failed to parse '{ctx.Arguments[0]}'");
+            return;
+        }
 
         JobBase job;
 
@@ -67,15 +78,25 @@ public sealed class RuntimeUtilsCommands : CommandBase
 
             if (ctx.Command == "fuzz")
             {
-                job = _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments);
+                job = pr is null
+                    ? _runtimeUtilsService.StartFuzzLibrariesJob(repository, branch, Initiator, arguments)
+                    : _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments);
             }
             else
             {
-                job = _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments);
+                job = pr is null
+                    ? _runtimeUtilsService.StartBenchmarkJob(repository, branch, Initiator, arguments)
+                    : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments);
             }
         }
         else if (ctx.Command is "rebase" or "merge" or "format")
         {
+            if (pr is null)
+            {
+                await ctx.ReplyAsync("Unsupported command on a custom branch");
+                return;
+            }
+
             job = _runtimeUtilsService.StartRebaseJob(pr, Initiator, arguments);
         }
         else

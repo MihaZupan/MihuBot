@@ -257,6 +257,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
+    public JobBase StartFuzzLibrariesJob(string repository, string branch, string githubCommenterLogin, string arguments)
+    {
+        var job = new FuzzLibrariesJob(this, repository, branch, githubCommenterLogin, arguments);
+        StartJobCore(job);
+        return job;
+    }
+
     public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
@@ -267,6 +274,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         var job = new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment);
+        StartJobCore(job);
+        return job;
+    }
+
+    public JobBase StartBenchmarkJob(string repository, string branch, string githubCommenterLogin, string arguments)
+    {
+        var job = new BenchmarkLibrariesJob(this, repository, branch, githubCommenterLogin, arguments);
         StartJobCore(job);
         return job;
     }

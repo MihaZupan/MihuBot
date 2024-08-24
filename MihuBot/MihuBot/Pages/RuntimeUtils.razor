@@ -344,15 +344,11 @@
             }
             else
             {
-                Match match = Regex.Match(prOrBranch, @"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$");
-                if (!match.Success)
+                if (!GitHubHelper.TryParseGithubRepoAndBranch(prOrBranch, out string repository, out string branch))
                 {
-                    _submittingJobError = $"Failed to parse the PR number/link or branch";
+                    _submittingJobError = "Failed to parse the PR number/link or branch";
                     return;
                 }
-
-                string repository = match.Groups[1].Value;
-                string branch = match.Groups[2].Value;
 
 #if DEBUG
                 _submittingJobError = $"Repo={repository} Branch={branch}";

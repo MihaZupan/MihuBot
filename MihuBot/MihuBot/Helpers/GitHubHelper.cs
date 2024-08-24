@@ -1,8 +1,9 @@
 ﻿using Octokit;
+using System.Text.RegularExpressions;
 
 namespace MihuBot.Helpers;
 
-public static class GitHubHelper
+public static partial class GitHubHelper
 {
     public static async IAsyncEnumerable<GitHubComment> PollCommentsAsync(this GitHubClient github, string repoOwner, string repoName, Logger logger = null)
     {
@@ -97,6 +98,24 @@ public static class GitHubHelper
             commentsToReturn.Clear();
         }
     }
+
+    public static bool TryParseGithubRepoAndBranch(string url, out string repository, out string branch)
+    {
+        Match match = RepoAndBranchRegex().Match(url);
+        if (match.Success)
+        {
+            repository = match.Groups[1].Value;
+            branch = match.Groups[2].Value;
+            return true;
+        }
+
+        repository = null;
+        branch = null;
+        return false;
+    }
+
+    [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$")]
+    private static partial Regex RepoAndBranchRegex();
 }
 
 public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, long CommentId, string Url, string Body, User User, bool IsPrReviewComment)

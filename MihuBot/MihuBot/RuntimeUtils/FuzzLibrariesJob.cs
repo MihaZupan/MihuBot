@@ -12,6 +12,10 @@ public sealed class FuzzLibrariesJob : JobBase
 
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
+    public FuzzLibrariesJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+        : base(parent, repository, branch, githubCommenterLogin, arguments)
+    { }
+
     public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
@@ -75,6 +79,8 @@ public sealed class FuzzLibrariesJob : JobBase
             string.IsNullOrEmpty(FirstErrorMessage) &&
             GitHubComment is not null)
         {
+            Logger.DebugLog($"Attempting to add reaction on {GitHubComment.Url}");
+
             await GitHubComment.AddReactionAsync(Octokit.ReactionType.Plus1);
         }
     }
