@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
@@ -90,17 +89,6 @@ public class Startup
         {
             Credentials = new Credentials(Configuration["GitHub:Token"]),
         });
-
-        if (Program.AzureEnabled)
-        {
-            services.AddSingleton<IComputerVisionClient>(new ComputerVisionClient(
-                new ApiKeyServiceClientCredentials(Configuration["AzureComputerVision:SubscriptionKey"]),
-                httpClient,
-                disposeHttpClient: false)
-            {
-                Endpoint = Configuration["AzureComputerVision:Endpoint"]
-            });
-        }
 
         var discord = new InitializedDiscordClient(
             new DiscordSocketConfig()
