@@ -223,6 +223,8 @@ public abstract class JobBase
         }
         catch (Exception ex)
         {
+            LogsReceived($"Uncaught exception: {ex}");
+
             await Logger.DebugAsync(ex.ToString());
 
             await UpdateIssueBodyAsync(
