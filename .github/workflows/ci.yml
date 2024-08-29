@@ -8,13 +8,13 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v2
 
     - name: Setup .NET 9.0
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '9.0'
-        dotnet-quality: 'daily'
+        include-prerelease: true
 
     - name: Dotnet restore
       run: dotnet restore MihuBot
