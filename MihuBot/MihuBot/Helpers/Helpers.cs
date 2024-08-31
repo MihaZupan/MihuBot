@@ -395,4 +395,15 @@ public static class Helpers
 
         return array;
     }
+
+    public static void IgnoreExceptions(this Task task)
+    {
+        if (!task.IsCompletedSuccessfully)
+        {
+            task.ContinueWith(
+                static (task, _) => _ = task.Exception?.InnerException,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                CancellationToken.None);
+        }
+    }
 }

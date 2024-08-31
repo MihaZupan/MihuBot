@@ -51,6 +51,8 @@
             try
             {
                 await reminderService.RemoveRemindersAsync(new[] { entry.MessageId });
+                await UpdateRemindersAsync();
+                await InvokeAsync(StateHasChanged);
             }
             catch { }
         });
@@ -73,7 +75,7 @@
                 Task.Run(UpdateRemindersAsync);
             }
 
-            InvokeAsync(StateHasChanged);
+            InvokeAsync(StateHasChanged).IgnoreExceptions();
         }, null, 1_000, 1_000);
     }
 
