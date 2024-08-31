@@ -3,6 +3,7 @@
 @using MihuBot.Reminders
 @inject DiscordSocketClient discord
 @inject ReminderService reminderService
+@inject Logger logger
 @implements IAsyncDisposable
 
 <h1>Reminders</h1>
@@ -50,6 +51,8 @@
         {
             try
             {
+                logger.DebugLog($"{userId} is deleting a reminder for {entry.AuthorId} ({entry.Time.ToISODateTime()})");
+
                 await reminderService.RemoveRemindersAsync(new[] { entry.MessageId });
                 await UpdateRemindersAsync();
                 await InvokeAsync(StateHasChanged);
