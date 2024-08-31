@@ -1,117 +1,154 @@
 ﻿using MihuBot.Reminders;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands;
 
-public sealed class ReminderCommand : CommandBase
+public sealed partial class ReminderCommand : CommandBase
 {
     public override string Command => "reminder";
-    public override string[] Aliases => new[] { "remind", "reminders", "remindme" };
+    public override string[] Aliases => ["remind", "reminders", "remindme"];
 
     protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
     protected override int CooldownToleranceCount => 10;
 
-    private static readonly Regex _reminderRegex = new Regex(
-        @"^remind(?:ers?|me)?(?: me)? ?(?:to|that)? (.*?) ((?:in|at) (?!in|at).*?)$",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(2));
+    [GeneratedRegex(@"(?:and )?(\d*(?:[\.,]\d+)?|a |an ) ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
+        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 5_000)]
+    private static partial Regex TimeRegex();
 
-    private static readonly Regex _timeRegex = new Regex(
-        @"(?:and )?(\d*?(?:[\.,]\d+)?|a|an)? ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled,
-        TimeSpan.FromSeconds(5));
+    [GeneratedRegex(@"(<#?@?!?&?\d+>) ", RegexOptions.IgnoreCase)]
+    private static partial Regex ReminderMentionRegex();
 
-    private static readonly Regex _reminderMentionRegex = new Regex(
-        @"(<#?@?!?&?\d+>) ?(?:to|that)? ?(.+?)$",
-        RegexOptions.IgnoreCase);
+    private static bool TryParseRemindTime(ReadOnlySpan<char> message, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
+    {
+        times = null;
 
-    private static bool TryParseRemindTime(string time, out DateTime dateTime)
+        // remind me to do stuff in an hour => [an hour]
+        // remind me in 197 minutes to play starfield in the VC => [197 minutes to play starfield in the VC]
+        int i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
+        if (i < 0)
+        {
+            return false;
+        }
+
+        message = message.Slice(i + 4);
+
+        while (!message.IsEmpty)
+        {
+            // [an hour] => [an hour]
+            // [197 minutes to play starfield in the VC] => [197 minutes to play starfield] [the VC]
+            i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
+
+            ReadOnlySpan<char> part;
+
+            if (i < 0)
+            {
+                part = message;
+                message = ReadOnlySpan<char>.Empty;
+            }
+            else
+            {
+                part = message.Slice(0, i);
+                message = message.Slice(i + 4);
+            }
+
+            part = part.Trim();
+
+            // [197 minutes to play starfield] => [197 minutes]
+            i = part.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
+            if (i >= 0)
+            {
+                part = part.Slice(0, i).Trim();
+            }
+
+            string partString = part.ToString();
+
+            if (TryParseRemindTimeCore(partString, out DateTime time))
+            {
+                (times ??= new()).Add((partString, time));
+                return true;
+            }
+        }
+
+        return times is not null;
+    }
+
+    private static bool TryParseRemindTimeCore(string time, out DateTime dateTime)
     {
         dateTime = default;
 
         if (string.IsNullOrEmpty(time))
+        {
+            return false;
+        }
+
+        var matches = TimeRegex().Matches(time);
+
+        if (matches.Count is 0 or > 10)
             return false;
 
-        bool at = char.ToLowerInvariant(time[0]) == 'a';
-        time = time.Trim();
+        var now = DateTime.UtcNow;
+        dateTime = now;
 
-        if (at)
+        foreach (Match m in matches)
         {
-            // ToDo
-        }
-        else
-        {
-            var matches = _timeRegex.Matches(time);
-
-            if (matches.Count > 10)
+            if (!m.Groups[1].Success)
                 return false;
 
-            var now = DateTime.UtcNow;
-            dateTime = now;
+            double number = 1;
+            string quantifier = m.Groups[1].Value;
 
-            foreach (Match m in matches)
+            if (quantifier.Length == 0)
+                return false;
+
+            if (char.ToLowerInvariant(quantifier[0]) != 'a')
             {
-                double number = 1;
-                if (m.Groups[1].Success)
-                {
-                    string quantifier = m.Groups[1].Value;
-
-                    if (quantifier.Length == 0)
-                        continue;
-
-                    if (char.ToLowerInvariant(quantifier[0]) != 'a')
-                    {
-                        quantifier = quantifier.Replace(',', '.');
-                        if (!double.TryParse(quantifier, NumberStyles.Any, CultureInfo.InvariantCulture, out number))
-                            return false;
-                    }
-                }
-
-                if (number > int.MaxValue)
+                quantifier = quantifier.Replace(',', '.');
+                if (!double.TryParse(quantifier, NumberStyles.Any, CultureInfo.InvariantCulture, out number))
                     return false;
-
-                string type = m.Groups[2].Value.ToLowerInvariant();
-
-                try
-                {
-                    dateTime += type[0] switch
-                    {
-                        's' => TimeSpan.FromSeconds(number),
-                        'm' when type.StartsWith("month") => FromMonths(dateTime, number),
-                        'm' => TimeSpan.FromMinutes(number),
-                        'h' => TimeSpan.FromHours(number),
-                        'd' => TimeSpan.FromDays(number),
-                        'w' => TimeSpan.FromDays(number * 7),
-                        'y' => FromYears(dateTime, number),
-                        _ => TimeSpan.Zero
-                    };
-
-                    static TimeSpan FromMonths(DateTime now, double number) =>
-                        now.AddMonths((int)number) - now + TimeSpan.FromDays((365.25d / 12d) * (number % 1));
-
-                    static TimeSpan FromYears(DateTime now, double number) =>
-                        now.AddYears((int)number) - now + TimeSpan.FromDays(365.25d * (number % 1));
-                }
-                catch { return false; }
             }
 
-            if (dateTime == now || dateTime.Year > 12_000)
+            if (number is <= 0 or > 1_000_000 or double.NaN)
                 return false;
 
-            return true;
+            string type = m.Groups[2].Value.ToLowerInvariant();
+
+            try
+            {
+                dateTime += type[0] switch
+                {
+                    's' => TimeSpan.FromSeconds(number),
+                    'm' when type.StartsWith("month", StringComparison.Ordinal) => FromMonths(dateTime, number),
+                    'm' => TimeSpan.FromMinutes(number),
+                    'h' => TimeSpan.FromHours(number),
+                    'd' => TimeSpan.FromDays(number),
+                    'w' => TimeSpan.FromDays(number * 7),
+                    'y' => FromYears(dateTime, number),
+                    _ => TimeSpan.Zero
+                };
+
+                static TimeSpan FromMonths(DateTime now, double number) =>
+                    now.AddMonths((int)number) - now + TimeSpan.FromDays((365.25d / 12d) * (number % 1));
+
+                static TimeSpan FromYears(DateTime now, double number) =>
+                    now.AddYears((int)number) - now + TimeSpan.FromDays(365.25d * (number % 1));
+            }
+            catch { return false; }
         }
 
-        dateTime = default;
-        return false;
+        if (dateTime <= now || dateTime.Year > 3_000)
+            return false;
+
+        return true;
     }
 
     private readonly DiscordSocketClient _discord;
-    private readonly IReminderService _reminderService;
+    private readonly ReminderService _reminderService;
     private readonly Logger _logger;
     private readonly Timer _reminderTimer;
 
-    public ReminderCommand(DiscordSocketClient discord, IReminderService reminderService, Logger logger)
+    public ReminderCommand(DiscordSocketClient discord, ReminderService reminderService, Logger logger)
     {
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _reminderService = reminderService ?? throw new ArgumentNullException(nameof(reminderService));
@@ -131,54 +168,33 @@ public sealed class ReminderCommand : CommandBase
         return message.MentionedEveryone || message.MentionedRoles.Any();
     }
 
-    public override Task HandleAsync(MessageContext ctx)
+    public override async Task HandleAsync(MessageContext ctx)
     {
-        if (!ctx.Content.Contains("remind", StringComparison.OrdinalIgnoreCase)
-            || ctx.Content.Length > 256
-            || !TryPeek(ctx)
-            || ContainsMentionsWithoutPermissions(ctx.Message))
+        if (ctx.Content.StartsWith("remind", StringComparison.OrdinalIgnoreCase) &&
+            ctx.Content.Length <= 256 &&
+            ctx.Content.Contains(" in ", StringComparison.OrdinalIgnoreCase) &&
+            TryPeek(ctx) &&
+            !ContainsMentionsWithoutPermissions(ctx.Message) &&
+            TryParseRemindTime(ctx.Content.AsSpan().Trim(), out List<(string Part, DateTime Time)> reminderTimes) &&
+            TryEnter(ctx))
         {
-            return Task.CompletedTask;
+            if (reminderTimes.Count == 1)
+            {
+                var entry = new ReminderEntry(reminderTimes[0].Time, ctx.Content.Trim(), ctx);
+                await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                await _reminderService.ScheduleAsync(entry);
+            }
+            else
+            {
+                await ctx.ReplyAsync($"The reminder is ambiguous between: {string.Join(", ",
+                    reminderTimes.Select(t => (t.Time - DateTime.UtcNow).ToElapsedTime()))}");
+            }
         }
-
-        Match match;
-        try
-        {
-            match = _reminderRegex.Match(ctx.Content);
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            TryEnter(ctx);
-            return Task.CompletedTask;
-        }
-
-        if (!match.Success
-            || !TryParseRemindTime(match.Groups[2].Value, out DateTime reminderTime)
-            || !TryEnter(ctx))
-        {
-            return Task.CompletedTask;
-        }
-
-        return ScheduleReminderAsync(ctx, match.Groups[1].Value, reminderTime);
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
         await ctx.ReplyAsync("Usage: `remind me to slap Joster in 2 minutes`");
-    }
-
-    private async Task ScheduleReminderAsync(MessageContext ctx, string message, DateTime time)
-    {
-        message = message
-            .Trim()
-            .Trim(' ', '\'', '"', ',', '.', '!', '#', '?', '\r', '\n', '\t')
-            .Trim();
-
-        var entry = new ReminderEntry(time, message, ctx);
-
-        await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
-
-        await _reminderService.ScheduleAsync(entry);
     }
 
     private async Task OnReminderTimerAsync()
@@ -204,7 +220,7 @@ public sealed class ReminderCommand : CommandBase
                                 continue;
                             }
 
-                            Match match = _reminderMentionRegex.Match(entry.Message);
+                            Match match = ReminderMentionRegex().Match(entry.Message);
 
                             string mention = match.Success ? match.Groups[1].Value : MentionUtils.MentionUser(entry.AuthorId);
 

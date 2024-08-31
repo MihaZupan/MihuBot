@@ -116,7 +116,7 @@ public class Startup
 
         services.AddSingleton<IConfigurationService, ConfigurationService>();
 
-        services.AddSingleton<IReminderService, ReminderService>();
+        services.AddSingleton<ReminderService>();
 
         services.AddSingleton<IWeatherService, WeatherService>();
 

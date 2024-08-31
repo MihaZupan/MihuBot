@@ -84,7 +84,12 @@ public static class Helpers
 
     public static string GetJumpUrl(this SocketGuildChannel channel)
     {
-        return $"https://discord.com/channels/{channel.Guild.Id}/{channel.Id}";
+        return GetJumpUrl(channel.Guild.Id, channel.Id);
+    }
+
+    public static string GetJumpUrl(ulong guildId, ulong channelId)
+    {
+        return $"https://discord.com/channels/{guildId}/{channelId}";
     }
 
     public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)
@@ -240,6 +245,60 @@ public static class Helpers
     public static string ToISODate(this DateTimeOffset date) => ToISODate(date.DateTime);
 
     public static string ToISODateTime(this DateTime dateTime, char separator = '_') => dateTime.ToString($"yyyy-MM-dd{separator}HH-mm-ss");
+
+    public static string ToElapsedTime(this TimeSpan elapsed)
+    {
+        if (elapsed.TotalMinutes < 1)
+        {
+            if (elapsed.TotalSeconds < 0)
+            {
+                return "0";
+            }
+
+            return GetSeconds(elapsed.Seconds);
+        }
+
+        if (elapsed.TotalHours < 1)
+        {
+            return GetMinutes(elapsed.Minutes);
+        }
+
+        if (elapsed.TotalDays < 1)
+        {
+            return $"{GetHours((int)elapsed.TotalHours)} {GetMinutes(elapsed.Minutes)}";
+        }
+
+        if (elapsed.TotalDays < 365)
+        {
+            return $"{GetDays((int)elapsed.TotalDays)} {GetHours((int)elapsed.TotalHours)}";
+        }
+
+        int years = 0;
+        while (elapsed.TotalDays >= 365)
+        {
+            int yearsToCount = Math.Max(1, (int)(elapsed.TotalDays / 366));
+            years += yearsToCount;
+
+            DateTime now = DateTime.UtcNow;
+            DateTime future = now.AddYears(yearsToCount);
+            elapsed -= future - now;
+        }
+
+        if (elapsed.TotalDays >= 1)
+        {
+            return $"{GetYears(years)} {GetDays((int)elapsed.TotalDays)}";
+        }
+
+        return GetYears(years);
+
+        static string GetSeconds(int number) => GetString(number, "second");
+        static string GetMinutes(int number) => GetString(number, "minute");
+        static string GetHours(int number) => GetString(number, "hour");
+        static string GetDays(int number) => GetString(number, "day");
+        static string GetYears(int number) => GetString(number, "year");
+
+        static string GetString(int number, string type) => $"{number} {type}{(number == 1 ? "" : "s")}";
+    }
 
     public static async Task<TResult> TimeoutAfter<TResult>(this Task<TResult> task, TimeSpan timeout)
     {

@@ -2,7 +2,7 @@
 @attribute [Authorize(Policy = "Discord")]
 @using MihuBot.Reminders
 @inject DiscordSocketClient discord
-@inject IReminderService reminderService
+@inject ReminderService reminderService
 @implements IAsyncDisposable
 
 <h1>Reminders</h1>
@@ -23,7 +23,7 @@
 {
     <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
-            <td>@GetRemainingTime(entry.Time)</td>
+            <td>@((now - entry.Time).ToElapsedTime())</td>
             <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
@@ -73,55 +73,6 @@
         {
             reminders = await reminderService.GetRemindersForUserAsync(userId);
         }
-    }
-
-    private string GetRemainingTime(DateTime time)
-    {
-        if (now > time) return "0";
-
-        TimeSpan remaining = time - now;
-
-        string result = string.Empty;
-
-        if (remaining.TotalDays >= 1)
-        {
-            if (remaining.TotalDays > 5 * 365)
-            {
-                return (int)(remaining.TotalDays / 365) + " years";
-            }
-
-            int days = (int)remaining.TotalDays;
-            result += days + " day" + (days == 1 ? "" : "s");
-
-            if (remaining.TotalDays > 100)
-            {
-                return result;
-            }
-        }
-
-        if (remaining.Hours > 0)
-        {
-            int hours = (int)remaining.Hours;
-            result += " " + hours + " hour" + (hours == 1 ? "" : "s");
-
-            if (remaining.TotalDays >= 1) return result;
-        }
-
-        if (remaining.Minutes > 0)
-        {
-            int minutes = (int)remaining.Minutes;
-            result += " " + minutes + " minute" + (minutes == 1 ? "" : "s");
-
-            if (remaining.TotalHours >= 1) return result;
-        }
-
-        if (remaining.Seconds > 0)
-        {
-            int seconds = (int)remaining.Seconds;
-            result += " " + seconds + " second" + (seconds == 1 ? "" : "s");
-        }
-
-        return result.Trim();
     }
 
     public async ValueTask DisposeAsync()

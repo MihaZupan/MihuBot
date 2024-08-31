@@ -319,26 +319,7 @@ public abstract class JobBase
         }
     }
 
-    public string GetElapsedTime()
-    {
-        TimeSpan elapsed = Stopwatch.Elapsed;
-
-        int minutes = elapsed.Minutes;
-        string minutesStr = $"{minutes} minute{GetPlural(minutes)}";
-
-        if (elapsed.TotalHours >= 1)
-        {
-            int hours = (int)elapsed.TotalHours;
-            return $"{hours} hour{GetPlural(hours)} {minutesStr}";
-        }
-
-        return minutesStr;
-
-        static string GetPlural(int num)
-        {
-            return num == 1 ? "" : "s";
-        }
-    }
+    public string GetElapsedTime() => Stopwatch.Elapsed.ToElapsedTime();
 
     protected static string GetRoughSizeString(long size)
     {

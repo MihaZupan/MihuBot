@@ -1,6 +1,6 @@
 ﻿namespace MihuBot.Reminders;
 
-internal sealed class ReminderService : IReminderService
+public sealed class ReminderService
 {
     private readonly PriorityQueue<ReminderEntry, DateTime> _remindersHeap = new(32);
     private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders = new("Reminders.json");
@@ -92,6 +92,12 @@ internal sealed class ReminderService : IReminderService
         finally
         {
             _reminders.Exit();
+        }
+
+        if (entry.GuildId == Guilds.TheBoys)
+        {
+            await _logger.Options.Discord.GetTextChannel(Channels.TheBoysSpam).TrySendMessageAsync(
+                $"Setting a reminder for {(entry.Time - DateTime.UtcNow).ToElapsedTime()}\n{Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId)}");
         }
     }
 
