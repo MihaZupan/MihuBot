@@ -260,17 +260,23 @@ public static class Helpers
 
         if (elapsed.TotalHours < 1)
         {
-            return GetMinutes(elapsed.Minutes);
+            return elapsed.Seconds == 0
+                ? GetMinutes(elapsed.Minutes)
+                : $"{GetMinutes(elapsed.Minutes)} {GetSeconds(elapsed.Seconds)}";
         }
 
         if (elapsed.TotalDays < 1)
         {
-            return $"{GetHours((int)elapsed.TotalHours)} {GetMinutes(elapsed.Minutes)}";
+            return elapsed.Minutes == 0 && elapsed.Seconds == 0
+                ? GetHours((int)elapsed.TotalHours)
+                : $"{GetHours((int)elapsed.TotalHours)} {GetMinutes(elapsed.Minutes)}";
         }
 
         if (elapsed.TotalDays < 365)
         {
-            return $"{GetDays((int)elapsed.TotalDays)} {GetHours(elapsed.Hours)}";
+            return elapsed.Hours == 0 && elapsed.Minutes == 0 && elapsed.Seconds == 0
+                ? GetDays((int)elapsed.TotalDays)
+                : $"{GetDays((int)elapsed.TotalDays)} {GetHours(elapsed.Hours)}";
         }
 
         int years = 0;
