@@ -20,7 +20,7 @@ public sealed partial class ReminderCommand : CommandBase
     [GeneratedRegex(@"(<#?@?!?&?\d+>) ", RegexOptions.IgnoreCase)]
     private static partial Regex ReminderMentionRegex();
 
-    private bool TryParseRemindTime(ReadOnlySpan<char> message, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
+    private bool TryParseRemindTime(ReadOnlySpan<char> message, DateTime now, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
     {
         times = null;
 
@@ -64,7 +64,7 @@ public sealed partial class ReminderCommand : CommandBase
 
             string partString = part.Trim().ToString();
 
-            if (TryParseRemindTimeCore(partString, out DateTime time))
+            if (TryParseRemindTimeCore(partString, now, out DateTime time))
             {
                 _logger.DebugLog($"Parsed '{partString}' to {time}");
 
@@ -79,7 +79,7 @@ public sealed partial class ReminderCommand : CommandBase
         return times is not null;
     }
 
-    private static bool TryParseRemindTimeCore(string time, out DateTime dateTime)
+    private static bool TryParseRemindTimeCore(string time, DateTime now, out DateTime dateTime)
     {
         dateTime = default;
 
@@ -93,7 +93,6 @@ public sealed partial class ReminderCommand : CommandBase
         if (matches.Count is 0 or > 10)
             return false;
 
-        var now = DateTime.UtcNow;
         dateTime = now;
 
         foreach (Match m in matches)
@@ -130,7 +129,7 @@ public sealed partial class ReminderCommand : CommandBase
                     'd' => TimeSpan.FromDays(number),
                     'w' => TimeSpan.FromDays(number * 7),
                     'y' => FromYears(dateTime, number),
-                    _ => TimeSpan.Zero
+                    _ => throw new UnreachableException(type)
                 };
 
                 static TimeSpan FromMonths(DateTime now, double number) =>
@@ -180,7 +179,8 @@ public sealed partial class ReminderCommand : CommandBase
             ctx.Content.Contains(" in ", StringComparison.OrdinalIgnoreCase) &&
             TryPeek(ctx) &&
             !ContainsMentionsWithoutPermissions(ctx.Message) &&
-            TryParseRemindTime(ctx.Content.AsSpan().Trim(), out List<(string Part, DateTime Time)> reminderTimes) &&
+            DateTime.UtcNow is { } now &&
+            TryParseRemindTime(ctx.Content.AsSpan().Trim(), now, out List<(string Part, DateTime Time)> reminderTimes) &&
             TryEnter(ctx))
         {
             if (reminderTimes.Count == 1)
@@ -192,7 +192,7 @@ public sealed partial class ReminderCommand : CommandBase
             else
             {
                 await ctx.ReplyAsync($"The reminder is ambiguous between: {string.Join(", ",
-                    reminderTimes.Select(t => (t.Time - DateTime.UtcNow).ToElapsedTime()))}");
+                    reminderTimes.Select(t => (t.Time - now).ToElapsedTime()))}");
             }
         }
     }
