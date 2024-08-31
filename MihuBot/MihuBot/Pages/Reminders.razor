@@ -23,7 +23,7 @@
 {
     <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
-            <td>@((now - entry.Time).ToElapsedTime())</td>
+            <td>@((entry.Time - now).ToElapsedTime())</td>
             <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>

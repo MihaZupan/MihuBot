@@ -20,12 +20,13 @@ public sealed partial class ReminderCommand : CommandBase
     [GeneratedRegex(@"(<#?@?!?&?\d+>) ", RegexOptions.IgnoreCase)]
     private static partial Regex ReminderMentionRegex();
 
-    private static bool TryParseRemindTime(ReadOnlySpan<char> message, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
+    private bool TryParseRemindTime(ReadOnlySpan<char> message, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
     {
         times = null;
 
         // remind me to do stuff in an hour => [an hour]
         // remind me in 197 minutes to play starfield in the VC => [197 minutes to play starfield in the VC]
+        // remind me to go play a game in a day or in a year => [a day or in a year]
         int i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
         if (i < 0)
         {
@@ -38,6 +39,7 @@ public sealed partial class ReminderCommand : CommandBase
         {
             // [an hour] => [an hour]
             // [197 minutes to play starfield in the VC] => [197 minutes to play starfield] [the VC]
+            // [a day or in a year] => [a day or] [a year]
             i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
 
             ReadOnlySpan<char> part;
@@ -53,21 +55,24 @@ public sealed partial class ReminderCommand : CommandBase
                 message = message.Slice(i + 4);
             }
 
-            part = part.Trim();
-
             // [197 minutes to play starfield] => [197 minutes]
             i = part.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
             if (i >= 0)
             {
-                part = part.Slice(0, i).Trim();
+                part = part.Slice(0, i);
             }
 
-            string partString = part.ToString();
+            string partString = part.Trim().ToString();
 
             if (TryParseRemindTimeCore(partString, out DateTime time))
             {
+                _logger.DebugLog($"Parsed '{partString}' to {time}");
+
                 (times ??= new()).Add((partString, time));
-                return true;
+            }
+            else
+            {
+                _logger.DebugLog($"Failed to parse '{partString}'");
             }
         }
 
