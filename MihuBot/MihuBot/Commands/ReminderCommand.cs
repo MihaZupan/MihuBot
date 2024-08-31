@@ -98,15 +98,17 @@ public sealed partial class ReminderCommand : CommandBase
         foreach (Match m in matches)
         {
             if (!m.Groups[1].Success)
-                return false;
+                continue;
 
             double number = 1;
             string quantifier = m.Groups[1].Value;
 
             if (quantifier.Length == 0)
-                return false;
+                continue;
 
-            if (char.ToLowerInvariant(quantifier[0]) != 'a')
+            bool isSingularQuantifier = char.ToLowerInvariant(quantifier[0]) == 'a';
+
+            if (!isSingularQuantifier)
             {
                 quantifier = quantifier.Replace(',', '.');
                 if (!double.TryParse(quantifier, NumberStyles.Any, CultureInfo.InvariantCulture, out number))
@@ -117,6 +119,9 @@ public sealed partial class ReminderCommand : CommandBase
                 return false;
 
             string type = m.Groups[2].Value.ToLowerInvariant();
+
+            if (isSingularQuantifier && type.Length < 2)
+                continue; // "in a y" shouldn't be "a year"
 
             try
             {
