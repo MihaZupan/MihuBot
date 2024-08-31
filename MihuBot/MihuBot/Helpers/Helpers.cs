@@ -13,8 +13,8 @@ public static class Helpers
 
         int splitIndex = name.IndexOf('|');
 
-        if (splitIndex != -1)
-            name = name.Substring(splitIndex + 1).Trim();
+        if (splitIndex >= 0)
+            name = name.AsSpan(splitIndex + 1).Trim().ToString();
 
         return name;
     }
@@ -368,22 +368,6 @@ public static class Helpers
             return null;
         }
     }
-
-    public static bool Remove<T>(this List<T> list, T element, IEqualityComparer<T> comparer)
-    {
-        for (int i = 0; i < list.Count; i++)
-        {
-            if (comparer.Equals(list[i], element))
-            {
-                list.RemoveAt(i);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public static int IndexOf<T>(this T[] array, T element) => Array.IndexOf(array, element);
 
     public static T[] InitializeWithDefaultCtor<T>(this T[] array)
         where T : new()
