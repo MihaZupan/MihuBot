@@ -192,7 +192,7 @@ public sealed partial class ReminderCommand : CommandBase
             {
                 var entry = new ReminderEntry(reminderTimes[0].Time, ctx.Content.Trim(), ctx);
                 await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
-                await _reminderService.ScheduleAsync(entry);
+                await _reminderService.ScheduleAsync(now, entry);
             }
             else
             {

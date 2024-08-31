@@ -76,7 +76,7 @@ public sealed class ReminderService
         return entries ?? (ICollection<ReminderEntry>)Array.Empty<ReminderEntry>();
     }
 
-    public async ValueTask ScheduleAsync(ReminderEntry entry)
+    public async ValueTask ScheduleAsync(DateTime now, ReminderEntry entry)
     {
         Log($"Setting reminder entry for {entry}", entry);
 
@@ -97,7 +97,7 @@ public sealed class ReminderService
         if (entry.GuildId == Guilds.TheBoys)
         {
             await _logger.Options.Discord.GetTextChannel(Channels.TheBoysSpam).TrySendMessageAsync(
-                $"Setting a reminder for {(entry.Time - DateTime.UtcNow).ToElapsedTime()}\n{Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId)}");
+                $"Setting a reminder for {(entry.Time - now).ToElapsedTime()} - {Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId)}");
         }
     }
 
