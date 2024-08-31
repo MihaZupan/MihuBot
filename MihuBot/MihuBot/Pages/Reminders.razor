@@ -15,6 +15,7 @@
             <th scope="col">User</th>
             <th scope="col">Channel</th>
             <th scope="col">Message</th>
+            <th scope="col">Cancel</th>
         </tr>
     </thead>
     @foreach (var entry in reminders
@@ -27,6 +28,7 @@
             <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
+            <td><button class="btn btn-danger" onclick="@(() => ScheduleReminderRemoval(entry))">Cancel</button></td>
         </tr>
 }
 </table>
@@ -41,6 +43,18 @@
     IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
     System.Threading.Timer timer;
     ulong userId;
+
+    private void ScheduleReminderRemoval(ReminderEntry entry)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await reminderService.RemoveRemindersAsync(new[] { entry.MessageId });
+            }
+            catch { }
+        });
+    }
 
     protected override async Task OnInitializedAsync()
     {

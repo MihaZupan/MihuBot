@@ -270,7 +270,7 @@ public static class Helpers
 
         if (elapsed.TotalDays < 365)
         {
-            return $"{GetDays((int)elapsed.TotalDays)} {GetHours((int)elapsed.TotalHours)}";
+            return $"{GetDays((int)elapsed.TotalDays)} {GetHours(elapsed.Hours)}";
         }
 
         int years = 0;
