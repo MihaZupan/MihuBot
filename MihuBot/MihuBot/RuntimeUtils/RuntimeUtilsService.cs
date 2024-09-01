@@ -1,4 +1,6 @@
 ﻿using Azure.Storage.Blobs;
+using Markdig;
+using Markdig.Syntax;
 using MihuBot.Configuration;
 using Octokit;
 using System.Text.RegularExpressions;
@@ -80,6 +82,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
     private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
     private readonly FileBackedHashSet _processedMentions = new("ProcessedMentionComments.txt");
 
+    private static readonly MarkdownPipeline s_precisePipeline = new MarkdownPipelineBuilder()
+        .UsePreciseSourceLocation()
+        .Build();
+
     public readonly Logger Logger;
     public readonly GitHubClient Github;
     public readonly HttpClient Http;
@@ -158,7 +164,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         async Task ProcessMihuBotMentions(GitHubComment comment)
         {
-            if (_processedMentions.TryAdd(comment.CommentId.ToString()))
+            if (_processedMentions.TryAdd(comment.CommentId.ToString()) &&
+                TryExtractMihuBotArguments(comment.Body, out string arguments))
             {
                 Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
 
@@ -168,8 +175,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 if (pullRequest.State.Value == ItemState.Open)
                 {
-                    string arguments = comment.Body.AsSpan(comment.Body.IndexOf("@MihuBot", StringComparison.OrdinalIgnoreCase) + "@MihuBot".Length).Trim().ToString();
-
                     if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
                         arguments.StartsWith("help", StringComparison.OrdinalIgnoreCase) ||
                         arguments is "-h" or "-H" or "?" or "-?")
@@ -241,6 +246,61 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                     }
                 }
+            }
+        }
+
+        static bool TryExtractMihuBotArguments(string commentBody, out string arguments)
+        {
+            MarkdownDocument document = Markdown.Parse(commentBody, s_precisePipeline);
+
+            int candidateOffset = -1;
+            int offset = 0;
+
+            while (true)
+            {
+                offset = commentBody.IndexOf("@MihuBot", offset, StringComparison.OrdinalIgnoreCase);
+                if (offset < 0)
+                {
+                    break;
+                }
+
+                offset += "@MihuBot".Length;
+
+                if (document.FindBlockAtPosition(offset) is not { } block)
+                {
+                    candidateOffset = offset;
+                    continue;
+                }
+
+                if (!IsInQuoteOrFencedCodeBlock(block))
+                {
+                    candidateOffset = offset;
+                    break;
+                }
+            }
+
+            if (candidateOffset >= 0)
+            {
+                arguments = commentBody.AsSpan(candidateOffset).Trim().ToString();
+                return true;
+            }
+
+            arguments = null;
+            return false;
+
+            static bool IsInQuoteOrFencedCodeBlock(Block block)
+            {
+                while (block is not null)
+                {
+                    if (block is QuoteBlock or FencedCodeBlock)
+                    {
+                        return true;
+                    }
+
+                    block = block.Parent;
+                }
+
+                return false;
             }
         }
     }
