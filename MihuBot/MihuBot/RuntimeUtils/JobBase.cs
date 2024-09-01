@@ -319,7 +319,7 @@ public abstract class JobBase
         }
     }
 
-    public string GetElapsedTime() => Stopwatch.Elapsed.ToElapsedTime();
+    public string GetElapsedTime(bool includeSeconds = true) => Stopwatch.Elapsed.ToElapsedTime(includeSeconds);
 
     protected static string GetRoughSizeString(long size)
     {
