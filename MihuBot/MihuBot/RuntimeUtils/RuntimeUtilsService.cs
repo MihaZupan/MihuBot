@@ -66,6 +66,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         Or
         ```
+        @MihuBot regexdiff
+        ```
+
+        Or
+        ```
         @MihuBot merge/rebase/format    Requires collaborator access on your fork
         ```
 
@@ -180,7 +185,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                         if (fuzzMatch.Success)
                         {
-                            StartFuzzLibrariesJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                            StartFuzzLibrariesJob(pullRequest, comment.User.Login, arguments);
                         }
                         else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
                         {
@@ -188,11 +193,15 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                         else if (benchmarksMatch.Success && benchmarksMatch.Groups[1].Value != "*")
                         {
-                            StartBenchmarkJob(pullRequest, githubCommenterLogin: comment.User.Location, arguments);
+                            StartBenchmarkJob(pullRequest, comment.User.Login, arguments);
                         }
                         else if (arguments.StartsWith("benchmarks", StringComparison.OrdinalIgnoreCase))
                         {
                             await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot benchmark <benchmarks filter>`");
+                        }
+                        else if (arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase))
+                        {
+                            StartRegexDiffJob(pullRequest, comment.User.Login, arguments);
                         }
                         else if (
                             arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
@@ -203,7 +212,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             if ((await Github.Repository.Get(pullRequest.Head.Repository.Id)).Permissions.Push)
                             {
-                                StartRebaseJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                                StartRebaseJob(pullRequest, comment.User.Login, arguments);
                             }
                             else
                             {
@@ -218,7 +227,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                         else
                         {
-                            StartJitDiffJob(pullRequest, githubCommenterLogin: comment.User.Login, arguments);
+                            StartJitDiffJob(pullRequest, comment.User.Login, arguments);
                         }
                     }
                     else
@@ -288,6 +297,20 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         var job = new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
+        StartJobCore(job);
+        return job;
+    }
+
+    public JobBase StartRegexDiffJob(string repository, string branch, string githubCommenterLogin, string arguments)
+    {
+        var job = new RegexDiffJob(this, repository, branch, githubCommenterLogin, arguments);
+        StartJobCore(job);
+        return job;
+    }
+
+    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    {
+        var job = new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
         return job;
     }

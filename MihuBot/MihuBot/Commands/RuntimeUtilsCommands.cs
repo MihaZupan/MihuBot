@@ -9,7 +9,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "cancel";
-    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format"];
+    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff"];
 
     public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -68,7 +68,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         const string Initiator = "MihaZupan";
         string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
 
-        if (ctx.Command is "fuzz" or "benchmark")
+        if (ctx.Command is "fuzz" or "benchmark" or "regexdiff")
         {
             if (ctx.Arguments.Length < 2)
             {
@@ -82,12 +82,19 @@ public sealed class RuntimeUtilsCommands : CommandBase
                     ? _runtimeUtilsService.StartFuzzLibrariesJob(repository, branch, Initiator, arguments)
                     : _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments);
             }
-            else
+            else if (ctx.Command == "benchmark")
             {
                 job = pr is null
                     ? _runtimeUtilsService.StartBenchmarkJob(repository, branch, Initiator, arguments)
                     : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments);
             }
+            else if (ctx.Command == "regexdiff")
+            {
+                job = pr is null
+                    ? _runtimeUtilsService.StartRegexDiffJob(repository, branch, Initiator, arguments)
+                    : _runtimeUtilsService.StartRegexDiffJob(pr, Initiator, arguments);
+            }
+            else throw new UnreachableException(ctx.Command);
         }
         else if (ctx.Command is "rebase" or "merge" or "format")
         {
