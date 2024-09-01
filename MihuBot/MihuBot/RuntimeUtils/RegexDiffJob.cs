@@ -32,9 +32,6 @@ public sealed class RegexDiffJob : JobBase
                 <summary>Examples of GeneratedRegex source diffs</summary>
 
                 {_shortResultsMarkdown}
-
-                </details>
-
                 """;
 
             if (!string.IsNullOrWhiteSpace(_longResultsMarkdown))
@@ -56,6 +53,14 @@ public sealed class RegexDiffJob : JobBase
                     For more diff examples, see {gist.HtmlUrl}
                     """;
             }
+
+            resultsMarkdown =
+                $"""
+                {resultsMarkdown}
+
+                </details>
+
+                """;
 
             if (Artifacts.FirstOrDefault(a => a.FileName == "Results.zip") is { } allResultsArchive)
             {
@@ -118,7 +123,8 @@ public sealed class RegexDiffJob : JobBase
         if (!string.IsNullOrEmpty(resultsMarkdown) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
-            PullRequest is not null)
+            PullRequest is not null &&
+            string.IsNullOrEmpty(error))
         {
             ShouldMentionJobInitiator = false;
 
