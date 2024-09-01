@@ -75,7 +75,8 @@ public sealed class RegexDiffJob : JobBase
                         archive.Entries.First(e => e.Name == "Results.json").ExtractToFile(JsonPath);
                     }
 
-                    RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(File.ReadAllText(JsonPath))!;
+                    using FileStream jsonFileStream = File.OpenRead(JsonPath);
+                    RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(jsonFileStream)!;
                     Console.WriteLine($"Working with {entries.Length} patterns");
 
 
