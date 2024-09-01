@@ -199,7 +199,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot benchmark <benchmarks filter>`");
                         }
-                        else if (arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase))
+                        else if (
+                            arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase) ||
+                            arguments.StartsWith("diffregex", StringComparison.OrdinalIgnoreCase))
                         {
                             StartRegexDiffJob(pullRequest, comment.User.Login, arguments);
                         }
