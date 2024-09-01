@@ -34,6 +34,7 @@ public sealed class RegexDiffJob : JobBase
                 {_shortResultsMarkdown}
 
                 </details>
+
                 """;
 
             if (!string.IsNullOrWhiteSpace(_longResultsMarkdown))
@@ -62,12 +63,11 @@ public sealed class RegexDiffJob : JobBase
                     $$"""
                     {{resultsMarkdown}}
 
-                    For further analysis of the generated Regex sources, use the following code snippet:
                     <details>
-                    <summary>Sample source code</summary>
+                    <summary>Sample source code for further analysis</summary>
 
                     ```c#
-                    const string JsonPath = "RegexResults-{{TrackingIssue?.Number.ToString() ?? Guid.NewGuid().ToString("N")}}.json";
+                    const string JsonPath = "RegexResults-{{TrackingIssue?.Number}}.json";
                     if (!File.Exists(JsonPath))
                     {
                         await using var archiveStream = await new HttpClient().GetStreamAsync("{{allResultsArchive.Url}}");
@@ -96,6 +96,7 @@ public sealed class RegexDiffJob : JobBase
                     ```
 
                     </details>
+
                     """;
             }
         }
