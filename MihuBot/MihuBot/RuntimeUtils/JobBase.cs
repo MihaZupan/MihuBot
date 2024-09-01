@@ -110,6 +110,7 @@ public abstract class JobBase
         Metadata.Add("PrBranch", branch);
         Metadata.Add("CustomArguments", arguments);
         Metadata.Add("JobType", GetType().Name);
+        Metadata.Add("JobStartTime", StartTime.Ticks.ToString());
 
         var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
         Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
