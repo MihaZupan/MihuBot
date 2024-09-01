@@ -190,7 +190,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                         if (fuzzMatch.Success)
                         {
-                            StartFuzzLibrariesJob(pullRequest, comment.User.Login, arguments);
+                            StartFuzzLibrariesJob(pullRequest, comment.User.Login, arguments, comment);
                         }
                         else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
                         {
@@ -198,7 +198,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                         else if (benchmarksMatch.Success && benchmarksMatch.Groups[1].Value != "*")
                         {
-                            StartBenchmarkJob(pullRequest, comment.User.Login, arguments);
+                            StartBenchmarkJob(pullRequest, comment.User.Login, arguments, comment);
                         }
                         else if (arguments.StartsWith("benchmarks", StringComparison.OrdinalIgnoreCase))
                         {
@@ -208,7 +208,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                             arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase) ||
                             arguments.StartsWith("diffregex", StringComparison.OrdinalIgnoreCase))
                         {
-                            StartRegexDiffJob(pullRequest, comment.User.Login, arguments);
+                            StartRegexDiffJob(pullRequest, comment.User.Login, arguments, comment);
                         }
                         else if (
                             arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
@@ -219,7 +219,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             if ((await Github.Repository.Get(pullRequest.Head.Repository.Id)).Permissions.Push)
                             {
-                                StartRebaseJob(pullRequest, comment.User.Login, arguments);
+                                StartRebaseJob(pullRequest, comment.User.Login, arguments, comment);
                             }
                             else
                             {
@@ -234,7 +234,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         }
                         else
                         {
-                            StartJitDiffJob(pullRequest, comment.User.Login, arguments);
+                            StartJitDiffJob(pullRequest, comment.User.Login, arguments, comment);
                         }
                     }
                     else
@@ -321,7 +321,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
@@ -335,14 +335,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
         return job;
     }
 
-    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         var job = new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
@@ -356,7 +356,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         var job = new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);
@@ -370,7 +370,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
     {
         var job = new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
         StartJobCore(job);

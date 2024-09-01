@@ -79,8 +79,6 @@ public sealed class FuzzLibrariesJob : JobBase
             string.IsNullOrEmpty(FirstErrorMessage) &&
             GitHubComment is not null)
         {
-            Logger.DebugLog($"Attempting to add reaction on {GitHubComment.Url}");
-
             await GitHubComment.AddReactionAsync(Octokit.ReactionType.Plus1);
         }
     }

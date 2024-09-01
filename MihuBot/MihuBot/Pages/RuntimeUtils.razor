@@ -340,7 +340,7 @@
                 return;
 #endif
 
-                newJob = runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, _newJob.Arguments);
+                newJob = runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, _newJob.Arguments, comment: null);
             }
             else
             {

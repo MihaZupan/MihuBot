@@ -64,6 +64,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         }
 
         JobBase job;
+        GitHubComment comment = null;
 
         const string Initiator = "MihaZupan";
         string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
@@ -80,13 +81,13 @@ public sealed class RuntimeUtilsCommands : CommandBase
             {
                 job = pr is null
                     ? _runtimeUtilsService.StartFuzzLibrariesJob(repository, branch, Initiator, arguments)
-                    : _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments);
+                    : _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments, comment);
             }
             else if (ctx.Command == "benchmark")
             {
                 job = pr is null
                     ? _runtimeUtilsService.StartBenchmarkJob(repository, branch, Initiator, arguments)
-                    : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments);
+                    : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments, comment);
             }
             else throw new UnreachableException(ctx.Command);
         }
@@ -94,7 +95,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         {
             job = pr is null
                 ? _runtimeUtilsService.StartRegexDiffJob(repository, branch, Initiator, arguments)
-                : _runtimeUtilsService.StartRegexDiffJob(pr, Initiator, arguments);
+                : _runtimeUtilsService.StartRegexDiffJob(pr, Initiator, arguments, comment);
         }
         else if (ctx.Command is "rebase" or "merge" or "format")
         {
@@ -104,7 +105,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
                 return;
             }
 
-            job = _runtimeUtilsService.StartRebaseJob(pr, Initiator, arguments);
+            job = _runtimeUtilsService.StartRebaseJob(pr, Initiator, arguments, comment);
         }
         else
         {
