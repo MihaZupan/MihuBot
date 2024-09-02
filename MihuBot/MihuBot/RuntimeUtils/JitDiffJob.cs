@@ -90,8 +90,7 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        if (fileName.EndsWith(".md", StringComparison.Ordinal) ||
-            fileName.EndsWith(".txt", StringComparison.Ordinal))
+        if (fileName == "diff-frameworks.txt" || fileName.EndsWith(".md", StringComparison.Ordinal))
         {
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
             string content = Encoding.UTF8.GetString(bytes);
