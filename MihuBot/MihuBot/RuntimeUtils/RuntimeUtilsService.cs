@@ -13,9 +13,31 @@ public sealed partial class RuntimeUtilsService : IHostedService
     private const string RepoName = "runtime";
 
     private const string UsageCommentMarkdown =
-        $"""
+        """
         <details>
-        <summary>Usage instructions</summary>
+        <summary>Extra options for most job types</summary>
+
+        ```
+        Options:
+            -?|-help              Show help information
+
+            -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
+            -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
+
+            -arm                  Run on an ARM64 VM instead of X64.
+            -intel                Run on an Intel-based VM instead of an AMD-based one.
+            -fast                 Run on a more powerful VM to save a few minutes.
+            -hetzner              Run on a Hetzner VM instead of Azure.
+
+        Example:
+            @MihuBot -arm -hetzner -combineWith #1000,#1001
+        ```
+
+        </details>
+
+
+        <details>
+        <summary>Generate JIT diffs</summary>
 
         See <https://mihubot.xyz/runtime-utils> for an alternative way of submitting jobs.
 
@@ -23,17 +45,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Usage: @MihuBot [options]
 
         Options:
-            -?|-help              Show help information
-
-            -arm                  Get ARM64 diffs instead of X64.
             -nocctors             Avoid passing --cctors to jit-diff.
             -tier0                Generate tier0 code.
-            -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
-            -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
-
-            -fast                 Run on a more powerful VM to save a few minutes.
-            -hetzner              Run on a Hetzner VM instead of Azure.
-            -intel                Run on an Intel-based VM instead of an AMD-based one.
 
             -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).
             -includeNewMethodRegressions        Display diffs for new methods.
@@ -44,13 +57,17 @@ public sealed partial class RuntimeUtilsService : IHostedService
             @MihuBot -arm -tier0
         ```
 
-        Or
+        </details>
+
+
+        <details>
+        <summary>Run libraries benchmarks</summary>
+
         ```
         @MihuBot benchmark <benchmarks filter> [options]
 
         Options:
             <link to a custom dotnet/performance branch>
-            -arm/intel
             -medium/long
 
         Example:
@@ -58,20 +75,42 @@ public sealed partial class RuntimeUtilsService : IHostedService
             @MihuBot benchmark RustLang_Sherlock https://github.com/MihaZupan/performance/tree/compiled-regex-only -intel -medium
         ```
 
-        Or
+        </details>
+
+
+        <details>
+        <summary>Run libraries fuzzer</summary>
+
         ```
         @MihuBot fuzz <fuzzer name pattern>
 
         Example:
             @MihuBot fuzz SearchValues
+            @MihuBot fuzz SearchValues -dependsOn #107206
+
+        The pattern may match multiple fuzzers (falls back to a Regex match).
         ```
 
-        Or
+        </details>
+
+
+        <details>
+        <summary>Generate Regex source generator code and JIT diffs</summary>
+
         ```
         @MihuBot regexdiff
+
+        Example:
+            @MihuBot regexdiff
+            @MihuBot regexdiff -arm
         ```
 
-        Or
+        </details>
+
+
+        <details>
+        <summary>Merge / Rebase / Format JIT changes</summary>
+
         ```
         @MihuBot merge/rebase/format    Requires collaborator access on your fork
         ```

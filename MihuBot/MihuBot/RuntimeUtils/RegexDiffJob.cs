@@ -4,7 +4,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class RegexDiffJob : JobBase
 {
-    public override string JobTitlePrefix => "RegexDiff";
+    public override string JobTitlePrefix => $"RegexDiff {Architecture}";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
