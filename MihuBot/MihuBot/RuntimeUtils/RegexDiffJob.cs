@@ -10,6 +10,7 @@ public sealed class RegexDiffJob : JobBase
 
     private string _shortResultsMarkdown;
     private string _longResultsMarkdown;
+    private string _jitAnalyzeSummary;
     private string _jitDiffImprovements;
     private string _jitDiffRegressions;
 
@@ -65,14 +66,40 @@ public sealed class RegexDiffJob : JobBase
                 """;
         }
 
+        if (!string.IsNullOrEmpty(_jitAnalyzeSummary))
+        {
+            string summary = _jitAnalyzeSummary
+                .ReplaceLineEndings("\n");
+
+            int offset = summary.IndexOf("\n\n\n", StringComparison.Ordinal);
+            if (offset >= 0)
+            {
+                summary = summary.Substring(0, offset);
+                offset = summary.IndexOf("Total bytes of base", StringComparison.Ordinal);
+                if (offset >= 0)
+                {
+                    summary = summary.Substring(offset);
+                    summary = summary.Trim();
+
+                    resultsMarkdown =
+                        $"""
+                        {resultsMarkdown}
+
+                        ```
+                        {summary}
+                        ```
+                        """;
+                }
+            }
+        }
+
         if (!string.IsNullOrEmpty(_jitDiffRegressions))
         {
             resultsMarkdown =
                 $"""
                 {resultsMarkdown}
 
-                For a list of JIT diff regressions, see {await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)}
-
+                For a list of JIT diff regressions, see [Regressions.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)})
                 """;
         }
 
@@ -82,8 +109,7 @@ public sealed class RegexDiffJob : JobBase
                 $"""
                 {resultsMarkdown}
 
-                For a list of JIT diff improvements, see {await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)}
-
+                For a list of JIT diff improvements, see [Improvements.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)})
                 """;
         }
 
@@ -158,13 +184,14 @@ public sealed class RegexDiffJob : JobBase
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        if (fileName.EndsWith(".md", StringComparison.Ordinal))
+        if (fileName == "JitAnalyzeSummary.txt" || fileName.EndsWith(".md", StringComparison.Ordinal))
         {
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
             string content = Encoding.UTF8.GetString(bytes);
 
             switch (fileName)
             {
+                case "JitAnalyzeSummary.txt": _jitAnalyzeSummary = content; break;
                 case "ShortExampleDiffs.md": _shortResultsMarkdown = content; break;
                 case "LongExampleDiffs.md": _longResultsMarkdown = content; break;
                 case "JitDiffImprovements.md": _jitDiffImprovements = content; break;
