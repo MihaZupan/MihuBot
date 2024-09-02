@@ -52,40 +52,37 @@ public sealed class JitDiffJob : JobBase
 
         if (gotAnyDiffs && ShouldPostDiffsComment)
         {
-            await PostDiffExamplesAsync(regressions: true);
-            await PostDiffExamplesAsync(regressions: false);
+            await PostDiffExamplesAsync(regressions: true, _shortDiffsRegressions, _longDiffsRegressions);
+            await PostDiffExamplesAsync(regressions: false, _shortDiffsImprovements, _longDiffsImprovements);
         }
     }
 
-    private async Task PostDiffExamplesAsync(bool regressions)
+    private async Task PostDiffExamplesAsync(bool regressions, string shortDiffs, string longDiffs)
     {
-        string shortDiffs = regressions ? _shortDiffsRegressions : _shortDiffsImprovements;
-        string longDiffs = regressions ? _longDiffsRegressions : _longDiffsImprovements;
-
         if (!string.IsNullOrEmpty(shortDiffs))
         {
             if (!string.IsNullOrEmpty(longDiffs))
             {
-                shortDiffs = $"{shortDiffs}\n\nLarger list of diffs: {await PostLargeDiffGistAsync(longDiffs, regressions)}";
+                shortDiffs = $"{shortDiffs}\n\nLarger list of diffs: {await PostLargeDiffGistAsync(this, longDiffs, regressions)}";
             }
 
             await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, shortDiffs);
         }
+    }
 
-        async Task<string> PostLargeDiffGistAsync(string diffsMarkdown, bool regressions)
+    public static async Task<string> PostLargeDiffGistAsync(JobBase job, string diffsMarkdown, bool regressions)
+    {
+        var newGist = new NewGist
         {
-            var newGist = new NewGist
-            {
-                Description = $"JIT diffs {(regressions ? "regressions" : "improvements")} for {TrackingIssue.HtmlUrl}",
-                Public = false
-            };
+            Description = $"JIT diffs {(regressions ? "regressions" : "improvements")} for {job.TrackingIssue.HtmlUrl}",
+            Public = false
+        };
 
-            newGist.Files.Add(regressions ? "Regressions.md" : "Improvements.md", diffsMarkdown);
+        newGist.Files.Add(regressions ? "Regressions.md" : "Improvements.md", diffsMarkdown);
 
-            Gist gist = await Github.Gist.Create(newGist);
+        Gist gist = await job.Github.Gist.Create(newGist);
 
-            return gist.HtmlUrl;
-        }
+        return gist.HtmlUrl;
     }
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)

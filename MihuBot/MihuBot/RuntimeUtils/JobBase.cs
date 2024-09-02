@@ -38,7 +38,7 @@ public abstract class JobBase
     public string GithubCommenterLogin { get; }
 
     protected Logger Logger => Parent.Logger;
-    protected GitHubClient Github => Parent.Github;
+    public GitHubClient Github => Parent.Github;
     protected HttpClient Http => Parent.Http;
     protected IConfigurationService ConfigurationService => Parent.ConfigurationService;
     protected HetznerClient Hetzner => Parent.Hetzner;

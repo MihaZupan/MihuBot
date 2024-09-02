@@ -10,6 +10,8 @@ public sealed class RegexDiffJob : JobBase
 
     private string _shortResultsMarkdown;
     private string _longResultsMarkdown;
+    private string _jitDiffImprovements;
+    private string _jitDiffRegressions;
 
     public RegexDiffJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
         : base(parent, repository, branch, githubCommenterLogin, arguments)
@@ -61,49 +63,71 @@ public sealed class RegexDiffJob : JobBase
                 </details>
 
                 """;
+        }
 
-            if (Artifacts.FirstOrDefault(a => a.FileName == "Results.zip") is { } allResultsArchive)
-            {
-                resultsMarkdown =
-                    $$"""
-                    {{resultsMarkdown}}
+        if (!string.IsNullOrEmpty(_jitDiffRegressions))
+        {
+            resultsMarkdown =
+                $"""
+                {resultsMarkdown}
 
-                    <details>
-                    <summary>Sample source code for further analysis</summary>
+                For a list of JIT diff regressions, see {await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)}
 
-                    ```c#
-                    const string JsonPath = "RegexResults-{{TrackingIssue?.Number}}.json";
-                    if (!File.Exists(JsonPath))
-                    {
-                        await using var archiveStream = await new HttpClient().GetStreamAsync("{{allResultsArchive.Url}}");
-                        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
-                        archive.Entries.First(e => e.Name == "Results.json").ExtractToFile(JsonPath);
-                    }
+                """;
+        }
 
-                    using FileStream jsonFileStream = File.OpenRead(JsonPath);
-                    RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(jsonFileStream)!;
-                    Console.WriteLine($"Working with {entries.Length} patterns");
+        if (!string.IsNullOrEmpty(_jitDiffImprovements))
+        {
+            resultsMarkdown =
+                $"""
+                {resultsMarkdown}
+
+                For a list of JIT diff improvements, see {await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)}
+
+                """;
+        }
+
+        if (Artifacts.FirstOrDefault(a => a.FileName == "Results.zip") is { } allResultsArchive)
+        {
+            resultsMarkdown =
+                $$"""
+                {{resultsMarkdown}}
+
+                <details>
+                <summary>Sample source code for further analysis</summary>
+
+                ```c#
+                const string JsonPath = "RegexResults-{{TrackingIssue?.Number}}.json";
+                if (!File.Exists(JsonPath))
+                {
+                    await using var archiveStream = await new HttpClient().GetStreamAsync("{{allResultsArchive.Url}}");
+                    using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+                    archive.Entries.First(e => e.Name == "Results.json").ExtractToFile(JsonPath);
+                }
+
+                using FileStream jsonFileStream = File.OpenRead(JsonPath);
+                RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(jsonFileStream)!;
+                Console.WriteLine($"Working with {entries.Length} patterns");
 
 
 
-                    record KnownPattern(string Pattern, RegexOptions Options, int Count);
+                record KnownPattern(string Pattern, RegexOptions Options, int Count);
 
-                    sealed class RegexEntry
-                    {
-                        public required KnownPattern Regex { get; set; }
-                        public required string MainSource { get; set; }
-                        public required string PrSource { get; set; }
-                        public string? FullDiff { get; set; }
-                        public string? ShortDiff { get; set; }
-                        public string[]? SearchValuesOfChar { get; set; }
-                        public (string[] Values, StringComparison ComparisonType)[]? SearchValuesOfString { get; set; }
-                    }
-                    ```
+                sealed class RegexEntry
+                {
+                    public required KnownPattern Regex { get; set; }
+                    public required string MainSource { get; set; }
+                    public required string PrSource { get; set; }
+                    public string? FullDiff { get; set; }
+                    public string? ShortDiff { get; set; }
+                    public string[]? SearchValuesOfChar { get; set; }
+                    public (string[] Values, StringComparison ComparisonType)[]? SearchValuesOfString { get; set; }
+                }
+                ```
 
-                    </details>
+                </details>
 
-                    """;
-            }
+                """;
         }
 
         string error = FirstErrorMessage is { } message
@@ -134,18 +158,19 @@ public sealed class RegexDiffJob : JobBase
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        if (fileName is "ShortExampleDiffs.md" or "LongExampleDiffs.md")
+        if (fileName.EndsWith(".md", StringComparison.Ordinal))
         {
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
-            string markdown = Encoding.UTF8.GetString(bytes);
-            if (fileName == "ShortExampleDiffs.md")
+            string content = Encoding.UTF8.GetString(bytes);
+
+            switch (fileName)
             {
-                _shortResultsMarkdown = markdown;
+                case "ShortExampleDiffs.md": _shortResultsMarkdown = content; break;
+                case "LongExampleDiffs.md": _longResultsMarkdown = content; break;
+                case "JitDiffImprovements.md": _jitDiffImprovements = content; break;
+                case "JitDiffRegressions.md": _jitDiffRegressions = content; break;
             }
-            else
-            {
-                _longResultsMarkdown = markdown;
-            }
+
             return replacement;
         }
 
