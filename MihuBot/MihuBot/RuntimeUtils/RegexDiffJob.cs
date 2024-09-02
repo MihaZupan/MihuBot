@@ -186,6 +186,11 @@ public sealed class RegexDiffJob : JobBase
     {
         if (fileName == "JitAnalyzeSummary.txt" || fileName.EndsWith(".md", StringComparison.Ordinal))
         {
+            if (fileName.StartsWith("LongJitDiff", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
             string content = Encoding.UTF8.GetString(bytes);
 
