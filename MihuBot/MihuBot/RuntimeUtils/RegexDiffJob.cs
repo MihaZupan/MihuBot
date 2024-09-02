@@ -87,6 +87,7 @@ public sealed class RegexDiffJob : JobBase
 
                         ```
                         {summary}
+
                         ```
                         """;
                 }
@@ -98,7 +99,6 @@ public sealed class RegexDiffJob : JobBase
             resultsMarkdown =
                 $"""
                 {resultsMarkdown}
-
                 For a list of JIT diff regressions, see [Regressions.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)})
                 """;
         }
@@ -108,7 +108,6 @@ public sealed class RegexDiffJob : JobBase
             resultsMarkdown =
                 $"""
                 {resultsMarkdown}
-
                 For a list of JIT diff improvements, see [Improvements.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)})
                 """;
         }
