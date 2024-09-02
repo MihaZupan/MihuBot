@@ -35,7 +35,7 @@ public abstract class JobBase
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     protected GitHubComment GitHubComment { get; }
-    protected string GithubCommenterLogin { get; }
+    public string GithubCommenterLogin { get; }
 
     protected Logger Logger => Parent.Logger;
     protected GitHubClient Github => Parent.Github;
@@ -558,8 +558,10 @@ public abstract class JobBase
             return;
         }
 
-        _firstErrorMessage = $"!!! FailFast: {message}";
-        LogsReceived(_firstErrorMessage);
+        message = $"!!! FailFast: {message}";
+
+        _firstErrorMessage = message;
+        LogsReceived(message);
         _idleTimeoutCts.Cancel();
     }
 

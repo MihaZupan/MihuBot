@@ -25,6 +25,11 @@ else
     else
     {
         <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
+        @if (_canCancelJob)
+        {
+            <br />
+            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
+        }
 
         <br />
 
@@ -58,6 +63,11 @@ else
 
 @code
 {
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
+    private string _githubUserLogin;
+    private bool _canCancelJob;
+
     private const int NumLines = 28;
 
     private readonly CancellationTokenSource _cts = new();
@@ -68,11 +78,11 @@ else
 
     private JobBase _job;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -94,7 +104,7 @@ else
                 catch { }
             });
 
-            Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -121,6 +131,14 @@ else
                 }
                 catch { }
             });
+
+            if (authenticationState is not null &&
+                (await authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
+            {
+                _canCancelJob =
+                    _githubUserLogin == _job.GithubCommenterLogin ||
+                    _githubUserLogin == "MihaZupan";
+            }
         }
     }
 
