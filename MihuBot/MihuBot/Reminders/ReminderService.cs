@@ -97,7 +97,7 @@ public sealed class ReminderService
         if (entry.GuildId == Guilds.TheBoys)
         {
             await _logger.Options.Discord.GetTextChannel(Channels.TheBoysSpam).TrySendMessageAsync(
-                $"Setting a reminder for {(entry.Time - now).ToElapsedTime()} - {Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId)}");
+                $"Setting a reminder for {(entry.Time - now).ToElapsedTime()} - {Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId, entry.MessageId)}");
         }
     }
 

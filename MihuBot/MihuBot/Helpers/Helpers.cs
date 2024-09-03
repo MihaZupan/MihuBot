@@ -92,6 +92,11 @@ public static class Helpers
         return $"https://discord.com/channels/{guildId}/{channelId}";
     }
 
+    public static string GetJumpUrl(ulong guildId, ulong channelId, ulong messageId)
+    {
+        return $"https://discord.com/channels/{guildId}/{channelId}/{messageId}";
+    }
+
     public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)
     {
         byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));
