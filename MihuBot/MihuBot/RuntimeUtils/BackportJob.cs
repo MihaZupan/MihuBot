@@ -35,7 +35,13 @@ public sealed partial class BackportJob : JobBase
         Metadata.Add("BackportJob_TargetBranch", targetBranch);
         Metadata.Add("BackportJob_NewBranch", $"bp-{Rng.Snowflake()}");
         Metadata.Add("BackportJob_PatchUrl", PullRequest.PatchUrl);
-        Metadata.Add("BackportJob_Title", $"Backport #{PullRequest.Number} to {targetBranch}");
+        Metadata.Add("BackportJob_Title", $"[{targetBranch}] {PullRequest.Title}");
+        Metadata.Add("BackportJob_Body",
+            $"""
+            Backport of #{PullRequest.Number} to {targetBranch}
+
+            cc: @{GithubCommenterLogin}
+            """);
 
         return Task.CompletedTask;
     }
