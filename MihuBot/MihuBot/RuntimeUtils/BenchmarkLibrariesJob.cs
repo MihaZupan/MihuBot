@@ -64,7 +64,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
         {
             ShouldMentionJobInitiator = false;
 
-            await Github.Issue.Comment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, PullRequest.Number, resultsMarkdown);
+            await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, resultsMarkdown);
         }
     }
 

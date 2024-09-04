@@ -9,7 +9,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "cancel";
-    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff"];
+    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff", "backport"];
 
     public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -55,7 +55,9 @@ public sealed class RuntimeUtilsCommands : CommandBase
 
         if (uint.TryParse(ctx.Arguments[0], out uint prNumber))
         {
-            pr = await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
+            pr = ctx.Command == "backport"
+                ? await _github.PullRequest.Get("microsoft", "reverse-proxy", (int)prNumber)
+                : await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
         }
         else if (!GitHubHelper.TryParseGithubRepoAndBranch(ctx.Arguments[0], out repository, out branch))
         {
@@ -106,6 +108,16 @@ public sealed class RuntimeUtilsCommands : CommandBase
             }
 
             job = _runtimeUtilsService.StartRebaseJob(pr, Initiator, arguments, comment);
+        }
+        else if (ctx.Command == "backport")
+        {
+            if (pr is null)
+            {
+                await ctx.ReplyAsync("Unsupported command on a custom branch");
+                return;
+            }
+
+            job = _runtimeUtilsService.StartBackportJob(pr, Initiator, arguments, comment);
         }
         else
         {

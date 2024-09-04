@@ -67,7 +67,7 @@ public sealed class FuzzLibrariesJob : JobBase
                     .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
             }
 
-            await Github.Issue.Comment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, PullRequest.Number,
+            await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number,
                 $"""
                 {errorStackTraces}
 

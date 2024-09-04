@@ -9,9 +9,6 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed partial class RuntimeUtilsService : IHostedService
 {
-    private const string RepoOwner = "dotnet";
-    private const string RepoName = "runtime";
-
     private const string UsageCommentMarkdown =
         """
         <details>
@@ -169,30 +166,71 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private async Task WatchForGitHubMentionsAsync()
     {
-        await foreach (GitHubComment comment in Github.PollCommentsAsync(RepoOwner, RepoName, Logger))
+        await Task.WhenAll(
+            Task.Run(async () =>
+            {
+                await foreach (GitHubComment comment in Github.PollCommentsAsync("dotnet", "runtime", TimeSpan.FromSeconds(15), Logger))
+                {
+                    await ProcessCommentAsync(comment);
+                }
+            }),
+            Task.Run(async () =>
+            {
+                await foreach (GitHubComment comment in Github.PollCommentsAsync("microsoft", "reverse-proxy", TimeSpan.FromSeconds(30), Logger))
+                {
+                    await ProcessCommentAsync(comment);
+                }
+            }));
+
+        async Task ProcessCommentAsync(GitHubComment comment)
         {
             try
             {
-                if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase) &&
-                    comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
+                if (comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                     comment.User.Type == AccountType.User &&
-                    !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase))
+                    !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
+                    _processedMentions.TryAdd(comment.CommentId.ToString()) &&
+                    TryExtractMihuBotArguments(comment.Body, out string arguments))
                 {
-                    await ProcessMihuBotMentions(comment);
-                }
+                    Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
 
-                if (comment.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase) &&
-                    _processedMentions.TryAdd($"{comment.RepoOwner}/{comment.RepoName}/{comment.IssueId}") &&
-                    !ConfigurationService.TryGet(null, "RuntimeUtils.NclMentions.Disable", out _))
-                {
-                    ConfigurationService.TryGet(null, "RuntimeUtils.NclMentions.Text", out string mentions);
-
-                    if (string.IsNullOrEmpty(mentions))
+                    if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
+                        arguments.StartsWith("help", StringComparison.OrdinalIgnoreCase) ||
+                        arguments is "-h" or "-H" or "?" or "-?")
                     {
-                        mentions = "@MihaZupan @CarnaViire @karelz @antonfirsov @ManickaP @wfurt @rzikm @liveans";
+                        await ReplyToCommentAsync(comment, UsageCommentMarkdown);
+                        return;
                     }
 
-                    await Github.Issue.Comment.Create(RepoOwner, RepoName, comment.IssueId, mentions);
+                    if (!CheckGitHubUserPermissions(comment.User.Login))
+                    {
+                        if (!comment.User.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
+                            !comment.User.Login.Contains("dotnet-policy-service", StringComparison.OrdinalIgnoreCase))
+                        {
+                            await Logger.DebugAsync(
+                                $"""
+                                User {comment.User.Login} tried to start a job, but is not authorized. <{comment.Url}>
+
+                                `!cfg set global RuntimeUtils.AuthorizedUser.{comment.User.Login} true`
+                                """);
+                        }
+                        return;
+                    }
+
+                    if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
+                        PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, pullRequestNumber);
+
+                        if (comment.RepoOwner == "dotnet" && comment.RepoName == "runtime")
+                        {
+                            await ProcessMihuBotDotnetRuntimeMentions(comment, arguments, pullRequest);
+                        }
+                        else if (comment.RepoOwner == "microsoft" && comment.RepoName == "reverse-proxy")
+                        {
+                            await ProcessMihuBotReverseProxyMentions(comment, arguments, pullRequest);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -201,91 +239,79 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
         }
 
-        async Task ProcessMihuBotMentions(GitHubComment comment)
+        Task ProcessMihuBotReverseProxyMentions(GitHubComment comment, string arguments, PullRequest pullRequest)
         {
-            if (_processedMentions.TryAdd(comment.CommentId.ToString()) &&
-                TryExtractMihuBotArguments(comment.Body, out string arguments))
+            if (arguments.StartsWith("backport to ", StringComparison.OrdinalIgnoreCase))
             {
-                Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
+                StartBackportJob(pullRequest, comment.User.Login, arguments, comment);
+            }
 
-                int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
+            return Task.CompletedTask;
+        }
 
-                PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, pullRequestNumber);
+        async Task ProcessMihuBotDotnetRuntimeMentions(GitHubComment comment, string arguments, PullRequest pullRequest)
+        {
+            if (pullRequest.State.Value != ItemState.Open)
+            {
+                return;
+            }
 
-                if (pullRequest.State.Value == ItemState.Open)
+            var fuzzMatch = FuzzMatchRegex().Match(arguments);
+            var benchmarksMatch = BenchmarkFilterNameRegex().Match(arguments);
+
+            if (fuzzMatch.Success)
+            {
+                StartFuzzLibrariesJob(pullRequest, comment.User.Login, arguments, comment);
+            }
+            else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
+            {
+                await ReplyToCommentAsync(comment, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
+            }
+            else if (benchmarksMatch.Success && benchmarksMatch.Groups[1].Value != "*")
+            {
+                StartBenchmarkJob(pullRequest, comment.User.Login, arguments, comment);
+            }
+            else if (arguments.StartsWith("benchmarks", StringComparison.OrdinalIgnoreCase))
+            {
+                await ReplyToCommentAsync(comment, "Usage: `@MihuBot benchmark <benchmarks filter>`");
+            }
+            else if (
+                arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase) ||
+                arguments.StartsWith("diffregex", StringComparison.OrdinalIgnoreCase))
+            {
+                StartRegexDiffJob(pullRequest, comment.User.Login, arguments, comment);
+            }
+            else if (
+                arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
+                arguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase) ||
+                arguments.StartsWith("format", StringComparison.OrdinalIgnoreCase) ||
+                arguments.StartsWith("jitformat", StringComparison.OrdinalIgnoreCase) ||
+                arguments.StartsWith("jit-format", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((await Github.Repository.Get(pullRequest.Head.Repository.Id)).Permissions.Push)
                 {
-                    if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
-                        arguments.StartsWith("help", StringComparison.OrdinalIgnoreCase) ||
-                        arguments is "-h" or "-H" or "?" or "-?")
-                    {
-                        await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, UsageCommentMarkdown);
-                        return;
-                    }
+                    StartRebaseJob(pullRequest, comment.User.Login, arguments, comment);
+                }
+                else
+                {
+                    await ReplyToCommentAsync(comment,
+                        $"""
+                        I don't have push access to your repository.
+                        You can add me as a collaborator at https://github.com/{pullRequest.Head.Repository.FullName}/settings/access
+                        """);
 
-                    if (CheckGitHubUserPermissions(comment.User.Login))
-                    {
-                        var fuzzMatch = FuzzMatchRegex().Match(arguments);
-                        var benchmarksMatch = BenchmarkFilterNameRegex().Match(arguments);
-
-                        if (fuzzMatch.Success)
-                        {
-                            StartFuzzLibrariesJob(pullRequest, comment.User.Login, arguments, comment);
-                        }
-                        else if (arguments.StartsWith("fuzz", StringComparison.OrdinalIgnoreCase))
-                        {
-                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot fuzz <fuzzer name pattern>`");
-                        }
-                        else if (benchmarksMatch.Success && benchmarksMatch.Groups[1].Value != "*")
-                        {
-                            StartBenchmarkJob(pullRequest, comment.User.Login, arguments, comment);
-                        }
-                        else if (arguments.StartsWith("benchmarks", StringComparison.OrdinalIgnoreCase))
-                        {
-                            await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber, "Usage: `@MihuBot benchmark <benchmarks filter>`");
-                        }
-                        else if (
-                            arguments.StartsWith("regexdiff", StringComparison.OrdinalIgnoreCase) ||
-                            arguments.StartsWith("diffregex", StringComparison.OrdinalIgnoreCase))
-                        {
-                            StartRegexDiffJob(pullRequest, comment.User.Login, arguments, comment);
-                        }
-                        else if (
-                            arguments.StartsWith("rebase", StringComparison.OrdinalIgnoreCase) ||
-                            arguments.StartsWith("merge", StringComparison.OrdinalIgnoreCase) ||
-                            arguments.StartsWith("format", StringComparison.OrdinalIgnoreCase) ||
-                            arguments.StartsWith("jitformat", StringComparison.OrdinalIgnoreCase) ||
-                            arguments.StartsWith("jit-format", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if ((await Github.Repository.Get(pullRequest.Head.Repository.Id)).Permissions.Push)
-                            {
-                                StartRebaseJob(pullRequest, comment.User.Login, arguments, comment);
-                            }
-                            else
-                            {
-                                await Github.Issue.Comment.Create(RepoOwner, RepoName, pullRequestNumber,
-                                    $"""
-                                    I don't have push access to your repository.
-                                    You can add me as a collaborator at https://github.com/{pullRequest.Head.Repository.FullName}/settings/access
-                                    """);
-
-                                await Logger.DebugAsync($"User {comment.User.Login} requires collaborator access. <{pullRequest.HtmlUrl}>");
-                            }
-                        }
-                        else
-                        {
-                            StartJitDiffJob(pullRequest, comment.User.Login, arguments, comment);
-                        }
-                    }
-                    else
-                    {
-                        if (!comment.User.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
-                            !comment.User.Login.Contains("dotnet-policy-service", StringComparison.OrdinalIgnoreCase))
-                        {
-                            await Logger.DebugAsync($"User {comment.User.Login} tried to start a job, but is not authorized. <{pullRequest.HtmlUrl}>");
-                        }
-                    }
+                    await Logger.DebugAsync($"User {comment.User.Login} requires collaborator access. <{pullRequest.HtmlUrl}>");
                 }
             }
+            else
+            {
+                StartJitDiffJob(pullRequest, comment.User.Login, arguments, comment);
+            }
+        }
+
+        async Task ReplyToCommentAsync(GitHubComment comment, string content)
+        {
+            await Github.Issue.Comment.Create(comment.RepoOwner, comment.RepoName, comment.IssueId, content);
         }
 
         static bool TryExtractMihuBotArguments(string commentBody, out string arguments)
@@ -353,70 +379,37 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    public JobBase StartJitDiffJob(string repository, string branch, string githubCommenterLogin, string arguments)
-    {
-        var job = new JitDiffJob(this, repository, branch, githubCommenterLogin, arguments);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartJitDiffJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new JitDiffJob(this, repository, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-    {
-        var job = new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartFuzzLibrariesJob(string repository, string branch, string githubCommenterLogin, string arguments)
-    {
-        var job = new FuzzLibrariesJob(this, repository, branch, githubCommenterLogin, arguments);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartFuzzLibrariesJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new FuzzLibrariesJob(this, repository, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-    {
-        var job = new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-    {
-        var job = new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartBenchmarkJob(string repository, string branch, string githubCommenterLogin, string arguments)
-    {
-        var job = new BenchmarkLibrariesJob(this, repository, branch, githubCommenterLogin, arguments);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartBenchmarkJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new BenchmarkLibrariesJob(this, repository, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-    {
-        var job = new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartRegexDiffJob(string repository, string branch, string githubCommenterLogin, string arguments)
-    {
-        var job = new RegexDiffJob(this, repository, branch, githubCommenterLogin, arguments);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartRegexDiffJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new RegexDiffJob(this, repository, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-    {
-        var job = new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment);
-        StartJobCore(job);
-        return job;
-    }
+    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    private void StartJobCore(JobBase job)
+    public JobBase StartBackportJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new BackportJob(this, pullRequest, githubCommenterLogin, arguments, comment));
+
+    private JobBase StartJobCore(JobBase job)
     {
         lock (_jobs)
         {
@@ -449,6 +442,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 }
             });
         }
+
+        return job;
     }
 
     public JobBase[] GetAllActiveJobs() => _jobs
@@ -465,7 +460,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public async Task<PullRequest> GetPullRequestAsync(int prNumber)
     {
-        PullRequest pullRequest = await Github.PullRequest.Get(RepoOwner, RepoName, prNumber);
+        PullRequest pullRequest = await Github.PullRequest.Get("dotnet", "runtime", prNumber);
         ArgumentNullException.ThrowIfNull(pullRequest);
         return pullRequest;
     }

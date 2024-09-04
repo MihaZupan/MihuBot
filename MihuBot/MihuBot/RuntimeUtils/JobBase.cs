@@ -17,8 +17,6 @@ public abstract class JobBase
 {
     private static readonly TimeSpan MaxJobDuration = TimeSpan.FromHours(5);
 
-    protected const string DotnetRuntimeRepoOwner = "dotnet";
-    protected const string DotnetRuntimeRepoName = "runtime";
     protected const string IssueRepositoryOwner = "MihuBot";
     protected const string IssueRepositoryName = "runtime-utils";
     protected const int CommentLengthLimit = 65_000;
@@ -36,6 +34,9 @@ public abstract class JobBase
 
     protected GitHubComment GitHubComment { get; }
     public string GithubCommenterLogin { get; }
+
+    protected virtual string RepoOwner => GitHubComment?.RepoOwner ?? "dotnet";
+    protected virtual string RepoName => GitHubComment?.RepoName ?? "runtime";
 
     protected Logger Logger => Parent.Logger;
     public GitHubClient Github => Parent.Github;
@@ -174,6 +175,18 @@ public abstract class JobBase
             prListException = ex;
         }
 
+        Exception initializationException = null;
+        try
+        {
+            await InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            initializationException = ex;
+        }
+
+        bool startGithubActions = RunUsingGitHubActions && prListException is null && initializationException is null;
+
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
             IssueRepositoryName,
@@ -184,7 +197,7 @@ public abstract class JobBase
                     Job is in progress - see {ProgressDashboardUrl}
                     {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
 
-                    {(RunUsingGitHubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
+                    {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
                     """
             });
 
@@ -206,14 +219,19 @@ public abstract class JobBase
 
             LogsReceived($"Using custom arguments: '{CustomArguments}'");
 
-            if (RunUsingGitHubActions)
-            {
-                LogsReceived("Starting runner on GitHub actions ...");
-            }
-
             if (prListException is not null)
             {
                 throw prListException;
+            }
+
+            if (initializationException is not null)
+            {
+                throw initializationException;
+            }
+
+            if (RunUsingGitHubActions)
+            {
+                LogsReceived("Starting runner on GitHub actions ...");
             }
 
             await RunJobAsyncCore(jobTimeout);
@@ -257,6 +275,8 @@ public abstract class JobBase
         }
     }
 
+    protected virtual Task InitializeAsync() => Task.CompletedTask;
+
     protected abstract Task RunJobAsyncCore(CancellationToken jobTimeout);
 
     private async Task ParsePRListAsync(string arguments, string argument, CancellationToken cancellationToken)
@@ -278,7 +298,7 @@ public abstract class JobBase
 
             try
             {
-                PullRequest prInfo = await Github.PullRequest.Get(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, pr);
+                PullRequest prInfo = await Github.PullRequest.Get(RepoOwner, RepoName, pr);
                 string repo = prInfo.Head.Repository.FullName;
                 string branch = prInfo.Head.Ref;
 
@@ -411,7 +431,7 @@ public abstract class JobBase
                         ```
                         """;
 
-                    await Github.Issue.Comment.Create(DotnetRuntimeRepoOwner, DotnetRuntimeRepoName, PullRequest.Number, comment);
+                    await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, comment);
                 }
                 catch (Exception ex)
                 {

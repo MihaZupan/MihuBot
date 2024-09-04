@@ -5,7 +5,7 @@ namespace MihuBot.Helpers;
 
 public static partial class GitHubHelper
 {
-    public static async IAsyncEnumerable<GitHubComment> PollCommentsAsync(this GitHubClient github, string repoOwner, string repoName, Logger logger = null)
+    public static async IAsyncEnumerable<GitHubComment> PollCommentsAsync(this GitHubClient github, string repoOwner, string repoName, TimeSpan interval, Logger logger)
     {
         List<GitHubComment> commentsToReturn = new();
 
@@ -13,7 +13,7 @@ public static partial class GitHubHelper
         DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
         DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
 
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        using var timer = new PeriodicTimer(interval);
         while (await timer.WaitForNextTickAsync())
         {
             try

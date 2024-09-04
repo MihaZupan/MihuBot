@@ -25,17 +25,12 @@ public static class Rng
         if (mod == 2)
             return Bool() ? 0 : 1;
 
-        if (mod == 1)
-            return 0;
+        return RandomNumberGenerator.GetInt32(mod);
+    }
 
-        if (mod <= 0)
-            throw new ArgumentOutOfRangeException(nameof(mod), "Must be > 0");
-
-        Span<byte> buffer = stackalloc byte[mod <= 1000 ? 4 : 8];
-        RandomNumberGenerator.Fill(buffer);
-        var number = new BigInteger(buffer, isUnsigned: true);
-
-        return (int)(number % mod);
+    public static ulong Snowflake()
+    {
+        return SnowflakeUtils.ToSnowflake(DateTimeOffset.UtcNow) | (uint)Next((1 << 22) - 1);
     }
 
     public static bool Bool()
