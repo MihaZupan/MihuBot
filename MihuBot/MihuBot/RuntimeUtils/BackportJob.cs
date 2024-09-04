@@ -43,6 +43,23 @@ public sealed partial class BackportJob : JobBase
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
         await JobCompletionTcs.Task;
+
+        string error = FirstErrorMessage is { } message
+            ? $"\n```\n{message}\n```\n"
+            : string.Empty;
+
+        await UpdateIssueBodyAsync(
+            $"""
+            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
+            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+            {error}
+            {GetArtifactList()}
+            """);
+
+        if (string.IsNullOrEmpty(error))
+        {
+            ShouldMentionJobInitiator = false;
+        }
     }
 
     [GeneratedRegex(@"^backport to ([a-zA-Z\d\/\.\-_]+)", RegexOptions.IgnoreCase)]
