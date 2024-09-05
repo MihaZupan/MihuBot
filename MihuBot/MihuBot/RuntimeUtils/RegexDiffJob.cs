@@ -145,7 +145,7 @@ public sealed class RegexDiffJob : JobBase
                     public required string PrSource { get; set; }
                     public string? FullDiff { get; set; }
                     public string? ShortDiff { get; set; }
-                    public string[]? SearchValuesOfChar { get; set; }
+                    public (string Name, string Values)[]? SearchValuesOfChar { get; set; }
                     public (string[] Values, StringComparison ComparisonType)[]? SearchValuesOfString { get; set; }
                 }
                 ```
