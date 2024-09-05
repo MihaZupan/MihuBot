@@ -559,6 +559,32 @@ public abstract class JobBase
         }
     }
 
+    protected string TryFindLogLine(Predicate<string> predicate)
+    {
+        int position = 0;
+        string[] lines = new string[100];
+
+        while (true)
+        {
+            int read = _logs.Get(lines, ref position);
+
+            if (read == 0)
+            {
+                break;
+            }
+
+            foreach (string line in lines.AsSpan(0, read))
+            {
+                if (predicate(line))
+                {
+                    return line;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public void FailFast(string message)
     {
         if (Completed || _idleTimeoutCts.IsCancellationRequested)

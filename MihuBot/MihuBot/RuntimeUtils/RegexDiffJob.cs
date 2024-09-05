@@ -1,8 +1,9 @@
 ﻿using Octokit;
+using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class RegexDiffJob : JobBase
+public sealed partial class RegexDiffJob : JobBase
 {
     public override string JobTitlePrefix => $"RegexDiff {Architecture}";
 
@@ -27,9 +28,15 @@ public sealed class RegexDiffJob : JobBase
         await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
 
         string resultsMarkdown = string.Empty;
+
+        if (TryFindLogLine(line => ChangedPatternStatusLineRegex().IsMatch(line)) is { } line)
+        {
+            resultsMarkdown = $"{ChangedPatternStatusLineRegex().Match(line).Groups[1].ValueSpan}\n\n";
+        }
+
         if (!string.IsNullOrWhiteSpace(_shortResultsMarkdown))
         {
-            resultsMarkdown =
+            resultsMarkdown +=
                 $"""
                 <details>
                 <summary>Examples of GeneratedRegex source diffs</summary>
@@ -206,4 +213,8 @@ public sealed class RegexDiffJob : JobBase
 
         return null;
     }
+
+    // NOTE: 42 out of 123 patterns have generated source code changes.
+    [GeneratedRegex(@"NOTE: (\d+ out of \d+ patterns have generated source code changes\.)$")]
+    private static partial Regex ChangedPatternStatusLineRegex();
 }
