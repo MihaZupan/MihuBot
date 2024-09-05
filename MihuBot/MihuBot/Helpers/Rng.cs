@@ -28,11 +28,6 @@ public static class Rng
         return RandomNumberGenerator.GetInt32(mod);
     }
 
-    public static ulong Snowflake()
-    {
-        return SnowflakeUtils.ToSnowflake(DateTimeOffset.UtcNow) | (uint)Next((1 << 22) - 1);
-    }
-
     public static bool Bool()
     {
         const ulong LengthOne = 1ul << 56;

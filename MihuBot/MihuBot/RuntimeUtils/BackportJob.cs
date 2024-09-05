@@ -33,7 +33,7 @@ public sealed partial class BackportJob : JobBase
         Metadata.Add("BackportJob_BaseRepo", $"{RepoOwner}/{RepoName}");
         Metadata.Add("BackportJob_ForkRepo", $"MihuBot/{RepoName}");
         Metadata.Add("BackportJob_TargetBranch", targetBranch);
-        Metadata.Add("BackportJob_NewBranch", $"bp-{Rng.Snowflake()}");
+        Metadata.Add("BackportJob_NewBranch", $"bp-{Snowflake.Next()}");
         Metadata.Add("BackportJob_PatchUrl", PullRequest.PatchUrl);
         Metadata.Add("BackportJob_Title", $"[{targetBranch}] {PullRequest.Title}");
         Metadata.Add("BackportJob_Body",
