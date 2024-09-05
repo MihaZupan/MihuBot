@@ -48,6 +48,7 @@ public sealed class FuzzLibrariesJob : JobBase
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
             {error}
             {errorStackTraces}
+            {(error is null && errorStackTraces is null ? "Ran the fuzzer(s) successfully." : "")}
             {GetArtifactList()}
             """);
 

@@ -163,29 +163,21 @@ public abstract class JobBase
 
         ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
 
-        Exception prListException = null;
+        Exception initializationException = null;
         try
         {
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
             await ParsePRListAsync(CustomArguments, "dependsOn", timeoutCts.Token);
             await ParsePRListAsync(CustomArguments, "combineWith", timeoutCts.Token);
-        }
-        catch (Exception ex)
-        {
-            prListException = ex;
-        }
 
-        Exception initializationException = null;
-        try
-        {
-            await InitializeAsync();
+            await InitializeAsync(timeoutCts.Token);
         }
         catch (Exception ex)
         {
             initializationException = ex;
         }
 
-        bool startGithubActions = RunUsingGitHubActions && prListException is null && initializationException is null;
+        bool startGithubActions = RunUsingGitHubActions && initializationException is null;
 
         TrackingIssue = await Github.Issue.Create(
             IssueRepositoryOwner,
@@ -218,11 +210,6 @@ public abstract class JobBase
             });
 
             LogsReceived($"Using custom arguments: '{CustomArguments}'");
-
-            if (prListException is not null)
-            {
-                throw prListException;
-            }
 
             if (initializationException is not null)
             {
@@ -275,7 +262,7 @@ public abstract class JobBase
         }
     }
 
-    protected virtual Task InitializeAsync() => Task.CompletedTask;
+    protected virtual Task InitializeAsync(CancellationToken jobTimeout) => Task.CompletedTask;
 
     protected abstract Task RunJobAsyncCore(CancellationToken jobTimeout);
 
@@ -334,6 +321,7 @@ public abstract class JobBase
             return arguments.ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(number => number.TrimStart('#'))
+                .Select(number => GitHubHelper.TryParseDotnetRuntimePRNumber(number, out int prNumber) ? prNumber.ToString() : number)
                 .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
                 .Select(int.Parse)
                 .ToArray();

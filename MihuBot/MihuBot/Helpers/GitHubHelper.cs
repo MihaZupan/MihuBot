@@ -114,6 +114,23 @@ public static partial class GitHubHelper
         return false;
     }
 
+    public static bool TryParseDotnetRuntimePRNumber(string input, out int prNumber)
+    {
+        string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (int.TryParse(parts[0], out prNumber) && prNumber > 0)
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+            uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+            uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
+            prNumber > 0;
+    }
+
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$")]
     private static partial Regex RepoAndBranchRegex();
 }

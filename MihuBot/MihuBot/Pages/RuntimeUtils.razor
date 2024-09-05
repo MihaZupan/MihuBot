@@ -322,7 +322,7 @@
             string prOrBranch = _newJob.InputPROrBranch;
             JobBase newJob;
 
-            if (TryParsePRNumber(prOrBranch, out int prNumber))
+            if (GitHubHelper.TryParseDotnetRuntimePRNumber(prOrBranch, out int prNumber))
             {
                 PullRequest pullRequest;
                 try
@@ -368,23 +368,6 @@
         {
             _submittingJob = false;
         }
-    }
-
-    private static bool TryParsePRNumber(string input, out int prNumber)
-    {
-        string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        if (int.TryParse(parts[0], out prNumber) && prNumber > 0)
-        {
-            return true;
-        }
-
-        return Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) &&
-            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
-            uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) &&
-            int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
-            prNumber > 0;
     }
 
     public void Dispose()

@@ -20,7 +20,7 @@ public sealed partial class BackportJob : JobBase
         Metadata.Add("MihuBotPushToken", parent.Configuration["GitHub:Token"]);
     }
 
-    protected override Task InitializeAsync()
+    protected override Task InitializeAsync(CancellationToken jobTimeout)
     {
         Match match = BackportBranchRegex().Match(CustomArguments);
         if (!match.Success)
