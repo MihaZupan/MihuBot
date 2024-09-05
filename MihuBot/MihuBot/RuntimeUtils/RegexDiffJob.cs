@@ -130,7 +130,7 @@ public sealed class RegexDiffJob : JobBase
                 }
 
                 using FileStream jsonFileStream = File.OpenRead(JsonPath);
-                RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(jsonFileStream)!;
+                RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(jsonFileStream, new JsonSerializerOptions { IncludeFields = true })!;
                 Console.WriteLine($"Working with {entries.Length} patterns");
 
 
