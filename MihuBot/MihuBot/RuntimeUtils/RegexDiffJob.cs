@@ -87,7 +87,6 @@ public sealed class RegexDiffJob : JobBase
 
                         ```
                         {summary}
-
                         ```
                         """;
                 }

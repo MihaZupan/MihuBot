@@ -57,8 +57,8 @@ public abstract class JobBase
     public abstract string JobTitlePrefix { get; }
 
     public string TestedPROrBranchLink { get; }
-    public string JobId { get; } = Snowflake.NextString();
-    public string ExternalId { get; } = Guid.NewGuid().ToString("N");
+    public string JobId { get; } = Guid.NewGuid().ToString("N");
+    public string ExternalId { get; } = Snowflake.NextString();
 
     private string _firstErrorMessage;
     protected string FirstErrorMessage => _firstErrorMessage;
