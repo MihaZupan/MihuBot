@@ -32,7 +32,7 @@ public abstract class JobBase
 
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    protected GitHubComment GitHubComment { get; }
+    public GitHubComment GitHubComment { get; }
     public string GithubCommenterLogin { get; }
 
     protected virtual string RepoOwner => GitHubComment?.RepoOwner ?? "dotnet";

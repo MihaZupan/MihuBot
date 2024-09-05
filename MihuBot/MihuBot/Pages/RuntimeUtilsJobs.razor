@@ -10,7 +10,7 @@
 }
 else
 {
-    <h1><a href="@_job.TestedPROrBranchLink">@_job.JobTitle</a></h1>
+    <h1><a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a></h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
     @if (_job.TrackingIssue is not null)
     {
