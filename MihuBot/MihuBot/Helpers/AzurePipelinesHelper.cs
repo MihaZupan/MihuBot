@@ -12,6 +12,7 @@ public static class AzurePipelinesHelper
         byte[] payloadBytes = Encoding.UTF8.GetBytes(payload);
 
         request.Content = new ByteArrayContent(payloadBytes);
+        request.Content.Headers.Add("Content-Type", "application/json");
 
         byte[] hash = HMACSHA1.HashData(Encoding.UTF8.GetBytes(secret), payloadBytes);
 
