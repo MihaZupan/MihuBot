@@ -124,6 +124,7 @@ public abstract class JobBase
 
     protected bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     protected string Architecture => UseArm ? "ARM64" : "X64";
+    protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
 
     protected bool ShouldMentionJobInitiator { get; set; }
 
@@ -149,6 +150,7 @@ public abstract class JobBase
     }
 
     protected virtual bool RunUsingGitHubActions => false;
+    protected virtual bool RunUsingAzurePipelines => false;
 
     public async Task RunJobAsync()
     {
@@ -219,6 +221,15 @@ public abstract class JobBase
             if (RunUsingGitHubActions)
             {
                 LogsReceived("Starting runner on GitHub actions ...");
+            }
+
+            if (RunUsingAzurePipelines)
+            {
+                await AzurePipelinesHelper.TriggerWebhookAsync(Logger, Http, "MihuBot", "MihuBot",
+                    Parent.Configuration["RuntimeUtils:AzurePipelinesWebhookSecret"], $"{{\"job_id\":\"{ExternalId}\"}}");
+
+                LogsReceived("Starting runner on Azure Pipelines ...");
+                _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
             }
 
             await RunJobAsyncCore(jobTimeout);
@@ -616,7 +627,6 @@ public abstract class JobBase
             """;
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-        bool fast = CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
         bool shouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
         bool useHetzner =
             GetConfigFlag("ForceHetzner", false) ||
@@ -641,9 +651,9 @@ public abstract class JobBase
                 //fast ? "FXas_v6" :
                 //"DXas_v6";
                 "DXas_v5";
-            defaultVmSize = $"Standard_{defaultVmSize.Replace("X", (fast ? 2 * defaultAzureCoreCount : defaultAzureCoreCount).ToString())}";
+            defaultVmSize = $"Standard_{defaultVmSize.Replace("X", (Fast ? 2 * defaultAzureCoreCount : defaultAzureCoreCount).ToString())}";
 
-            string vmConfigName = $"{(fast ? "Fast" : "")}{cpuType}";
+            string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
             string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
 
             string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
@@ -716,7 +726,7 @@ public abstract class JobBase
         {
             string cpuType = UseArm ? "ARM64" : (useIntelCpu ? "X64Intel" : "X64Amd");
 
-            string serverType = fast
+            string serverType = Fast
                 ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx51" : "cpx51"))
                 : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx41" : "cpx41"));
 

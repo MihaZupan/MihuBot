@@ -8,7 +8,9 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
-    protected override bool RunUsingGitHubActions => true;
+    protected override bool RunUsingAzurePipelines => Fast;
+
+    protected override bool RunUsingGitHubActions => !RunUsingAzurePipelines;
 
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
