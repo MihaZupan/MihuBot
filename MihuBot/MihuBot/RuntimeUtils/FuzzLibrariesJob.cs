@@ -50,7 +50,7 @@ public sealed class FuzzLibrariesJob : JobBase
             {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
             {error}
             {errorStackTraces}
-            {(error is null && errorStackTraces is null ? "Ran the fuzzer(s) successfully." : "")}
+            {(string.IsNullOrEmpty(error) && string.IsNullOrEmpty(errorStackTraces) ? "Ran the fuzzer(s) successfully." : "")}
             {GetArtifactList()}
             """);
 
