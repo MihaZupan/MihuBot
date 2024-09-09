@@ -83,7 +83,7 @@ public abstract class JobBase
         Parent = parent;
         GithubCommenterLogin = githubCommenterLogin;
 
-        InitMetadata(repository, branch, arguments);
+        InitMetadata("dotnet/runtime", "main", repository, branch, arguments);
 
         TestedPROrBranchLink = $"https://github.com/{repository}/tree/{branch}";
     }
@@ -95,20 +95,25 @@ public abstract class JobBase
         GithubCommenterLogin = githubCommenterLogin;
         GitHubComment = comment;
 
-        InitMetadata(PullRequest.Head.Repository.FullName, PullRequest.Head.Ref, arguments);
+        InitMetadata(
+            PullRequest.Base.Repository.FullName, PullRequest.Base.Ref,
+            PullRequest.Head.Repository.FullName, PullRequest.Head.Ref,
+            arguments);
 
         TestedPROrBranchLink = PullRequest.HtmlUrl;
     }
 
-    private void InitMetadata(string repository, string branch, string arguments)
+    private void InitMetadata(string baseRepo, string baseBranch, string prRepo, string prBranch, string arguments)
     {
         arguments ??= string.Empty;
         arguments = arguments.SplitLines()[0].Trim();
 
         Metadata.Add("JobId", JobId);
         Metadata.Add("ExternalId", ExternalId);
-        Metadata.Add("PrRepo", repository);
-        Metadata.Add("PrBranch", branch);
+        Metadata.Add("BaseRepo", baseRepo);
+        Metadata.Add("BaseBranch", baseBranch);
+        Metadata.Add("PrRepo", prRepo);
+        Metadata.Add("PrBranch", prBranch);
         Metadata.Add("CustomArguments", arguments);
         Metadata.Add("JobType", GetType().Name);
         Metadata.Add("JobStartTime", StartTime.Ticks.ToString());
