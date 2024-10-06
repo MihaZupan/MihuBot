@@ -668,7 +668,7 @@ public abstract class JobBase
                 Template = BinaryData.FromString(templateJson),
                 Parameters = BinaryData.FromObjectAsJson(new
                 {
-                    runnerId = new { value = ExternalId },
+                    runnerId = new { value = JobId },
                     osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "128")) },
                     virtualMachineSize = new { value = vmSize },
                     adminPassword = new { value = $"{JobId}aA1" },
@@ -691,7 +691,7 @@ public abstract class JobBase
             var armClient = new ArmClient(Program.AzureCredential);
             var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
 
-            string resourceGroupName = $"runtime-utils-runner-{ExternalId}";
+            string resourceGroupName = $"runtime-utils-runner-{JobId}";
             var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
             var resourceGroups = subscription.GetResourceGroups();
             var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
@@ -701,7 +701,7 @@ public abstract class JobBase
                 LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
                 _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
 
-                string deploymentName = $"runner-deployment-{ExternalId}";
+                string deploymentName = $"runner-deployment-{JobId}";
                 var armDeployments = resourceGroup.GetArmDeployments();
                 var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
 
@@ -738,7 +738,7 @@ public abstract class JobBase
             LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
-                $"runner-{ExternalId}",
+                $"runner-{JobId}",
                 GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
                 GetConfigFlag($"HetznerLocation{cpuType}", UseArm || useIntelCpu ? "fsn1" : "ash"),
                 serverType,
