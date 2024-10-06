@@ -29,15 +29,17 @@ public static class Snowflake
         Span<byte> buffer = stackalloc byte[sizeof(ulong)];
         BinaryPrimitives.WriteUInt64BigEndian(buffer, snowflake);
 
-        return Base64Url.EncodeToString(buffer);
+        return Base64Url.EncodeToString(buffer.TrimEnd((byte)0));
     }
 
     public static DateTimeOffset FromSnowflake(ReadOnlySpan<char> snowflakeString)
     {
         Span<byte> buffer = stackalloc byte[sizeof(ulong)];
+        buffer.Clear();
+
         OperationStatus status = Base64Url.DecodeFromChars(snowflakeString, buffer, out int charsConsumed, out int bytesWritten);
 
-        if (status != OperationStatus.Done || charsConsumed != snowflakeString.Length || bytesWritten != sizeof(ulong))
+        if (status != OperationStatus.Done || charsConsumed != snowflakeString.Length || bytesWritten < 5)
         {
             throw new ArgumentException("Invalid snowflake string", nameof(snowflakeString));
         }
@@ -66,7 +68,7 @@ public static class Snowflake
                 state = s_last;
             }
 
-            ulong count = Interlocked.Increment(ref state._counter);
+            ulong count = Interlocked.Increment(ref state._counter) - 1;
             if (count <= MaxCounterValue)
             {
                 result = SnowflakeUtils.ToSnowflake(DateTimeOffset.FromUnixTimeMilliseconds(state._ms)) | count;
