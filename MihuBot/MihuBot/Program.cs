@@ -68,6 +68,7 @@ public class Program
             {
                 webBuilder.UseKestrel(options =>
                 {
+                    options.Limits.MaxResponseBufferSize *= 32;
                     options.Limits.Http2.InitialStreamWindowSize *= 32;
                     options.Limits.Http2.InitialConnectionWindowSize *= 32;
                 });
