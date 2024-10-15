@@ -85,6 +85,8 @@ public class Startup
         };
         services.AddSingleton(httpClient);
 
+        services.AddSingleton(new Octokit.GraphQL.Connection(new Octokit.GraphQL.ProductHeaderValue("MihuBot"), Configuration["GitHub:MihaToken"]));
+
         services.AddSingleton(new GitHubClient(new ProductHeaderValue("MihuBot"))
         {
             Credentials = new Credentials(Configuration["GitHub:Token"]),

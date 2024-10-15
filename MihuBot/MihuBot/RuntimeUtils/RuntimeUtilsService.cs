@@ -124,6 +124,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public readonly Logger Logger;
     public readonly GitHubClient Github;
+    public readonly Octokit.GraphQL.Connection GithubGraphQL;
     public readonly HttpClient Http;
     public readonly IConfiguration Configuration;
     public readonly IConfigurationService ConfigurationService;
@@ -131,10 +132,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, Octokit.GraphQL.Connection githubGraphQL, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
     {
         Logger = logger;
         Github = github;
+        GithubGraphQL = githubGraphQL;
         Http = http;
         Configuration = configuration;
         ConfigurationService = configurationService;
@@ -186,6 +188,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             try
             {
+                if (comment.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase) &&
+                    _processedMentions.TryAdd($"NCL runtime {comment.IssueId}"))
+                {
+                    await ProcessNclMentionAsync(comment);
+                }
+
                 if (comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                     comment.User.Type == AccountType.User &&
                     !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
@@ -217,7 +225,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         return;
                     }
 
-                    if (comment.Url.Contains("/pull/", StringComparison.OrdinalIgnoreCase))
+                    if (comment.Url.Contains("/pull", StringComparison.OrdinalIgnoreCase))
                     {
                         int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
                         PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, pullRequestNumber);
@@ -236,6 +244,25 @@ public sealed partial class RuntimeUtilsService : IHostedService
             catch (Exception ex)
             {
                 await Logger.DebugAsync($"Failure while processing comment {comment.Url} {comment.CommentId}: {ex}");
+            }
+        }
+
+        async Task ProcessNclMentionAsync(GitHubComment comment)
+        {
+            try
+            {
+                if (ConfigurationService.TryGet(null, "RuntimeUtils.NclNotifications.Disable", out _))
+                {
+                    return;
+                }
+
+                Issue issue = await Github.Issue.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
+
+                await GithubGraphQL.EnableIssueNotifiactionsAsync(issue);
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync($"Failed to enable notifications on {comment.Url}: {ex}");
             }
         }
 

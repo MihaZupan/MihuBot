@@ -25,7 +25,7 @@ public static partial class GitHubHelper
 
                 if (pullReviewComments.Count > 0)
                 {
-                    lastCheckTimeReviewComments = pullReviewComments.Max(c => c.CreatedAt);
+                    lastCheckTimeReviewComments = pullReviewComments.Max(c => c.UpdatedAt != default ? c.UpdatedAt : c.CreatedAt);
                 }
 
                 foreach (PullRequestReviewComment reviewComment in pullReviewComments)
@@ -41,7 +41,7 @@ public static partial class GitHubHelper
 
                 if (issueComments.Count > 0)
                 {
-                    lastCheckTimeIssueComments = issueComments.Max(c => c.CreatedAt);
+                    lastCheckTimeIssueComments = issueComments.Max(c => c.UpdatedAt ?? c.CreatedAt);
                 }
 
                 var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
@@ -67,7 +67,7 @@ public static partial class GitHubHelper
             {
                 consecutiveFailureCount++;
                 lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-                lastCheckTimeIssueComments = DateTime.UtcNow;
+                lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
                 logger?.DebugLog($"Failed to fetch GitHub notifications: {ex}");
 
                 if (consecutiveFailureCount == 15 * 4) // 15 min
