@@ -651,7 +651,7 @@ public abstract class JobBase
             string cpuType = UseArm ? "ARM64" : (useIntelCpu ? "X64Intel" : "X64Amd");
 
             string defaultVmSize =
-                UseArm ? "DXpds_v5" :
+                UseArm ? "DXps_v6" :
                 useIntelCpu ? "DXds_v5" :
                 //fast ? "FXas_v6" :
                 //"DXas_v6";
