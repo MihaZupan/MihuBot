@@ -337,7 +337,7 @@ public abstract class JobBase
             return arguments.ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(number => number.TrimStart('#'))
-                .Select(number => GitHubHelper.TryParseDotnetRuntimePRNumber(number, out int prNumber) ? prNumber.ToString() : number)
+                .Select(number => GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(number, out int prNumber) ? prNumber.ToString() : number)
                 .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
                 .Select(int.Parse)
                 .ToArray();

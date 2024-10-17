@@ -1,5 +1,4 @@
-﻿
-using MihuBot.RuntimeUtils;
+﻿using MihuBot.RuntimeUtils;
 
 namespace MihuBot.Commands;
 
@@ -31,12 +30,15 @@ public sealed class NclMentionsCommand : CommandBase
 
         foreach (string arg in ctx.Arguments)
         {
-            ulong id = ulong.Parse(arg);
+            if (!GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number))
+            {
+                continue;
+            }
 
             await _gitHubNotifications.ProcessGitHubMentionAsync(new GitHubComment(
                 _gitHubNotifications.Github,
                 "dotnet", "runtime", 1,
-                $"https://github.com/dotnet/runtime/issues/{id}",
+                $"https://github.com/dotnet/runtime/issues/{number}",
                 "@dotnet/ncl",
                 currentUser,
                 IsPrReviewComment: false));

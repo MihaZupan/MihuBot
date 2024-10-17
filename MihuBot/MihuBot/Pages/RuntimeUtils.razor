@@ -322,7 +322,7 @@
             string prOrBranch = _newJob.InputPROrBranch;
             JobBase newJob;
 
-            if (GitHubHelper.TryParseDotnetRuntimePRNumber(prOrBranch, out int prNumber))
+            if (GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(prOrBranch, out int prNumber))
             {
                 PullRequest pullRequest;
                 try
