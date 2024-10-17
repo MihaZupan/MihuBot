@@ -30,6 +30,8 @@ public sealed partial class GitHubNotificationsService
     {
         try
         {
+            Logger.DebugLog($"Processing mentions comment {comment.Url}: '{comment.Body}'");
+
             if (ConfigurationService.TryGet(null, "RuntimeUtils.NclNotifications.Disable", out _))
             {
                 return;
