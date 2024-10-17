@@ -14,7 +14,7 @@ public sealed partial class GitHubNotificationsService
         init: (_, d) => new Dictionary<string, UserRecord>(d, StringComparer.OrdinalIgnoreCase));
 
     private readonly Logger Logger;
-    private readonly GitHubClient Github;
+    public readonly GitHubClient Github;
     private readonly HttpClient Http;
     private readonly IConfigurationService ConfigurationService;
 
