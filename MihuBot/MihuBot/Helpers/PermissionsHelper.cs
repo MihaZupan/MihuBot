@@ -70,7 +70,7 @@ public static class PermissionsHelper
     public static bool TryGetDiscordUserId(this ClaimsPrincipal claims, out ulong userId)
     {
         var discordIdentity = claims.Identities.FirstOrDefault(i => i.AuthenticationType == "Discord");
-        string id = discordIdentity?.Name;
+        string id = discordIdentity?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return ulong.TryParse(id, out userId);
     }
 
