@@ -133,6 +133,33 @@ public static partial class GitHubHelper
 
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$")]
     private static partial Regex RepoAndBranchRegex();
+
+    public static async Task<(bool Valid, bool HasAllScopes)> ValidatePatAsync(HttpClient client, string pat, string[] scopes)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com");
+        request.Headers.Add("User-Agent", "MihuBot-PAT-Validation");
+        request.Headers.Add("Authorization", $"token {pat}");
+
+        using var response = await client.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return (false, false);
+        }
+
+        if (response.Headers.TryGetValues("X-OAuth-Scopes", out var scopesHeader))
+        {
+            var availableScopes = scopesHeader
+                .SelectMany(h => h.Split(',', StringSplitOptions.TrimEntries))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return (true, scopes.All(availableScopes.Contains));
+        }
+        else
+        {
+            return (true, scopes.Length == 0);
+        }
+    }
 }
 
 public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, long CommentId, string Url, string Body, User User, bool IsPrReviewComment)

@@ -1,0 +1,137 @@
+﻿@page "/runtime-notifications"
+@using MihuBot.RuntimeUtils;
+@using System.ComponentModel.DataAnnotations;
+@inject RuntimeUtilsService runtimeUtils
+@inject GitHubNotificationsService githubNotifications
+
+<PageTitle>Runtime notifications</PageTitle>
+<h1>Runtime notifications</h1>
+
+<AuthorizeView Policy="GitHub">
+    <Authorized>
+        <p>
+            <small class="text-muted">Logged in as @@@_githubUserLogin</small>
+        </p>
+
+        @if (_currentUser is not null)
+        {
+            <p>PAT last updated on @_currentUser.PatUpdatedAt.ToISODate().</p>
+            <p>Last subscribed issue: @_currentUser.LastSubscribedIssue</p>
+        }
+
+        <a href="https://github.com/settings/tokens/new?description=MihuBot-runtime-notifications&scopes=notifications">
+            <strong>Create a new PAT here (adjust expiration as desired)</strong>
+        </a>
+
+        <br />
+        <br />
+
+        <EditForm Context="NewPATForm" Model="_newPat" OnValidSubmit="SubmitNewPATAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            @if (!string.IsNullOrEmpty(_submittingPatError))
+            {
+                <div class="alert alert-danger" role="alert">
+                    Failed to submit PAT: @_submittingPatError
+                </div>
+            }
+
+            <div class="form-check">
+                <InputText @bind-Value=_newPat.PAT placeholder="ghp_abc123" />
+            </div>
+
+            <br />
+            <input disabled="@_submittingPat" type="submit" class="btn btn-primary" value="@(_submittingPat ? "Submitting ..." : "Submit")" />
+        </EditForm>
+    </Authorized>
+    <NotAuthorized>
+        <a href="Account/Login/GitHub?returnUrl=%2Fruntime-notifications">
+            <img src="github-mark.svg" />
+            <strong style="font-size: 24px">Login with GitHub</strong>
+        </a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code
+{
+    private static readonly CooldownTracker s_validateCooldown = new(TimeSpan.FromMinutes(1), 10);
+
+    [CascadingParameter]
+    private Task<AuthenticationState> authenticationState { get; set; }
+
+    private string _githubUserLogin;
+    private GitHubNotificationsService.UserRecord _currentUser;
+
+    private readonly NewPATModel _newPat = new();
+
+    private bool _submittingPat;
+    private string _submittingPatError;
+
+    private class NewPATModel
+    {
+        [Required]
+        [RegularExpression(
+            pattern: @"^ghp_[a-zA-Z0-9]{20,100}$",
+            ErrorMessage = "Invalid token format")]
+        public string PAT { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (authenticationState is not null &&
+            (await authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
+        {
+            githubNotifications.TryGetUser(_githubUserLogin, out _currentUser);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SubmitNewPATAsync()
+    {
+        _submittingPatError = null;
+        _submittingPat = true;
+
+        try
+        {
+            if (!s_validateCooldown.TryEnter((await authenticationState).User.GetGitHubUserId() ?? 0))
+            {
+                _submittingPatError = "Please wait a moment before submitting another PAT";
+                return;
+            }
+
+            if (_currentUser?.Token == _newPat.PAT)
+            {
+                return;
+            }
+
+            (bool valid, bool hasScopes) = await GitHubHelper.ValidatePatAsync(runtimeUtils.Http, _newPat.PAT, ["notifications"]);
+
+            if (!valid)
+            {
+                _submittingPatError = "Invalid PAT";
+                return;
+            }
+
+            if (!hasScopes)
+            {
+                _submittingPatError = "PAT does not have the required scopes (notifications)";
+                return;
+            }
+
+            await githubNotifications.UpdatePATAsync(_githubUserLogin, _newPat.PAT);
+
+            await OnInitializedAsync();
+        }
+        catch (Exception ex)
+        {
+            _submittingPatError = ex.ToString();
+        }
+        finally
+        {
+            _submittingPat = false;
+        }
+    }
+}
+

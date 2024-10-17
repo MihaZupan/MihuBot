@@ -70,14 +70,24 @@ public static class PermissionsHelper
     public static bool TryGetDiscordUserId(this ClaimsPrincipal claims, out ulong userId)
     {
         var discordIdentity = claims.Identities.FirstOrDefault(i => i.AuthenticationType == "Discord");
-        string id = discordIdentity?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        string id = discordIdentity?.Name;
         return ulong.TryParse(id, out userId);
     }
 
     public static bool TryGetGitHubLogin(this ClaimsPrincipal claims, out string userLogin)
     {
-        var gitHubIdentity = claims.Identities.FirstOrDefault(i => i.AuthenticationType == "GitHub");
-        userLogin = gitHubIdentity?.FindFirst(ClaimTypes.Name)?.Value;
+        userLogin = claims.TryGetGitHubIdentity()?.Name;
         return !string.IsNullOrEmpty(userLogin);
+    }
+
+    public static ulong? GetGitHubUserId(this ClaimsPrincipal claims)
+    {
+        string idString = claims.TryGetGitHubIdentity()?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return ulong.TryParse(idString, out ulong id) ? id : null;
+    }
+
+    public static ClaimsIdentity TryGetGitHubIdentity(this ClaimsPrincipal claims)
+    {
+        return claims.Identities.FirstOrDefault(i => i.AuthenticationType == "GitHub");
     }
 }
