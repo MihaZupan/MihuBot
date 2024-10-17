@@ -91,7 +91,7 @@ public sealed partial class GitHubNotificationsService
 
         foreach (ValueMatch match in MentionsRegex().EnumerateMatches(comment))
         {
-            string name = comment.Slice(match.Index, match.Length).ToString();
+            string name = comment.Slice(match.Index, match.Length).TrimStart('@').ToString();
 
             if (name.Equals("dotnet/ncl", StringComparison.OrdinalIgnoreCase))
             {
