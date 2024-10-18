@@ -1,0 +1,73 @@
+﻿@page "/debug-logs"
+@attribute [Authorize("Admin")]
+@using MihuBot.RuntimeUtils;
+@using System.Collections.Concurrent;
+@inject Logger Logger
+@inject InitializedDiscordClient Discord
+@implements IDisposable
+
+<pre><code>
+    @_logs
+</code></pre>
+
+@code
+{
+    private const int NumLines = 40;
+    private const int MaxLineLength = 200;
+
+    private readonly CancellationTokenSource _cts = new();
+    private string _logs;
+
+    protected override void OnInitialized()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Discord.EnsureInitializedAsync();
+
+                var sb = new StringBuilder(NumLines * MaxLineLength);
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+
+                while (await timer.WaitForNextTickAsync(_cts.Token))
+                {
+                    var logs = (await Logger.GetLogsAsync(DateTime.UtcNow - TimeSpan.FromHours(1), DateTime.UtcNow, _ => true)).Logs;
+
+                    if (logs.Length > NumLines)
+                    {
+                        logs = logs.AsSpan(logs.Length - NumLines).ToArray();
+                    }
+
+                    foreach (var log in logs)
+                    {
+                        int beforeLength = sb.Length;
+                        log.ToString(sb, Discord);
+
+                        if (sb.Length - beforeLength > MaxLineLength)
+                        {
+                            sb.Length = beforeLength + MaxLineLength - 4;
+                            sb.Append(" ...");
+                        }
+
+                        sb.AppendLine();
+                    }
+
+                    string newLogs = sb.ToString();
+                    sb.Length = 0;
+
+                    if (_logs != newLogs)
+                    {
+                        _logs = newLogs;
+                        _ = InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch { }
+        });
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+    }
+}
