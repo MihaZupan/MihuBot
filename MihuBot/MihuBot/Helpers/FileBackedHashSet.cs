@@ -23,6 +23,14 @@ public sealed class FileBackedHashSet
         _stream = File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.Read);
     }
 
+    public bool Contains(string value)
+    {
+        lock (_hashSet)
+        {
+            return _hashSet.Contains(value);
+        }
+    }
+
     public bool TryAdd(string value)
     {
         Debug.Assert(!value.Contains('\n'));

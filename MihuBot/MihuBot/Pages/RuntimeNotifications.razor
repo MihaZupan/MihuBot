@@ -17,6 +17,13 @@
         {
             <p>PAT last updated on @_currentUser.PatUpdatedAt.ToISODate().</p>
             <p>Last subscribed issue: @_currentUser.LastSubscribedIssue</p>
+
+            @if (_currentUser.Disabled)
+            {
+                <div class="alert alert-danger" role="alert">
+                    Notifications are currently disabled. Please submit a new PAT.
+                </div>
+            }
         }
 
         <a href="https://github.com/settings/tokens/new?description=MihuBot-runtime-notifications&scopes=notifications">

@@ -1,13 +1,18 @@
 ﻿using MihuBot.Configuration;
 using Octokit;
 using Octokit.GraphQL.Internal;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
 public sealed partial class GitHubNotificationsService
 {
-    public record UserRecord(string Name, string Token, DateTime PatUpdatedAt, string LastSubscribedIssue);
+    public record UserRecord(string Name, string Token, DateTime PatUpdatedAt, string LastSubscribedIssue, int ErrorCount)
+    {
+        [JsonIgnore]
+        public bool Disabled => ErrorCount >= 5;
+    }
 
     private readonly FileBackedHashSet _processedMentions = new("ProcessedNotificationMentionIssues.txt", StringComparer.OrdinalIgnoreCase);
     private readonly SynchronizedLocalJsonStore<Dictionary<string, UserRecord>> _users = new("GitHubNotificationUsers.json",
@@ -48,12 +53,21 @@ public sealed partial class GitHubNotificationsService
 
             foreach (UserRecord user in users)
             {
-                if (!_processedMentions.TryAdd($"{issue.HtmlUrl}/{user.Name}"))
+                string duplicationKey = $"{issue.HtmlUrl}/{user.Name}";
+
+                if (_processedMentions.Contains(duplicationKey))
                 {
                     continue;
                 }
 
+                if (user.Disabled)
+                {
+                    Logger.DebugLog($"Skipping notifications on {issue.HtmlUrl} for {user.Name} due to previous errors.");
+                    continue;
+                }
+
                 enabledAny = true;
+                bool failed = false;
 
                 try
                 {
@@ -64,24 +78,33 @@ public sealed partial class GitHubNotificationsService
 
                     await connection.EnableIssueNotifiactionsAsync(issue);
 
+                    _processedMentions.TryAdd(duplicationKey);
+
+                    Logger.DebugLog($"Enabled notifications on {issue.HtmlUrl} for {user.Name}");
+                }
+                catch (Exception ex)
+                {
+                    failed = true;
+                    await Logger.DebugAsync($"Failed to enable notifications on {comment.Url} for {user.Name}: {ex}");
+                }
+                finally
+                {
                     var usersJson = await _users.EnterAsync();
                     try
                     {
                         if (usersJson.TryGetValue(user.Name, out var existingUser))
                         {
-                            usersJson[user.Name] = existingUser with { LastSubscribedIssue = issue.HtmlUrl };
+                            usersJson[user.Name] = existingUser with
+                            {
+                                LastSubscribedIssue = issue.HtmlUrl,
+                                ErrorCount = existingUser.ErrorCount + (failed ? 1 : 0),
+                            };
                         }
                     }
                     finally
                     {
                         _users.Exit();
                     }
-
-                    Logger.DebugLog($"Enabled notifications on {issue.HtmlUrl} for {user.Name}");
-                }
-                catch (Exception ex)
-                {
-                    await Logger.DebugAsync($"Failed to enable notifications on {comment.Url} for {user.Name}: {ex}");
                 }
             }
         }
@@ -134,7 +157,7 @@ public sealed partial class GitHubNotificationsService
         {
             users.TryGetValue(name, out UserRecord previous);
 
-            users[name] = new UserRecord(name, token, DateTime.UtcNow, previous?.LastSubscribedIssue ?? "N/A");
+            users[name] = new UserRecord(name, token, DateTime.UtcNow, previous?.LastSubscribedIssue ?? "N/A", ErrorCount: 0);
         }
         finally
         {
