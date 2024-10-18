@@ -9,7 +9,7 @@ public sealed partial class GitHubNotificationsService
 {
     public record UserRecord(string Name, string Token, DateTime PatUpdatedAt, string LastSubscribedIssue);
 
-    private readonly FileBackedHashSet _processedMentions = new("ProcessedNotificationMentionIssues.txt");
+    private readonly FileBackedHashSet _processedMentions = new("ProcessedNotificationMentionIssues.txt", StringComparer.OrdinalIgnoreCase);
     private readonly SynchronizedLocalJsonStore<Dictionary<string, UserRecord>> _users = new("GitHubNotificationUsers.json",
         init: (_, d) => new Dictionary<string, UserRecord>(d, StringComparer.OrdinalIgnoreCase));
 
