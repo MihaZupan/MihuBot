@@ -6,7 +6,7 @@ namespace MihuBot.Commands;
 public sealed class NclMentionsCommand : CommandBase
 {
     public override string Command => "ncl-mentions";
-    public override string[] Aliases => ["ncl-mentions-rescan"];
+    public override string[] Aliases => ["ncl-mentions-rescan", "ncl-mentions-rescan-open"];
 
     private readonly GitHubNotificationsService _gitHubNotifications;
     private GitHubClient GitHub => _gitHubNotifications.Github;
@@ -23,7 +23,7 @@ public sealed class NclMentionsCommand : CommandBase
             return;
         }
 
-        if (ctx.Command == "ncl-mentions-rescan")
+        if (ctx.Command is "ncl-mentions-rescan" or "ncl-mentions-rescan-open")
         {
             var now = DateTime.UtcNow;
             if (!ReminderCommand.TryParseRemindTimeCore(ctx.ArgumentStringTrimmed, now, out DateTime time))
@@ -36,7 +36,7 @@ public sealed class NclMentionsCommand : CommandBase
 
             ctx.DebugLog($"Parsed '{ctx.ArgumentStringTrimmed}' to {duration.ToElapsedTime()}");
 
-            await RescanAsync(ctx, now - duration);
+            await RescanAsync(ctx, now - duration, ctx.Command == "ncl-mentions-rescan-open" ? ItemStateFilter.Open : ItemStateFilter.All);
             return;
         }
 
@@ -52,13 +52,13 @@ public sealed class NclMentionsCommand : CommandBase
             .ToArray());
     }
 
-    private async Task RescanAsync(CommandContext ctx, DateTimeOffset since)
+    private async Task RescanAsync(CommandContext ctx, DateTimeOffset since, ItemStateFilter state)
     {
         foreach (string area in new string[] { "System.Net", "System.Net.Http", "System.Net.Security", "System.Net.Sockets", "System.Net.Quic", "Extensions-HttpClientFactory" })
         {
             var request = new RepositoryIssueRequest
             {
-                State = ItemStateFilter.All,
+                State = state,
                 Filter = IssueFilter.All,
                 Since = since,
             };
