@@ -3,6 +3,7 @@
 @using System.ComponentModel.DataAnnotations;
 @inject RuntimeUtilsService runtimeUtils
 @inject GitHubNotificationsService githubNotifications
+@inject Logger Logger
 
 <PageTitle>Runtime notifications</PageTitle>
 <h1>Runtime notifications</h1>
@@ -113,6 +114,7 @@
                 return;
             }
 
+            Logger.DebugLog($"Testing PAT for {_githubUserLogin}");
             (bool valid, bool hasScopes) = await GitHubHelper.ValidatePatAsync(runtimeUtils.Http, _newPat.PAT, ["notifications"]);
 
             if (!valid)

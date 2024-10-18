@@ -152,6 +152,8 @@ public sealed partial class GitHubNotificationsService
 
     public async Task UpdatePATAsync(string name, string token)
     {
+        Logger.DebugLog($"Updating PAT for {name}");
+
         var users = await _users.EnterAsync();
         try
         {
