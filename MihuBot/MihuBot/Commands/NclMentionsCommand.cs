@@ -33,11 +33,8 @@ public sealed class NclMentionsCommand : CommandBase
             }
 
             TimeSpan duration = time - now;
-            if (duration < TimeSpan.FromSeconds(1))
-            {
-                await ctx.ReplyAsync("Failed to parse the duration");
-                return;
-            }
+
+            ctx.DebugLog($"Parsed '{ctx.ArgumentStringTrimmed}' to {duration.ToElapsedTime()}");
 
             await RescanAsync(ctx, now - duration);
             return;
@@ -49,23 +46,17 @@ public sealed class NclMentionsCommand : CommandBase
             return;
         }
 
-        var currentUser = await GitHub.User.Current();
-
-        foreach (string arg in ctx.Arguments)
-        {
-            if (!GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number))
-            {
-                continue;
-            }
-
-            await SubscribeToRuntimeIssueAsync(currentUser, number);
-        }
+        await SubscribeToRuntimeIssuesAsync(ctx, ctx.Arguments
+            .Select(arg => GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number) ? number : -1)
+            .Where(n => n > 0)
+            .ToArray());
     }
 
     private async Task RescanAsync(CommandContext ctx, DateTimeOffset since)
     {
         var request = new RepositoryIssueRequest
         {
+            State = ItemStateFilter.All,
             Filter = IssueFilter.All,
             Since = since,
         };
@@ -80,17 +71,27 @@ public sealed class NclMentionsCommand : CommandBase
         var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
         await ctx.ReplyAsync($"Found {issues.Count} issues");
 
-        foreach (var issue in issues)
+        await SubscribeToRuntimeIssuesAsync(ctx, issues.Select(i => i.Number).ToArray());
+    }
+
+    private async Task SubscribeToRuntimeIssuesAsync(CommandContext ctx, int[] numbers)
+    {
+        var currentUser = await GitHub.User.Current();
+
+        int counter = 0;
+
+        foreach (var issue in numbers)
         {
-            if (await SubscribeToRuntimeIssueAsync(currentUser, issue.Number))
+            if (await SubscribeToRuntimeIssueAsync(currentUser, issue))
             {
+                counter++;
                 await Task.Delay(2_000);
             }
 
             await Task.Delay(100);
         }
 
-        await ctx.ReplyAsync($"Finished subscribing to {issues.Count} issues");
+        await ctx.ReplyAsync($"Subscribed to {counter} new issues");
     }
 
     private async Task<bool> SubscribeToRuntimeIssueAsync(User currentUser, int number)
