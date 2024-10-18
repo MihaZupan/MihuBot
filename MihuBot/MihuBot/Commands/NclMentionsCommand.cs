@@ -54,24 +54,22 @@ public sealed class NclMentionsCommand : CommandBase
 
     private async Task RescanAsync(CommandContext ctx, DateTimeOffset since)
     {
-        var request = new RepositoryIssueRequest
-        {
-            State = ItemStateFilter.All,
-            Filter = IssueFilter.All,
-            Since = since,
-        };
-
         foreach (string area in new string[] { "System.Net", "System.Net.Http", "System.Net.Security", "System.Net.Sockets", "System.Net.Quic", "Extensions-HttpClientFactory" })
         {
+            var request = new RepositoryIssueRequest
+            {
+                State = ItemStateFilter.All,
+                Filter = IssueFilter.All,
+                Since = since,
+            };
+
             request.Labels.Add($"area-{area}");
+
+            var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
+            await ctx.ReplyAsync($"Found {issues.Count} issues for `{area}`");
+
+            await SubscribeToRuntimeIssuesAsync(ctx, issues.Select(i => i.Number).ToArray());
         }
-
-        var currentUser = await GitHub.User.Current();
-
-        var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
-        await ctx.ReplyAsync($"Found {issues.Count} issues");
-
-        await SubscribeToRuntimeIssuesAsync(ctx, issues.Select(i => i.Number).ToArray());
     }
 
     private async Task SubscribeToRuntimeIssuesAsync(CommandContext ctx, int[] numbers)
