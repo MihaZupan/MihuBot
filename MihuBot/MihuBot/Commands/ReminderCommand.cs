@@ -79,7 +79,7 @@ public sealed partial class ReminderCommand : CommandBase
         return times is not null;
     }
 
-    private static bool TryParseRemindTimeCore(string time, DateTime now, out DateTime dateTime)
+    public static bool TryParseRemindTimeCore(string time, DateTime now, out DateTime dateTime)
     {
         dateTime = default;
 

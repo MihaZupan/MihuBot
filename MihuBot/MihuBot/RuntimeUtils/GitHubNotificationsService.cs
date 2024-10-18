@@ -26,20 +26,22 @@ public sealed partial class GitHubNotificationsService
         ConfigurationService = configurationService;
     }
 
-    public async Task ProcessGitHubMentionAsync(GitHubComment comment)
+    public async Task<bool> ProcessGitHubMentionAsync(GitHubComment comment)
     {
+        bool enabledAny = false;
+
         try
         {
             Logger.DebugLog($"Processing mentions comment {comment.Url}: '{comment.Body}'");
 
             if (ConfigurationService.TryGet(null, "RuntimeUtils.NclNotifications.Disable", out _))
             {
-                return;
+                return enabledAny;
             }
 
             if (!TryDetectMentions(comment.Body.AsSpan(), out HashSet<UserRecord> users))
             {
-                return;
+                return enabledAny;
             }
 
             Issue issue = await Github.Issue.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
@@ -50,6 +52,8 @@ public sealed partial class GitHubNotificationsService
                 {
                     continue;
                 }
+
+                enabledAny = true;
 
                 try
                 {
@@ -85,6 +89,8 @@ public sealed partial class GitHubNotificationsService
         {
             await Logger.DebugAsync($"Failed to enable notifications on {comment.Url}: {ex}");
         }
+
+        return enabledAny;
     }
 
     private bool TryDetectMentions(ReadOnlySpan<char> comment, out HashSet<UserRecord> users)
