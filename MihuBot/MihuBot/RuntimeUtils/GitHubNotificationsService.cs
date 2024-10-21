@@ -1,7 +1,7 @@
 ﻿using MihuBot.Configuration;
+using Newtonsoft.Json;
 using Octokit;
 using Octokit.GraphQL.Internal;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
