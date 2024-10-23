@@ -11,8 +11,6 @@ public sealed class LoggerOptions
     public SocketTextChannel LogsTextChannel => Discord.GetTextChannel(_logsTextChannelId);
     public SocketTextChannel LogsFilesTextChannel => Discord.GetTextChannel(_logsFilesChannelId);
 
-    public Predicate<SocketUserMessage> ShouldLogAttachments { get; set; } = _ => true;
-
     public LoggerOptions(InitializedDiscordClient discord, string logsRoot, string logPrefix,
         ulong debugChannelId, ulong logsTextChannelId, ulong logsFilesChannelId)
     {

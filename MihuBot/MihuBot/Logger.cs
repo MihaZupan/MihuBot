@@ -44,9 +44,6 @@ public sealed class Logger
         @"https:\/\/cdn\.discordapp\.com\/[^\s]+",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private const ulong IgnoredListChannelId = 806065691689746432ul;
-    private static ConcurrentDictionary<ulong, bool> _ignoredGuildsAndChannels = new();
-
     private static readonly Dictionary<string, (string Ext, string Args)> ConvertableMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         { ".jpg",   (".webp",   "-pix_fmt yuv420p -q 75") },
@@ -456,17 +453,6 @@ public sealed class Logger
             await Options.DebugTextChannel.SendMessageAsync(debugMessage);
         }
         catch { }
-    }
-
-    private bool ShouldLogAttachments(SocketUserMessage message)
-    {
-        if (message.Guild()?.Id is ulong guildId && _ignoredGuildsAndChannels.ContainsKey(guildId))
-            return false;
-
-        if (_ignoredGuildsAndChannels.ContainsKey(message.Channel.Id))
-            return false;
-
-        return Options.ShouldLogAttachments(message);
     }
 
     public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
@@ -881,9 +867,6 @@ RecipientAdded
             {
                 Log(new LogEvent(userMessage, attachment));
 
-                if (!ShouldLogAttachments(userMessage))
-                    break;
-
                 if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                     !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
                 {
@@ -902,8 +885,7 @@ RecipientAdded
             }
 
             if (message.Content.Contains('/') &&
-                message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
-                ShouldLogAttachments(userMessage))
+                message.Content.Contains(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 _ = Task.Run(() =>
                 {
@@ -929,33 +911,6 @@ RecipientAdded
                     catch { }
                 });
             }
-        }
-
-        if (channelId == IgnoredListChannelId || (_ignoredGuildsAndChannels.IsEmpty && _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true)))
-        {
-            Task.Run(async () =>
-            {
-                try
-                {
-                    var ignored = new ConcurrentDictionary<ulong, bool>();
-                    _ignoredGuildsAndChannels.TryAdd(ulong.MaxValue, true);
-
-                    var channel = Discord.GetTextChannel(IgnoredListChannelId);
-                    foreach (var message in await channel.DangerousGetAllMessagesAsync(this, auditReason: null))
-                    {
-                        foreach (var part in message.Content.NormalizeNewLines().Replace('\n', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries))
-                        {
-                            if (ulong.TryParse(part, out ulong id))
-                            {
-                                ignored.TryAdd(id, true);
-                            }
-                        }
-                    }
-
-                    _ignoredGuildsAndChannels = ignored;
-                }
-                catch { }
-            });
         }
 
         if (message.Content.Contains('/') &&
