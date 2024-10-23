@@ -44,6 +44,11 @@ public sealed partial class GitHubNotificationsService
                 return enabledAny;
             }
 
+            if (comment.RepoOwner != "dotnet")
+            {
+                return enabledAny;
+            }
+
             if (!TryDetectMentions(comment.Body.AsSpan(), out HashSet<UserRecord> users))
             {
                 return enabledAny;
@@ -97,7 +102,7 @@ public sealed partial class GitHubNotificationsService
                             usersJson[user.Name] = existingUser with
                             {
                                 LastSubscribedIssue = issue.HtmlUrl,
-                                ErrorCount = existingUser.ErrorCount + (failed ? 1 : 0),
+                                ErrorCount = failed ? existingUser.ErrorCount + 1 : 0,
                             };
                         }
                     }
