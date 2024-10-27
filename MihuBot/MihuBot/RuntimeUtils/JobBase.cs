@@ -70,6 +70,7 @@ public abstract class JobBase
     public SystemHardwareInfo LastSystemInfo { get; set; }
     public string LastProgressSummary { get; set; }
 
+    public bool ShouldDeleteVM { get; set; }
     public string RemoteLoginCredentials { get; private set; }
 
     protected string CustomArguments
@@ -81,21 +82,26 @@ public abstract class JobBase
     public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
     public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
-    public JobBase(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+    private JobBase(RuntimeUtilsService parent, string githubCommenterLogin)
     {
         Parent = parent;
         GithubCommenterLogin = githubCommenterLogin;
 
+        ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
+    }
+
+    public JobBase(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+        : this(parent, githubCommenterLogin)
+    {
         InitMetadata("dotnet/runtime", "main", repository, branch, arguments);
 
         TestedPROrBranchLink = $"https://github.com/{repository}/tree/{branch}";
     }
 
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+        : this(parent, githubCommenterLogin)
     {
-        Parent = parent;
         PullRequest = pullRequest;
-        GithubCommenterLogin = githubCommenterLogin;
         GitHubComment = comment;
 
         InitMetadata(
@@ -635,7 +641,6 @@ public abstract class JobBase
             """;
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-        bool shouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
         bool useHetzner =
             GetConfigFlag("ForceHetzner", false) ||
             CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
@@ -721,7 +726,7 @@ public abstract class JobBase
             }
             finally
             {
-                if (shouldDeleteVM)
+                if (ShouldDeleteVM)
                 {
                     LogsReceived("Deleting the VM resource group");
 
@@ -771,7 +776,7 @@ public abstract class JobBase
             }
             finally
             {
-                if (shouldDeleteVM)
+                if (ShouldDeleteVM)
                 {
                     LogsReceived("Deleting the VM");
 

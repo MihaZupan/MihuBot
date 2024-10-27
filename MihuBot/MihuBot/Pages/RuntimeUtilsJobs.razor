@@ -35,6 +35,11 @@ else
         {
             <br />
             <div>@remoteLogin</div>
+
+            @if (_job.ShouldDeleteVM)
+            {
+                <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
+            }
         }
 
         @if (_job.LastSystemInfo is { } info)
