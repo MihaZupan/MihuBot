@@ -1,14 +1,15 @@
-﻿using Azure.Storage.Blobs.Models;
+﻿using Azure;
+using Azure.Core;
+using Azure.ResourceManager;
+using Azure.ResourceManager.Network;
+using Azure.ResourceManager.Resources;
+using Azure.ResourceManager.Resources.Models;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Sas;
 using MihuBot.Configuration;
 using Octokit;
 using System.Runtime.CompilerServices;
-using Azure.Storage.Sas;
-using Azure.Core;
-using Azure.ResourceManager.Resources.Models;
-using Azure.ResourceManager.Resources;
-using Azure.ResourceManager;
-using Azure;
 using static MihuBot.Helpers.HetznerClient;
 
 namespace MihuBot.RuntimeUtils;
@@ -68,6 +69,8 @@ public abstract class JobBase
 
     public SystemHardwareInfo LastSystemInfo { get; set; }
     public string LastProgressSummary { get; set; }
+
+    public string RemoteLoginCredentials { get; private set; }
 
     protected string CustomArguments
     {
@@ -663,6 +666,8 @@ public abstract class JobBase
 
             string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
+            string password = $"{JobId}aA1";
+
             var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
             {
                 Template = BinaryData.FromString(templateJson),
@@ -671,7 +676,7 @@ public abstract class JobBase
                     runnerId = new { value = JobId },
                     osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "128")) },
                     virtualMachineSize = new { value = vmSize },
-                    adminPassword = new { value = $"{JobId}aA1" },
+                    adminPassword = new { value = password },
                     customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(cloudInitScript)) },
                     imageReference = new
                     {
@@ -706,6 +711,11 @@ public abstract class JobBase
                 var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
 
                 LogsReceived("Azure deployment complete");
+
+                if ((await resourceGroup.GetPublicIPAddresses().GetAllAsync(jobTimeout).FirstOrDefaultAsync(jobTimeout)) is { } ip)
+                {
+                    RemoteLoginCredentials = $"ssh runner@{ip.Data.IPAddress}  {password}";
+                }
 
                 await JobCompletionTcs.Task.WaitAsync(jobTimeout);
             }
@@ -751,6 +761,11 @@ public abstract class JobBase
             try
             {
                 LogsReceived($"VM starting (CpuType={cpuType} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
+
+                if (serverInfo.PublicNet.Ipv4?.Ip is { } ip)
+                {
+                    RemoteLoginCredentials = $"ssh root@{ip}  {server.RootPassword}";
+                }
 
                 await JobCompletionTcs.Task.WaitAsync(jobTimeout);
             }

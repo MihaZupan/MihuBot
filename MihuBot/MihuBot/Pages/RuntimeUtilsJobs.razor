@@ -23,12 +23,19 @@ else
     else
     {
         <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
+
         @if (_canCancelJob)
         {
             <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
         }
 
         <br />
+
+        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+        {
+            <br />
+            <div>@remoteLogin</div>
+        }
 
         @if (_job.LastSystemInfo is { } info)
         {
@@ -64,6 +71,7 @@ else
     private Task<AuthenticationState> authenticationState { get; set; }
     private string _githubUserLogin;
     private bool _canCancelJob;
+    private bool _canViewCredentials;
 
     private const int NumLines = 28;
 
@@ -135,6 +143,8 @@ else
                 _canCancelJob =
                     _githubUserLogin == _job.GithubCommenterLogin ||
                     _githubUserLogin == "MihaZupan";
+
+                _canViewCredentials = _githubUserLogin == "MihaZupan";
             }
         }
     }
