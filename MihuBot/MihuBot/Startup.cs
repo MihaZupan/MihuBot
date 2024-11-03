@@ -1,5 +1,3 @@
-using Azure;
-using Azure.AI.OpenAI;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
@@ -117,13 +115,6 @@ public class Startup
         services.AddSingleton<IPermissionsService, PermissionsService>();
 
         services.AddSingleton<IConfigurationService, ConfigurationService>();
-
-        if (Program.AzureEnabled)
-        {
-            services.AddSingleton(new AzureOpenAIClient(
-                new Uri("https://mihubotai8467177614.openai.azure.com"),
-                new AzureKeyCredential(Configuration["AzureOpenAI:Key"])));
-        }
 
         services.AddSingleton<ReminderService>();
 

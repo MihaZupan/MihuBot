@@ -1,4 +1,5 @@
-﻿using Azure.AI.OpenAI;
+﻿using Azure;
+using Azure.AI.OpenAI;
 using Discord.Rest;
 using MihuBot.Configuration;
 using OpenAI.Chat;
@@ -20,12 +21,14 @@ public sealed class ChatGptComand : CommandBase
     private readonly Dictionary<ulong, ChatHistory> _chatHistory = new();
     private readonly AzureOpenAIClient _openAI;
 
-    public ChatGptComand(Logger logger, IConfigurationService configurationService, IEnumerable<AzureOpenAIClient> openAI)
+    public ChatGptComand(Logger logger, IConfiguration configuration, IConfigurationService configurationService)
     {
         _logger = logger;
         _configurationService = configurationService;
         _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
-        _openAI = openAI.FirstOrDefault();
+        _openAI = new AzureOpenAIClient(
+            new Uri("https://mihubotai8467177614.openai.azure.com"),
+            new AzureKeyCredential(configuration["AzureOpenAI:Key"]));
     }
 
     private sealed class ChatHistory
@@ -38,7 +41,7 @@ public sealed class ChatGptComand : CommandBase
 
         public void AddUserPrompt(SocketGuildUser user, string prompt)
         {
-            _entries.Add(new HistoryEntry(ChatMessage.CreateUserMessage($"{user.Username}: {prompt}"), DateTime.UtcNow));
+            _entries.Add(new HistoryEntry(ChatMessage.CreateUserMessage($"{user.GlobalName ?? user.Username}: {prompt}"), DateTime.UtcNow));
         }
 
         public void AddAssistantResponse(string response)
@@ -125,7 +128,7 @@ public sealed class ChatGptComand : CommandBase
 
         if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.Deployment", out string deployment))
         {
-            deployment = "gpt-4";
+            deployment = "gpt-4o";
         }
 
         ChatClient client = _openAI.GetChatClient(deployment);
