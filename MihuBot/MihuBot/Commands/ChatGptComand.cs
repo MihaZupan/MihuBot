@@ -41,19 +41,19 @@ public sealed class ChatGptComand : CommandBase
             _entries.Add(new HistoryEntry(ChatMessage.CreateUserMessage($"{user.Username}: {prompt}"), DateTime.UtcNow));
         }
 
-        public void AddAssistantResponse(string response, int maxChatHistory)
+        public void AddAssistantResponse(string response)
         {
             _entries.Add(new HistoryEntry(ChatMessage.CreateAssistantMessage(response), DateTime.UtcNow));
+        }
+
+        public List<ChatMessage> GetChatMessages(string systemPrompt, int maxChatHistory)
+        {
+            _entries.RemoveAll(e => (DateTime.UtcNow - e.Timestamp) > TimeSpan.FromHours(2));
 
             if (_entries.Count > maxChatHistory)
             {
                 _entries.RemoveRange(0, _entries.Count - maxChatHistory);
             }
-        }
-
-        public List<ChatMessage> GetChatMessages(string systemPrompt)
-        {
-            _entries.RemoveAll(e => (DateTime.UtcNow - e.Timestamp) > TimeSpan.FromHours(2));
 
             List<ChatMessage> messages = _entries.Select(e => e.Message).ToList();
 
@@ -183,10 +183,11 @@ public sealed class ChatGptComand : CommandBase
                     });
                 }
 
+                lastUpdateText = currentText;
                 stopwatch.Restart();
             }
 
-            List<ChatMessage> messages = chatHistory.GetChatMessages(systemPrompt);
+            List<ChatMessage> messages = chatHistory.GetChatMessages(systemPrompt, maxChatHistory);
 
             await foreach (StreamingChatCompletionUpdate completionUpdate in client.CompleteChatStreamingAsync(messages, options))
             {
@@ -196,6 +197,8 @@ public sealed class ChatGptComand : CommandBase
 
             await UpdateMessageAsync(final: true);
             await sendMessageTask;
+
+            chatHistory.AddAssistantResponse(lastUpdateText);
         }
         finally
         {
