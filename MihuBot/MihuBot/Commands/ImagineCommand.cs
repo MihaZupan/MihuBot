@@ -65,7 +65,8 @@ public sealed class ImagineCommand : CommandBase
         }
         catch (Exception ex)
         {
-            await ctx.ReplyAsync(ex.Message);
+            _logger.DebugLog($"Image generation failed for prompt '{prompt}': {ex}");
+            await ctx.Message.AddReactionAsync(Emotes.RedCross);
             return;
         }
 
