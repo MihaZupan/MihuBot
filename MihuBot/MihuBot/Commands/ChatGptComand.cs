@@ -123,7 +123,12 @@ public sealed class ChatGptComand : CommandBase
             }
         }
 
-        ChatClient client = _openAI.GetChatClient("gpt-4");
+        if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.Deployment", out string deployment))
+        {
+            deployment = "gpt-4";
+        }
+
+        ChatClient client = _openAI.GetChatClient(deployment);
 
         var options = new ChatCompletionOptions
         {
