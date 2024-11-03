@@ -158,7 +158,11 @@ public sealed class ChatGptComand : CommandBase
                     return;
                 }
 
-                if (!final && (currentText.Length - lastUpdateText.Length) < 50)
+                bool shouldSkip =
+                    (currentText.Length - lastUpdateText.Length) < 50 ||
+                    stopwatch.Elapsed.TotalSeconds < 0.5;
+
+                if (shouldSkip && !final)
                 {
                     return;
                 }
@@ -178,6 +182,8 @@ public sealed class ChatGptComand : CommandBase
                         return message;
                     });
                 }
+
+                stopwatch.Restart();
             }
 
             List<ChatMessage> messages = chatHistory.GetChatMessages(systemPrompt);
@@ -185,12 +191,7 @@ public sealed class ChatGptComand : CommandBase
             await foreach (StreamingChatCompletionUpdate completionUpdate in client.CompleteChatStreamingAsync(messages, options))
             {
                 updates.Add(completionUpdate);
-
-                if (stopwatch.Elapsed > TimeSpan.FromSeconds(0.5))
-                {
-                    await UpdateMessageAsync();
-                    stopwatch.Restart();
-                }
+                await UpdateMessageAsync();
             }
 
             await UpdateMessageAsync(final: true);
