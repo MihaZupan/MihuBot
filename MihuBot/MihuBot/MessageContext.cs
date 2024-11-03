@@ -99,10 +99,10 @@ public class MessageContext
     internal async Task DebugAsync(string debugMessage) => await _logger.DebugAsync(debugMessage, Message);
 
     internal Task DebugAsync(Exception ex, string extraDebugInfo = "") =>
-        DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
+        DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo}: {ex} for -- {Content}");
 
     internal void DebugLog(string debugMessage) => _logger.DebugLog(debugMessage, Message);
 
     internal void DebugLog(Exception ex, string extraDebugInfo = "") =>
-        DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}#{Author.DiscriminatorValue}) {extraDebugInfo}: {ex} for -- {Content}");
+        DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo}: {ex} for -- {Content}");
 }

@@ -153,7 +153,7 @@ public sealed class DebugDumpCommand : CommandBase
 
     private static void SerializeUser(SocketGuildUser user, StringBuilder sb)
     {
-        sb.Append(user.Username).Append('#').Append(user.Discriminator).Append(" (").Append(user.Id).AppendLine(")");
+        sb.Append(user.Username).Append(" (").Append(user.Id).AppendLine(")");
 
         if (user.JoinedAt.HasValue)
         {
