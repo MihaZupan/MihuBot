@@ -52,13 +52,22 @@ public sealed class ImagineCommand : CommandBase
 
         using var typing = ctx.Channel.EnterTypingState();
 
-        GeneratedImage image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
+        GeneratedImage image;
+        try
         {
-            EndUserId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{ctx.Channel.Id}_{ctx.AuthorId}"))),
-            ResponseFormat = GeneratedImageFormat.Bytes,
-            Quality = GeneratedImageQuality.High,
-            Size = size,
-        })).Value;
+            image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
+            {
+                EndUserId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{ctx.Channel.Id}_{ctx.AuthorId}"))),
+                ResponseFormat = GeneratedImageFormat.Bytes,
+                Quality = GeneratedImageQuality.High,
+                Size = size,
+            })).Value;
+        }
+        catch (Exception ex)
+        {
+            await ctx.ReplyAsync(ex.Message);
+            return;
+        }
 
         await ctx.Channel.SendFileAsync(image.ImageBytes.ToStream(), $"{ctx.Message.Id}.png");
     }
