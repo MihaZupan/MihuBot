@@ -33,14 +33,58 @@ public sealed class ImagineCommand : CommandBase
             new AzureKeyCredential(configuration["AzureOpenAI:Key"]));
     }
 
+    public override Task HandleAsync(MessageContext ctx)
+    {
+        if (ctx.Content.Equals("imagine", StringComparison.OrdinalIgnoreCase) &&
+            GetContentFromMessageReference(ctx) is { } prompt &&
+            TryEnter(ctx))
+        {
+            return ExecuteAsync(ctx, prompt);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        string prompt = ctx.ArgumentStringTrimmed;
+        await ExecuteAsync(ctx, ctx.ArgumentStringTrimmed);
+    }
+
+    private string GetContentFromMessageReference(MessageContext ctx)
+    {
+        if (ctx.Message.ReferencedMessage is { } referencedMessage &&
+            referencedMessage.Content is not null &&
+            referencedMessage.CleanContent is { } cleanContent &&
+            !string.IsNullOrWhiteSpace(cleanContent) &&
+            referencedMessage.Attachments is null or { Count: 0 })
+        {
+            return cleanContent;
+        }
+
+        return null;
+    }
+
+    private async Task ExecuteAsync(MessageContext ctx, string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            prompt = GetContentFromMessageReference(ctx);
+        }
 
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            var promptPrompt = ChatMessage.CreateUserMessage("What's a cool prompt for Dall-e 3? Please reply with only the prompt, without quotes.");
-            ChatCompletion completion = (await _openAIChat.GetChatClient("gpt-4o").CompleteChatAsync(promptPrompt)).Value;
+            if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.Deployment", out string chatDeployment))
+            {
+                chatDeployment = "gpt-4o";
+            }
+
+            if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImagePromptPrompt", out string promptPrompt))
+            {
+                promptPrompt = "What's a cool prompt for Dall-e 3? Please reply with only the prompt, without quotes.";
+            }
+
+            ChatClient chatClient = _openAIChat.GetChatClient(chatDeployment);
+            ChatCompletion completion = (await chatClient.CompleteChatAsync(ChatMessage.CreateUserMessage(promptPrompt))).Value;
             prompt = string.Concat(completion.Content.SelectMany(u => u.Text));
         }
 
