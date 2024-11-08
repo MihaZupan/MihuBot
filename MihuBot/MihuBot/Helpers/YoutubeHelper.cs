@@ -1,4 +1,5 @@
 ﻿using Google.Apis.YouTube.v3;
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using YoutubeExplode;
@@ -11,14 +12,14 @@ using YoutubeExplode.Videos.Streams;
 
 namespace MihuBot.Helpers;
 
-internal static class YoutubeHelper
+internal static partial class YoutubeHelper
 {
     public static bool TryParsePlaylistId(string playlistUrl, [NotNullWhen(true)] out string? playlistId)
     {
         playlistId = null;
 
         // https://www.youtube.com/playlist?list=PLOU2XLYxmsIJGErt5rrCqaSGTMyyqNt2H
-        string regularMatch = Regex.Match(playlistUrl, @"youtube\..+?/playlist.*?list=(.*?)(?:&|/|$)").Groups[1].Value;
+        string regularMatch = RegularPlaylistRegex().Match(playlistUrl).Groups[1].Value;
         if (ValidatePlaylistId(regularMatch))
         {
             playlistId = regularMatch;
@@ -26,7 +27,7 @@ internal static class YoutubeHelper
         }
 
         // https://www.youtube.com/watch?v=b8m9zhNAgKs&list=PL9tY0BWXOZFuFEG_GtOBZ8-8wbkH-NVAr
-        string compositeMatch = Regex.Match(playlistUrl, @"youtube\..+?/watch.*?list=(.*?)(?:&|/|$)").Groups[1].Value;
+        string compositeMatch = CompositePlaylistRegex().Match(playlistUrl).Groups[1].Value;
         if (ValidatePlaylistId(compositeMatch))
         {
             playlistId = compositeMatch;
@@ -34,7 +35,7 @@ internal static class YoutubeHelper
         }
 
         // https://youtu.be/b8m9zhNAgKs/?list=PL9tY0BWXOZFuFEG_GtOBZ8-8wbkH-NVAr
-        string shortCompositeMatch = Regex.Match(playlistUrl, @"youtu\.be/.*?/.*?list=(.*?)(?:&|/|$)").Groups[1].Value;
+        string shortCompositeMatch = ShortCompositePlaylistRegex().Match(playlistUrl).Groups[1].Value;
         if (ValidatePlaylistId(shortCompositeMatch))
         {
             playlistId = shortCompositeMatch;
@@ -42,7 +43,7 @@ internal static class YoutubeHelper
         }
 
         // https://www.youtube.com/embed/b8m9zhNAgKs/?list=PL9tY0BWXOZFuFEG_GtOBZ8-8wbkH-NVAr
-        string embedCompositeMatch = Regex.Match(playlistUrl, @"youtube\..+?/embed/.*?/.*?list=(.*?)(?:&|/|$)").Groups[1].Value;
+        string embedCompositeMatch = EmbedCompositePlaylistRegex().Match(playlistUrl).Groups[1].Value;
         if (ValidatePlaylistId(embedCompositeMatch))
         {
             playlistId = embedCompositeMatch;
@@ -63,7 +64,7 @@ internal static class YoutubeHelper
             playlistId.Length != 34)
             return false;
 
-        return !Regex.IsMatch(playlistId, @"[^0-9a-zA-Z_\-]");
+        return !playlistId.AsSpan().ContainsAnyExcept(s_videoIdChars);
     }
 
     public static bool TryParseVideoId(string videoUrl, [NotNullWhen(true)] out string? videoId)
@@ -71,7 +72,7 @@ internal static class YoutubeHelper
         videoId = null;
 
         // https://www.youtube.com/watch?v=yIVRs6YSbOM
-        string regularMatch = Regex.Match(videoUrl, @"youtube\..+?/watch.*?v=(.*?)(?:&|/|$)").Groups[1].Value;
+        string regularMatch = RegularVideoRegex().Match(videoUrl).Groups[1].Value;
         if (ValidateVideoId(regularMatch))
         {
             videoId = regularMatch;
@@ -79,7 +80,7 @@ internal static class YoutubeHelper
         }
 
         // https://youtu.be/yIVRs6YSbOM
-        string shortMatch = Regex.Match(videoUrl, @"youtu\.be/(.*?)(?:\?|&|/|$)").Groups[1].Value;
+        string shortMatch = ShortVideoRegex().Match(videoUrl).Groups[1].Value;
         if (ValidateVideoId(shortMatch))
         {
             videoId = shortMatch;
@@ -87,7 +88,7 @@ internal static class YoutubeHelper
         }
 
         // https://www.youtube.com/embed/yIVRs6YSbOM
-        string embedMatch = Regex.Match(videoUrl, @"youtube\..+?/embed/(.*?)(?:\?|&|/|$)").Groups[1].Value;
+        string embedMatch = EmbedVideoRegex().Match(videoUrl).Groups[1].Value;
         if (ValidateVideoId(embedMatch))
         {
             videoId = embedMatch;
@@ -96,13 +97,10 @@ internal static class YoutubeHelper
 
         return false;
 
-        static bool ValidateVideoId(string videoId)
-        {
-            if (videoId is null || videoId.Length != 11)
-                return false;
-
-            return !Regex.IsMatch(videoId, @"[^0-9a-zA-Z_\-]");
-        }
+        static bool ValidateVideoId(string videoId) =>
+            videoId is not null &&
+            videoId.Length == 11 &&
+            !videoId.AsSpan().ContainsAnyExcept(s_videoIdChars);
     }
 
 
@@ -371,4 +369,27 @@ internal static class YoutubeHelper
         long bytesPerSecond = Math.Min(1, streamInfo.Bitrate.BitsPerSecond / 8);
         return TimeSpan.FromSeconds(streamInfo.Size.Bytes / bytesPerSecond);
     }
+
+    [GeneratedRegex(@"youtube\..+?/playlist.*?list=(.*?)(?:&|/|$)")]
+    private static partial Regex RegularPlaylistRegex();
+
+    [GeneratedRegex(@"youtube\..+?/watch.*?list=(.*?)(?:&|/|$)")]
+    private static partial Regex CompositePlaylistRegex();
+
+    [GeneratedRegex(@"youtu\.be/.*?/.*?list=(.*?)(?:&|/|$)")]
+    private static partial Regex ShortCompositePlaylistRegex();
+
+    [GeneratedRegex(@"youtube\..+?/embed/.*?/.*?list=(.*?)(?:&|/|$)")]
+    private static partial Regex EmbedCompositePlaylistRegex();
+
+    [GeneratedRegex(@"youtube\..+?/watch.*?v=(.*?)(?:&|/|$)")]
+    private static partial Regex RegularVideoRegex();
+
+    [GeneratedRegex(@"youtu\.be/(.*?)(?:\?|&|/|$)")]
+    private static partial Regex ShortVideoRegex();
+
+    [GeneratedRegex(@"youtube\..+?/embed/(.*?)(?:\?|&|/|$)")]
+    private static partial Regex EmbedVideoRegex();
+
+    private static readonly SearchValues<char> s_videoIdChars = SearchValues.Create("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_");
 }

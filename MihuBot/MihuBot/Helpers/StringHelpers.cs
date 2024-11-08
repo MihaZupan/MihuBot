@@ -1,4 +1,6 @@
-﻿namespace MihuBot.Helpers;
+﻿using System.Buffers;
+
+namespace MihuBot.Helpers;
 
 public static class StringHelpers
 {
@@ -10,16 +12,6 @@ public static class StringHelpers
         }
 
         return string.Concat(text.AsSpan(0, maxLength - 4), " ...");
-    }
-
-    public static bool StartsWith(this ReadOnlySpan<char> span, char c)
-    {
-        return 0 < (uint)span.Length && span[0] == c;
-    }
-
-    public static bool EndsWith(this ReadOnlySpan<char> span, char c)
-    {
-        return 0 < (uint)span.Length && span[^1] == c;
     }
 
     public static bool Contains(this string[] matches, ReadOnlySpan<char> text, StringComparison stringComparison)
@@ -44,7 +36,7 @@ public static class StringHelpers
         return source.NormalizeNewLines().Split('\n', removeEmpty ? StringSplitOptions.RemoveEmptyEntries : StringSplitOptions.None);
     }
 
-    private static ReadOnlySpan<char> QuoteCharacters => new char[] { '"', '\'', '‘', '’', '“', '”' };
+    private static readonly SearchValues<char> s_quoteCharacters = SearchValues.Create("\"'‘’“”");
 
     public static string[] TrySplitQuotedArgumentString(ReadOnlySpan<char> arguments, out string error)
     {
@@ -54,12 +46,12 @@ public static class StringHelpers
 
         while (!arguments.IsEmpty)
         {
-            int nextQuote = arguments.IndexOfAny(QuoteCharacters);
+            int nextQuote = arguments.IndexOfAny(s_quoteCharacters);
 
-            var before = nextQuote == -1 ? arguments : arguments.Slice(0, nextQuote);
+            var before = nextQuote < 0 ? arguments : arguments.Slice(0, nextQuote);
             parts.AddRange(before.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-            if (nextQuote == -1)
+            if (nextQuote < 0)
             {
                 break;
             }
@@ -72,7 +64,7 @@ public static class StringHelpers
                 : (quoteType == '“' || quoteType == '“') ? arguments.IndexOfAny('“', '“')
                 : arguments.IndexOf(quoteType);
 
-            if (end == -1)
+            if (end < 0)
             {
                 error = $"No matching quote {quoteType} character found";
                 return null;
@@ -99,7 +91,7 @@ public static class StringHelpers
     {
         int index = source.AsSpan().IndexOf(separator);
 
-        if (index == -1)
+        if (index < 0)
             return source.Trim();
 
         return source.AsSpan(0, index).Trim().ToString();
@@ -109,7 +101,7 @@ public static class StringHelpers
     {
         int index = source.AsSpan().LastIndexOf(separator);
 
-        if (index == -1)
+        if (index < 0)
             return source.Trim();
 
         return source.AsSpan(index + 1).Trim().ToString();
