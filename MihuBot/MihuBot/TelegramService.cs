@@ -175,7 +175,7 @@ public sealed class TelegramService
 
             string lat = location.Latitude.ToString(CultureInfo.InvariantCulture);
             string lon = location.Longitude.ToString(CultureInfo.InvariantCulture);
-            float? uncertainty = location.HorizontalAccuracy;
+            double? uncertainty = location.HorizontalAccuracy;
 
             _locationHistory.Add((DateTime.UtcNow, lat, lon));
 
@@ -255,7 +255,7 @@ public sealed class TelegramService
 
         await using (var tempFileWriteFs = System.IO.File.OpenWrite(tempSrcFile.Path))
         {
-            await _telegram.GetInfoAndDownloadFileAsync(telegramFile.FileId, tempFileWriteFs);
+            await _telegram.GetInfoAndDownloadFile(telegramFile.FileId, tempFileWriteFs);
         }
 
         string destinationPath = tempSrcFile.Path;
