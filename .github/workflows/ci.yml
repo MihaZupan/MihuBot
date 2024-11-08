@@ -8,13 +8,15 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
-    - name: Setup .NET 9.0
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: '9.0'
-        include-prerelease: true
+    - name: Setup .NET 10.0
+      run: |
+        sudo apt install -y wget && \
+        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
+        sudo chmod +x ./dotnet-install.sh &&
+        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/share/dotnet && \
+        dotnet --info
 
     - name: Dotnet restore
       run: dotnet restore MihuBot
