@@ -4,12 +4,12 @@ public static class Constants
 {
     public static string StateDirectory => "State";
 
-    public static readonly HashSet<ulong> Admins = new()
-    {
+    public static readonly FrozenSet<ulong> Admins = FrozenSet.Create(
+    [
         KnownUsers.Miha,
         KnownUsers.James,
         KnownUsers.Jordan,
-    };
+    ]);
 
     public const long MihuTelegramId = 168175103;
 
