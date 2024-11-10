@@ -133,7 +133,7 @@ public sealed partial class LogsCommand : CommandBase
             var regexMatch = MatchesRegex().Match(line);
             if (regexMatch.Success)
             {
-                regexFilters.Add(new Regex(regexMatch.Groups[1].Value, RegexOptions.IgnoreCase | RegexOptions.Compiled));
+                regexFilters.Add(new Regex(regexMatch.Groups[1].Value, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(2)));
                 continue;
             }
         }
@@ -192,7 +192,7 @@ public sealed partial class LogsCommand : CommandBase
                 channel.HasReadAccess(ctx.AuthorId)));
         }
 
-        if (containsFilters.Count != 0)
+        if (containsFilters.Count != 0 || regexFilters.Count != 0)
         {
             var containsValues = containsFilters
                 .Select(c => SearchValues.Create([c], StringComparison.OrdinalIgnoreCase))
@@ -209,30 +209,18 @@ public sealed partial class LogsCommand : CommandBase
                         return false;
                     }
                 }
-                return true;
-            }));
-        };
-
-        if (regexFilters.Count != 0)
-        {
-            var tempSb = new StringBuilder();
-
-            postFilters.Add(q => q.Where(log =>
-            {
-                tempSb.Length = 0;
-                log.ToString(tempSb, ctx.Discord);
-                string toString = tempSb.ToString();
 
                 foreach (var regex in regexFilters)
                 {
-                    if (!regex.IsMatch(toString))
+                    if (!regex.IsMatch(json))
                     {
                         return false;
                     }
                 }
+
                 return true;
             }));
-        }
+        };
 
         int maxResults = ctx.IsFromAdmin ? 100_000 : 10_000;
         int maxPostFilterExecutions = ctx.IsFromAdmin ? 50_000_000 : 1_000_000;
@@ -247,27 +235,38 @@ public sealed partial class LogsCommand : CommandBase
             return true;
         }));
 
+        using var queryCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        LogDbEntry[] logs = await _logger.GetLogsAsync(after, before,
-            query: query =>
-            {
-                foreach (var filter in filters)
+        LogDbEntry[] logs;
+        try
+        {
+            logs = await _logger.GetLogsAsync(after, before,
+                query: query =>
                 {
-                    query = filter(query);
-                }
+                    foreach (var filter in filters)
+                    {
+                        query = filter(query);
+                    }
 
-                return query;
-            },
-            filters: enumerable =>
-            {
-                foreach (var filter in postFilters)
+                    return query;
+                },
+                filters: enumerable =>
                 {
-                    enumerable = filter(enumerable);
-                }
+                    foreach (var filter in postFilters)
+                    {
+                        enumerable = filter(enumerable);
+                    }
 
-                return enumerable;
-            });
+                    return enumerable;
+                },
+                cancellationToken: queryCts.Token);
+        }
+        catch (Exception ex) when (ex is RegexMatchTimeoutException || queryCts.IsCancellationRequested)
+        {
+            await ctx.ReplyAsync("The query ran for too long", mention: true);
+            return;
+        }
 
         stopwatch.Stop();
 

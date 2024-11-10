@@ -616,7 +616,12 @@ public sealed class Logger
         }
     }
 
-    public async Task<LogDbEntry[]> GetLogsAsync(DateTime after, DateTime before, Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query, Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>> filters = null)
+    public async Task<LogDbEntry[]> GetLogsAsync(
+        DateTime after,
+        DateTime before,
+        Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query,
+        Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>> filters = null,
+        CancellationToken cancellationToken = default)
     {
         await using var context = _dbContextFactory.CreateDbContext();
 
@@ -632,6 +637,15 @@ public sealed class Logger
         }
 
         IEnumerable<LogDbEntry> enumerable = logQuery.AsEnumerable();
+
+        if (cancellationToken.CanBeCanceled)
+        {
+            enumerable = enumerable.Where(e =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return true;
+            });
+        }
 
         if (filters is not null)
         {
