@@ -99,7 +99,7 @@ public static class Helpers
 
     public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content)
     {
-        byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetByteCount(content));
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(content.Length));
         try
         {
             int length = Encoding.UTF8.GetBytes(content, bytes);
@@ -247,7 +247,7 @@ public static class Helpers
 
     public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");
 
-    public static string ToISODate(this DateTimeOffset date) => ToISODate(date.DateTime);
+    public static string ToISODate(this DateTimeOffset date) => ToISODate(date.UtcDateTime);
 
     public static string ToISODateTime(this DateTime dateTime, char separator = '_') => dateTime.ToString($"yyyy-MM-dd{separator}HH-mm-ss");
 

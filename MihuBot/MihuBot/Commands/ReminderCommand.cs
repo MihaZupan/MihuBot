@@ -281,5 +281,5 @@ public sealed partial class ReminderCommand : CommandBase
     }
 
     private void Log(string message, ReminderEntry entry) =>
-        _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, authorId: entry.AuthorId);
+        _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, userId: entry.AuthorId);
 }

@@ -1,7 +1,10 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Microsoft.EntityFrameworkCore;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Data;
 using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Runtime.InteropServices;
@@ -12,7 +15,155 @@ using System.Threading.Channels;
 
 namespace MihuBot;
 
-public delegate bool RosBytePredicate(ReadOnlySpan<byte> chars);
+public sealed class LogsDbContext : DbContext
+{
+    public LogsDbContext(DbContextOptions<LogsDbContext> options) : base(options)
+    { }
+
+    public DbSet<LogDbEntry> Logs { get; set; }
+}
+
+[Table("logs")]
+[Index(nameof(Snowflake))]
+public sealed partial class LogDbEntry
+{
+    internal static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+
+    public long Id { get; set; }
+
+    public Logger.EventType Type { get; set; }
+    public long Snowflake { get; set; }
+    public long GuildId { get; set; }
+    public long ChannelId { get; set; }
+    public long UserId { get; set; }
+    public string Content { get; set; }
+    public string ExtraContentJson { get; set; }
+
+    public DateTime Timestamp => SnowflakeUtils.FromSnowflake((ulong)Snowflake).UtcDateTime;
+
+    public string AsJson() => JsonSerializer.Serialize(this, JsonOptions);
+
+    public static LogDbEntry Create<TContent>(Logger.EventType type, ulong timestamp, ulong guildId, ulong channelId, ulong userId, string content, TContent extraContent)
+        where TContent : class
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(timestamp, (ulong)long.MaxValue);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(guildId, (ulong)long.MaxValue);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(channelId, (ulong)long.MaxValue);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(userId, (ulong)long.MaxValue);
+
+        var entry = new LogDbEntry
+        {
+            Type = type,
+            Snowflake = (long)timestamp,
+            GuildId = (long)guildId,
+            ChannelId = (long)channelId,
+            UserId = (long)userId,
+            Content = content,
+        };
+
+        if (extraContent is not null)
+        {
+            entry.ExtraContentJson = JsonSerializer.Serialize(extraContent, JsonOptions);
+        }
+
+        return entry;
+    }
+
+    public void ToString(StringBuilder builder, DiscordSocketClient client)
+    {
+        DateTime timestamp = Timestamp;
+
+        builder.Append(timestamp.Year);
+        builder.Append('-');
+
+        AppendTwoDigits(builder, timestamp.Month);
+        builder.Append('-');
+
+        AppendTwoDigits(builder, timestamp.Day);
+        builder.Append('_');
+
+        AppendTwoDigits(builder, timestamp.Hour);
+        builder.Append('-');
+
+        AppendTwoDigits(builder, timestamp.Minute);
+        builder.Append('-');
+
+        AppendTwoDigits(builder, timestamp.Second);
+        builder.Append(' ');
+
+        builder.Append(Type.ToString());
+
+        SocketGuild guild = null;
+        if (GuildId != 0)
+        {
+            builder.Append(": ");
+
+            guild = client.GetGuild((ulong)GuildId);
+            if (guild is null)
+            {
+                builder.Append(GuildId);
+            }
+            else
+            {
+                builder.Append(guild.Name);
+            }
+        }
+
+        if (ChannelId != 0)
+        {
+            builder.Append(GuildId == 0 ? ": " : " - ");
+
+            SocketGuildChannel channel = guild?.GetChannel((ulong)ChannelId);
+            if (channel is null)
+            {
+                builder.Append(ChannelId);
+            }
+            else
+            {
+                builder.Append(channel.Name);
+            }
+        }
+
+        if (UserId != 0)
+        {
+            builder.Append(" - ");
+            string username = client.GetUser((ulong)UserId)?.Username;
+            if (username is null)
+            {
+                builder.Append(UserId);
+            }
+            else
+            {
+                builder.Append(username);
+            }
+        }
+
+        if (Content is not null)
+        {
+            builder.Append(" - ");
+            if (!Content.AsSpan().ContainsAny('\n', '\r'))
+            {
+                builder.Append(Content);
+            }
+            else
+            {
+                builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
+            }
+        }
+
+        if (ExtraContentJson is not null)
+        {
+            builder.Append(" --- ");
+            builder.Append(ExtraContentJson);
+        }
+
+        static void AppendTwoDigits(StringBuilder builder, int value)
+        {
+            if (value < 10) builder.Append('0');
+            builder.Append(value);
+        }
+    }
+}
 
 public sealed class Logger
 {
@@ -24,15 +175,11 @@ public sealed class Logger
 
     private int _fileCounter = 0;
 
-    private static readonly ReadOnlyMemory<byte> NewLineByte = new[] { (byte)'\n' };
-    private static readonly char[] TrimChars = new[] { ' ', '\t', '\n', '\r' };
     internal static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
-    private readonly SemaphoreSlim LogSemaphore = new(1, 1);
-    private readonly Channel<LogEvent> LogChannel;
-    private BrotliStream JsonLogStream;
-    private string JsonLogPath;
-    private DateTime LogDate;
+    private readonly IDbContextFactory<LogsDbContext> _dbContextFactory;
+    private readonly Channel<LogDbEntry> LogChannel;
+    private long LogChannelBacklogEstimate;
 
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message, bool Delete)> FileArchivingChannel;
@@ -52,73 +199,107 @@ public sealed class Logger
         { ".wav",   (".mp3",    "-b:a 192k") },
     };
 
+    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration, IDbContextFactory<LogsDbContext> dbContextFactory)
+    {
+        _http = httpClient;
+        Options = options;
+        _dbContextFactory = dbContextFactory;
+
+        if (Program.AzureEnabled)
+        {
+            BlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString"],
+                "discord");
+        }
+
+        Directory.CreateDirectory(Options.LogsRoot);
+        Directory.CreateDirectory(Options.FilesRoot);
+
+        LogChannel = Channel.CreateUnbounded<LogDbEntry>(new UnboundedChannelOptions() { SingleReader = true });
+        MediaFileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage)>(new UnboundedChannelOptions() { SingleReader = true });
+        FileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage, bool)>(new UnboundedChannelOptions() { SingleReader = true });
+
+        Task.Run(ChannelReaderTaskAsync);
+        Task.Run(FileArchivingTaskAsync);
+        Task.Run(MediaFileArchivingTaskAsync);
+
+        _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
+
+        Discord.Log += Discord_LogAsync;
+        Discord.LatencyUpdated += LatencyUpdatedAsync;
+        Discord.JoinedGuild += JoinedGuildAsync;
+        Discord.LeftGuild += LeftGuildAsync;
+        Discord.MessageReceived += message => MessageReceivedAsync(message);
+        Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
+        Discord.MessageDeleted += MessageDeletedAsync;
+        Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
+        Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
+        Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
+        Discord.ReactionsCleared += ReactionsClearedAsync;
+        Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
+        Discord.UserBanned += UserBannedAsync;
+        Discord.UserUnbanned += UserUnbannedAsync;
+        Discord.UserLeft += UserLeftAsync;
+        Discord.UserJoined += UserJoinedAsync;
+        Discord.UserIsTyping += UserIsTypingAsync;
+        Discord.UserUpdated += UserUpdatedAsync;
+        Discord.GuildMemberUpdated += (before, after) => UserUpdatedAsync(before.HasValue ? before.Value : null, after);
+        Discord.CurrentUserUpdated += UserUpdatedAsync;
+        Discord.ChannelCreated += ChannelCreatedAsync;
+        Discord.ChannelUpdated += ChannelUpdatedAsync;
+        Discord.ChannelDestroyed += ChannelDestroyedAsync;
+        Discord.RoleCreated += RoleCreatedAsync;
+        Discord.RoleDeleted += RoleDeletedAsync;
+        Discord.RoleUpdated += RoleUpdatedAsync;
+        Discord.GuildAvailable += GuildAvailableAsync;
+        Discord.GuildUnavailable += GuildUnavailableAsync;
+        Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
+    }
+
     public async Task OnShutdownAsync()
     {
+        Console.WriteLine("Logger OnShutdownAsync ...");
         try
         {
-            Task uploadTask = await ResetLogFileAsync();
-            await Task.WhenAny(uploadTask, Task.Delay(TimeSpan.FromSeconds(15)));
+            LogChannel.Writer.TryComplete();
+
+            await LogChannel.Reader.Completion.WaitAsync(TimeSpan.FromSeconds(15));
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Logger failed to shutdown gracefully: {ex}");
+        }
     }
 
     private async Task ChannelReaderTaskAsync()
     {
-        const int QueueSize = 100_000;
-        List<LogEvent> events = new(128);
+        List<LogDbEntry> events = new(512);
+
         while (await LogChannel.Reader.WaitToReadAsync())
         {
-            while (events.Count < QueueSize && LogChannel.Reader.TryRead(out LogEvent logEvent))
+            while (events.Count < events.Capacity && LogChannel.Reader.TryRead(out LogDbEntry logEvent))
             {
                 events.Add(logEvent);
             }
 
-            await LogSemaphore.WaitAsync();
+            Interlocked.Add(ref LogChannelBacklogEstimate, -events.Count);
+
             try
             {
-                try
-                {
-                    foreach (LogEvent logEvent in events)
-                    {
-                        try
-                        {
-                            await JsonSerializer.SerializeAsync(JsonLogStream, logEvent, JsonOptions);
-                        }
-                        catch (Exception ex)
-                        {
-                            try
-                            {
-                                string json = Newtonsoft.Json.JsonConvert.SerializeObject(logEvent);
-                                await JsonLogStream.WriteAsync(NewLineByte);
-                                await JsonLogStream.WriteAsync(Encoding.UTF8.GetBytes(json));
+                await using LogsDbContext context = _dbContextFactory.CreateDbContext();
 
-                                DebugLog(json + ": " + ex.ToString());
-                            }
-                            catch { }
-                        }
-                        finally
-                        {
-                            await JsonLogStream.WriteAsync(NewLineByte);
-                        }
-                    }
-                }
-                finally
-                {
-                    await JsonLogStream.FlushAsync();
-                    await JsonLogStream.BaseStream.FlushAsync();
-                }
+                context.Logs.AddRange(events);
+
+                await context.SaveChangesAsync();
             }
-            finally
+            catch (Exception ex)
             {
-                LogSemaphore.Release();
+                Console.WriteLine($"Failed to save events: {ex}");
             }
 
             events.Clear();
-
-            if (DateTime.UtcNow.Subtract(LogDate) >= TimeSpan.FromHours(1))
-            {
-                await ResetLogFileAsync();
-            }
         }
     }
 
@@ -251,63 +432,116 @@ public sealed class Logger
         }
     }
 
-    public async Task<Task> ResetLogFileAsync()
+    public async Task MigrateAllLogsAsync(CancellationToken ct)
     {
-        TaskCompletionSource tcs = null;
-        await LogSemaphore.WaitAsync();
-        try
+        int counter = 0;
+        long totalMessageContentSize = 0;
+        long extraJsonSize = 0;
+
+        Dictionary<EventType, long> contentSizeByType = new();
+
+        await foreach (var log in ReadAllLogsAsync(ct))
         {
-            if (JsonLogStream != null)
+            counter++;
+
+            if (counter % 10_000 == 0)
             {
-                await JsonLogStream.FlushAsync();
-                await JsonLogStream.BaseStream.FlushAsync();
+                Console.WriteLine($"Migrated {counter} events. Queue: {LogChannelBacklogEstimate} MessageContent: {totalMessageContentSize >> 20} M. ExtraJson: {extraJsonSize >> 20} M. {log.TimeStamp.ToISODate()}");
 
-                await JsonLogStream.DisposeAsync();
-
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                while (LogChannelBacklogEstimate > 100_000)
                 {
-                    tcs = new TaskCompletionSource();
-                    if (!FileArchivingCompletions.TryAdd(JsonLogPath, tcs))
-                        tcs.TrySetResult();
-
-                    FileArchivingChannel.Writer.TryWrite((Path.GetFileName(JsonLogPath), JsonLogPath, Message: null, Delete: false));
+                    await Task.Delay(200, ct);
+                    Console.WriteLine($"Migrated {counter} events. Queue: {LogChannelBacklogEstimate}");
                 }
             }
 
-            LogDate = DateTime.UtcNow;
+            if (counter % 1_000_000 == 0)
+            {
+                Console.WriteLine();
+                foreach (KeyValuePair<EventType, long> pair in contentSizeByType)
+                {
+                    Console.WriteLine($"{pair.Key,30}: {pair.Value >> 20} M");
+                }
+                Console.WriteLine();
+            }
 
-            JsonLogPath = Path.Combine(Options.LogsRoot, Options.LogPrefix + LogDate.ToISODateTime() + ".json.br");
+            var type = log.Type;
 
-            Stream fileStream = File.Open(JsonLogPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            if (type == EventType.FileReceived)
+            {
+                Relog(log.Attachment);
+            }
+            else if (type is EventType.VoiceStatusUpdated or EventType.UserJoinedVoice or EventType.UserLeftVoice)
+            {
+                log.Content = log.VoiceStatusUpdated.ToString();
+                Relog<object>();
+            }
+            else if (type is EventType.ReactionAdded or EventType.ReactionRemoved)
+            {
+                Relog(new EmoteModel
+                {
+                    Emoji = log.Emoji,
+                    Emote = log.Emote,
+                });
+            }
+            else if (type is EventType.MessageUpdated)
+            {
+                Relog(log.PreviousMessageID == 0 ? null : log.PreviousMessageID.ToString());
+            }
+            else if (type is EventType.DebugMessage)
+            {
+                Relog(log.LogMessage);
+            }
+            else
+            {
+                Relog<object>();
+            }
 
-            JsonLogStream = new BrotliStream(fileStream, CompressionLevel.Optimal);
+            void Relog<T>(T extra = null) where T : class
+            {
+                ulong timestamp = log.MessageID == 0 ? SnowflakeUtils.ToSnowflake(log.TimeStamp) : log.MessageID;
+                var entry = LogDbEntry.Create(log.Type, timestamp, log.GuildID, log.ChannelID, log.UserID, log.Content, extra);
+
+                totalMessageContentSize += entry.Content?.Length ?? 0;
+                extraJsonSize += entry.ExtraContentJson?.Length ?? 0;
+
+                CollectionsMarshal.GetValueRefOrAddDefault(contentSizeByType, entry.Type, out _) += entry.Content?.Length ?? 0;
+
+                if (log.Type == EventType.DebugMessage)
+                {
+                    return;
+                }
+
+                if (type is EventType.UserActivitiesChanged or EventType.UserActiveClientsChanged)
+                {
+                    return;
+                }
+
+                Log(entry);
+            }
         }
-        catch (Exception ex)
+
+        while (LogChannelBacklogEstimate > 100)
         {
-            Console.WriteLine(ex);
+            await Task.Delay(100, ct);
         }
-        finally
-        {
-            LogSemaphore.Release();
-        }
-
-        return tcs?.Task ?? Task.CompletedTask;
     }
 
-    public async Task<(LogEvent[] Logs, Exception[] ParsingErrors)> GetLogsAsync(DateTime after, DateTime before, Predicate<LogEvent> predicate, RosBytePredicate rawJsonPredicate = null)
+    private IAsyncEnumerable<LegacyLogEvent> ReadAllLogsAsync(CancellationToken ct)
     {
-        if (after >= before)
-            return (Array.Empty<LogEvent>(), Array.Empty<Exception>());
-
-        List<LogEvent> events = new();
-        List<Exception> parsingErrors = new();
-        rawJsonPredicate ??= delegate { return true; };
-
-        await LogSemaphore.WaitAsync();
-        try
+        var channel = Channel.CreateBounded<LegacyLogEvent>(new BoundedChannelOptions(100_000)
         {
-            foreach (var file in GetLogFilesForDateRange(after, before))
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+        });
+
+        _ = Task.Run(async () =>
+        {
+            await Parallel.ForEachAsync(GetAllLogFiles(), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = ct }, async (file, ct) =>
             {
+                List<LegacyLogEvent> events = new();
+                List<Exception> parsingErrors = new();
+
                 try
                 {
                     await using Stream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -319,10 +553,10 @@ public sealed class Logger
 
                     while (true)
                     {
-                        ReadResult result = await pipeReader.ReadAsync();
+                        ReadResult result = await pipeReader.ReadAsync(ct);
                         ReadOnlySequence<byte> buffer = result.Buffer;
 
-                        SequencePosition position = Consume(buffer, events, parsingErrors, after, before, predicate, rawJsonPredicate);
+                        SequencePosition position = Consume(buffer, events, parsingErrors);
 
                         if (result.IsCompleted)
                             break;
@@ -336,63 +570,39 @@ public sealed class Logger
                 {
                     parsingErrors.Add(new Exception($"Exception when parsing {file}", ex));
                 }
-            }
-        }
-        finally
+
+                foreach (var e in events)
+                {
+                    await channel.Writer.WriteAsync(e, ct);
+                }
+            });
+
+            channel.Writer.TryComplete();
+        }, CancellationToken.None);
+
+        return channel.Reader.ReadAllAsync();
+
+        string[] GetAllLogFiles()
         {
-            LogSemaphore.Release();
-        }
-
-        return (events.ToArray(), parsingErrors.ToArray());
-
-        string[] GetLogFilesForDateRange(DateTime after, DateTime before)
-        {
-            string afterString = after.Subtract(TimeSpan.FromHours(2)).ToISODateTime();
-            string beforeString = before.Add(TimeSpan.FromHours(2)).ToISODateTime();
-
-            string[] files = Directory.GetFiles(Options.LogsRoot)
+            return Directory.GetFiles(Options.LogsRoot)
                 .Where(file =>
                     file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
                     file.EndsWith(".json.br", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(file => file)
                 .ToArray();
-
-            int startIndex = 0, endIndex;
-            for (endIndex = 0; endIndex < files.Length; endIndex++)
-            {
-                string name = Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(files[endIndex]));
-                name = name.Substring(Options.LogPrefix.Length);
-
-                if (name.CompareTo(afterString) <= 0)
-                {
-                    startIndex = endIndex;
-                }
-
-                if (name.CompareTo(beforeString) > 0)
-                {
-                    break;
-                }
-            }
-
-            return files.AsSpan(startIndex, endIndex - startIndex).ToArray();
         }
 
-        static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LogEvent> events, List<Exception> parsingErrors, DateTime after, DateTime before, Predicate<LogEvent> predicate, RosBytePredicate rawJsonPredicate)
+        static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LegacyLogEvent> events, List<Exception> parsingErrors)
         {
             Debug.Assert((int)Enum.GetValues<EventType>().Max() < 100);
 
             var reader = new SequenceReader<byte>(buffer);
             while (reader.TryReadTo(out ReadOnlySpan<byte> span, (byte)'\n'))
             {
-                if (!rawJsonPredicate(span))
-                {
-                    continue;
-                }
-
-                LogEvent logEvent;
+                LegacyLogEvent logEvent;
                 try
                 {
-                    logEvent = JsonSerializer.Deserialize<LogEvent>(span, JsonOptions);
+                    logEvent = JsonSerializer.Deserialize<LegacyLogEvent>(span, JsonOptions);
                 }
                 catch (Exception ex)
                 {
@@ -400,33 +610,60 @@ public sealed class Logger
                     continue;
                 }
 
-                if (logEvent.TimeStamp < after || logEvent.TimeStamp > before)
-                {
-                    continue;
-                }
-
-                if (predicate(logEvent))
-                {
-                    events.Add(logEvent);
-                }
+                events.Add(logEvent);
             }
             return reader.Position;
         }
     }
 
-    private void Log(LogEvent logEvent) => LogChannel.Writer.TryWrite(logEvent);
+    public async Task<LogDbEntry[]> GetLogsAsync(DateTime after, DateTime before, Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query, Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>> filters = null)
+    {
+        await using var context = _dbContextFactory.CreateDbContext();
+
+        IQueryable<LogDbEntry> logQuery = context.Logs.AsNoTracking()
+            .Where(log => log.Snowflake >= (long)SnowflakeUtils.ToSnowflake(after))
+            .Where(log => log.Snowflake <= (long)SnowflakeUtils.ToSnowflake(before));
+
+        logQuery = logQuery.OrderBy(log => log.Snowflake);
+
+        if (query is not null)
+        {
+            logQuery = query(logQuery);
+        }
+
+        IEnumerable<LogDbEntry> enumerable = logQuery.AsEnumerable();
+
+        if (filters is not null)
+        {
+            enumerable = filters(enumerable);
+        }
+
+        return enumerable.ToArray();
+    }
+
+    private void Log(LogDbEntry entry)
+    {
+        Interlocked.Increment(ref LogChannelBacklogEstimate);
+
+        LogChannel.Writer.TryWrite(entry);
+    }
+
+    public void Log<TContent>(EventType type, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong userId = 0, string content = null, TContent extraContent = null)
+        where TContent : class =>
+        Log(LogDbEntry.Create(type, messageId == 0 ? SnowflakeUtils.ToSnowflake(DateTime.UtcNow) : messageId, guildId, channelId, userId, content, extraContent));
+
+    public void Log(EventType type, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong userId = 0, string content = null) =>
+        Log<object>(type, guildId, channelId, messageId, userId, content);
+
+    private void Log<TContent>(EventType type, IChannel channel, ulong messageId = 0, ulong userId = 0, string content = null, TContent extraContent = null)
+        where TContent : class =>
+        Log(type, (channel as SocketGuildChannel)?.Guild.Id ?? 0, channel?.Id ?? 0, messageId, userId, content, extraContent);
 
     public void DebugLog(string debugMessage, SocketUserMessage message) =>
         DebugLog(debugMessage, message?.Guild()?.Id ?? 0, message?.Channel.Id ?? 0, message?.Id ?? 0, message?.Author.Id ?? 0);
 
-    public void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong authorId = 0)
-    {
-        Log(new LogEvent(EventType.DebugMessage, guildId, channelId, messageId)
-        {
-            Content = debugMessage,
-            UserID = authorId
-        });
-    }
+    public void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong userId = 0) =>
+        Log<object>(EventType.DebugMessage, guildId, channelId, messageId, userId, debugMessage);
 
     public async Task DebugAsync(string debugMessage, SocketUserMessage message = null, bool truncateToFile = false)
     {
@@ -455,81 +692,11 @@ public sealed class Logger
         catch { }
     }
 
-    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration)
-    {
-        _http = httpClient;
-        Options = options;
-
-        if (Program.AzureEnabled)
-        {
-            BlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString"],
-                "discord");
-        }
-
-        Directory.CreateDirectory(Options.LogsRoot);
-        Directory.CreateDirectory(Options.FilesRoot);
-
-        Task createLogStreamsTask = ResetLogFileAsync();
-        Debug.Assert(createLogStreamsTask.IsCompletedSuccessfully);
-        createLogStreamsTask.GetAwaiter().GetResult();
-
-        LogChannel = Channel.CreateUnbounded<LogEvent>(new UnboundedChannelOptions() { SingleReader = true });
-        MediaFileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage)>(new UnboundedChannelOptions() { SingleReader = true });
-        FileArchivingChannel = Channel.CreateUnbounded<(string, string, SocketUserMessage, bool)>(new UnboundedChannelOptions() { SingleReader = true });
-
-        Task.Run(ChannelReaderTaskAsync);
-        Task.Run(FileArchivingTaskAsync);
-        Task.Run(MediaFileArchivingTaskAsync);
-
-        _ = new Timer(_ => DebugLog("Keepalive"), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
-
-        Discord.Log += Discord_LogAsync;
-        Discord.LatencyUpdated += LatencyUpdatedAsync;
-        Discord.JoinedGuild += JoinedGuildAsync;
-        Discord.LeftGuild += LeftGuildAsync;
-        Discord.MessageReceived += message => MessageReceivedAsync(message);
-        Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
-        Discord.MessageDeleted += MessageDeletedAsync;
-        Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
-        Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
-        Discord.ReactionRemoved += (_, __, reaction) => ReactionRemovedAsync(reaction);
-        Discord.ReactionsCleared += ReactionsClearedAsync;
-        Discord.UserVoiceStateUpdated += UserVoiceStateUpdatedAsync;
-        Discord.UserBanned += UserBannedAsync;
-        Discord.UserUnbanned += UserUnbannedAsync;
-        Discord.UserLeft += UserLeftAsync;
-        Discord.UserJoined += UserJoinedAsync;
-        Discord.UserIsTyping += UserIsTypingAsync;
-        Discord.UserUpdated += UserUpdatedAsync;
-        Discord.GuildMemberUpdated += (before, after) => UserUpdatedAsync(before.HasValue ? before.Value : null, after);
-        Discord.CurrentUserUpdated += UserUpdatedAsync;
-        Discord.ChannelCreated += ChannelCreatedAsync;
-        Discord.ChannelUpdated += ChannelUpdatedAsync;
-        Discord.ChannelDestroyed += ChannelDestroyedAsync;
-        Discord.RoleCreated += RoleCreatedAsync;
-        Discord.RoleDeleted += RoleDeletedAsync;
-        Discord.RoleUpdated += RoleUpdatedAsync;
-        Discord.GuildAvailable += GuildAvailableAsync;
-        Discord.GuildUnavailable += GuildUnavailableAsync;
-        Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
-
-        /*
-GuildUpdated
-VoiceServerUpdated
-RecipientRemoved
-RecipientAdded
-        */
-    }
-
     private Task ChannelUpdatedAsync(SocketChannel beforeChannel, SocketChannel afterChannel)
     {
         if (beforeChannel is SocketGuildChannel before && afterChannel is SocketGuildChannel after)
         {
-            Log(new LogEvent(EventType.ChannelUpdated, after)
-            {
-                Content = $"{JsonSerializer.Serialize(ChannelModel.FromSocketChannel(before), JsonOptions)} => {JsonSerializer.Serialize(ChannelModel.FromSocketChannel(after), JsonOptions)}"
-            });
+            Log(EventType.ChannelUpdated, after, extraContent: ChannelModel.FromSocketChannel(after));
         }
         return Task.CompletedTask;
     }
@@ -538,10 +705,7 @@ RecipientAdded
     {
         if (channel is SocketGuildChannel guildChannel)
         {
-            Log(new LogEvent(EventType.ChannelCreated, guildChannel)
-            {
-                Content = JsonSerializer.Serialize(ChannelModel.FromSocketChannel(guildChannel), JsonOptions)
-            });
+            Log(EventType.ChannelUpdated, guildChannel, extraContent: ChannelModel.FromSocketChannel(guildChannel));
         }
         return Task.CompletedTask;
     }
@@ -550,62 +714,50 @@ RecipientAdded
     {
         if (channel is SocketGuildChannel guildChannel)
         {
-            Log(new LogEvent(EventType.ChannelDestroyed, guildChannel)
-            {
-                Content = JsonSerializer.Serialize(ChannelModel.FromSocketChannel(guildChannel), JsonOptions)
-            });
+            Log(EventType.ChannelDestroyed, guildChannel, extraContent: ChannelModel.FromSocketChannel(guildChannel));
         }
         return Task.CompletedTask;
     }
 
     private Task RoleCreatedAsync(SocketRole role)
     {
-        Log(new LogEvent(EventType.RoleCreated, role.Guild.Id)
-        {
-            Role = RoleModel.FromSocketRole(role)
-        });
+        Log(EventType.RoleCreated, role.Guild.Id, extraContent: RoleModel.FromSocketRole(role));
         return Task.CompletedTask;
     }
 
     private Task RoleDeletedAsync(SocketRole role)
     {
-        Log(new LogEvent(EventType.RoleDeleted, role.Guild.Id)
-        {
-            Role = RoleModel.FromSocketRole(role)
-        });
+        Log(EventType.RoleDeleted, role.Guild.Id, extraContent: RoleModel.FromSocketRole(role));
         return Task.CompletedTask;
     }
 
     private Task RoleUpdatedAsync(SocketRole before, SocketRole after)
     {
-        Log(new LogEvent(EventType.RoleUpdated, after.Guild.Id)
-        {
-            Role = RoleModel.FromSocketRole(after)
-        });
+        Log(EventType.RoleUpdated, after.Guild.Id, extraContent: RoleModel.FromSocketRole(after));
         return Task.CompletedTask;
     }
 
     private async Task JoinedGuildAsync(SocketGuild guild)
     {
-        Log(new LogEvent(EventType.JoinedGuild, guild.Id));
+        Log(EventType.JoinedGuild, guild.Id);
         await DebugAsync($"Added to {guild.Name} ({guild.Id})");
     }
 
     private async Task LeftGuildAsync(SocketGuild guild)
     {
-        Log(new LogEvent(EventType.LeftGuild, guild.Id));
+        Log(EventType.LeftGuild, guild.Id);
         await DebugAsync($"Left {guild.Name} ({guild.Id})");
     }
 
     private Task GuildUnavailableAsync(SocketGuild guild)
     {
-        Log(new LogEvent(EventType.GuildUnavailable, guild.Id));
+        Log(EventType.GuildUnavailable, guild.Id);
         return Task.CompletedTask;
     }
 
     private Task GuildAvailableAsync(SocketGuild guild)
     {
-        Log(new LogEvent(EventType.GuildAvailable, guild.Id));
+        Log(EventType.GuildAvailable, guild.Id);
         return Task.CompletedTask;
     }
 
@@ -620,11 +772,7 @@ RecipientAdded
 
             if (before?.Nickname != after.Nickname)
             {
-                Log(new LogEvent(EventType.UserNicknameChanged, guildId)
-                {
-                    UserID = after.Id,
-                    Content = after.Nickname
-                });
+                Log(EventType.UserNicknameChanged, guildId, userId: after.Id, content: after.Nickname);
             }
 
             if (before is null || !before.Roles.SequenceIdEquals(after.Roles))
@@ -635,11 +783,7 @@ RecipientAdded
                     {
                         if (!after.Roles.Any(beforeRole.Id))
                         {
-                            Log(new LogEvent(EventType.UserRoleRemoved, guildId)
-                            {
-                                UserID = afterUser.Id,
-                                Role = RoleModel.FromSocketRole(beforeRole)
-                            });
+                            Log(EventType.UserRoleRemoved, guildId, userId: afterUser.Id, extraContent: RoleModel.FromSocketRole(beforeRole));
                         }
                     }
                 }
@@ -648,50 +792,30 @@ RecipientAdded
                 {
                     if (before is null || !before.Roles.Any(afterRole.Id))
                     {
-                        Log(new LogEvent(EventType.UserRoleAdded, guildId)
-                        {
-                            UserID = afterUser.Id,
-                            Role = RoleModel.FromSocketRole(afterRole)
-                        });
+                        Log(EventType.UserRoleAdded, guildId, userId: afterUser.Id, extraContent: RoleModel.FromSocketRole(afterRole));
                     }
                 }
             }
         }
 
-        if (beforeUser is null || beforeUser.Username != afterUser.Username || beforeUser.DiscriminatorValue != afterUser.DiscriminatorValue)
+        if (beforeUser is null || beforeUser.Username != afterUser.Username)
         {
-            Log(new LogEvent(EventType.UserUsernameOrDiscriminatorChanged, guildId)
-            {
-                UserID = afterUser.Id,
-                Content = $"{afterUser.Username}#{afterUser.Discriminator}"
-            });
+            Log(EventType.UserNicknameChanged, guildId, userId: afterUser.Id, content: afterUser.Username);
         }
 
         if (beforeUser?.AvatarId != afterUser.AvatarId)
         {
-            Log(new LogEvent(EventType.UserAvatarIdChanged, guildId)
-            {
-                UserID = afterUser.Id,
-                Content = afterUser.AvatarId
-            });
+            Log(EventType.UserAvatarIdChanged, guildId, userId: afterUser.Id, content: afterUser.AvatarId);
         }
 
         if (beforeUser is null ? afterUser.ActiveClients.Count != 0 : !beforeUser.ActiveClients.ToHashSet().SetEquals(afterUser.ActiveClients))
         {
-            Log(new LogEvent(EventType.UserActiveClientsChanged, guildId)
-            {
-                UserID = afterUser.Id,
-                Content = string.Join(' ', afterUser.ActiveClients)
-            });
+            Log(EventType.UserActiveClientsChanged, guildId, userId: afterUser.Id, content: string.Join(' ', afterUser.ActiveClients));
         }
 
         if (beforeUser is null ? afterUser.Activities.Count != 0 : !beforeUser.Activities.SequenceEqual(afterUser.Activities))
         {
-            Log(new LogEvent(EventType.UserActivitiesChanged, guildId)
-            {
-                UserID = afterUser.Id,
-                Content = JsonSerializer.Serialize(afterUser.Activities, JsonOptions)
-            });
+            Log(EventType.UserActivitiesChanged, guildId, userId: afterUser.Id, extraContent: afterUser.Activities);
         }
 
         return Task.CompletedTask;
@@ -706,55 +830,37 @@ RecipientAdded
 
     private Task Discord_LogAsync(LogMessage logMessage)
     {
-        Log(new LogEvent(EventType.DebugMessage)
-        {
-            LogMessage = LogMessageModel.FromLogMessage(logMessage)
-        });
+        Log(EventType.DebugMessage, extraContent: LogMessageModel.FromLogMessage(logMessage));
         return Task.CompletedTask;
     }
 
     private Task UserIsTypingAsync(Cacheable<IUser, ulong> user, Cacheable<IMessageChannel, ulong> channel)
     {
-        Log(new LogEvent(EventType.UserIsTyping, guildId: 0, channelId: channel.Id, messageId: 0)
-        {
-            UserID = user.Id
-        });
+        Log(EventType.UserIsTyping, (channel.Value as SocketGuildChannel)?.Guild.Id ?? 0, channel.Id, userId: user.Id);
         return Task.CompletedTask;
     }
 
     private Task UserJoinedAsync(SocketGuildUser user)
     {
-        Log(new LogEvent(EventType.UserJoined, user.Guild.Id)
-        {
-            UserID = user.Id
-        });
+        Log(EventType.UserJoined, user.Guild.Id, userId: user.Id);
         return Task.CompletedTask;
     }
 
     private Task UserLeftAsync(SocketGuild guild, SocketUser user)
     {
-        Log(new LogEvent(EventType.UserLeft, guild.Id)
-        {
-            UserID = user.Id
-        });
+        Log(EventType.UserLeft, guild.Id, userId: user.Id);
         return Task.CompletedTask;
     }
 
     private Task UserBannedAsync(SocketUser user, SocketGuild guild)
     {
-        Log(new LogEvent(EventType.UserBanned, guild.Id)
-        {
-            UserID = user.Id
-        });
+        Log(EventType.UserBanned, guild.Id, userId: user.Id);
         return Task.CompletedTask;
     }
 
     private Task UserUnbannedAsync(SocketUser user, SocketGuild guild)
     {
-        Log(new LogEvent(EventType.UserUnbanned, guild.Id)
-        {
-            UserID = user.Id
-        });
+        Log(EventType.UserUnbanned, guild.Id, userId: user.Id);
         return Task.CompletedTask;
     }
 
@@ -762,11 +868,8 @@ RecipientAdded
     {
         if (before.VoiceChannel == after.VoiceChannel)
         {
-            Log(new LogEvent(EventType.VoiceStatusUpdated, before.VoiceChannel)
-            {
-                UserID = user.Id,
-                VoiceStatusUpdated = (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after)
-            });
+            var flags = (VoiceStatusUpdateFlags)((int)GetVoiceStatusUpdateFlags(before) >> 16) | GetVoiceStatusUpdateFlags(after);
+            Log(EventType.VoiceStatusUpdated, before.VoiceChannel.Guild.Id, before.VoiceChannel.Id, userId: user.Id, content: flags.ToString());
             return Task.CompletedTask;
         }
 
@@ -778,20 +881,12 @@ RecipientAdded
 
         if (left)
         {
-            Log(new LogEvent(EventType.UserLeftVoice, before.VoiceChannel)
-            {
-                UserID = user.Id,
-                VoiceStatusUpdated = GetVoiceStatusUpdateFlags(before)
-            });
+            Log(EventType.UserLeftVoice, before.VoiceChannel.Guild.Id, before.VoiceChannel.Id, userId: user.Id, content: GetVoiceStatusUpdateFlags(before).ToString());
         }
 
         if (joined)
         {
-            Log(new LogEvent(EventType.UserJoinedVoice, after.VoiceChannel)
-            {
-                UserID = user.Id,
-                VoiceStatusUpdated = GetVoiceStatusUpdateFlags(after)
-            });
+            Log(EventType.UserJoinedVoice, after.VoiceChannel.Guild.Id, after.VoiceChannel.Id, userId: user.Id, content: GetVoiceStatusUpdateFlags(after).ToString());
         }
 
         return Task.CompletedTask;
@@ -799,29 +894,19 @@ RecipientAdded
 
     private Task ReactionsClearedAsync(Cacheable<IUserMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel)
     {
-        Log(new LogEvent(EventType.ReactionsCleared, guildId: 0, channel.Id, message.Id));
+        Log(EventType.ReactionsCleared, (channel.Value as SocketGuildChannel)?.Guild.Id ?? 0, channel.Id, message.Id);
         return Task.CompletedTask;
     }
 
     private Task ReactionRemovedAsync(SocketReaction reaction)
     {
-        Log(new LogEvent(EventType.ReactionRemoved, reaction.Channel.Guild()?.Id ?? 0, reaction.Channel.Id, reaction.MessageId)
-        {
-            UserID = reaction.UserId,
-            Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
-            Emoji = (reaction.Emote as Emoji)?.Name
-        });
+        Log(EventType.ReactionRemoved, reaction.Channel, reaction.MessageId, reaction.UserId, extraContent: EmoteModel.FromEmote(reaction.Emote));
         return Task.CompletedTask;
     }
 
     private Task ReactionAddedAsync(SocketReaction reaction)
     {
-        Log(new LogEvent(EventType.ReactionAdded, reaction.Channel.Guild()?.Id ?? 0, reaction.Channel.Id, reaction.MessageId)
-        {
-            UserID = reaction.UserId,
-            Emote = reaction.Emote is Emote emote ? LogEmote.FromEmote(emote) : null,
-            Emoji = (reaction.Emote as Emoji)?.Name
-        });
+        Log(EventType.ReactionAdded, reaction.Channel, reaction.MessageId, reaction.UserId, extraContent: EmoteModel.FromEmote(reaction.Emote));
         return Task.CompletedTask;
     }
 
@@ -829,7 +914,7 @@ RecipientAdded
     {
         foreach (var cacheable in cacheables)
         {
-            Log(new LogEvent(EventType.MessageDeleted, guildId: 0, channel.Id, cacheable.Id));
+            Log(EventType.MessageDeleted, (channel.Value as SocketGuildChannel)?.Guild.Id ?? 0, channel.Id, cacheable.Id);
         }
 
         return Task.CompletedTask;
@@ -837,27 +922,22 @@ RecipientAdded
 
     private Task MessageDeletedAsync(Cacheable<IMessage, ulong> message, Cacheable<IMessageChannel, ulong> channel)
     {
-        Log(new LogEvent(EventType.MessageDeleted, guildId: 0, channel.Id, message.Id));
+        Log(EventType.MessageDeleted, (channel.Value as SocketGuildChannel)?.Guild.Id ?? 0, channel.Id, message.Id);
         return Task.CompletedTask;
     }
 
     private Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null)
     {
+        ulong guildId = (message.Channel as SocketGuildChannel)?.Guild.Id ?? 0;
+        ulong channelId = message.Channel.Id;
+
+        Log(previousId.HasValue ? EventType.MessageUpdated : EventType.MessageReceived, guildId, channelId, message.Id, message.Author.Id, message.Content, extraContent: previousId?.ToString());
+
         if (message is not SocketUserMessage userMessage)
             return Task.CompletedTask;
 
-        ulong channelId = message.Channel.Id;
-
         if (channelId == Channels.LogText || channelId == 750706839431413870ul || channelId == Channels.Files)
             return Task.CompletedTask;
-
-        if (!string.IsNullOrWhiteSpace(message.Content))
-        {
-            Log(new LogEvent(previousId is null ? EventType.MessageReceived : EventType.MessageUpdated, userMessage)
-            {
-                PreviousMessageID = previousId ?? 0
-            });
-        }
 
         if (message.Author.Id != KnownUsers.MihuBot)
         {
@@ -865,7 +945,7 @@ RecipientAdded
 
             foreach (var attachment in message.Attachments)
             {
-                Log(new LogEvent(userMessage, attachment));
+                Log(EventType.FileReceived, guildId, channelId, message.Id, message.Author.Id, extraContent: AttachmentModel.FromAttachment(attachment));
 
                 if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
                     !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
@@ -1015,6 +1095,18 @@ RecipientAdded
         return flags;
     }
 
+    public sealed class EmoteModel
+    {
+        public LogEmote Emote { get; set; }
+        public string Emoji { get; set; }
+
+        public static EmoteModel FromEmote(IEmote iEmote) => new()
+        {
+            Emote = iEmote is Emote emote ? LogEmote.FromEmote(emote) : null,
+            Emoji = (iEmote as Emoji)?.Name,
+        };
+    }
+
     public sealed class LogEmote
     {
         public string Name { get; set; }
@@ -1149,7 +1241,7 @@ RecipientAdded
         ChannelDestroyed,
         UserUnbanned,
         UserNicknameChanged,
-        UserUsernameOrDiscriminatorChanged,
+        UserUsernameChanged,
         UserAvatarIdChanged,
         UserActiveClientsChanged,
         UserActivitiesChanged,
@@ -1166,199 +1258,21 @@ RecipientAdded
         ChannelUpdated,
     }
 
-    public sealed class LogEvent
+    private sealed class LegacyLogEvent
     {
         public EventType Type { get; set; }
         public DateTime TimeStamp { get; set; }
-
-        public LogEvent() { }
-
-        public LogEvent(EventType type)
-        {
-            Type = type;
-            TimeStamp = DateTime.UtcNow;
-        }
-
-        public LogEvent(EventType type, ulong guildId)
-            : this(type)
-        {
-            GuildID = guildId;
-        }
-
-        public LogEvent(EventType type, ulong guildId, ulong channelId, ulong messageId)
-            : this(type, guildId)
-        {
-            ChannelID = channelId;
-            MessageID = messageId;
-        }
-
-        public LogEvent(EventType type, SocketUserMessage message)
-            : this(type, message.Guild()?.Id ?? 0, message.Channel.Id, message.Id)
-        {
-            if (type == EventType.MessageReceived || type == EventType.MessageUpdated || type == EventType.FileReceived)
-            {
-                Content = message.Content?.Trim(TrimChars);
-
-                if (message.Embeds.Any())
-                {
-                    Embeds = JsonSerializer.Serialize(message.Embeds, JsonOptions);
-                }
-            }
-
-            UserID = message.Author.Id;
-        }
-
-        public LogEvent(SocketUserMessage message, Attachment attachment)
-            : this(EventType.FileReceived, message)
-        {
-            Attachment = AttachmentModel.FromAttachment(attachment);
-        }
-
-        public LogEvent(EventType type, IChannel channel)
-            : this(type, (channel as SocketGuildChannel)?.Guild.Id ?? 0)
-        {
-            ChannelID = channel.Id;
-        }
-
         public ulong GuildID { get; set; }
         public ulong ChannelID { get; set; }
         public ulong MessageID { get; set; }
         public ulong PreviousMessageID { get; set; }
         public ulong UserID { get; set; }
         public string Content { get; set; }
-        public string Embeds { get; set; }
         public AttachmentModel Attachment { get; set; }
         public LogEmote Emote { get; set; }
         public string Emoji { get; set; }
         public VoiceStatusUpdateFlags VoiceStatusUpdated { get; set; }
         public LogMessageModel LogMessage { get; set; }
         public RoleModel Role { get; set; }
-
-        public void ToString(StringBuilder builder, DiscordSocketClient client)
-        {
-            builder.Append(TimeStamp.Year);
-            builder.Append('-');
-
-            AppendTwoDigits(builder, TimeStamp.Month);
-            builder.Append('-');
-
-            AppendTwoDigits(builder, TimeStamp.Day);
-            builder.Append('_');
-
-            AppendTwoDigits(builder, TimeStamp.Hour);
-            builder.Append('-');
-
-            AppendTwoDigits(builder, TimeStamp.Minute);
-            builder.Append('-');
-
-            AppendTwoDigits(builder, TimeStamp.Second);
-            builder.Append(' ');
-
-            builder.Append(Type.ToString());
-
-            SocketGuild guild = null;
-            if (GuildID != 0)
-            {
-                builder.Append(": ");
-
-                guild = client.GetGuild(GuildID);
-                if (guild is null)
-                {
-                    builder.Append(GuildID);
-                }
-                else
-                {
-                    builder.Append(guild.Name);
-                }
-            }
-
-            if (ChannelID != 0)
-            {
-                builder.Append(GuildID == 0 ? ": " : " - ");
-
-                SocketGuildChannel channel = guild?.GetChannel(ChannelID);
-                if (channel is null)
-                {
-                    builder.Append(ChannelID);
-                }
-                else
-                {
-                    builder.Append(channel.Name);
-                }
-            }
-
-            if (UserID != 0)
-            {
-                builder.Append(" - ");
-                string username = client.GetUser(UserID)?.Username;
-                if (username is null)
-                {
-                    builder.Append(UserID);
-                }
-                else
-                {
-                    builder.Append(username);
-                }
-            }
-
-            if (PreviousMessageID != 0)
-            {
-                builder.Append(" - PreviousID ");
-                builder.Append(PreviousMessageID);
-            }
-
-            if (Content != null)
-            {
-                builder.Append(" - ");
-                if (Content.AsSpan().IndexOfAny('\n', '\r') == -1)
-                {
-                    builder.Append(Content);
-                }
-                else
-                {
-                    builder.Append(Content.NormalizeNewLines().Replace("\n", " <new-line> "));
-                }
-            }
-
-            if (Attachment != null)
-            {
-                builder.Append(" - File ");
-                builder.Append(Attachment.Url);
-                builder.Append(" - ");
-                builder.Append(Attachment.Filename);
-            }
-
-            if (LogMessage != null)
-            {
-                builder.Append(": ");
-                builder.Append(JsonSerializer.Serialize(LogMessage, JsonOptions));
-            }
-
-            if (Emoji != null)
-            {
-                builder.Append(" - Emoji ");
-                builder.Append(Emoji);
-            }
-
-            if (Emote != null)
-            {
-                builder.Append(" - Emote ");
-                builder.Append(Emote.Name);
-                builder.Append(' ');
-                builder.Append(Emote.Url);
-            }
-
-            if (Role != null)
-            {
-                builder.Append(": ");
-                builder.Append(JsonSerializer.Serialize(Role, JsonOptions));
-            }
-
-            static void AppendTwoDigits(StringBuilder builder, int value)
-            {
-                if (value < 10) builder.Append('0');
-                builder.Append(value);
-            }
-        }
     }
 }

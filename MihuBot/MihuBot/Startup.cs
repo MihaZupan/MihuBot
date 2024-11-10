@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
@@ -37,6 +38,16 @@ public class Startup
         Console.WriteLine("Configuring services ...");
 
         string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
+
+        services.AddPooledDbContextFactory<LogsDbContext>(options =>
+        {
+            options.UseSqlite($"Data Source={Constants.StateDirectory}/MihuBot.db");
+
+            if (!OperatingSystem.IsLinux())
+            {
+                options.EnableSensitiveDataLogging();
+            }
+        });
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -228,6 +239,8 @@ public class Startup
 
     public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
     {
+        Console.WriteLine("Configuring app ...");
+
         if (env.IsDevelopment())
         {
             app.UseDeveloperExceptionPage();
@@ -285,6 +298,8 @@ public class Startup
 
             endpoints.MapReverseProxy();
         });
+
+        Console.WriteLine("App configured.");
     }
 
     private static void ConfigureYarpTunnelAuth(EndpointBuilder builder)

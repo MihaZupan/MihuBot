@@ -1,11 +1,14 @@
-﻿using System.Text.Json;
+﻿using System.Buffers;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands;
 
-public sealed class LogsCommand : CommandBase
+public sealed partial class LogsCommand : CommandBase
 {
     public override string Command => "logs";
+
+    protected override TimeSpan Cooldown => TimeSpan.FromSeconds(10);
+    protected override int CooldownToleranceCount => 50;
 
     private readonly Logger _logger;
 
@@ -16,30 +19,22 @@ public sealed class LogsCommand : CommandBase
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        if (!await ctx.RequirePermissionAsync("logs"))
-            return;
-
         if (ctx.ArgumentLines.Length == 0)
         {
             await ctx.ReplyAsync("Add filters", mention: true);
             return;
         }
 
-        if (ctx.ArgumentLines.Length == 1 && ctx.ArgumentLines[0].Equals("reset", StringComparison.OrdinalIgnoreCase))
-        {
-            await _logger.ResetLogFileAsync();
-            return;
-        }
+        var filters = new List<Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>>>();
+        var postFilters = new List<Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>>>();
 
-        var predicates = new List<Predicate<Logger.LogEvent>>();
-
-        if (!ctx.ArgumentLines[0].Contains("all", StringComparison.OrdinalIgnoreCase))
+        if (!ctx.HasPermission("logs") || !ctx.ArgumentLines[0].Contains("all", StringComparison.OrdinalIgnoreCase))
         {
-            predicates.Add(el =>
-                el.Type == Logger.EventType.MessageReceived ||
-                el.Type == Logger.EventType.MessageUpdated ||
-                el.Type == Logger.EventType.MessageDeleted ||
-                el.Type == Logger.EventType.FileReceived);
+            filters.Add(q => q.Where(log =>
+                log.Type == Logger.EventType.MessageReceived ||
+                log.Type == Logger.EventType.MessageUpdated ||
+                log.Type == Logger.EventType.MessageDeleted ||
+                log.Type == Logger.EventType.FileReceived));
         }
 
         bool raw = ctx.ArgumentLines[0].Contains("raw", StringComparison.OrdinalIgnoreCase);
@@ -53,7 +48,7 @@ public sealed class LogsCommand : CommandBase
         var regexFilters = new List<Regex>();
 
         var after = new DateTime(2000, 1, 1);
-        var before = new DateTime(3000, 1, 1);
+        var before = DateTime.UtcNow.Add(TimeSpan.FromDays(366));
 
         foreach (string line in ctx.ArgumentLines)
         {
@@ -79,35 +74,26 @@ public sealed class LogsCommand : CommandBase
                 continue;
             }
 
-            var lastMatch = Regex.Match(line, @"^last:? (\d*?)? ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?)$", RegexOptions.IgnoreCase);
+            var lastMatch = LastTimeRegex().Match(line);
             if (lastMatch.Success)
             {
                 lastSet = true;
-                var groups = lastMatch.Groups;
+                string lastTime = lastMatch.Groups[1].Value;
 
-                ulong number = 1;
-                if (groups[1].Success && (!ulong.TryParse(groups[1].Value, out number) || number > 100_000))
+                var now = DateTime.UtcNow;
+                if (!ReminderCommand.TryParseRemindTimeCore(lastTime, now, out DateTime remindTime))
                 {
-                    await ctx.ReplyAsync("Please use a reasonable number", mention: true);
+                    await ctx.ReplyAsync($"Failed to parse '{lastTime}'", mention: true);
                     return;
                 }
 
-                TimeSpan length = char.ToLowerInvariant(groups[2].Value[0]) switch
-                {
-                    's' => TimeSpan.FromSeconds(number),
-                    'm' => TimeSpan.FromMinutes(number),
-                    'h' => TimeSpan.FromHours(number),
-                    'd' => TimeSpan.FromDays(number),
-                    'w' => TimeSpan.FromDays(number * 7),
-                    _ => throw new ArgumentException("Unknown time format")
-                };
-
-                after = DateTime.UtcNow.Subtract(length);
+                TimeSpan duration = remindTime - now;
+                after = now.Subtract(duration);
                 continue;
             }
 
 
-            var fromMatch = Regex.Match(line, @"^from:? ((?:\d+? ?)+)$", RegexOptions.IgnoreCase);
+            var fromMatch = FromRegex().Match(line);
             if (fromMatch.Success)
             {
                 foreach (string from in fromMatch.Groups[1].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
@@ -120,14 +106,14 @@ public sealed class LogsCommand : CommandBase
                 continue;
             }
 
-            var inMatch = Regex.Match(line, @"^in:? (\d+?)$", RegexOptions.IgnoreCase);
+            var inMatch = InRegex().Match(line);
             if (inMatch.Success && ulong.TryParse(inMatch.Groups[1].Value, out ulong id))
             {
                 inFilters.Add(id);
                 continue;
             }
 
-            var typeMatch = Regex.Match(line, @"^type:? (.*?)$", RegexOptions.IgnoreCase);
+            var typeMatch = TypeRegex().Match(line);
             if (typeMatch.Success)
             {
                 var typeRegex = new Regex(typeMatch.Groups[1].Value, RegexOptions.IgnoreCase);
@@ -137,14 +123,14 @@ public sealed class LogsCommand : CommandBase
                 continue;
             }
 
-            var containsMatch = Regex.Match(line, @"^contains:? (.*?)$", RegexOptions.IgnoreCase);
+            var containsMatch = ContainsRegex().Match(line);
             if (containsMatch.Success)
             {
                 containsFilters.Add(containsMatch.Groups[1].Value);
                 continue;
             }
 
-            var regexMatch = Regex.Match(line, @"^(?:regex|match|matches):? (.*?)$", RegexOptions.IgnoreCase);
+            var regexMatch = MatchesRegex().Match(line);
             if (regexMatch.Success)
             {
                 regexFilters.Add(new Regex(regexMatch.Groups[1].Value, RegexOptions.IgnoreCase | RegexOptions.Compiled));
@@ -152,7 +138,7 @@ public sealed class LogsCommand : CommandBase
             }
         }
 
-        if (after >= before)
+        if (after >= before || after.Year is not (> 2010 and <= 2070) || before.Year is not (> 2010 and <= 2070))
         {
             await ctx.ReplyAsync("'After' must be earlier in time than 'Before'", mention: true);
             return;
@@ -160,41 +146,84 @@ public sealed class LogsCommand : CommandBase
 
         if (fromFilters.Count != 0)
         {
-            predicates.Add(le => fromFilters.Contains(le.UserID));
+            if (fromFilters.Count == 1)
+            {
+                filters.Add(q => q.Where(log => log.UserId == (long)fromFilters[0]));
+            }
+            else
+            {
+                postFilters.Add(q => q.Where(log => fromFilters.Contains((ulong)log.UserId)));
+            }
         }
 
         if (inFilters.Count != 0)
         {
-            predicates.Add(le => inFilters.Contains(le.GuildID) || inFilters.Contains(le.ChannelID));
+            if (inFilters.Count == 1)
+            {
+                ulong from = inFilters[0];
+                filters.Add(q => q.Where(log => log.GuildId == (long)from || log.ChannelId == (long)from));
+            }
+            else
+            {
+                postFilters.Add(q => q.Where(log => inFilters.Contains((ulong)log.GuildId) || inFilters.Contains((ulong)log.ChannelId)));
+            }
         }
 
         if (typeFilters != null)
         {
-            predicates.Add(le => typeFilters.Contains(le.Type));
+            if (typeFilters.Count == 1)
+            {
+                filters.Add(q => q.Where(log => log.Type == typeFilters.First()));
+            }
+            else
+            {
+                postFilters.Add(q => q.Where(log => typeFilters.Contains(log.Type)));
+            }
         }
 
         if (ctx.AuthorId != KnownUsers.Miha)
         {
-            HashSet<ulong> channels = ctx.Author.MutualGuilds
-                .SelectMany(g => g.Channels)
-                .Where(c => c.HasReadAccess(ctx.AuthorId))
-                .Select(c => c.Id)
-                .ToHashSet();
-            predicates.Add(le => le.ChannelID == 0 || channels.Contains(le.ChannelID));
+            postFilters.Add(q => q.Where(log =>
+                ctx.Discord.GetGuild((ulong)log.GuildId) is { } guild &&
+                guild.GetUser(ctx.AuthorId) is { } authorGuildUser &&
+                authorGuildUser.JoinedAt is { } joinedAt &&
+                log.Timestamp >= joinedAt &&
+                guild.GetChannel((ulong)log.ChannelId) is { } channel &&
+                channel.HasReadAccess(ctx.AuthorId)));
         }
 
-        if (regexFilters.Any())
+        if (containsFilters.Count != 0)
+        {
+            var containsValues = containsFilters
+                .Select(c => SearchValues.Create([c], StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            postFilters.Add(q => q.Where(log =>
+            {
+                string json = log.AsJson();
+
+                foreach (var value in containsValues)
+                {
+                    if (!json.AsSpan().ContainsAny(value))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }));
+        };
+
+        if (regexFilters.Count != 0)
         {
             var tempSb = new StringBuilder();
-            var filters = regexFilters.ToArray();
 
-            predicates.Add(le =>
+            postFilters.Add(q => q.Where(log =>
             {
                 tempSb.Length = 0;
-                le.ToString(tempSb, ctx.Discord);
+                log.ToString(tempSb, ctx.Discord);
                 string toString = tempSb.ToString();
 
-                foreach (var regex in filters)
+                foreach (var regex in regexFilters)
                 {
                     if (!regex.IsMatch(toString))
                     {
@@ -202,49 +231,47 @@ public sealed class LogsCommand : CommandBase
                     }
                 }
                 return true;
+            }));
+        }
+
+        int maxResults = ctx.IsFromAdmin ? 100_000 : 10_000;
+        int maxPostFilterExecutions = ctx.IsFromAdmin ? 50_000_000 : 1_000_000;
+
+        postFilters.Add(q => q.Take(maxResults + 1));
+        filters.Add(q => q.Take(maxPostFilterExecutions + 1));
+
+        int postFiltersExecuted = 0;
+        postFilters.Insert(0, q => q.Where(_ =>
+        {
+            postFiltersExecuted++;
+            return true;
+        }));
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        LogDbEntry[] logs = await _logger.GetLogsAsync(after, before,
+            query: query =>
+            {
+                foreach (var filter in filters)
+                {
+                    query = filter(query);
+                }
+
+                return query;
+            },
+            filters: enumerable =>
+            {
+                foreach (var filter in postFilters)
+                {
+                    enumerable = filter(enumerable);
+                }
+
+                return enumerable;
             });
-        }
 
-        RosBytePredicate rawJsonPredicate = null;
-        if (containsFilters.Any())
-        {
-            byte[][] containsBytesFilters = containsFilters
-                .Select(cf => Encoding.UTF8.GetBytes(cf))
-                .ToArray();
+        stopwatch.Stop();
 
-            rawJsonPredicate = rawJson =>
-            {
-                foreach (byte[] containsBytesFilter in containsBytesFilters)
-                {
-                    if (rawJson.IndexOf(containsBytesFilter) == -1)
-                    {
-                        return false;
-                    }
-                }
-                return true;
-            };
-        };
-
-        (Logger.LogEvent[] logs, Exception[] errors) = await _logger.GetLogsAsync(after, before, predicates.ToArray().All, rawJsonPredicate);
-
-        if (errors.Length > 0)
-        {
-            string separator = new('-', 50);
-
-            StringBuilder errorBuilder = new();
-            foreach (var byErrorMessage in errors.GroupBy(e => e.StackTrace))
-            {
-                errorBuilder.AppendLine(separator);
-                errorBuilder.AppendLine(byErrorMessage.Key);
-                foreach (var subGroup in byErrorMessage.GroupBy(e => e.InnerException?.Message ?? e.Message))
-                {
-                    errorBuilder.AppendLine();
-                    errorBuilder.AppendLine(subGroup.Key);
-                }
-            }
-
-            await ctx.Channel.SendTextFileAsync("ParsingErrors.txt", errorBuilder.ToString());
-        }
+        ctx.DebugLog($"Got {logs.Length} results with {postFiltersExecuted} postFilter executions in {stopwatch.ElapsedMilliseconds:N2} ms");
 
         if (logs.Length == 0)
         {
@@ -252,9 +279,15 @@ public sealed class LogsCommand : CommandBase
             return;
         }
 
-        if (logs.Length > 10_000)
+        if (logs.Length > maxResults)
         {
             await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
+            return;
+        }
+
+        if (postFiltersExecuted > maxPostFilterExecutions)
+        {
+            await ctx.ReplyAsync("Query too broad, tighten the filters", mention: true);
             return;
         }
 
@@ -264,24 +297,22 @@ public sealed class LogsCommand : CommandBase
         {
             if (raw)
             {
-                sb.Append(JsonSerializer.Serialize(log, Logger.JsonOptions));
+                sb.Append(log.AsJson());
             }
             else
             {
                 log.ToString(sb, ctx.Discord);
             }
             sb.Append('\n');
+
+            if (sb.Length > 4 * 1024 * 1024)
+            {
+                await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
+                return;
+            }
         }
 
-        var stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
-
-        if (stream.Length > 4 * 1024 * 1024)
-        {
-            await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
-            return;
-        }
-
-        await ctx.Channel.SendFileAsync(stream, "Logs.txt");
+        await ctx.Channel.SendTextFileAsync($"Logs-{Snowflake.NextString()}.txt", sb.ToString());
     }
 
     private static bool TryParseBeforeAfter(string line, out bool isBefore, out DateTime time)
@@ -289,7 +320,7 @@ public sealed class LogsCommand : CommandBase
         isBefore = default;
         time = default;
 
-        var match = Regex.Match(line, @"^(before|after):? (\d\d\d\d)[^\d](\d\d?)[^\d](\d\d?)(?:[^\d](\d\d?)[^\d](\d\d?)[^\d](\d\d?))?$", RegexOptions.IgnoreCase);
+        var match = BeforeAfterRegex().Match(line);
 
         if (!match.Success)
             return false;
@@ -305,4 +336,25 @@ public sealed class LogsCommand : CommandBase
         }
         return true;
     }
+
+    [GeneratedRegex(@"^(before|after):? (\d\d\d\d)[^\d](\d\d?)[^\d](\d\d?)(?:[^\d](\d\d?)[^\d](\d\d?)[^\d](\d\d?))?$", RegexOptions.IgnoreCase)]
+    private static partial Regex BeforeAfterRegex();
+
+    [GeneratedRegex(@"^from:? ((?:\d+? ?)+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex FromRegex();
+
+    [GeneratedRegex(@"^in:? (\d+?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex InRegex();
+
+    [GeneratedRegex(@"^type:? (.*?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex TypeRegex();
+
+    [GeneratedRegex(@"^contains:? (.*?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex ContainsRegex();
+
+    [GeneratedRegex(@"^(?:regex|match|matches):? (.*?)$", RegexOptions.IgnoreCase)]
+    private static partial Regex MatchesRegex();
+
+    [GeneratedRegex(@"^last:? (.+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex LastTimeRegex();
 }

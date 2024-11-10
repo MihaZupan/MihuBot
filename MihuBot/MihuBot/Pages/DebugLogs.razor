@@ -26,16 +26,23 @@
             {
                 await Discord.EnsureInitializedAsync();
 
+                DateTime since = DateTime.UtcNow - TimeSpan.FromMinutes(1);
+
                 var sb = new StringBuilder(NumLines * MaxLineLength);
-                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
 
                 while (await timer.WaitForNextTickAsync(_cts.Token))
                 {
-                    var logs = (await Logger.GetLogsAsync(DateTime.UtcNow - TimeSpan.FromHours(1), DateTime.UtcNow, _ => true)).Logs;
+                    var logs = await Logger.GetLogsAsync(since, DateTime.UtcNow, query: q => q.Take(NumLines * 2));
 
                     if (logs.Length > NumLines)
                     {
                         logs = logs.AsSpan(logs.Length - NumLines).ToArray();
+                        since = logs[0].Timestamp;
+                    }
+                    else if (logs.Length < NumLines)
+                    {
+                        since = DateTime.UtcNow - ((DateTime.UtcNow - since) * 1.2);
                     }
 
                     foreach (var log in logs)
