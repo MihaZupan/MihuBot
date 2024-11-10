@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
@@ -37,17 +36,9 @@ public class Startup
     {
         Console.WriteLine("Configuring services ...");
 
+        services.AddDatabases();
+
         string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
-
-        services.AddPooledDbContextFactory<LogsDbContext>(options =>
-        {
-            options.UseSqlite($"Data Source={Constants.StateDirectory}/MihuBot.db");
-
-            if (!OperatingSystem.IsLinux())
-            {
-                options.EnableSensitiveDataLogging();
-            }
-        });
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {

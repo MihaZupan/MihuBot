@@ -26,7 +26,7 @@
     <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
             <td>@((entry.Time - now).ToElapsedTime())</td>
-            <td>@(discord.GetUser(entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
+            <td>@(discord.GetUser((ulong)entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
             <td><button class="btn btn-danger" onclick="@(() => ScheduleReminderRemoval(entry))">Cancel</button></td>
@@ -53,7 +53,7 @@
             {
                 logger.DebugLog($"{userId} is deleting a reminder for {entry.AuthorId} ({entry.Time.ToISODateTime()})");
 
-                await reminderService.RemoveRemindersAsync(new[] { entry.MessageId });
+                await reminderService.RemoveReminderAsync(entry);
                 await UpdateRemindersAsync();
                 await InvokeAsync(StateHasChanged);
             }

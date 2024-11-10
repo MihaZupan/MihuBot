@@ -1,119 +1,94 @@
-﻿namespace MihuBot.Reminders;
+﻿using Microsoft.EntityFrameworkCore;
+using MihuBot.DB;
+using Newtonsoft.Json;
+
+namespace MihuBot.Reminders;
 
 public sealed class ReminderService
 {
-    private readonly PriorityQueue<ReminderEntry, DateTime> _remindersHeap = new(32);
-    private readonly SynchronizedLocalJsonStore<List<ReminderEntry>> _reminders = new("Reminders.json");
+    private readonly IDbContextFactory<MihuBotDbContext> _db;
     private readonly Logger _logger;
 
-    public ReminderService(Logger logger)
+    public ReminderService(Logger logger, IDbContextFactory<MihuBotDbContext> db)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _logger.DebugLog($"Initializing {nameof(ReminderService)}");
+        _db = db ?? throw new ArgumentNullException(nameof(db));
 
-        List<ReminderEntry> reminders = _reminders.DangerousGetValue();
+        if (File.Exists($"{Constants.StateDirectory}/Reminders.json"))
+        {
+            var entries = JsonConvert.DeserializeObject<List<ReminderEntry>>(File.ReadAllText($"{Constants.StateDirectory}/Reminders.json"));
 
-        foreach (var reminder in reminders)
-            _remindersHeap.Enqueue(reminder, reminder.Time);
+            foreach (var e in entries)
+            {
+                ScheduleAsync(e).GetAwaiter().GetResult();
+            }
+        }
     }
 
     public async ValueTask<IEnumerable<ReminderEntry>> GetAllRemindersAsync()
     {
-        return await _reminders.QueryAsync(i => i.ToArray());
+        await using var context = _db.CreateDbContext();
+
+        return await context.Reminders.AsNoTracking().ToArrayAsync();
     }
 
     public async ValueTask<IEnumerable<ReminderEntry>> GetRemindersForUserAsync(ulong userId)
     {
-        return await _reminders.QueryAsync(reminders => reminders
-            .Where(r => r.AuthorId == userId)
-            .ToArray());
+        await using var context = _db.CreateDbContext();
+
+        return await context.Reminders.AsNoTracking().Where(r => r.AuthorId == (long)userId).ToArrayAsync();
     }
 
     public async ValueTask<ICollection<ReminderEntry>> GetPendingRemindersAsync()
     {
-        var now = DateTime.UtcNow;
-        List<ReminderEntry> entries = null;
-
         try
         {
-            lock (_remindersHeap)
+            await using var context = _db.CreateDbContext();
+            var now = DateTime.UtcNow;
+
+            List<ReminderEntry> entries = await context.Reminders.Where(r => r.Time < now).ToListAsync();
+
+            foreach (ReminderEntry entry in entries)
             {
-                while (_remindersHeap.Count != 0 && _remindersHeap.Peek().Time < now)
-                {
-                    var entry = _remindersHeap.Dequeue();
-                    Log($"Popping reminder from the heap {entry}", entry);
-                    (entries ??= new List<ReminderEntry>()).Add(entry);
-                }
+                Log($"Popping reminder from the heap {entry}", entry);
             }
 
-            if (entries != null)
-            {
-                List<ReminderEntry> reminders = await _reminders.EnterAsync();
-                try
-                {
-                    for (int i = 0; i < entries.Count; i++)
-                    {
-                        if (!reminders.Remove(entries[i]))
-                        {
-                            entries.RemoveAt(i);
-                            i--;
-                        }
-                    }
-                }
-                finally
-                {
-                    _reminders.Exit();
-                }
+            context.Reminders.RemoveRange(entries);
 
-                entries.RemoveAll(r => now - r.Time > TimeSpan.FromMinutes(1));
-            }
+            entries.RemoveAll(r => now - r.Time > TimeSpan.FromMinutes(1));
+
+            await context.SaveChangesAsync();
+
+            return entries;
         }
         catch (Exception ex)
         {
             _logger.DebugLog(ex.ToString());
         }
 
-        return entries ?? (ICollection<ReminderEntry>)Array.Empty<ReminderEntry>();
+        return Array.Empty<ReminderEntry>();
     }
 
-    public async ValueTask ScheduleAsync(DateTime now, ReminderEntry entry)
+    public async Task ScheduleAsync(ReminderEntry entry)
     {
         Log($"Setting reminder entry for {entry}", entry);
 
-        List<ReminderEntry> reminders = await _reminders.EnterAsync();
-        try
-        {
-            reminders.Add(entry);
-            lock (_remindersHeap)
-            {
-                _remindersHeap.Enqueue(entry, entry.Time);
-            }
-        }
-        finally
-        {
-            _reminders.Exit();
-        }
+        await using var context = _db.CreateDbContext();
 
-        if (entry.GuildId == Guilds.TheBoys)
-        {
-            await _logger.Options.Discord.GetTextChannel(Channels.TheBoysSpam).TrySendMessageAsync(
-                $"Setting a reminder for {(entry.Time - now).ToElapsedTime()} - {Helpers.Helpers.GetJumpUrl(entry.GuildId, entry.ChannelId, entry.MessageId)}");
-        }
+        context.Reminders.Add(entry);
+
+        await context.SaveChangesAsync();
     }
 
-    public async ValueTask<int> RemoveRemindersAsync(ReadOnlyMemory<ulong> toRemove)
+    public async ValueTask<bool> RemoveReminderAsync(ReminderEntry entry)
     {
-        List<ReminderEntry> reminders = await _reminders.EnterAsync();
-        try
-        {
-            return reminders.RemoveAll(r => toRemove.Span.Contains(r.MessageId));
-        }
-        finally
-        {
-            _reminders.Exit();
-        }
+        await using var context = _db.CreateDbContext();
+
+        context.Reminders.Remove(entry);
+
+        return await context.SaveChangesAsync() != 0;
     }
 
     private void Log(string message, ReminderEntry entry) =>
-        _logger.DebugLog(message, entry.GuildId, entry.ChannelId, entry.MessageId, entry.AuthorId);
+        _logger.DebugLog(message, entry.GuildId, entry.ChannelId, entry.MessageId, (ulong)entry.AuthorId);
 }

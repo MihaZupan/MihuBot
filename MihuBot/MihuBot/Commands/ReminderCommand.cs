@@ -177,10 +177,9 @@ public sealed partial class ReminderCommand : CommandBase
         return message.MentionedEveryone || message.MentionedRoles.Any();
     }
 
-    public override async Task HandleAsync(MessageContext ctx)
+    private async Task ExecuteAsyncCore(MessageContext ctx)
     {
-        if (ctx.Content.StartsWith("remind", StringComparison.OrdinalIgnoreCase) &&
-            ctx.Content.Length <= 256 &&
+        if (ctx.Content.Length <= 256 &&
             ctx.Content.Contains(" in ", StringComparison.OrdinalIgnoreCase) &&
             TryPeek(ctx) &&
             !ContainsMentionsWithoutPermissions(ctx.Message) &&
@@ -191,8 +190,9 @@ public sealed partial class ReminderCommand : CommandBase
             if (reminderTimes.Count == 1)
             {
                 var entry = new ReminderEntry(reminderTimes[0].Time, ctx.Content.Trim(), ctx);
-                await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
-                await _reminderService.ScheduleAsync(now, entry);
+                await Task.WhenAll(
+                    ctx.Message.AddReactionAsync(Emotes.ThumbsUp),
+                    _reminderService.ScheduleAsync(entry));
             }
             else
             {
@@ -202,9 +202,19 @@ public sealed partial class ReminderCommand : CommandBase
         }
     }
 
+    public override Task HandleAsync(MessageContext ctx)
+    {
+        if (ctx.Content.StartsWith("remind", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteAsyncCore(ctx);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        await ctx.ReplyAsync("Usage: `remind me to slap Joster in 2 minutes`");
+        await ExecuteAsyncCore(ctx);
     }
 
     private async Task OnReminderTimerAsync()
@@ -232,7 +242,7 @@ public sealed partial class ReminderCommand : CommandBase
 
                             Match match = ReminderMentionRegex().Match(entry.Message);
 
-                            string mention = match.Success ? match.Groups[1].Value : MentionUtils.MentionUser(entry.AuthorId);
+                            string mention = match.Success ? match.Groups[1].Value : MentionUtils.MentionUser((ulong)entry.AuthorId);
 
                             IMessage message = entry.MessageId == 0 ? null : await channel.GetMessageAsync(entry.MessageId);
 
@@ -243,7 +253,7 @@ public sealed partial class ReminderCommand : CommandBase
                                     var reactions = await message.GetReactionUsersAsync(Emotes.ThumbsUp, 15).ToArrayAsync();
                                     var users = reactions
                                         .SelectMany(r => r)
-                                        .Where(r => !r.IsBot && r.Id != entry.AuthorId)
+                                        .Where(r => !r.IsBot && r.Id != (ulong)entry.AuthorId)
                                         .Where(r => !mention.Contains(r.Id.ToString(), StringComparison.Ordinal));
                                     string extraMentions = string.Join(' ', users.Select(u => MentionUtils.MentionUser(u.Id)));
                                     if (extraMentions.Length != 0)
@@ -281,5 +291,5 @@ public sealed partial class ReminderCommand : CommandBase
     }
 
     private void Log(string message, ReminderEntry entry) =>
-        _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, userId: entry.AuthorId);
+        _logger.DebugLog(message, guildId: entry.GuildId, channelId: entry.ChannelId, userId: (ulong)entry.AuthorId);
 }
