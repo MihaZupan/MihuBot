@@ -258,8 +258,6 @@ public class Startup
         app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
             app => app.UseHttpsRedirection());
 
-        app.UseStaticFiles();
-
         app.UseStaticFiles(new StaticFileOptions
         {
             OnPrepareResponse = ctx =>
