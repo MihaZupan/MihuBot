@@ -5,9 +5,6 @@ using MihuBot.DB;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Data;
-using System.IO.Compression;
-using System.IO.Pipelines;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -29,9 +26,6 @@ public sealed partial class Logger
 
     private readonly IDbContextFactory<LogsDbContext> _dbContextFactory;
     private readonly Channel<LogDbEntry> LogChannel;
-
-    // TEMPORARY - DB MIGRATION
-    private long LogChannelBacklogEstimate;
 
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message, bool Delete)> FileArchivingChannel;
@@ -162,9 +156,6 @@ public sealed partial class Logger
             {
                 events.Add(logEvent);
             }
-
-            // TEMPORARY - DB MIGRATION
-            Interlocked.Add(ref LogChannelBacklogEstimate, -events.Count);
 
             try
             {
@@ -312,189 +303,6 @@ public sealed partial class Logger
         }
     }
 
-    // TEMPORARY - DB MIGRATION
-    public async Task MigrateAllLogsAsync(CancellationToken ct)
-    {
-        int counter = 0;
-        long totalMessageContentSize = 0;
-        long extraJsonSize = 0;
-
-        Dictionary<EventType, long> contentSizeByType = new();
-
-        await foreach (var log in ReadAllLogsAsync(ct))
-        {
-            counter++;
-
-            if (counter % 10_000 == 0)
-            {
-                Console.WriteLine($"Migrated {counter} events. Queue: {LogChannelBacklogEstimate} MessageContent: {totalMessageContentSize >> 20} M. ExtraJson: {extraJsonSize >> 20} M. {log.TimeStamp.ToISODate()}");
-
-                while (LogChannelBacklogEstimate > 100_000)
-                {
-                    await Task.Delay(200, ct);
-                    Console.WriteLine($"Migrated {counter} events. Queue: {LogChannelBacklogEstimate}");
-                }
-            }
-
-            if (counter % 1_000_000 == 0)
-            {
-                Console.WriteLine();
-                foreach (KeyValuePair<EventType, long> pair in contentSizeByType)
-                {
-                    Console.WriteLine($"{pair.Key,30}: {pair.Value >> 20} M");
-                }
-                Console.WriteLine();
-            }
-
-            var type = log.Type;
-
-            if (type == EventType.FileReceived)
-            {
-                Relog(log.Attachment);
-            }
-            else if (type is EventType.VoiceStatusUpdated or EventType.UserJoinedVoice or EventType.UserLeftVoice)
-            {
-                log.Content = log.VoiceStatusUpdated.ToString();
-                Relog<object>();
-            }
-            else if (type is EventType.ReactionAdded or EventType.ReactionRemoved)
-            {
-                Relog(new EmoteModel
-                {
-                    Emoji = log.Emoji,
-                    Emote = log.Emote,
-                });
-            }
-            else if (type is EventType.MessageUpdated)
-            {
-                Relog(log.PreviousMessageID == 0 ? null : log.PreviousMessageID.ToString());
-            }
-            else if (type is EventType.DebugMessage)
-            {
-                Relog(log.LogMessage);
-            }
-            else
-            {
-                Relog<object>();
-            }
-
-            void Relog<T>(T extra = null) where T : class
-            {
-                ulong timestamp = log.MessageID == 0 ? SnowflakeUtils.ToSnowflake(log.TimeStamp) : log.MessageID;
-                var entry = LogDbEntry.Create(log.Type, timestamp, log.GuildID, log.ChannelID, log.UserID, log.Content, extra);
-
-                totalMessageContentSize += entry.Content?.Length ?? 0;
-                extraJsonSize += entry.ExtraContentJson?.Length ?? 0;
-
-                CollectionsMarshal.GetValueRefOrAddDefault(contentSizeByType, entry.Type, out _) += entry.Content?.Length ?? 0;
-
-                if (type is EventType.DebugMessage or EventType.UserActivitiesChanged or EventType.UserActiveClientsChanged)
-                {
-                    if (DateTime.UtcNow.Subtract(log.TimeStamp) > TimeSpan.FromDays(91))
-                    {
-                        return;
-                    }
-                }
-
-                Log(entry);
-            }
-        }
-
-        while (LogChannelBacklogEstimate > 100)
-        {
-            await Task.Delay(100, ct);
-        }
-    }
-
-    private IAsyncEnumerable<LegacyLogEvent> ReadAllLogsAsync(CancellationToken ct)
-    {
-        var channel = Channel.CreateBounded<LegacyLogEvent>(new BoundedChannelOptions(100_000)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-        });
-
-        _ = Task.Run(async () =>
-        {
-            await Parallel.ForEachAsync(GetAllLogFiles(), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = ct }, async (file, ct) =>
-            {
-                List<LegacyLogEvent> events = new();
-                List<Exception> parsingErrors = new();
-
-                try
-                {
-                    await using Stream fileStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                    await using Stream stream = file.EndsWith(".br", StringComparison.OrdinalIgnoreCase)
-                        ? new BrotliStream(fileStream, CompressionMode.Decompress)
-                        : fileStream;
-
-                    PipeReader pipeReader = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: 32 * 1024));
-
-                    while (true)
-                    {
-                        ReadResult result = await pipeReader.ReadAsync(ct);
-                        ReadOnlySequence<byte> buffer = result.Buffer;
-
-                        SequencePosition position = Consume(buffer, events, parsingErrors);
-
-                        if (result.IsCompleted)
-                            break;
-
-                        pipeReader.AdvanceTo(position, buffer.End);
-                    }
-
-                    await pipeReader.CompleteAsync();
-                }
-                catch (Exception ex)
-                {
-                    parsingErrors.Add(new Exception($"Exception when parsing {file}", ex));
-                }
-
-                foreach (var e in events)
-                {
-                    await channel.Writer.WriteAsync(e, ct);
-                }
-            });
-
-            channel.Writer.TryComplete();
-        }, CancellationToken.None);
-
-        return channel.Reader.ReadAllAsync();
-
-        string[] GetAllLogFiles()
-        {
-            return Directory.GetFiles(Options.LogsRoot)
-                .Where(file =>
-                    file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
-                    file.EndsWith(".json.br", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(file => file)
-                .ToArray();
-        }
-
-        static SequencePosition Consume(ReadOnlySequence<byte> buffer, List<LegacyLogEvent> events, List<Exception> parsingErrors)
-        {
-            Debug.Assert((int)Enum.GetValues<EventType>().Max() < 100);
-
-            var reader = new SequenceReader<byte>(buffer);
-            while (reader.TryReadTo(out ReadOnlySpan<byte> span, (byte)'\n'))
-            {
-                LegacyLogEvent logEvent;
-                try
-                {
-                    logEvent = JsonSerializer.Deserialize<LegacyLogEvent>(span, JsonOptions);
-                }
-                catch (Exception ex)
-                {
-                    parsingErrors.Add(ex);
-                    continue;
-                }
-
-                events.Add(logEvent);
-            }
-            return reader.Position;
-        }
-    }
-
     public async Task<LogDbEntry[]> GetLogsAsync(
         DateTime after,
         DateTime before,
@@ -534,13 +342,7 @@ public sealed partial class Logger
         return enumerable.ToArray();
     }
 
-    private void Log(LogDbEntry entry)
-    {
-        // TEMPORARY - DB MIGRATION
-        Interlocked.Increment(ref LogChannelBacklogEstimate);
-
-        LogChannel.Writer.TryWrite(entry);
-    }
+    private void Log(LogDbEntry entry) => LogChannel.Writer.TryWrite(entry);
 
     public void Log<TContent>(EventType type, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong userId = 0, string content = null, TContent extraContent = null)
         where TContent : class =>
