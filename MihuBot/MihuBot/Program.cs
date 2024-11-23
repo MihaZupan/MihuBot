@@ -1,7 +1,6 @@
 using Azure.Identity;
 using Azure.Core;
 using System.Runtime.InteropServices;
-using Microsoft.EntityFrameworkCore;
 
 namespace MihuBot;
 
@@ -31,17 +30,7 @@ public class Program
         {
             IHost host = CreateHostBuilder(args).Build();
 
-            using (var scope = host.Services.CreateScope())
-            {
-                Console.WriteLine("Applying DB migrations ...");
-
-                var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<LogsDbContext>>();
-                await using var db = await factory.CreateDbContextAsync();
-
-                //await db.Database.EnsureDeletedAsync();
-
-                await db.Database.MigrateAsync();
-            }
+            await host.RunDatabaseMigrations();
 
             using (var scope = host.Services.CreateScope())
             {
