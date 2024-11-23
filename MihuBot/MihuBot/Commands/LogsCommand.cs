@@ -39,6 +39,7 @@ public sealed partial class LogsCommand : CommandBase
         }
 
         bool raw = ctx.ArgumentLines[0].Contains("raw", StringComparison.OrdinalIgnoreCase);
+        bool countOnly = ctx.ArgumentLines[0].Contains("count", StringComparison.OrdinalIgnoreCase);
 
         bool afterSet = false, beforeSet = false, lastSet = false;
 
@@ -48,7 +49,7 @@ public sealed partial class LogsCommand : CommandBase
         var containsFilters = new List<string>();
         var regexFilters = new List<Regex>();
 
-        var after = new DateTime(2000, 1, 1);
+        var after = new DateTime(2018, 1, 1);
         var before = DateTime.UtcNow.Add(TimeSpan.FromDays(366));
 
         foreach (string line in ctx.ArgumentLines)
@@ -224,44 +225,57 @@ public sealed partial class LogsCommand : CommandBase
         };
 
         int maxResults = ctx.IsFromAdmin ? 100_000 : 10_000;
-        int maxPostFilterExecutions = ctx.IsFromAdmin ? 50_000_000 : 1_000_000;
+        int maxPostFilterExecutions = ctx.IsFromAdmin ? (countOnly ? int.MaxValue - 10 : 50_000_000) : 1_000_000;
 
-        postFilters.Add(q => q.Take(maxResults + 1));
+        if (!countOnly)
+        {
+            postFilters.Add(q => q.Take(maxResults + 1));
+        }
+
         filters.Add(q => q.Take(maxPostFilterExecutions + 1));
 
-        int postFiltersExecuted = 0;
+        long postFiltersExecuted = 0;
         postFilters.Insert(0, q => q.Where(_ =>
         {
             postFiltersExecuted++;
             return true;
         }));
 
+        IQueryable<LogDbEntry> CombinedQuery(IQueryable<LogDbEntry> query)
+        {
+            foreach (var filter in filters)
+            {
+                query = filter(query);
+            }
+
+            return query;
+        }
+
+        IEnumerable<LogDbEntry> CombinedFilter(IEnumerable<LogDbEntry> enumerable)
+        {
+            foreach (var filter in postFilters)
+            {
+                enumerable = filter(enumerable);
+            }
+
+            return enumerable;
+        }
+
         using var queryCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        LogDbEntry[] logs;
+        LogDbEntry[] logs = null;
+        int count = 0;
         try
         {
-            logs = await _logger.GetLogsAsync(after, before,
-                query: query =>
-                {
-                    foreach (var filter in filters)
-                    {
-                        query = filter(query);
-                    }
-
-                    return query;
-                },
-                filters: enumerable =>
-                {
-                    foreach (var filter in postFilters)
-                    {
-                        enumerable = filter(enumerable);
-                    }
-
-                    return enumerable;
-                },
-                cancellationToken: queryCts.Token);
+            if (countOnly)
+            {
+                count = await _logger.CountLogsAsync(after, before, CombinedQuery, postFilters.Count == 1 ? null : CombinedFilter, queryCts.Token);
+            }
+            else
+            {
+                logs = await _logger.GetLogsAsync(after, before, CombinedQuery, postFilters.Count == 1 ? null : CombinedFilter, queryCts.Token);
+            }
         }
         catch (Exception ex) when (ex is RegexMatchTimeoutException || queryCts.IsCancellationRequested)
         {
@@ -271,7 +285,19 @@ public sealed partial class LogsCommand : CommandBase
 
         stopwatch.Stop();
 
-        ctx.DebugLog($"Got {logs.Length} results with {postFiltersExecuted} postFilter executions in {stopwatch.ElapsedMilliseconds:N2} ms");
+        ctx.DebugLog($"Got {logs?.Length ?? count} results with {postFiltersExecuted} postFilter executions in {stopwatch.ElapsedMilliseconds:N2} ms");
+
+        if (postFiltersExecuted > maxPostFilterExecutions)
+        {
+            await ctx.ReplyAsync("Query too broad, tighten the filters", mention: true);
+            return;
+        }
+
+        if (countOnly)
+        {
+            await ctx.ReplyAsync($"Found {count} logs");
+            return;
+        }
 
         if (logs.Length == 0)
         {
@@ -282,12 +308,6 @@ public sealed partial class LogsCommand : CommandBase
         if (logs.Length > maxResults)
         {
             await ctx.ReplyAsync("Too many results, tighten the filters", mention: true);
-            return;
-        }
-
-        if (postFiltersExecuted > maxPostFilterExecutions)
-        {
-            await ctx.ReplyAsync("Query too broad, tighten the filters", mention: true);
             return;
         }
 

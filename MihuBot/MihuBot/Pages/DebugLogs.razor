@@ -69,7 +69,10 @@
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Debug-logs exception: {ex}");
+            }
         });
     }
 

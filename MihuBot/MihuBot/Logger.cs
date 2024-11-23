@@ -303,12 +303,73 @@ public sealed partial class Logger
         }
     }
 
+    public async Task<int> CountLogsAsync(
+        DateTime after,
+        DateTime before,
+        Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query,
+        Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>> filters = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetLogsAsyncCore(after, before, query, async query =>
+        {
+            if (filters is null)
+            {
+                return await query.CountAsync(cancellationToken);
+            }
+
+            IEnumerable<LogDbEntry> enumerable = query.AsEnumerable();
+
+            if (cancellationToken.CanBeCanceled)
+            {
+                enumerable = enumerable.Where(e =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return true;
+                });
+            }
+
+            enumerable = filters(enumerable);
+
+            return enumerable.Count();
+        });
+    }
+
     public async Task<LogDbEntry[]> GetLogsAsync(
         DateTime after,
         DateTime before,
         Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query,
         Func<IEnumerable<LogDbEntry>, IEnumerable<LogDbEntry>> filters = null,
         CancellationToken cancellationToken = default)
+    {
+        return await GetLogsAsyncCore(after, before, query, async query =>
+        {
+            if (filters is null)
+            {
+                return await query.ToArrayAsync(cancellationToken);
+            }
+
+            IEnumerable<LogDbEntry> enumerable = query.AsEnumerable();
+
+            if (cancellationToken.CanBeCanceled)
+            {
+                enumerable = enumerable.Where(e =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return true;
+                });
+            }
+
+            enumerable = filters(enumerable);
+
+            return enumerable.ToArray();
+        });
+    }
+
+    private async Task<TResult> GetLogsAsyncCore<TResult>(
+        DateTime after,
+        DateTime before,
+        Func<IQueryable<LogDbEntry>, IQueryable<LogDbEntry>> query,
+        Func<IQueryable<LogDbEntry>, Task<TResult>> processResults)
     {
         await using var context = _dbContextFactory.CreateDbContext();
 
@@ -323,23 +384,7 @@ public sealed partial class Logger
             logQuery = query(logQuery);
         }
 
-        IEnumerable<LogDbEntry> enumerable = logQuery.AsEnumerable();
-
-        if (cancellationToken.CanBeCanceled)
-        {
-            enumerable = enumerable.Where(e =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                return true;
-            });
-        }
-
-        if (filters is not null)
-        {
-            enumerable = filters(enumerable);
-        }
-
-        return enumerable.ToArray();
+        return await processResults(logQuery);
     }
 
     private void Log(LogDbEntry entry) => LogChannel.Writer.TryWrite(entry);
