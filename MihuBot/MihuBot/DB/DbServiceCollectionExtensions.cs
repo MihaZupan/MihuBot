@@ -47,12 +47,6 @@ public static class DbServiceCollectionExtensions
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TDbContext>>();
         await using var db = await factory.CreateDbContextAsync();
 
-        if (!(await db.Database.GetPendingMigrationsAsync()).Any())
-        {
-            Console.WriteLine("No pending migrations");
-            return;
-        }
-
         string path = GetDatabasePath<TDbContext>();
         string tempCopyPath = null;
 
@@ -64,6 +58,12 @@ public static class DbServiceCollectionExtensions
 
         if (File.Exists(path))
         {
+            if (!(await db.Database.GetPendingMigrationsAsync()).Any())
+            {
+                Console.WriteLine("No pending migrations");
+                return;
+            }
+
             tempCopyPath = $"{Path.ChangeExtension(path, null)}-copy.tmp";
 
             if (File.Exists(tempCopyPath))
