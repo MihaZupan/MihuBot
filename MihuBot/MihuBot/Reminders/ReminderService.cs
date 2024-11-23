@@ -14,12 +14,20 @@ public sealed class ReminderService
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _db = db ?? throw new ArgumentNullException(nameof(db));
 
+        // TEMPORARY - DB MIGRATION
         if (File.Exists($"{Constants.StateDirectory}/Reminders.json"))
         {
             var entries = JsonConvert.DeserializeObject<List<ReminderEntry>>(File.ReadAllText($"{Constants.StateDirectory}/Reminders.json"));
 
+            var existing = GetAllRemindersAsync().GetAwaiter().GetResult();
+
             foreach (var e in entries)
             {
+                if (existing.Any(r => r.MessageId == e.MessageId))
+                {
+                    continue;
+                }
+
                 ScheduleAsync(e).GetAwaiter().GetResult();
             }
         }

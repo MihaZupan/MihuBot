@@ -3,25 +3,14 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace MihuBot.Migrations.MihuBotDb
+namespace MihuBot.Migrations
 {
     /// <inheritdoc />
-    public partial class Update : Migration
+    public partial class Initial1 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "deduplication",
-                columns: table => new
-                {
-                    Id = table.Column<string>(type: "TEXT", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_deduplication", x => x.Id);
-                });
-
             migrationBuilder.CreateTable(
                 name: "reminders",
                 columns: table => new
@@ -49,9 +38,6 @@ namespace MihuBot.Migrations.MihuBotDb
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "deduplication");
-
             migrationBuilder.DropTable(
                 name: "reminders");
         }

@@ -32,14 +32,14 @@ public class Program
 
             await host.RunDatabaseMigrations();
 
+
+            // TEMPORARY - DB MIGRATION
             using (var scope = host.Services.CreateScope())
             {
                 var logger = scope.ServiceProvider.GetRequiredService<Logger>();
 
-                //await logger.MigrateAllLogsAsync(cts.Token);
-                //await Task.Delay(10_000);
-
-                await logger.GetLogsAsync(DateTime.UtcNow.Subtract(TimeSpan.FromDays(7)), DateTime.UtcNow, q => q.Take(1_000));
+                await logger.MigrateAllLogsAsync(cts.Token);
+                await Task.Delay(10_000);
 
                 //await Task.Delay(1_000_000);
             }

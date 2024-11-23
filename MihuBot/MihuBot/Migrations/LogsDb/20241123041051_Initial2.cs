@@ -2,10 +2,10 @@
 
 #nullable disable
 
-namespace MihuBot.Migrations
+namespace MihuBot.Migrations.LogsDb
 {
     /// <inheritdoc />
-    public partial class InitialLogs : Migration
+    public partial class Initial2 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -17,10 +17,10 @@ namespace MihuBot.Migrations
                     Id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     Type = table.Column<int>(type: "INTEGER", nullable: false),
-                    Timestamp = table.Column<ulong>(type: "INTEGER", nullable: false),
-                    GuildId = table.Column<ulong>(type: "INTEGER", nullable: false),
-                    ChannelId = table.Column<ulong>(type: "INTEGER", nullable: false),
-                    UserId = table.Column<ulong>(type: "INTEGER", nullable: false),
+                    Snowflake = table.Column<long>(type: "INTEGER", nullable: false),
+                    GuildId = table.Column<long>(type: "INTEGER", nullable: false),
+                    ChannelId = table.Column<long>(type: "INTEGER", nullable: false),
+                    UserId = table.Column<long>(type: "INTEGER", nullable: false),
                     Content = table.Column<string>(type: "TEXT", nullable: true),
                     ExtraContentJson = table.Column<string>(type: "TEXT", nullable: true)
                 },
@@ -30,9 +30,9 @@ namespace MihuBot.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_logs_Timestamp",
+                name: "IX_logs_Snowflake",
                 table: "logs",
-                column: "Timestamp");
+                column: "Snowflake");
         }
 
         /// <inheritdoc />

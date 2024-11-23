@@ -3,16 +3,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using MihuBot;
 using MihuBot.DB;
 
 #nullable disable
 
-namespace MihuBot.Migrations
+namespace MihuBot.Migrations.LogsDb
 {
     [DbContext(typeof(LogsDbContext))]
-    [Migration("20241110023836_InitialLogs")]
-    partial class InitialLogs
+    [Migration("20241123041051_Initial2")]
+    partial class Initial2
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -20,13 +19,13 @@ namespace MihuBot.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
 
-            modelBuilder.Entity("MihuBot.LogDbEntry", b =>
+            modelBuilder.Entity("MihuBot.DB.LogDbEntry", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<ulong>("ChannelId")
+                    b.Property<long>("ChannelId")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Content")
@@ -35,21 +34,21 @@ namespace MihuBot.Migrations
                     b.Property<string>("ExtraContentJson")
                         .HasColumnType("TEXT");
 
-                    b.Property<ulong>("GuildId")
+                    b.Property<long>("GuildId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<ulong>("Timestamp")
+                    b.Property<long>("Snowflake")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("Type")
                         .HasColumnType("INTEGER");
 
-                    b.Property<ulong>("UserId")
+                    b.Property<long>("UserId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Timestamp");
+                    b.HasIndex("Snowflake");
 
                     b.ToTable("logs");
                 });

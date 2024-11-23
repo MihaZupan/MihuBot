@@ -7,7 +7,7 @@ using MihuBot.DB;
 
 #nullable disable
 
-namespace MihuBot.Migrations.MihuBotDb
+namespace MihuBot.Migrations
 {
     [DbContext(typeof(MihuBotDbContext))]
     partial class MihuBotDbContextModelSnapshot : ModelSnapshot
@@ -16,16 +16,6 @@ namespace MihuBot.Migrations.MihuBotDb
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
-
-            modelBuilder.Entity("MihuBot.DB.DeDuplicationEntry", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("deduplication");
-                });
 
             modelBuilder.Entity("MihuBot.Reminders.ReminderEntry", b =>
                 {

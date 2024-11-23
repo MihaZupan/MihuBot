@@ -29,6 +29,8 @@ public sealed partial class Logger
 
     private readonly IDbContextFactory<LogsDbContext> _dbContextFactory;
     private readonly Channel<LogDbEntry> LogChannel;
+
+    // TEMPORARY - DB MIGRATION
     private long LogChannelBacklogEstimate;
 
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
@@ -101,6 +103,36 @@ public sealed partial class Logger
         Discord.GuildAvailable += GuildAvailableAsync;
         Discord.GuildUnavailable += GuildUnavailableAsync;
         Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
+
+        _ = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
+            while (await timer.WaitForNextTickAsync())
+            {
+                try
+                {
+                    await using LogsDbContext context = _dbContextFactory.CreateDbContext();
+
+                    DateTime before = DateTime.UtcNow.Subtract(TimeSpan.FromDays(90));
+                    DateTime after = DateTime.UtcNow.Subtract(TimeSpan.FromDays(92));
+
+                    int rowsDeleted = await context.Logs
+                        .Where(log => log.Snowflake >= (long)SnowflakeUtils.ToSnowflake(after))
+                        .Where(log => log.Snowflake <= (long)SnowflakeUtils.ToSnowflake(before))
+                        .Where(log =>
+                            log.Type == EventType.DebugMessage ||
+                            log.Type == EventType.UserActiveClientsChanged ||
+                            log.Type == EventType.UserActivitiesChanged)
+                        .ExecuteDeleteAsync();
+
+                    DebugLog($"Deleted {rowsDeleted} older debug messages");
+                }
+                catch (Exception ex)
+                {
+                    await DebugAsync($"Failed to delete old logs: {ex}");
+                }
+            }
+        });
     }
 
     public async Task OnShutdownAsync()
@@ -131,6 +163,7 @@ public sealed partial class Logger
                 events.Add(logEvent);
             }
 
+            // TEMPORARY - DB MIGRATION
             Interlocked.Add(ref LogChannelBacklogEstimate, -events.Count);
 
             try
@@ -279,6 +312,7 @@ public sealed partial class Logger
         }
     }
 
+    // TEMPORARY - DB MIGRATION
     public async Task MigrateAllLogsAsync(CancellationToken ct)
     {
         int counter = 0;
@@ -354,14 +388,12 @@ public sealed partial class Logger
 
                 CollectionsMarshal.GetValueRefOrAddDefault(contentSizeByType, entry.Type, out _) += entry.Content?.Length ?? 0;
 
-                if (log.Type == EventType.DebugMessage)
+                if (type is EventType.DebugMessage or EventType.UserActivitiesChanged or EventType.UserActiveClientsChanged)
                 {
-                    return;
-                }
-
-                if (type is EventType.UserActivitiesChanged or EventType.UserActiveClientsChanged)
-                {
-                    return;
+                    if (DateTime.UtcNow.Subtract(log.TimeStamp) > TimeSpan.FromDays(91))
+                    {
+                        return;
+                    }
                 }
 
                 Log(entry);
@@ -504,6 +536,7 @@ public sealed partial class Logger
 
     private void Log(LogDbEntry entry)
     {
+        // TEMPORARY - DB MIGRATION
         Interlocked.Increment(ref LogChannelBacklogEstimate);
 
         LogChannel.Writer.TryWrite(entry);
