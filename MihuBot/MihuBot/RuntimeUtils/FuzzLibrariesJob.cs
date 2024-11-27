@@ -14,8 +14,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
     private readonly Dictionary<string, string> _errorStackTraces = new();
 
-    public FuzzLibrariesJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
-        : base(parent, repository, branch, githubCommenterLogin, arguments)
+    public FuzzLibrariesJob(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
+        : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
     public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)

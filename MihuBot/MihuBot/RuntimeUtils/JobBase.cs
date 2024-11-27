@@ -90,12 +90,12 @@ public abstract class JobBase
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
     }
 
-    public JobBase(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
+    public JobBase(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
         : this(parent, githubCommenterLogin)
     {
-        InitMetadata("dotnet/runtime", "main", repository, branch, arguments);
+        InitMetadata("dotnet/runtime", "main", branch.Repository, branch.Branch.Name, arguments);
 
-        TestedPROrBranchLink = $"https://github.com/{repository}/tree/{branch}";
+        TestedPROrBranchLink = $"https://github.com/{branch.Repository}/tree/{branch.Branch.Name}";
     }
 
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)

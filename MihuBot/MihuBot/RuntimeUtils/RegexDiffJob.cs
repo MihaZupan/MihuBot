@@ -15,8 +15,8 @@ public sealed partial class RegexDiffJob : JobBase
     private string _jitDiffImprovements;
     private string _jitDiffRegressions;
 
-    public RegexDiffJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
-        : base(parent, repository, branch, githubCommenterLogin, arguments)
+    public RegexDiffJob(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
+        : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
     public RegexDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)

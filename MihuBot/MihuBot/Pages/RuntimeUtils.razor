@@ -7,6 +7,7 @@
 @using System.Text.RegularExpressions;
 @inject RuntimeUtilsService runtimeUtils
 @inject NavigationManager Navigation
+@inject GitHubClient GitHub
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -344,18 +345,18 @@
             }
             else
             {
-                if (!GitHubHelper.TryParseGithubRepoAndBranch(prOrBranch, out string repository, out string branch))
+                if (await GitHubHelper.TryParseGithubRepoAndBranch(GitHub, prOrBranch) is not { } branch)
                 {
                     _submittingJobError = "Failed to parse the PR number/link or branch";
                     return;
                 }
 
 #if DEBUG
-                _submittingJobError = $"Repo={repository} Branch={branch}";
+                _submittingJobError = $"Repo={branch.Repository} Branch={branch.Branch.Name}";
                 return;
 #endif
 
-                newJob = runtimeUtils.StartJitDiffJob(repository, branch, _githubUserLogin, _newJob.Arguments);
+                newJob = runtimeUtils.StartJitDiffJob(branch, _githubUserLogin, _newJob.Arguments);
             }
 
             Navigation.NavigateTo(newJob.ProgressDashboardUrl, forceLoad: true);

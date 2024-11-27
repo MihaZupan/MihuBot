@@ -44,8 +44,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         }
 
         PullRequest pr = null;
-        string repository = null;
-        string branch = null;
+        BranchReference branch = null;
 
         if (ctx.Arguments.Length < 1)
         {
@@ -59,7 +58,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
                 ? await _github.PullRequest.Get("microsoft", "reverse-proxy", (int)prNumber)
                 : await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
         }
-        else if (!GitHubHelper.TryParseGithubRepoAndBranch(ctx.Arguments[0], out repository, out branch))
+        else if ((branch = await GitHubHelper.TryParseGithubRepoAndBranch(_github, ctx.Arguments[0])) is null)
         {
             await ctx.ReplyAsync($"Failed to parse '{ctx.Arguments[0]}'");
             return;
@@ -82,13 +81,13 @@ public sealed class RuntimeUtilsCommands : CommandBase
             if (ctx.Command == "fuzz")
             {
                 job = pr is null
-                    ? _runtimeUtilsService.StartFuzzLibrariesJob(repository, branch, Initiator, arguments)
+                    ? _runtimeUtilsService.StartFuzzLibrariesJob(branch, Initiator, arguments)
                     : _runtimeUtilsService.StartFuzzLibrariesJob(pr, Initiator, arguments, comment);
             }
             else if (ctx.Command == "benchmark")
             {
                 job = pr is null
-                    ? _runtimeUtilsService.StartBenchmarkJob(repository, branch, Initiator, arguments)
+                    ? _runtimeUtilsService.StartBenchmarkJob(branch, Initiator, arguments)
                     : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments, comment);
             }
             else throw new UnreachableException(ctx.Command);
@@ -96,7 +95,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         else if (ctx.Command is "regexdiff")
         {
             job = pr is null
-                ? _runtimeUtilsService.StartRegexDiffJob(repository, branch, Initiator, arguments)
+                ? _runtimeUtilsService.StartRegexDiffJob(branch, Initiator, arguments)
                 : _runtimeUtilsService.StartRegexDiffJob(pr, Initiator, arguments, comment);
         }
         else if (ctx.Command is "rebase" or "merge" or "format")

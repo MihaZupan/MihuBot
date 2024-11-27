@@ -386,14 +386,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    public JobBase StartJitDiffJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
-        StartJobCore(new JitDiffJob(this, repository, branch, githubCommenterLogin, arguments));
+    public JobBase StartJitDiffJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new JitDiffJob(this, branch, githubCommenterLogin, arguments));
 
     public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartFuzzLibrariesJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
-        StartJobCore(new FuzzLibrariesJob(this, repository, branch, githubCommenterLogin, arguments));
+    public JobBase StartFuzzLibrariesJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new FuzzLibrariesJob(this, branch, githubCommenterLogin, arguments));
 
     public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
@@ -401,14 +401,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartBenchmarkJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
-        StartJobCore(new BenchmarkLibrariesJob(this, repository, branch, githubCommenterLogin, arguments));
+    public JobBase StartBenchmarkJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new BenchmarkLibrariesJob(this, branch, githubCommenterLogin, arguments));
 
     public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartRegexDiffJob(string repository, string branch, string githubCommenterLogin, string arguments) =>
-        StartJobCore(new RegexDiffJob(this, repository, branch, githubCommenterLogin, arguments));
+    public JobBase StartRegexDiffJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
+        StartJobCore(new RegexDiffJob(this, branch, githubCommenterLogin, arguments));
 
     public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));

@@ -14,8 +14,8 @@ public sealed class JitDiffJob : JobBase
 
     private bool ShouldPostDiffsComment => GetConfigFlag("ShouldPostDiffsComment", true);
 
-    public JitDiffJob(RuntimeUtilsService parent, string repository, string branch, string githubCommenterLogin, string arguments)
-        : base(parent, repository, branch, githubCommenterLogin, arguments)
+    public JitDiffJob(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
+        : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
     public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)

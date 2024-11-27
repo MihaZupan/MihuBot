@@ -99,19 +99,47 @@ public static partial class GitHubHelper
         }
     }
 
-    public static bool TryParseGithubRepoAndBranch(string url, out string repository, out string branch)
+    public static async Task<BranchReference> TryParseGithubRepoAndBranch(GitHubClient github, string url)
     {
         Match match = RepoAndBranchRegex().Match(url);
-        if (match.Success)
+        if (!match.Success)
         {
-            repository = match.Groups[1].Value;
-            branch = match.Groups[2].Value;
-            return true;
+            return null;
         }
 
-        repository = null;
-        branch = null;
-        return false;
+        string owner = match.Groups[1].Value;
+        string repo = match.Groups[2].Value;
+        string branch = match.Groups[3].Value;
+
+        // https://github.com/MihaZupan/MihuBot/blob/master/MihuBot/MihuBot.sln
+        // Test if "master/MihuBot" is a branch or directory
+        try
+        {
+            return new BranchReference($"{owner}/{repo}", await github.Repository.Branch.Get(owner, repo, branch));
+        }
+        catch (NotFoundException) { }
+
+        if (match.Groups[4].Success)
+        {
+            string pathRemainder = match.Groups[4].Value;
+            if (pathRemainder.StartsWith('/'))
+            {
+                string[] parts = pathRemainder.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+                for (int i = 0; i < parts.Length && i < 3; i++)
+                {
+                    branch = $"{branch}/{parts[i]}";
+
+                    try
+                    {
+                        return new BranchReference($"{owner}/{repo}", await github.Repository.Branch.Get(owner, repo, branch));
+                    }
+                    catch (NotFoundException) { }
+                }
+            }
+        }
+
+        return null;
     }
 
     public static bool TryParseDotnetRuntimeIssueOrPRNumber(string input, out int prNumber)
@@ -131,7 +159,7 @@ public static partial class GitHubHelper
             prNumber > 0;
     }
 
-    [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+/[A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)(?:[\?#/].*)?$")]
+    [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+)/([A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)([\?#/].*)?$")]
     private static partial Regex RepoAndBranchRegex();
 
     public static async Task<(bool Valid, bool HasAllScopes)> ValidatePatAsync(HttpClient client, string pat, string[] scopes)
@@ -161,6 +189,8 @@ public static partial class GitHubHelper
         }
     }
 }
+
+public record BranchReference(string Repository, Branch Branch);
 
 public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, long CommentId, string Url, string Body, User User, bool IsPrReviewComment)
 {
