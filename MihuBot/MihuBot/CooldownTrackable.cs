@@ -18,10 +18,16 @@ public abstract class CooldownTrackable
     }
 
     public bool TryPeek(MessageContext ctx) =>
-        _cooldownTracker.TryPeek(ctx.AuthorId);
+        TryPeek(ctx.AuthorId);
+
+    public bool TryPeek(ulong userId) =>
+        _cooldownTracker.TryPeek(userId);
 
     public bool TryEnter(MessageContext ctx) =>
-        _cooldownTracker.TryEnter(ctx.AuthorId);
+        TryEnter(ctx.AuthorId);
+
+    public bool TryEnter(ulong userId) =>
+        _cooldownTracker.TryEnter(userId);
 
     public bool TryEnter(MessageContext ctx, out TimeSpan cooldown, out bool shouldWarn) =>
         _cooldownTracker.TryEnter(ctx.AuthorId, out cooldown, out shouldWarn);

@@ -68,6 +68,31 @@ public static class KnownUsers
     public const ulong Joster       = 105498799706759168ul;
     public const ulong Ryboh        = 156253985207091202ul;
     public const ulong Sfae         = 224015634206425088ul;
+    public const ulong Amro         = 122569122088353792ul;
+    public const ulong Jakob        = 156836449528840192ul;
+    public const ulong Hidden       = 615793364188528641ul;
+    public const ulong Raymond      = 455976283151794186ul;
+    public const ulong Charity      = 683578617464488021ul;
+    public const ulong Kate         = 425786388114309120ul;
+
+    public static string GetName(IUser user) => user.Id switch
+    {
+        Miha => "Mihu",
+        James => "James",
+        Jordan => "Jordan",
+        PaulK => "Paul",
+        Sticky => "Sticky",
+        Joster => "Joster",
+        Ryboh => "Ryboh",
+        Sfae => "Sfae",
+        Amro => "Amro",
+        Jakob => "Jakob",
+        Hidden => "Hidden",
+        Raymond => "Raymond",
+        Charity => "Charity",
+        Kate => "Kate",
+        _ => user.GetName()
+    };
 }
 
 public static class Emotes
