@@ -8,8 +8,6 @@ namespace MihuBot;
 
 public class MihuBotService : IHostedService
 {
-    private readonly IConfigurationService _configuration;
-    private readonly HttpClient _http;
     private readonly InitializedDiscordClient _discord;
     private readonly Logger _logger;
     private readonly IPermissionsService _permissions;
@@ -17,10 +15,8 @@ public class MihuBotService : IHostedService
     private readonly CompactPrefixTree<CommandBase> _commands = new(ignoreCase: true);
     private readonly List<INonCommandHandler> _nonCommandHandlers = new();
 
-    public MihuBotService(IServiceProvider services, IConfigurationService configuration, HttpClient http, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
+    public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
     {
-        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _http = http ?? throw new ArgumentNullException(nameof(http));
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
@@ -208,31 +204,6 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                if (message.Channel is IDMChannel &&
-                    (!string.IsNullOrWhiteSpace(message.Content) || message.Attachments.Any()) &&
-                    _configuration.TryGet(null, "SecretSantaRole", out string roleIdString) &&
-                    ulong.TryParse(roleIdString, out ulong roleId) &&
-                    _configuration.TryGet(null, "SecretSantaChannel", out string channelIdString) &&
-                    ulong.TryParse(channelIdString, out ulong channelId) &&
-                    _discord.GetGuild(Guilds.TheBoys).GetUser(message.Author.Id).Roles.Any(r => r.Id == roleId) &&
-                    _discord.GetTextChannel(channelId) is { } channel &&
-                    _configuration.TryGet(null, "SecretSantaPrefix", out string messagePrefix))
-                {
-                    if (!string.IsNullOrEmpty(messagePrefix)) messagePrefix += " ";
-                    string content = $"{messagePrefix}{message.Content}";
-
-                    if (message.Attachments.FirstOrDefault() is { } attachment)
-                    {
-                        using var s = await _http.GetStreamAsync(attachment.Url);
-                        await channel.SendFileAsync(s, attachment.Filename, content);
-                    }
-                    else
-                    {
-                        await channel.SendMessageAsync(content);
-                    }
-                    return;
-                }
-
                 await Client_MessageReceived(message);
             }
             catch (Exception ex)
