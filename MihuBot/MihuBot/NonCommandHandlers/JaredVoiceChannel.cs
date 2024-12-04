@@ -24,7 +24,7 @@ public sealed class JaredVoiceChannel : NonCommandHandler
         {
             const ulong ChannelId = 1301957878164226068;
 
-            if (user is null)
+            if (user is null || before.VoiceChannel == after.VoiceChannel)
             {
                 return;
             }

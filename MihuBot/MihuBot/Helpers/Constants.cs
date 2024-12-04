@@ -74,6 +74,7 @@ public static class KnownUsers
     public const ulong Raymond      = 455976283151794186ul;
     public const ulong Charity      = 683578617464488021ul;
     public const ulong Kate         = 425786388114309120ul;
+    public const ulong Jared        = 212350677165408258ul;
 
     public static string GetName(IUser user) => user.Id switch
     {
@@ -91,6 +92,7 @@ public static class KnownUsers
         Raymond => "Raymond",
         Charity => "Charity",
         Kate => "Kate",
+        Jared => "Jared",
         _ => user.GetName()
     };
 }
