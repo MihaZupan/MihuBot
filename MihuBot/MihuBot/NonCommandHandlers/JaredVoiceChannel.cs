@@ -4,11 +4,9 @@ namespace MihuBot.NonCommandHandlers;
 
 public sealed class JaredVoiceChannel : NonCommandHandler
 {
-    protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
-    protected override int CooldownToleranceCount => 3;
-
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
+    private readonly CooldownTracker _renameCooldown = new(TimeSpan.FromMinutes(6), 1);
 
     public JaredVoiceChannel(InitializedDiscordClient discord, Logger logger, IConfigurationService configuration)
     {
@@ -26,18 +24,14 @@ public sealed class JaredVoiceChannel : NonCommandHandler
         {
             const ulong ChannelId = 1301957878164226068;
 
-            if (user is null || !TryPeek(user.Id))
+            if (user is null)
             {
                 return;
             }
 
-            if (after.VoiceChannel?.Id == ChannelId && TryEnter(user.Id))
+            if (after.VoiceChannel?.Id == ChannelId)
             {
                 await ChangeNameAsync(after.VoiceChannel, user);
-            }
-            else if (before.VoiceChannel?.Id == ChannelId && TryEnter(user.Id))
-            {
-                await ChangeNameAsync(before.VoiceChannel, user);
             }
         }
         catch (Exception ex)
@@ -49,7 +43,12 @@ public sealed class JaredVoiceChannel : NonCommandHandler
         {
             if (_configuration.TryGet(null, "JaredVoiceChannelPrefix", out string prefix))
             {
-                await channel.ModifyAsync(props => props.Name = $"{prefix} {KnownUsers.GetName(user)}");
+                string newName = $"{prefix} {KnownUsers.GetName(user)}";
+
+                if (channel.Name != newName && _renameCooldown.TryEnter(42))
+                {
+                    await channel.ModifyAsync(props => props.Name = newName);
+                }
             }
         }
     }
