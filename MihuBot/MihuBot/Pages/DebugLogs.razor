@@ -26,7 +26,7 @@
             {
                 await Discord.EnsureInitializedAsync();
 
-                DateTime since = DateTime.UtcNow - TimeSpan.FromMinutes(1);
+                DateTime since = DateTime.UtcNow - TimeSpan.FromMinutes(2);
 
                 var sb = new StringBuilder(NumLines * MaxLineLength);
                 using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
@@ -42,7 +42,7 @@
                     }
                     else if (logs.Length < NumLines)
                     {
-                        since = DateTime.UtcNow - ((DateTime.UtcNow - since) * 1.2);
+                        since = DateTime.UtcNow - ((DateTime.UtcNow - since) * 2);
                     }
 
                     foreach (var log in logs)
