@@ -24,32 +24,31 @@ public sealed class JaredVoiceChannel : NonCommandHandler
         {
             const ulong ChannelId = 1301957878164226068;
 
-            if (user is null || before.VoiceChannel == after.VoiceChannel)
+            if (user is null || before.VoiceChannel == after.VoiceChannel || after.VoiceChannel?.Id != ChannelId)
             {
                 return;
             }
 
-            if (after.VoiceChannel?.Id == ChannelId)
-            {
-                await ChangeNameAsync(after.VoiceChannel, user);
-            }
-        }
-        catch (Exception ex)
-        {
-            await _logger.DebugAsync($"{ex}");
-        }
+            SocketVoiceChannel channel = after.VoiceChannel;
 
-        async Task ChangeNameAsync(SocketVoiceChannel channel, SocketUser user)
-        {
             if (_configuration.TryGet(null, "JaredVoiceChannelPrefix", out string prefix))
             {
                 string newName = $"{prefix} {KnownUsers.GetName(user)}";
+
+                if (Rng.Chance(10) && _configuration.TryGet(null, "JaredVoiceChannelSpecial", out string name))
+                {
+                    newName = name;
+                }
 
                 if (channel.Name != newName && _renameCooldown.TryEnter(42))
                 {
                     await channel.ModifyAsync(props => props.Name = newName);
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            await _logger.DebugAsync($"{ex}");
         }
     }
 }
