@@ -432,7 +432,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromDays(7));
+                await Task.Delay(TimeSpan.FromDays(2));
 
                 lock (_jobs)
                 {
@@ -457,12 +457,18 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return job;
     }
 
-    public JobBase[] GetAllActiveJobs() => _jobs
-        .Where(pair => pair.Key == pair.Value.ExternalId)
-        .Select(pair => pair.Value)
-        .Where(job => !job.Completed)
-        .OrderByDescending(job => job.Stopwatch.Elapsed)
-        .ToArray();
+    public JobBase[] GetAllActiveJobs()
+    {
+        lock (_jobs)
+        {
+            return _jobs
+                .Where(pair => pair.Key == pair.Value.ExternalId)
+                .Select(pair => pair.Value)
+                .Where(job => !job.Completed)
+                .OrderByDescending(job => job.Stopwatch.Elapsed)
+                .ToArray();
+        }
+    }
 
     public bool CheckGitHubUserPermissions(string userLogin) =>
         ConfigurationService.TryGet(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", out string allowedString) &&

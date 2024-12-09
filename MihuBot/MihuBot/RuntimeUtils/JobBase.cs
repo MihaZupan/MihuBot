@@ -82,6 +82,9 @@ public abstract class JobBase
     public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
     public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
+    public int TotalProgressSiteViews;
+    public int CurrentProgressSiteViews;
+
     private JobBase(RuntimeUtilsService parent, string githubCommenterLogin)
     {
         Parent = parent;
@@ -562,6 +565,7 @@ public abstract class JobBase
         int cooldown = 100;
         string[] lines = new string[100];
         Stopwatch lastYield = Stopwatch.StartNew();
+        int lastReadCount = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -578,10 +582,19 @@ public abstract class JobBase
             {
                 cooldown = 0;
                 lastYield.Restart();
-                yield return null;
+
+                if (read != lines.Length)
+                {
+                    yield return null;
+                }
             }
             else
             {
+                if (lastReadCount == lines.Length)
+                {
+                    yield return null;
+                }
+
                 if (Completed)
                 {
                     break;
@@ -604,6 +617,8 @@ public abstract class JobBase
                     yield return null;
                 }
             }
+
+            lastReadCount = read;
         }
     }
 

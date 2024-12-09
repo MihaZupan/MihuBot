@@ -4,38 +4,7 @@
 @inject RuntimeUtilsService runtimeUtils
 @implements IDisposable
 
-@if (_completedJob is not null)
-{
-    <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
-    <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
-    @if (_completedJob.TrackingIssueUrl is not null)
-    {
-        <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
-    }
-    @if (_completedJob.LogsArtifactUrl is { } logsUrl)
-    {
-        <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
-    }
-    <br />
-    @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)
-    {
-        <p><small class="text-muted">Arguments: @customArguments</small></p>
-    }
-    <br />
-    @if (_completedJob.Artifacts.Length != 0)
-    {
-        <ul class="list-group">
-            <li class="list-group-item active">Artifacts@(_completedJob.Duration.TotalDays > 7 ? " (files may no longer exist)" : ""):</li>
-            @foreach (var (FileName, Url, Size) in _completedJob.Artifacts)
-            {
-                <li class="list-group-item">
-                    <a href="@Url">@FileName</a> (@JobBase.GetRoughSizeString(Size))
-                </li>
-            }
-        </ul>
-    }
-}
-else if (_job is not null)
+@if (_job is not null)
 {
     <h1><a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a></h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
@@ -61,6 +30,11 @@ else if (_job is not null)
         {
             <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
         }
+    }
+
+    @if (_canViewCredentials)
+    {
+        <p><small class="text-muted">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small></p>
     }
 
     @if (_job.LastSystemInfo is { } info)
@@ -97,6 +71,37 @@ else if (_job is not null)
         </code>
     </pre>
 }
+else if (_completedJob is not null)
+{
+    <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
+    <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
+    @if (_completedJob.TrackingIssueUrl is not null)
+    {
+        <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
+    }
+    @if (_completedJob.LogsArtifactUrl is { } logsUrl)
+    {
+        <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
+    }
+    <br />
+    @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)
+    {
+        <p><small class="text-muted">Arguments: @customArguments</small></p>
+    }
+    <br />
+    @if (_completedJob.Artifacts.Length != 0)
+    {
+        <ul class="list-group">
+            <li class="list-group-item active">Artifacts@(_completedJob.Duration.TotalDays > 7 ? " (files may no longer exist)" : ""):</li>
+            @foreach (var (FileName, Url, Size) in _completedJob.Artifacts)
+            {
+                <li class="list-group-item">
+                    <a href="@Url">@FileName</a> (@JobBase.GetRoughSizeString(Size))
+                </li>
+            }
+        </ul>
+    }
+}
 else
 {
     <div>Can't find a job with that id :/</div>
@@ -125,16 +130,19 @@ else
     {
         _completedJob = await runtimeUtils.TryGetCompletedJobRecordAsync(JobId, _cts.Token);
 
-        if (_completedJob is null &&
-            runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
+        if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
+            Interlocked.Increment(ref _job.TotalProgressSiteViews);
+            Interlocked.Increment(ref _job.CurrentProgressSiteViews);
+
             _ = Task.Run(async () =>
             {
                 try
                 {
                     using var timer = new PeriodicTimer(TimeSpan.FromSeconds(0.1));
                     SystemHardwareInfo previousSystemInfo = null;
-                    do
+
+                    while (_completedJob is null && await timer.WaitForNextTickAsync(_cts.Token))
                     {
                         SystemHardwareInfo current = _job.LastSystemInfo;
 
@@ -145,7 +153,6 @@ else
                             _ = InvokeAsync(StateHasChanged);
                         }
                     }
-                    while (_completedJob is null && await timer.WaitForNextTickAsync(_cts.Token));
                 }
                 catch { }
             });
@@ -200,5 +207,13 @@ else
         }
     }
 
-    public void Dispose() => _cts.Cancel();
+    public void Dispose()
+    {
+        if (_job is not null)
+        {
+            Interlocked.Decrement(ref _job.CurrentProgressSiteViews);
+        }
+
+        _cts.Cancel();
+    }
 }
