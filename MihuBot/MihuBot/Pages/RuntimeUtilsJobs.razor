@@ -35,7 +35,7 @@
         </ul>
     }
 }
-else
+else if (_job is not null)
 {
     <h1><a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a></h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
@@ -97,7 +97,7 @@ else
         </code>
     </pre>
 }
-else if (_job is null)
+else
 {
     <div>Can't find a job with that id :/</div>
 }

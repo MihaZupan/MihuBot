@@ -27,7 +27,7 @@ public sealed class CompletedJobRecord
     public string TestedPROrBranchLink { get; set; }
     public string TrackingIssueUrl { get; set; }
     public Dictionary<string, string> Metadata { get; set; }
-    public (string FileName, string Url, long Size)[] Artifacts { get; set; }
+    public Artifact[] Artifacts { get; set; }
 
     [JsonIgnore]
     public string CustomArguments => Metadata.TryGetValue("CustomArguments", out var value) ? value : null;
@@ -43,4 +43,6 @@ public sealed class CompletedJobRecord
         Duration = Duration,
         RecordJson = JsonSerializer.Serialize(this),
     };
+
+    public record Artifact(string FileName, string Url, long Size);
 }

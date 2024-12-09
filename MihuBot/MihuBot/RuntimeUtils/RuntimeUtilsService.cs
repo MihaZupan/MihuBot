@@ -482,7 +482,15 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         CompletedJobDbEntry entry = await context.CompletedJobs.FindAsync([externalId], cancellationToken: cancellationToken);
 
-        return entry?.ToRecord();
+        try
+        {
+            return entry?.ToRecord();
+        }
+        catch (Exception ex)
+        {
+            Logger.DebugLog($"Failed to create completed job record for {externalId}: {ex}");
+            throw;
+        }
     }
 
     public async Task SaveCompletedJobRecordAsync(CompletedJobRecord record)

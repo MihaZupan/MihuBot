@@ -288,7 +288,7 @@ public abstract class JobBase
                 TestedPROrBranchLink = TestedPROrBranchLink,
                 TrackingIssueUrl = TrackingIssue?.Url,
                 Metadata = Metadata,
-                Artifacts = Artifacts.ToArray()
+                Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray()
             });
 
             if (ShouldMentionJobInitiator && GithubCommenterLogin is not null)
