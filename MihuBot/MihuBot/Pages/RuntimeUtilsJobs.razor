@@ -29,7 +29,7 @@
             @foreach (var (FileName, Url, Size) in _completedJob.Artifacts)
             {
                 <li class="list-group-item">
-                    <a href="=@Url">@FileName</a> (@JobBase.GetRoughSizeString(Size))
+                    <a href="@Url">@FileName</a> (@JobBase.GetRoughSizeString(Size))
                 </li>
             }
         </ul>
