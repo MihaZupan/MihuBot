@@ -238,10 +238,11 @@ public class Startup
         }
         else
         {
-            app.UseExceptionHandler("/Error");
-
             app.UseWhen(context => context.User.IsAdmin(),
                 app => app.UseDeveloperExceptionPage());
+
+            app.UseWhen(context => !context.User.IsAdmin(),
+                app => app.UseExceptionHandler("/Error"));
         }
 
         if (env.IsProduction())
