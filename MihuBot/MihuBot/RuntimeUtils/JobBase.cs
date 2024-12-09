@@ -73,7 +73,7 @@ public abstract class JobBase
     public bool ShouldDeleteVM { get; set; }
     public string RemoteLoginCredentials { get; private set; }
 
-    protected string CustomArguments
+    public string CustomArguments
     {
         get => Metadata["CustomArguments"];
         set => Metadata["CustomArguments"] = value;
@@ -250,10 +250,16 @@ public abstract class JobBase
 
             LastSystemInfo = null;
 
-            await ArtifactReceivedAsync("logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), CancellationToken.None);
+            await SaveLogsArtifactAsync();
         }
         catch (Exception ex)
         {
+            try
+            {
+                await SaveLogsArtifactAsync();
+            }
+            catch { }
+
             LogsReceived($"Uncaught exception: {ex}");
 
             await Logger.DebugAsync(ex.ToString());
@@ -273,6 +279,18 @@ public abstract class JobBase
 
             NotifyJobCompletion();
 
+            await Parent.SaveCompletedJobRecordAsync(new CompletedJobRecord
+            {
+                ExternalId = ExternalId,
+                Title = JobTitle,
+                StartedAt = StartTime,
+                Duration = Stopwatch.Elapsed,
+                TestedPROrBranchLink = TestedPROrBranchLink,
+                TrackingIssueUrl = TrackingIssue?.Url,
+                Metadata = Metadata,
+                Artifacts = Artifacts.ToArray()
+            });
+
             if (ShouldMentionJobInitiator && GithubCommenterLogin is not null)
             {
                 try
@@ -284,6 +302,11 @@ public abstract class JobBase
                     Logger.DebugLog($"Failed to mention job initiator ({GithubCommenterLogin}): {ex}");
                 }
             }
+        }
+
+        async Task SaveLogsArtifactAsync()
+        {
+            await ArtifactReceivedAsync("logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), CancellationToken.None);
         }
     }
 
@@ -355,7 +378,7 @@ public abstract class JobBase
 
     public string GetElapsedTime(bool includeSeconds = true) => Stopwatch.Elapsed.ToElapsedTime(includeSeconds);
 
-    protected static string GetRoughSizeString(long size)
+    public static string GetRoughSizeString(long size)
     {
         double kb = size / 1024d;
         double mb = kb / 1024d;
@@ -470,7 +493,7 @@ public abstract class JobBase
 
         await blobClient.UploadAsync(contentStream, new BlobUploadOptions
         {
-            AccessTier = AccessTier.Hot
+            AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool,
         }, cancellationToken);
 
         if (newStream is not null)

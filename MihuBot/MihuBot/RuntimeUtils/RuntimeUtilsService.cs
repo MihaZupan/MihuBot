@@ -1,7 +1,9 @@
 ﻿using Azure.Storage.Blobs;
 using Markdig;
 using Markdig.Syntax;
+using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using Octokit;
 using System.Text.RegularExpressions;
 
@@ -131,8 +133,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
+    private readonly IDbContextFactory<MihuBotDbContext> _db;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db)
     {
         Logger = logger;
         Github = github;
@@ -141,6 +144,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Configuration = configuration;
         ConfigurationService = configurationService;
         Hetzner = hetzner;
+        _db = db;
 
         if (Program.AzureEnabled)
         {
@@ -470,6 +474,24 @@ public sealed partial class RuntimeUtilsService : IHostedService
         PullRequest pullRequest = await Github.PullRequest.Get("dotnet", "runtime", prNumber);
         ArgumentNullException.ThrowIfNull(pullRequest);
         return pullRequest;
+    }
+
+    public async Task<CompletedJobRecord> TryGetCompletedJobRecordAsync(string externalId, CancellationToken cancellationToken)
+    {
+        await using var context = _db.CreateDbContext();
+
+        CompletedJobDbEntry entry = await context.CompletedJobs.FindAsync([externalId], cancellationToken: cancellationToken);
+
+        return entry?.ToRecord();
+    }
+
+    public async Task SaveCompletedJobRecordAsync(CompletedJobRecord record)
+    {
+        await using var context = _db.CreateDbContext();
+
+        context.CompletedJobs.Add(record.ToDbEntry());
+
+        await context.SaveChangesAsync();
     }
 
     [GeneratedRegex(@"^fuzz ([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]

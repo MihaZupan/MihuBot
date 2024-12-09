@@ -28,7 +28,7 @@ public sealed class JitDiffJob : JobBase
 
         LastSystemInfo = null;
 
-        bool shouldHideDiffs = _frameworksDiffSummary?.Length > CommentLengthLimit / 2;
+        bool shouldHideDiffs = _frameworksDiffSummary?.Length > CommentLengthLimit / 6;
 
         string frameworksDiffs =
             $"### Diffs\n\n" +

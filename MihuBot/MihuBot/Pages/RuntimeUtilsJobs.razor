@@ -8,6 +8,37 @@
 {
     <div>Can't find a job with that id :/</div>
 }
+else if (_completedJob is not null)
+{
+    <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
+    <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
+    if (_completedJob.TrackingIssueUrl is not null)
+    {
+        <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
+    }
+    if (_completedJob.LogsArtifactUrl is { } logsUrl)
+    {
+        <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
+    }
+    <br />
+    @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)
+    {
+        <p><small class="text-muted">Arguments: @customArguments</small></p>
+    }
+    <br />
+    @if (_completedJob.Artifacts.Length != 0)
+    {
+        <ul class="list-group">
+            <li class="list-group-item active">Artifacts@(_completedJob.Duration.TotalDays > 7 ? " (files may no longer exist)" : ""):</li>
+            @foreach (var (FileName, Url, Size) in _completedJob.Artifacts)
+            {
+                <li class="list-group-item">
+                    <a href="=@Url">@FileName</a> (@JobBase.GetRoughSizeString(Size))
+                </li>
+            }
+        </ul>
+    }
+}
 else
 {
     <h1><a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a></h1>
@@ -16,57 +47,59 @@ else
     {
         <div>Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
     }
-    @if (_job.Completed)
+
+    <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
+
+    @if (_canCancelJob)
     {
-        <div>The job has completed (took @_job.GetElapsedTime()).</div>
+        <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
     }
-    else
-    {
-        <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
 
-        @if (_canCancelJob)
-        {
-            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
-        }
-
-        <br />
-
-        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
-        {
-            <div>@remoteLogin</div>
-
-            @if (_job.ShouldDeleteVM)
-            {
-                <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
-            }
-        }
-
-        @if (_job.LastSystemInfo is { } info)
-        {
-            var cpuUsageCaption = $"CPU usage: {info.CpuUsagePercentage}% ({info.CpuUsage:N1} / {info.CpuCoresAvailable:N1} cores)";
-            var memoryUsageCaption = $"Memory usage: {info.MemoryUsagePercentage}% ({info.MemoryUsageGB:N1} / {info.MemoryAvailableGB:N1} GB)";
-            var cpuUsageWidth = $"{info.CpuUsagePercentage}%";
-            var memoryUsageWidth = $"{info.MemoryUsagePercentage}%";
-
-            <div>@cpuUsageCaption</div>
-            <div class="progress" style="width: 25%">
-                <div class="progress-bar" role="progressbar" style="width: @cpuUsageWidth"></div>
-            </div>
-
-            <div>@memoryUsageCaption</div>
-            <div class="progress" style="width: 25%">
-                <div class="progress-bar" role="progressbar" style="width: @memoryUsageWidth"></div>
-            </div>
-        }
-    }
     <br />
-    <pre><code>
-        @foreach (string line in _lines)
+
+    @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+    {
+        <div>@remoteLogin</div>
+
+        @if (_job.ShouldDeleteVM)
         {
-            @line
-            <br />
+            <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
         }
-    </code></pre>
+    }
+
+    @if (_job.LastSystemInfo is { } info)
+    {
+        var cpuUsageCaption = $"CPU usage: {info.CpuUsagePercentage}% ({info.CpuUsage:N1} / {info.CpuCoresAvailable:N1} cores)";
+        var memoryUsageCaption = $"Memory usage: {info.MemoryUsagePercentage}% ({info.MemoryUsageGB:N1} / {info.MemoryAvailableGB:N1} GB)";
+        var cpuUsageWidth = $"{info.CpuUsagePercentage}%";
+        var memoryUsageWidth = $"{info.MemoryUsagePercentage}%";
+
+        <div>@cpuUsageCaption</div>
+        <div class="progress" style="width: 25%">
+            <div class="progress-bar" role="progressbar" style="width: @cpuUsageWidth"></div>
+        </div>
+
+        <div>@memoryUsageCaption</div>
+        <div class="progress" style="width: 25%">
+            <div class="progress-bar" role="progressbar" style="width: @memoryUsageWidth"></div>
+        </div>
+    }
+
+    @if (_job.CustomArguments is { Length: > 0 } customArguments)
+    {
+        <p><small class="text-muted">Arguments: @customArguments</small></p>
+    }
+
+    <br />
+    <pre>
+        <code>
+            @foreach (string line in _lines)
+            {
+                @line
+                <br />
+            }
+        </code>
+    </pre>
 }
 
 @code
@@ -77,7 +110,7 @@ else
     private bool _canCancelJob;
     private bool _canViewCredentials;
 
-    private const int NumLines = 28;
+    private const int NumberOfLogLines = 28;
 
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentQueue<string> _lines = new();
@@ -86,10 +119,14 @@ else
     public string JobId { get; set; }
 
     private JobBase _job;
+    private CompletedJobRecord _completedJob;
 
     protected override async Task OnInitializedAsync()
     {
-        if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
+        _completedJob = await runtimeUtils.TryGetCompletedJobRecordAsync(JobId, _cts.Token);
+
+        if (_completedJob is null &&
+            runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
             _ = Task.Run(async () =>
             {
@@ -108,7 +145,7 @@ else
                             _ = InvokeAsync(StateHasChanged);
                         }
                     }
-                    while (await timer.WaitForNextTickAsync(_cts.Token));
+                    while (_completedJob is null && await timer.WaitForNextTickAsync(_cts.Token));
                 }
                 catch { }
             });
@@ -121,11 +158,21 @@ else
                     {
                         if (line is null)
                         {
+                            if (_job.Completed)
+                            {
+                                _completedJob = await runtimeUtils.TryGetCompletedJobRecordAsync(JobId, _cts.Token);
+                            }
+
                             _ = InvokeAsync(StateHasChanged);
+
+                            if (_completedJob is null)
+                            {
+                                break;
+                            }
                         }
                         else
                         {
-                            if (_lines.Count == NumLines)
+                            if (_lines.Count == NumberOfLogLines)
                             {
                                 _lines.TryDequeue(out _);
                             }
@@ -153,8 +200,5 @@ else
         }
     }
 
-    public void Dispose()
-    {
-        _cts.Cancel();
-    }
+    public void Dispose() => _cts.Cancel();
 }
