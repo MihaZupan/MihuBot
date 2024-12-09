@@ -59,22 +59,19 @@
                         sb.AppendLine();
                     }
 
-                    string newLogs = sb.ToString();
-                    sb.Length = 0;
-
-                    if (_logs != newLogs)
+                    if (!sb.Equals(_logs))
                     {
-                        _logs = newLogs;
+                        _logs = sb.ToString();
                         _ = InvokeAsync(StateHasChanged);
                     }
+
+                    sb.Length = 0;
                 }
             }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                if (ex is not OperationCanceledException)
-                {
-                    Logger.DebugLog($"Debug-logs exception: {ex}");
-                }
+                Logger.DebugLog($"Debug-logs exception: {ex}");
             }
         });
     }
