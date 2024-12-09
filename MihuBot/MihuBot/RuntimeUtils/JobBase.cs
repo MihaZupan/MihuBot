@@ -286,7 +286,7 @@ public abstract class JobBase
                 StartedAt = StartTime,
                 Duration = Stopwatch.Elapsed,
                 TestedPROrBranchLink = TestedPROrBranchLink,
-                TrackingIssueUrl = TrackingIssue?.Url,
+                TrackingIssueUrl = TrackingIssue?.HtmlUrl,
                 Metadata = Metadata,
                 Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray()
             });
