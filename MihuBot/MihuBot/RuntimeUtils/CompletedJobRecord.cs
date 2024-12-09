@@ -33,7 +33,7 @@ public sealed class CompletedJobRecord
     public string CustomArguments => Metadata.TryGetValue("CustomArguments", out var value) ? value : null;
 
     [JsonIgnore]
-    public string LogsArtifactUrl => Artifacts.FirstOrDefault(a => a.FileName == "logs.txt").Url;
+    public string LogsArtifactUrl => Artifacts?.FirstOrDefault(a => a.FileName == "logs.txt")?.Url;
 
     public CompletedJobDbEntry ToDbEntry() => new()
     {
