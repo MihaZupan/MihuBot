@@ -19,6 +19,7 @@ using Octokit;
 using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Telegram.Bot;
 
 namespace MihuBot;
@@ -238,10 +239,17 @@ public class Startup
         }
         else
         {
-            app.UseWhen(context => context.User.IsAdmin(),
+            const string DebugHash = "9C671B9323A2CC35CC181B9894CA9EF6BA742BE0E9BD9719BB339A9607A4749C";
+
+            static bool IsDebugMode(HttpContext context) =>
+                context.User.IsAdmin() ||
+                (context.Request.Query.TryGetValue("debug", out var value) &&
+                ManagementController.CheckToken(DebugHash, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))));
+
+            app.UseWhen(IsDebugMode,
                 app => app.UseDeveloperExceptionPage());
 
-            app.UseWhen(context => !context.User.IsAdmin(),
+            app.UseWhen(ctx => !IsDebugMode(ctx),
                 app => app.UseExceptionHandler("/Error"));
         }
 
