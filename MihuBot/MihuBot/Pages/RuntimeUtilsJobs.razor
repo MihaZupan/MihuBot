@@ -4,19 +4,15 @@
 @inject RuntimeUtilsService runtimeUtils
 @implements IDisposable
 
-@if (_job is null)
-{
-    <div>Can't find a job with that id :/</div>
-}
-else if (_completedJob is not null)
+@if (_completedJob is not null)
 {
     <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
     <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
-    if (_completedJob.TrackingIssueUrl is not null)
+    @if (_completedJob.TrackingIssueUrl is not null)
     {
         <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
     }
-    if (_completedJob.LogsArtifactUrl is { } logsUrl)
+    @if (_completedJob.LogsArtifactUrl is { } logsUrl)
     {
         <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
     }
@@ -101,6 +97,10 @@ else
         </code>
     </pre>
 }
+else if (_job is null)
+{
+    <div>Can't find a job with that id :/</div>
+}
 
 @code
 {
@@ -165,7 +165,7 @@ else
 
                             _ = InvokeAsync(StateHasChanged);
 
-                            if (_completedJob is null)
+                            if (_completedJob is not null)
                             {
                                 break;
                             }

@@ -71,7 +71,10 @@
             }
             catch (Exception ex)
             {
-                Logger.DebugLog($"Debug-logs exception: {ex}");
+                if (ex is not OperationCanceledException)
+                {
+                    Logger.DebugLog($"Debug-logs exception: {ex}");
+                }
             }
         });
     }
