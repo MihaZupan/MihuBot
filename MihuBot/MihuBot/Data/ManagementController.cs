@@ -74,7 +74,10 @@ public class ManagementController : ControllerBase
 
     public static bool CheckToken(string expected, string actual)
     {
-        if (string.IsNullOrEmpty(expected) || string.IsNullOrEmpty(actual))
+        ArgumentException.ThrowIfNullOrEmpty(expected);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 1000);
+
+        if (actual is null || expected.Length != actual.Length)
             return false;
 
         return CryptographicOperations.FixedTimeEquals(
