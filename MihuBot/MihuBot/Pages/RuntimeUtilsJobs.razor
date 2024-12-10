@@ -13,22 +13,29 @@
         <div>Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
     }
 
-    <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
-
-    @if (_canCancelJob)
+    @if (_job.Completed)
     {
-        <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
+        <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
     }
-
-    <br />
-
-    @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+    else
     {
-        <div>@remoteLogin</div>
+        <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
 
-        @if (_job.ShouldDeleteVM)
+        @if (_canCancelJob)
         {
-            <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
+            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
+        }
+
+        <br />
+
+        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+        {
+            <div>@remoteLogin</div>
+
+            @if (_job.ShouldDeleteVM)
+            {
+                <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
+            }
         }
     }
 
