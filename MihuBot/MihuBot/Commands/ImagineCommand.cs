@@ -101,6 +101,8 @@ public sealed class ImagineCommand : CommandBase
             size = GeneratedImageSize.W1024xH1792;
         }
 
+        _logger.DebugLog($"{nameof(ImagineCommand)} prompt: {prompt}");
+
         if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImageDeployment", out string deployment))
         {
             deployment = "dall-e-3";
