@@ -133,9 +133,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
+    public readonly UrlShortenerService UrlShortener;
     private readonly IDbContextFactory<MihuBotDbContext> _db;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db, UrlShortenerService urlShortener)
     {
         Logger = logger;
         Github = github;
@@ -145,6 +146,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ConfigurationService = configurationService;
         Hetzner = hetzner;
         _db = db;
+        UrlShortener = urlShortener;
 
         if (Program.AzureEnabled)
         {

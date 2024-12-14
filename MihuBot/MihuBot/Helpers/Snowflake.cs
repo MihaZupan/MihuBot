@@ -24,15 +24,18 @@ public static class Snowflake
 
     public static string NextString()
     {
-        ulong snowflake = Next();
+        return GetString(Next());
+    }
 
+    public static string GetString(ulong snowflake)
+    {
         Span<byte> buffer = stackalloc byte[sizeof(ulong)];
         BinaryPrimitives.WriteUInt64BigEndian(buffer, snowflake);
 
         return Base64Url.EncodeToString(buffer.TrimEnd((byte)0));
     }
 
-    public static DateTimeOffset FromSnowflake(ReadOnlySpan<char> snowflakeString)
+    public static bool TryGetFromString(ReadOnlySpan<char> snowflakeString, out ulong snowflake)
     {
         Span<byte> buffer = stackalloc byte[sizeof(ulong)];
         buffer.Clear();
@@ -41,10 +44,21 @@ public static class Snowflake
 
         if (status != OperationStatus.Done || charsConsumed != snowflakeString.Length || bytesWritten < 5)
         {
+            snowflake = 0;
+            return false;
+        }
+
+        snowflake = BinaryPrimitives.ReadUInt64BigEndian(buffer);
+        return true;
+    }
+
+    public static DateTimeOffset FromSnowflake(ReadOnlySpan<char> snowflakeString)
+    {
+        if (!TryGetFromString(snowflakeString, out ulong snowflake))
+        {
             throw new ArgumentException("Invalid snowflake string", nameof(snowflakeString));
         }
 
-        ulong snowflake = BinaryPrimitives.ReadUInt64BigEndian(buffer);
         return SnowflakeUtils.FromSnowflake(snowflake);
     }
 

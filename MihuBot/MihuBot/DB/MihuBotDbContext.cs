@@ -12,4 +12,6 @@ public sealed class MihuBotDbContext : DbContext
     public DbSet<ReminderEntry> Reminders { get; set; }
 
     public DbSet<CompletedJobDbEntry> CompletedJobs { get; set; }
+
+    public DbSet<UrlShortenerService.Entry> UrlShortenerEntries { get; set; }
 }

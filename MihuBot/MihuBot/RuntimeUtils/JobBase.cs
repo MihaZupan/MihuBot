@@ -507,6 +507,8 @@ public abstract class JobBase
         var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
         long size = properties.Value.ContentLength;
 
+        var entry = await Parent.UrlShortener.CreateAsync(ProgressDashboardUrl, blobClient.Uri);
+
         lock (Artifacts)
         {
             const long GB = 1024 * 1024 * 1024;
@@ -519,11 +521,11 @@ public abstract class JobBase
                 return;
             }
 
-            Artifacts.Add((fileName, blobClient.Uri.AbsoluteUri, size));
+            Artifacts.Add((fileName, entry.ShortUrl, size));
             _totalArtifactsSize += size;
         }
 
-        LogsReceived($"Saved artifact '{fileName}' to {blobClient.Uri.AbsoluteUri} ({GetRoughSizeString(size)})");
+        LogsReceived($"Saved artifact '{fileName}' to {entry.ShortUrl} ({GetRoughSizeString(size)})");
     }
 
     protected virtual Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken) => Task.FromResult<Stream>(null);
