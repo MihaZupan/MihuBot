@@ -14,6 +14,7 @@ public class ReminderEntry : IComparable<ReminderEntry>
     public ulong ChannelId { get; set; }
     public ulong MessageId { get; set; }
     public long AuthorId { get; set; }
+    public bool RepeatYearly { get; set; }
 
     // For serialization
     public ReminderEntry() { }
@@ -28,7 +29,20 @@ public class ReminderEntry : IComparable<ReminderEntry>
         ChannelId = ctx.Channel.Id;
         MessageId = ctx.Message.Id;
         AuthorId = (long)ctx.AuthorId;
+        RepeatYearly = message.Contains(" every year", StringComparison.OrdinalIgnoreCase);
     }
+
+    public ReminderEntry GetNextYearEntry() => new()
+    {
+        Id = Id,
+        Time = Time.AddYears(1),
+        Message = Message,
+        GuildId = GuildId,
+        ChannelId = ChannelId,
+        MessageId = MessageId,
+        AuthorId = AuthorId,
+        RepeatYearly = RepeatYearly,
+    };
 
     public int CompareTo(ReminderEntry other) => Time.CompareTo(other.Time);
 

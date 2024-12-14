@@ -44,9 +44,17 @@ public sealed class ReminderService
 
             context.Reminders.RemoveRange(entries);
 
-            entries.RemoveAll(r => now - r.Time > TimeSpan.FromMinutes(1));
+            foreach (ReminderEntry entry in entries)
+            {
+                if (entry.RepeatYearly)
+                {
+                    context.Reminders.Add(entry.GetNextYearEntry());
+                }
+            }
 
             await context.SaveChangesAsync();
+
+            entries.RemoveAll(r => now - r.Time > TimeSpan.FromMinutes(5));
 
             return entries;
         }

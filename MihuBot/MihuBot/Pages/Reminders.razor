@@ -25,7 +25,7 @@
 {
     <tr>
             <td scope="row">@entry.Time.ToISODateTime(' ')</td>
-            <td>@((entry.Time - now).ToElapsedTime())</td>
+            <td>@((entry.Time - now).ToElapsedTime()) @(entry.RepeatYearly ? "(yearly)" : "")</td>
             <td>@(discord.GetUser((ulong)entry.AuthorId)?.GetName() ?? "Jane Doe")</td>
             <td>@(discord.GetTextChannel(entry.ChannelId)?.Name ?? "N/A")</td>
             <td>@entry.Message</td>
