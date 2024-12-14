@@ -14,7 +14,7 @@ public sealed class UrlShortenerCommand : CommandBase
     public override async Task ExecuteAsync(CommandContext ctx)
     {
         if (ctx.Arguments.Length != 1 ||
-            !Uri.TryCreate(ctx.Arguments[0], UriKind.Absolute, out Uri uri))
+            !Uri.TryCreate(TrimAngleBrackets(ctx.Arguments[0]), UriKind.Absolute, out Uri uri))
         {
             await ctx.ReplyAsync("Expected `!url https://www.youtube.com/watch?v=dQw4w9WgXcQ`");
             return;
@@ -23,5 +23,15 @@ public sealed class UrlShortenerCommand : CommandBase
         var entry = await _urlShortener.CreateAsync($"{nameof(UrlShortenerCommand)}-{ctx.AuthorId}-{ctx.Message.GetJumpUrl()}", uri);
 
         await ctx.ReplyAsync($"<{entry.ShortUrl}>");
+
+        static string TrimAngleBrackets(string url)
+        {
+            if (url.StartsWith('<') && url.EndsWith('>'))
+            {
+                return url[1..^1];
+            }
+
+            return url;
+        }
     }
 }
