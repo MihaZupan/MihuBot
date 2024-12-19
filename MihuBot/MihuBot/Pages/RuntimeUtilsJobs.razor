@@ -23,7 +23,7 @@
 
         @if (_canCancelJob)
         {
-            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}"))">Cancel</button>
+            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
         }
 
         <br />

@@ -39,7 +39,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
                 return;
             }
 
-            jobToCancel.FailFast("Terminated by admin");
+            jobToCancel.FailFast("Terminated by admin", jobToCancel.GithubCommenterLogin == "MihaZupan");
             return;
         }
 

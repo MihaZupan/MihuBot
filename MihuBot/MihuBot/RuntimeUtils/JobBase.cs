@@ -657,7 +657,7 @@ public abstract class JobBase
         return null;
     }
 
-    public void FailFast(string message)
+    public void FailFast(string message, bool cancelledByAuthor)
     {
         if (Completed || _idleTimeoutCts.IsCancellationRequested)
         {
@@ -665,6 +665,11 @@ public abstract class JobBase
         }
 
         _manuallyCancelled = true;
+
+        if (cancelledByAuthor)
+        {
+            ShouldMentionJobInitiator = false;
+        }
 
         message = $"!!! FailFast: {message}";
 
