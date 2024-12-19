@@ -42,7 +42,7 @@
     DateTime now = DateTime.UtcNow;
     DateTime lastUpdateTime = DateTime.UtcNow;
     IEnumerable<ReminderEntry> reminders = Array.Empty<ReminderEntry>();
-    System.Threading.Timer timer;
+    Timer timer;
     ulong userId;
 
     private void ScheduleReminderRemoval(ReminderEntry entry)
@@ -67,7 +67,7 @@
 
         await UpdateRemindersAsync();
 
-        timer = new System.Threading.Timer(_ =>
+        timer = new Timer(_ =>
         {
             now = DateTime.UtcNow;
 

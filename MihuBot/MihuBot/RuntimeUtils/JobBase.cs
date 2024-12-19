@@ -64,6 +64,7 @@ public abstract class JobBase
     private string _firstErrorMessage;
     protected string FirstErrorMessage => _firstErrorMessage;
     protected virtual bool PostErrorAsGitHubComment => false;
+    private bool _manuallyCancelled;
 
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -249,21 +250,27 @@ public abstract class JobBase
                 _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
             }
 
-            await RunJobAsyncCore(jobTimeout);
-
-            LastSystemInfo = null;
+            try
+            {
+                await RunJobAsyncCore(jobTimeout);
+            }
+            catch (TaskCanceledException) when (_manuallyCancelled) { }
+            finally
+            {
+                LastSystemInfo = null;
+            }
 
             await SaveLogsArtifactAsync();
         }
         catch (Exception ex)
         {
+            LogsReceived($"Uncaught exception: {ex}");
+
             try
             {
                 await SaveLogsArtifactAsync();
             }
             catch { }
-
-            LogsReceived($"Uncaught exception: {ex}");
 
             await Logger.DebugAsync(ex.ToString());
 
@@ -656,6 +663,8 @@ public abstract class JobBase
         {
             return;
         }
+
+        _manuallyCancelled = true;
 
         message = $"!!! FailFast: {message}";
 
