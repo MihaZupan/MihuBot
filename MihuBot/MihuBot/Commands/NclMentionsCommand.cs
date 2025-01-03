@@ -93,10 +93,17 @@ public sealed class NclMentionsCommand : CommandBase
             return;
         }
 
-        int subscribedTo = await SubscribeToRuntimeIssuesAsync(ctx.Arguments
-            .Select(arg => GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number) ? number : -1)
-            .Where(n => n > 0)
-            .ToArray());
+        List<Issue> issues = [];
+
+        foreach (var arg in ctx.Arguments)
+        {
+            if (GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number))
+            {
+                issues.Add(await GitHub.Issue.Get("dotnet", "runtime", number));
+            }
+        }
+
+        int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray());
 
         await ctx.ReplyAsync($"Subscribed to {subscribedTo} new issues");
     }
@@ -116,7 +123,7 @@ public sealed class NclMentionsCommand : CommandBase
 
             var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
 
-            int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.Select(i => i.Number).ToArray());
+            int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray());
 
             if (subscribedTo > 0)
             {
@@ -125,13 +132,13 @@ public sealed class NclMentionsCommand : CommandBase
         }
     }
 
-    private async Task<int> SubscribeToRuntimeIssuesAsync(int[] numbers)
+    private async Task<int> SubscribeToRuntimeIssuesAsync(Issue[] issues)
     {
         var currentUser = await GitHub.User.Current();
 
         int counter = 0;
 
-        foreach (var issue in numbers)
+        foreach (var issue in issues)
         {
             if (await SubscribeToRuntimeIssueAsync(currentUser, issue))
             {
@@ -145,12 +152,12 @@ public sealed class NclMentionsCommand : CommandBase
         return counter;
     }
 
-    private async Task<bool> SubscribeToRuntimeIssueAsync(User currentUser, int number)
+    private async Task<bool> SubscribeToRuntimeIssueAsync(User currentUser, Issue issue)
     {
         return await _gitHubNotifications.ProcessGitHubMentionAsync(new GitHubComment(
             GitHub,
             "dotnet", "runtime", 1,
-            $"https://github.com/dotnet/runtime/issues/{number}",
+            issue.HtmlUrl,
             "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
             currentUser,
             IsPrReviewComment: false));
