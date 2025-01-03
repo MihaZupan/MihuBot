@@ -54,11 +54,11 @@ public sealed partial class GitHubNotificationsService
                 return enabledAny;
             }
 
-            Issue issue = await Github.Issue.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
+            Issue issue = null;
 
             foreach (UserRecord user in users)
             {
-                string duplicationKey = $"{issue.HtmlUrl}/{user.Name}";
+                string duplicationKey = $"{comment.IssueUrl}/{user.Name}";
 
                 if (_processedMentions.Contains(duplicationKey))
                 {
@@ -67,9 +67,11 @@ public sealed partial class GitHubNotificationsService
 
                 if (user.Disabled)
                 {
-                    Logger.DebugLog($"Skipping notifications on {issue.HtmlUrl} for {user.Name} due to previous errors.");
+                    Logger.DebugLog($"Skipping notifications on {comment.Url} for {user.Name} due to previous errors.");
                     continue;
                 }
+
+                issue ??= await Github.Issue.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
 
                 enabledAny = true;
                 bool failed = false;

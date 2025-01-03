@@ -196,6 +196,10 @@ public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoNa
 {
     public int IssueId { get; } = int.Parse(new Uri(Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
 
+    public bool IsOnPullRequest => Url.Contains("/pull", StringComparison.OrdinalIgnoreCase);
+
+    public string IssueUrl => $"https://github.com/{RepoOwner}/{RepoName}/{(IsOnPullRequest ? "pull" : "issues")}/{IssueId}";
+
     public async Task<Reaction> AddReactionAsync(Octokit.ReactionType reactionType)
     {
         var reaction = new NewReaction(reactionType);

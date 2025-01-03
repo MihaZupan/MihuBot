@@ -230,7 +230,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         return;
                     }
 
-                    if (comment.Url.Contains("/pull", StringComparison.OrdinalIgnoreCase))
+                    if (comment.IsOnPullRequest)
                     {
                         int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
                         PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, pullRequestNumber);

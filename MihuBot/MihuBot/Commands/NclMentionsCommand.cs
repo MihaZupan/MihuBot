@@ -9,11 +9,56 @@ public sealed class NclMentionsCommand : CommandBase
     public override string[] Aliases => ["ncl-mentions-rescan", "ncl-mentions-rescan-open"];
 
     private readonly GitHubNotificationsService _gitHubNotifications;
+    private readonly Logger _logger;
+
     private GitHubClient GitHub => _gitHubNotifications.Github;
 
-    public NclMentionsCommand(GitHubNotificationsService gitHubNotifications)
+    public NclMentionsCommand(GitHubNotificationsService gitHubNotifications, Logger logger)
     {
         _gitHubNotifications = gitHubNotifications;
+        _logger = logger;
+    }
+
+    public override Task InitAsync()
+    {
+        _ = Task.Run(async () =>
+        {
+            Stopwatch lastMediumScan = Stopwatch.StartNew();
+            Stopwatch lastFullScan = Stopwatch.StartNew();
+
+            using var timer = new PeriodicTimer(TimeSpan.FromHours(3));
+            while (await timer.WaitForNextTickAsync())
+            {
+                try
+                {
+                    _logger.DebugLog("Running periodic NCL mentions rescan");
+
+                    TimeSpan duration = TimeSpan.FromHours(4);
+
+                    if (lastFullScan.Elapsed.TotalDays > 14)
+                    {
+                        lastFullScan.Restart();
+                        duration = TimeSpan.FromDays(365 * 5);
+                    }
+                    else if (lastMediumScan.Elapsed.TotalDays > 2)
+                    {
+                        lastMediumScan.Restart();
+                        duration = TimeSpan.FromDays(90);
+                    }
+
+                    await RescanAsync(
+                        _logger.Options.DebugTextChannel,
+                        DateTime.UtcNow - duration,
+                        ItemStateFilter.All);
+                }
+                catch (Exception ex)
+                {
+                    await _logger.DebugAsync(ex.ToString());
+                }
+            }
+        });
+
+        return Task.CompletedTask;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -36,7 +81,9 @@ public sealed class NclMentionsCommand : CommandBase
 
             ctx.DebugLog($"Parsed '{ctx.ArgumentStringTrimmed}' to {duration.ToElapsedTime()}");
 
-            await RescanAsync(ctx, now - duration, ctx.Command == "ncl-mentions-rescan-open" ? ItemStateFilter.Open : ItemStateFilter.All);
+            await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+
+            await RescanAsync(ctx.Channel, now - duration, ctx.Command == "ncl-mentions-rescan-open" ? ItemStateFilter.Open : ItemStateFilter.All);
             return;
         }
 
@@ -46,13 +93,15 @@ public sealed class NclMentionsCommand : CommandBase
             return;
         }
 
-        await SubscribeToRuntimeIssuesAsync(ctx, ctx.Arguments
+        int subscribedTo = await SubscribeToRuntimeIssuesAsync(ctx.Arguments
             .Select(arg => GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number) ? number : -1)
             .Where(n => n > 0)
             .ToArray());
+
+        await ctx.ReplyAsync($"Subscribed to {subscribedTo} new issues");
     }
 
-    private async Task RescanAsync(CommandContext ctx, DateTimeOffset since, ItemStateFilter state)
+    private async Task RescanAsync(SocketTextChannel channel, DateTimeOffset since, ItemStateFilter state)
     {
         foreach (string area in new string[] { "System.Net", "System.Net.Http", "System.Net.Security", "System.Net.Sockets", "System.Net.Quic", "Extensions-HttpClientFactory" })
         {
@@ -66,13 +115,17 @@ public sealed class NclMentionsCommand : CommandBase
             request.Labels.Add($"area-{area}");
 
             var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
-            await ctx.ReplyAsync($"Found {issues.Count} issues for `{area}`");
 
-            await SubscribeToRuntimeIssuesAsync(ctx, issues.Select(i => i.Number).ToArray());
+            int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.Select(i => i.Number).ToArray());
+
+            if (subscribedTo > 0)
+            {
+                await channel.SendMessageAsync($"Found {issues.Count} issues for `{area}` since {since.UtcDateTime.ToISODateTime()}, subscribed to {subscribedTo} new ones");
+            }
         }
     }
 
-    private async Task SubscribeToRuntimeIssuesAsync(CommandContext ctx, int[] numbers)
+    private async Task<int> SubscribeToRuntimeIssuesAsync(int[] numbers)
     {
         var currentUser = await GitHub.User.Current();
 
@@ -86,10 +139,10 @@ public sealed class NclMentionsCommand : CommandBase
                 await Task.Delay(2_000);
             }
 
-            await Task.Delay(100);
+            await Task.Delay(10);
         }
 
-        await ctx.ReplyAsync($"Subscribed to {counter} new issues");
+        return counter;
     }
 
     private async Task<bool> SubscribeToRuntimeIssueAsync(User currentUser, int number)
