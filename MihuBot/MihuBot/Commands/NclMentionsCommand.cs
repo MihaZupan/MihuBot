@@ -154,6 +154,7 @@ public sealed class NclMentionsCommand : CommandBase
             issue.HtmlUrl,
             "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
             currentUser,
-            IsPrReviewComment: false));
+            IsPrReviewComment: false),
+            issue);
     }
 }

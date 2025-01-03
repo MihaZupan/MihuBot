@@ -31,7 +31,7 @@ public sealed partial class GitHubNotificationsService
         ConfigurationService = configurationService;
     }
 
-    public async Task<bool> ProcessGitHubMentionAsync(GitHubComment comment)
+    public async Task<bool> ProcessGitHubMentionAsync(GitHubComment comment, Issue issue = null)
     {
         bool enabledAny = false;
 
@@ -53,8 +53,6 @@ public sealed partial class GitHubNotificationsService
             {
                 return enabledAny;
             }
-
-            Issue issue = null;
 
             foreach (UserRecord user in users)
             {
