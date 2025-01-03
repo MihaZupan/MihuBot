@@ -23,26 +23,20 @@ public sealed class NclMentionsCommand : CommandBase
     {
         _ = Task.Run(async () =>
         {
-            Stopwatch lastMediumScan = Stopwatch.StartNew();
-            Stopwatch lastFullScan = Stopwatch.StartNew();
+            Stopwatch lastLongScan = Stopwatch.StartNew();
 
-            using var timer = new PeriodicTimer(TimeSpan.FromHours(3));
+            using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
             while (await timer.WaitForNextTickAsync())
             {
                 try
                 {
                     _logger.DebugLog("Running periodic NCL mentions rescan");
 
-                    TimeSpan duration = TimeSpan.FromHours(4);
+                    TimeSpan duration = TimeSpan.FromHours(2);
 
-                    if (lastFullScan.Elapsed.TotalDays > 14)
+                    if (lastLongScan.Elapsed.TotalDays > 2)
                     {
-                        lastFullScan.Restart();
-                        duration = TimeSpan.FromDays(365 * 5);
-                    }
-                    else if (lastMediumScan.Elapsed.TotalDays > 2)
-                    {
-                        lastMediumScan.Restart();
+                        lastLongScan.Restart();
                         duration = TimeSpan.FromDays(90);
                     }
 
