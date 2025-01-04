@@ -29,7 +29,7 @@ public sealed class ChatGptComand : CommandBase
 
     private sealed class ChatHistory
     {
-        private record HistoryEntry(ChatMessage Message, DateTime Timestamp);
+        private sealed record HistoryEntry(ChatMessage Message, DateTime Timestamp);
 
         private readonly List<HistoryEntry> _entries = new();
 

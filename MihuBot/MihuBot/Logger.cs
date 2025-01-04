@@ -20,7 +20,7 @@ public sealed partial class Logger
 
     private DiscordSocketClient Discord => Options.Discord;
 
-    private int _fileCounter = 0;
+    private int _fileCounter;
 
     internal static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -435,7 +435,7 @@ public sealed partial class Logger
 
     private Task ChannelUpdatedAsync(SocketChannel beforeChannel, SocketChannel afterChannel)
     {
-        if (beforeChannel is SocketGuildChannel before && afterChannel is SocketGuildChannel after)
+        if (beforeChannel is SocketGuildChannel && afterChannel is SocketGuildChannel after)
         {
             Log(EventType.ChannelUpdated, after, extraContent: ChannelModel.FromSocketChannel(after));
         }
@@ -502,7 +502,9 @@ public sealed partial class Logger
         return Task.CompletedTask;
     }
 
+#pragma warning disable CA1859 // Use concrete types when possible for improved performance -- method is used as event callback
     private Task UserUpdatedAsync(SocketUser beforeUser, SocketUser afterUser)
+#pragma warning restore CA1859
     {
         var after = afterUser as SocketGuildUser;
         ulong guildId = after?.Guild.Id ?? 0;
@@ -942,7 +944,7 @@ public sealed partial class Logger
             Id = channel.Id,
             Name = channel.Name,
             Position = channel.Position,
-            PermissionOverwrites = channel.PermissionOverwrites.Select(o => OverwriteModel.FromOverwrite(o)).ToArray()
+            PermissionOverwrites = [.. channel.PermissionOverwrites.Select(OverwriteModel.FromOverwrite)]
         };
     }
 

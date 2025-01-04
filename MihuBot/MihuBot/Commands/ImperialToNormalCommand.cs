@@ -3,10 +3,10 @@ using System.Text.RegularExpressions;
 
 namespace MihuBot.Commands;
 
-public sealed class ImperialToNormalCommand : CommandBase
+public sealed partial class ImperialToNormalCommand : CommandBase
 {
     public override string Command => "imperialtonormal";
-    public override string[] Aliases => new[] { "normaltoimperial" };
+    public override string[] Aliases => ["normaltoimperial"];
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
@@ -16,7 +16,7 @@ public sealed class ImperialToNormalCommand : CommandBase
         if (parts.Length == 0)
             return;
 
-        var quantifierMatch = Regex.Match(ctx.ArgumentString, @"^-?[\d\.,]*");
+        var quantifierMatch = QuantifierRegex().Match(ctx.ArgumentString);
         if (!quantifierMatch.Success)
             return;
 
@@ -103,4 +103,7 @@ public sealed class ImperialToNormalCommand : CommandBase
 
         await ctx.ReplyAsync($"{decimal.Round(value, 2):N2} {format}");
     }
+
+    [GeneratedRegex(@"^-?[\d\.,]*")]
+    private static partial Regex QuantifierRegex();
 }

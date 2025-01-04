@@ -14,7 +14,9 @@ public static class AzurePipelinesHelper
         request.Content = new ByteArrayContent(payloadBytes);
         request.Content.Headers.Add("Content-Type", "application/json");
 
+#pragma warning disable CA5350 // Do Not Use Weak Cryptographic Algorithms -- limited by devops
         byte[] hash = HMACSHA1.HashData(Encoding.UTF8.GetBytes(secret), payloadBytes);
+#pragma warning restore CA5350
 
         request.Headers.Add("X-Webhook-Checksum", Convert.ToHexStringLower(hash));
 

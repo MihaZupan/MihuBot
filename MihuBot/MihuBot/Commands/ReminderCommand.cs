@@ -174,7 +174,7 @@ public sealed partial class ReminderCommand : CommandBase
             return false;
         }
 
-        return message.MentionedEveryone || message.MentionedRoles.Any();
+        return message.MentionedEveryone || message.MentionedRoles.Count != 0;
     }
 
     private async Task ExecuteAsyncCore(MessageContext ctx)

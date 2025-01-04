@@ -39,7 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Migrations\" />
+    <EditorConfigFiles Include="$(MSBuildThisFileDirectory)..\CodeAnalysis.globalconfig" />
   </ItemGroup>
 
 </Project>

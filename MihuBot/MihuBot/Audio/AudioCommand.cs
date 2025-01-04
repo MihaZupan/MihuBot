@@ -8,10 +8,10 @@ namespace MihuBot.Audio;
 
 public sealed partial class AudioCommands : CommandBase
 {
-    private static readonly string[] AvailableCommands = new[] { "p", "play", "pause", "unpause", "resume", "skip", "volume", "queue" };
+    private static readonly string[] AvailableCommands = ["p", "play", "pause", "unpause", "resume", "skip", "volume", "queue"];
 
     public override string Command => "mplay";
-    public override string[] Aliases => AvailableCommands.Concat(new[] { "audiocommands", "audiodebug", "audiotempsettings" }).ToArray();
+    public override string[] Aliases => [.. AvailableCommands, "audiocommands", "audiodebug", "audiotempsettings"];
 
     private readonly AudioService _audioService;
     private readonly SpotifyClient _spotifyClient;

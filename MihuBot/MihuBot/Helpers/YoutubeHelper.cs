@@ -326,7 +326,7 @@ internal static partial class YoutubeHelper
         return Youtube.Videos.GetAsync(videoId, cancellationToken);
     }
 
-    private static IVideo Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
+    private static Video Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
     {
         var snippet = searchResult.Snippet;
         var thumbnail = snippet.Thumbnails.Maxres ?? snippet.Thumbnails.High ?? snippet.Thumbnails.Standard ?? snippet.Thumbnails.Default__;
@@ -345,7 +345,7 @@ internal static partial class YoutubeHelper
             engagement: new Engagement(0, 0, 0));
     }
 
-    private static IVideo Transform(Google.Apis.YouTube.v3.Data.PlaylistItem playlistItem)
+    private static Video Transform(Google.Apis.YouTube.v3.Data.PlaylistItem playlistItem)
     {
         var snippet = playlistItem.Snippet;
         var thumbnail = snippet.Thumbnails.Maxres ?? snippet.Thumbnails.High ?? snippet.Thumbnails.Standard ?? snippet.Thumbnails.Default__;

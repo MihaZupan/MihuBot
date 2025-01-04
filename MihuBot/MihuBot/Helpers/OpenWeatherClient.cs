@@ -105,7 +105,7 @@ public partial class OpenWeatherClient
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
     [JsonSerializable(typeof(OpenWeatherModel))]
     [JsonSerializable(typeof(GeocodingModel[]))]
-    private partial class OpenWeatherContext : JsonSerializerContext { }
+    private sealed partial class OpenWeatherContext : JsonSerializerContext { }
 
     private sealed class GeocodingModel
     {

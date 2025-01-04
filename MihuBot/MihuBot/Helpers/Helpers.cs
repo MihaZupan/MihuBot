@@ -393,9 +393,10 @@ public static class Helpers
         if (!task.IsCompletedSuccessfully)
         {
             task.ContinueWith(
-                static (task, _) => _ = task.Exception?.InnerException,
+                static task => _ = task.Exception?.InnerException,
+                CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                CancellationToken.None);
+                TaskScheduler.Current);
         }
     }
 }

@@ -18,8 +18,8 @@ public static class ProcessHelper
         process.Start();
 
         await Task.WhenAll(
-            Task.Run(() => ReadOutputStreamAsync(process.StandardOutput)),
-            Task.Run(() => ReadOutputStreamAsync(process.StandardError)),
+            Task.Run(() => ReadOutputStreamAsync(process.StandardOutput), CancellationToken.None),
+            Task.Run(() => ReadOutputStreamAsync(process.StandardError), CancellationToken.None),
             process.WaitForExitAsync(cancellationToken));
 
         async Task ReadOutputStreamAsync(StreamReader reader)

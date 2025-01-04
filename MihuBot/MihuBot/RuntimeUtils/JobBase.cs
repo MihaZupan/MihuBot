@@ -857,7 +857,7 @@ public abstract class JobBase
                 {
                     await Logger.DebugAsync($"Failed to delete resource {info}: {ex}");
                 }
-            });
+            }, CancellationToken.None);
         }
     }
 }

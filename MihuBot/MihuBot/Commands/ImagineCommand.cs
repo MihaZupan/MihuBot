@@ -39,7 +39,7 @@ public sealed class ImagineCommand : CommandBase
         await ExecuteAsync(ctx, ctx.ArgumentStringTrimmed);
     }
 
-    private string GetContentFromMessageReference(MessageContext ctx)
+    private static string GetContentFromMessageReference(MessageContext ctx)
     {
         if (ctx.Message.ReferencedMessage is { } referencedMessage &&
             referencedMessage.Content is not null &&

@@ -1,13 +1,13 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MihuBot.Helpers;
 
-static class EmbedHelper
+internal static partial class EmbedHelper
 {
     public static async Task SendEmbedAsync(string json, ISocketMessageChannel channel)
     {
-        EmbedModel model = JsonConvert.DeserializeObject<EmbedModel>(json);
+        EmbedModel model = JsonSerializer.Deserialize(json, JsonContext.Default.EmbedModel);
         EmbedModel.EmbedInfo embed = model.Embed;
 
         EmbedBuilder builder = new EmbedBuilder();
@@ -95,14 +95,16 @@ static class EmbedHelper
             embed: model.Embed is null ? null : builder.Build());
     }
 
-    [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-    private class EmbedModel
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
+    [JsonSerializable(typeof(EmbedModel))]
+    private sealed partial class JsonContext : JsonSerializerContext { }
+
+    private sealed class EmbedModel
     {
         public string Content { get; set; }
         public EmbedInfo Embed { get; set; }
 
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        public class EmbedInfo
+        public sealed class EmbedInfo
         {
             public uint? Color { get; set; }
             public string Title { get; set; }
@@ -115,27 +117,27 @@ static class EmbedHelper
             public Author Author { get; set; }
             public Field[] Fields { get; set; }
         }
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        public class EmbedUrl
+
+        public sealed class EmbedUrl
         {
-            [JsonProperty(Required = Required.Always)]
+            [JsonRequired]
             public string Url { get; set; }
         }
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        public class Footer
+
+        public sealed class Footer
         {
             public string IconUrl { get; set; }
             public string Text { get; set; }
         }
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        public class Author
+
+        public sealed class Author
         {
             public string Name { get; set; }
             public string Url { get; set; }
             public string IconUrl { get; set; }
         }
-        [JsonObject(NamingStrategyType = typeof(SnakeCaseNamingStrategy))]
-        public class Field
+
+        public sealed class Field
         {
             public string Name { get; set; }
             public string Value { get; set; }

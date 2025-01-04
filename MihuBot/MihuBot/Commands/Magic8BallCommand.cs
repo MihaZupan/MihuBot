@@ -88,7 +88,7 @@ public sealed class Magic8BallCommand : CommandBase
         return 0.35d;
     }
 
-    private record RapidAPIResponseModel(double Similarity);
+    private sealed record RapidAPIResponseModel(double Similarity);
 
     private sealed class UserState
     {
@@ -138,7 +138,7 @@ public sealed class Magic8BallCommand : CommandBase
         {
             _previousPrompts.RemoveAll(p => DateTime.UtcNow - p.TimeStamp >= TimeSpan.FromDays(7));
 
-            prompt = prompt.ToLower();
+            prompt = prompt.ToLowerInvariant();
 
             if (prompt.Length < 3)
             {

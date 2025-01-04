@@ -9,7 +9,7 @@ internal sealed class ReadAheadStream : Stream
     private readonly CancellationTokenSource _cts = new();
     private readonly Pipe _pipe;
     private readonly Stream _pipeReaderStream;
-    private int _pipeClosed = 0;
+    private int _pipeClosed;
 
     public ReadAheadStream(Stream innerStream, long? bufferCapacity = null)
     {
@@ -59,7 +59,7 @@ internal sealed class ReadAheadStream : Stream
     public override long Length => throw new NotSupportedException();
     public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
-    public async override ValueTask DisposeAsync()
+    public override async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
         {
