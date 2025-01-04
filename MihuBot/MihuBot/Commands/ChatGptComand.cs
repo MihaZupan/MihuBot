@@ -16,7 +16,7 @@ public sealed class ChatGptComand : CommandBase
     private readonly Logger _logger;
     private readonly IConfigurationService _configurationService;
     private readonly string[] _commandAndAliases;
-    private readonly Dictionary<ulong, ChatHistory> _chatHistory = new();
+    private readonly Dictionary<ulong, ChatHistory> _chatHistory = new(), _jaredChatHistory = new();
     private readonly OpenAIService _openAI;
 
     public ChatGptComand(Logger logger, IConfigurationService configurationService, OpenAIService openAI)
@@ -130,11 +130,12 @@ public sealed class ChatGptComand : CommandBase
             MaxOutputTokenCount = maxTokens
         };
 
+        var chatHistoryCollection = isJared ? _jaredChatHistory : _chatHistory;
         ChatHistory chatHistory;
 
-        lock (_chatHistory)
+        lock (chatHistoryCollection)
         {
-            chatHistory = CollectionsMarshal.GetValueRefOrAddDefault(_chatHistory, channel.Id, out _) ??= new();
+            chatHistory = CollectionsMarshal.GetValueRefOrAddDefault(chatHistoryCollection, channel.Id, out _) ??= new();
         }
 
         await chatHistory.Lock.WaitAsync();
