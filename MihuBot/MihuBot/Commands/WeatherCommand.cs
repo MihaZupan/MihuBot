@@ -66,7 +66,7 @@ public sealed class WeatherCommand : CommandBase
         string localTime = DateTime.UtcNow.AddSeconds(weather.Timezone).ToString("HH:mm (h:mm tt)");
 
         var embed = new EmbedBuilder()
-            .WithTitle($"{weather.CityName} ({weather.Country})")
+            .WithTitle($"{location.Name} ({weather.Country})")
             .WithDescription($"Currently: {weather.Description}\nTemperature: {temperature}\nFeels like: {feelsLike}\nLocal time: {localTime}")
             .WithThumbnailUrl(weather.IconUrl)
             .WithColor(color);
