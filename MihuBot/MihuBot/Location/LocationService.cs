@@ -58,14 +58,12 @@ public sealed class LocationService
 
         await using var context = _db.CreateDbContext();
 
-        if (await context.UserLocation.FindAsync((long)userId) is not null)
+        if (await context.UserLocation.FindAsync((long)userId) is { } existingLocation)
         {
-            context.UserLocation.Update(userLocation);
+            context.UserLocation.Remove(existingLocation);
         }
-        else
-        {
-            context.UserLocation.Add(userLocation);
-        }
+
+        context.UserLocation.Add(userLocation);
 
         await context.SaveChangesAsync();
 
