@@ -502,9 +502,7 @@ public sealed partial class Logger
         return Task.CompletedTask;
     }
 
-#pragma warning disable CA1859 // Use concrete types when possible for improved performance -- method is used as event callback
     private Task UserUpdatedAsync(SocketUser beforeUser, SocketUser afterUser)
-#pragma warning restore CA1859
     {
         var after = afterUser as SocketGuildUser;
         ulong guildId = after?.Guild.Id ?? 0;
