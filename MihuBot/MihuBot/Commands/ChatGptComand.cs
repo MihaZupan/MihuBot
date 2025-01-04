@@ -1,6 +1,4 @@
-﻿using Azure;
-using Azure.AI.OpenAI;
-using Discord.Rest;
+﻿using Discord.Rest;
 using MihuBot.Configuration;
 using OpenAI.Chat;
 using System.Runtime.InteropServices;
@@ -19,16 +17,14 @@ public sealed class ChatGptComand : CommandBase
     private readonly IConfigurationService _configurationService;
     private readonly string[] _commandAndAliases;
     private readonly Dictionary<ulong, ChatHistory> _chatHistory = new();
-    private readonly AzureOpenAIClient _openAI;
+    private readonly OpenAIService _openAI;
 
-    public ChatGptComand(Logger logger, IConfiguration configuration, IConfigurationService configurationService)
+    public ChatGptComand(Logger logger, IConfigurationService configurationService, OpenAIService openAI)
     {
         _logger = logger;
         _configurationService = configurationService;
+        _openAI = openAI;
         _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
-        _openAI = new AzureOpenAIClient(
-            new Uri("https://mihubotai8467177614.openai.azure.com"),
-            new AzureKeyCredential(configuration["AzureOpenAI:Key"]));
     }
 
     private sealed class ChatHistory
@@ -126,12 +122,7 @@ public sealed class ChatGptComand : CommandBase
             }
         }
 
-        if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.Deployment", out string deployment))
-        {
-            deployment = "gpt-4o";
-        }
-
-        ChatClient client = _openAI.GetChatClient(deployment);
+        ChatClient client = _openAI.GetChat(channel.Guild.Id);
 
         var options = new ChatCompletionOptions
         {

@@ -1,7 +1,4 @@
-﻿using Azure;
-using Azure.AI.OpenAI;
-using MihuBot.Configuration;
-using OpenAI.Chat;
+﻿using MihuBot.Configuration;
 using OpenAI.Images;
 using System.Security.Cryptography;
 
@@ -16,21 +13,13 @@ public sealed class ImagineCommand : CommandBase
 
     private readonly Logger _logger;
     private readonly IConfigurationService _configurationService;
-    private readonly AzureOpenAIClient _openAI;
-    private readonly AzureOpenAIClient _openAIChat;
+    private readonly OpenAIService _openAI;
 
-    public ImagineCommand(Logger logger, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<AzureOpenAIClient> openAI)
+    public ImagineCommand(Logger logger, IConfigurationService configurationService, OpenAIService openAI)
     {
         _logger = logger;
         _configurationService = configurationService;
-
-        _openAI = new AzureOpenAIClient(
-            new Uri("https://mihaz-m30zd4gd-eastus.openai.azure.com"),
-            new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"]));
-
-        _openAIChat = new AzureOpenAIClient(
-            new Uri("https://mihubotai8467177614.openai.azure.com"),
-            new AzureKeyCredential(configuration["AzureOpenAI:Key"]));
+        _openAI = openAI;
     }
 
     public override Task HandleAsync(MessageContext ctx)
@@ -73,19 +62,12 @@ public sealed class ImagineCommand : CommandBase
 
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.Deployment", out string chatDeployment))
-            {
-                chatDeployment = "gpt-4o";
-            }
-
             if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImagePromptPrompt", out string promptPrompt))
             {
                 promptPrompt = "What's a cool prompt for Dall-e 3? Please reply with only the prompt, without quotes.";
             }
 
-            ChatClient chatClient = _openAIChat.GetChatClient(chatDeployment);
-            ChatCompletion completion = (await chatClient.CompleteChatAsync(ChatMessage.CreateUserMessage(promptPrompt))).Value;
-            prompt = string.Concat(completion.Content.SelectMany(u => u.Text));
+            prompt = await _openAI.GetSimpleChatCompletionAsync(ctx.Guild.Id, promptPrompt);
         }
 
         GeneratedImageSize size = GeneratedImageSize.W1024xH1024;
@@ -103,12 +85,7 @@ public sealed class ImagineCommand : CommandBase
 
         _logger.DebugLog($"{nameof(ImagineCommand)} prompt: {prompt}");
 
-        if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImageDeployment", out string deployment))
-        {
-            deployment = "dall-e-3";
-        }
-
-        ImageClient client = _openAI.GetImageClient(deployment);
+        ImageClient client = _openAI.GetImage(ctx.Guild.Id);
 
         using var typing = ctx.Channel.EnterTypingState();
 

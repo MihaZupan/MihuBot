@@ -11,10 +11,10 @@ using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
 using MihuBot.Configuration;
 using MihuBot.Data;
+using MihuBot.Location;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
-using MihuBot.Weather;
 using Octokit;
 using SpotifyAPI.Web;
 using System.Runtime.InteropServices;
@@ -119,11 +119,15 @@ public class Startup
 
         services.AddSingleton<IConfigurationService, ConfigurationService>();
 
+        services.AddSingleton<OpenAIService>();
+
         services.AddSingleton<UrlShortenerService>();
 
         services.AddSingleton<ReminderService>();
 
-        services.AddSingleton<IWeatherService, WeatherService>();
+        services.AddSingleton<OpenWeatherClient>();
+
+        services.AddSingleton<LocationService>();
 
         services.AddSingleton<HetznerClient>();
 

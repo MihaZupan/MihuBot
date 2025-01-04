@@ -1,4 +1,4 @@
-﻿using MihuBot.Weather;
+﻿using MihuBot.Location;
 
 namespace MihuBot.Commands;
 
@@ -9,46 +9,43 @@ public sealed class WeatherCommand : CommandBase
     protected override TimeSpan Cooldown => TimeSpan.FromSeconds(30);
     protected override int CooldownToleranceCount => 60;
 
-    private readonly IWeatherService _weather;
-    private readonly SynchronizedLocalJsonStore<Dictionary<ulong, string>> _locations =
-        new SynchronizedLocalJsonStore<Dictionary<ulong, string>>("WeatherLocations.json");
+    private readonly OpenWeatherClient _openWeather;
+    private readonly LocationService _locationService;
 
-    public WeatherCommand(IWeatherService weather)
+    public WeatherCommand(OpenWeatherClient openWeather, LocationService locationService)
     {
-        _weather = weather ?? throw new ArgumentNullException(nameof(weather));
+        _openWeather = openWeather;
+        _locationService = locationService;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        string location = ctx.ArgumentString;
-        bool saved = false;
+        var location = string.IsNullOrEmpty(ctx.ArgumentString)
+            ? await _locationService.GetUserLocationAsync(ctx.AuthorId)
+            : await _locationService.FindUserLocationByQueryAsync(ctx.AuthorId, ctx.ArgumentString);
 
-        if (string.IsNullOrEmpty(location))
+        if (location is null)
         {
-            location = await _locations.QueryAsync(l => l.TryGetValue(ctx.AuthorId, out string loc) ? loc : null);
-            saved = true;
-
-            if (location is null)
+            if (string.IsNullOrEmpty(ctx.ArgumentString))
             {
                 await ctx.ReplyAsync("Please specify a location like `!weather Mars`");
-                return;
             }
+            else
+            {
+                await ctx.ReplyAsync("Sorry, couldn't find that");
+            }
+            return;
         }
 
-        WeatherData weather;
+        OpenWeatherClient.WeatherData weather;
         try
         {
-            string cityName = location;
-            if (long.TryParse(cityName, out long cityId))
-            {
-                cityName = null;
-            }
-
-            weather = await _weather.GetWeatherDataAsync(cityName, cityId);
+            weather = await _openWeather.GetWeatherAsync(location.Latitude, location.Longitude);
+            ArgumentNullException.ThrowIfNull(weather);
         }
         catch (Exception ex)
         {
-            ctx.DebugLog(ex, location);
+            ctx.DebugLog(ex, $"{location.Latitude} {location.Longitude}");
             await ctx.ReplyAsync("Sorry, couldn't find that", mention: true);
             return;
         }
@@ -75,19 +72,6 @@ public sealed class WeatherCommand : CommandBase
             .WithColor(color);
 
         await ctx.Channel.SendMessageAsync(embed: embed.Build());
-
-        if (!saved)
-        {
-            var locations = await _locations.EnterAsync();
-            try
-            {
-                locations[ctx.AuthorId] = weather.CityId.ToString();
-            }
-            finally
-            {
-                _locations.Exit();
-            }
-        }
     }
 
     private static double ToFahrenheit(double celsius) => (celsius * 1.8d) + 32;

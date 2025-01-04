@@ -45,7 +45,7 @@ public static class DbServiceCollectionExtensions
         Console.WriteLine($"Applying {typeof(TDbContext).Name} migrations ...");
 
         var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TDbContext>>();
-        await using var db = await factory.CreateDbContextAsync();
+        await using var db = factory.CreateDbContext();
 
         string path = GetDatabasePath<TDbContext>();
         string tempCopyPath = null;
