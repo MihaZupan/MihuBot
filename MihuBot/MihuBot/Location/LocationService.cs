@@ -2,6 +2,8 @@
 using MihuBot.DB;
 using System.ComponentModel.DataAnnotations;
 
+#nullable enable
+
 namespace MihuBot.Location;
 
 public sealed class LocationService
@@ -55,7 +57,16 @@ public sealed class LocationService
         };
 
         await using var context = _db.CreateDbContext();
-        context.UserLocation.Update(userLocation);
+
+        if (await context.UserLocation.FindAsync((long)userId) is not null)
+        {
+            context.UserLocation.Update(userLocation);
+        }
+        else
+        {
+            context.UserLocation.Add(userLocation);
+        }
+
         await context.SaveChangesAsync();
 
         return userLocation;
@@ -66,7 +77,7 @@ public sealed class LocationService
         [Key]
         public long UserId { get; set; }
 
-        public string Name { get; set; }
+        public string? Name { get; set; }
         public double Latitude { get; set; }
         public double Longitude { get; set; }
     }
