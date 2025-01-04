@@ -49,7 +49,7 @@ public sealed class TelegramService
         {
             try
             {
-                await _telegram.SetWebhookAsync(TelegramBotController.WebhookPath, secretToken: TelegramBotController.WebhookUpdateSecret);
+                await _telegram.SetWebhook(TelegramBotController.WebhookPath, secretToken: TelegramBotController.WebhookUpdateSecret);
             }
             catch (Exception ex)
             {
@@ -80,16 +80,16 @@ public sealed class TelegramService
 
                 if (extension is ".jpg" or ".png")
                 {
-                    await _telegram.SendPhotoAsync(Constants.MihuTelegramId, InputFile.FromUri(attachment.Url), caption: caption);
+                    await _telegram.SendPhoto(Constants.MihuTelegramId, InputFile.FromUri(attachment.Url), caption: caption);
                 }
                 else
                 {
-                    await _telegram.SendDocumentAsync(Constants.MihuTelegramId, InputFile.FromUri(attachment.Url), caption: caption);
+                    await _telegram.SendDocument(Constants.MihuTelegramId, InputFile.FromUri(attachment.Url), caption: caption);
                 }
             }
             else if (message.Content is string text && !string.IsNullOrEmpty(text))
             {
-                await _telegram.SendTextMessageAsync(Constants.MihuTelegramId, $"{author}{edited}: {text}");
+                await _telegram.SendMessage(Constants.MihuTelegramId, $"{author}{edited}: {text}");
             }
         }
         catch (Exception ex)
@@ -119,7 +119,7 @@ public sealed class TelegramService
 
                 if (await TryHandleMessageAsync(message))
                 {
-                    await _telegram.SendTextMessageAsync(message.Chat.Id, "Relayed");
+                    await _telegram.SendMessage(message.Chat.Id, "Relayed");
                 }
             }
         }
@@ -181,7 +181,7 @@ public sealed class TelegramService
 
             string newMessage = $"Mihu via Telegram: [Location](https://www.google.com/maps/place/{lat},{lon})";
 
-            if (uncertainty is not null && uncertainty > 1)
+            if (uncertainty is not null and > 1)
             {
                 newMessage += $" +/- {(int)uncertainty.Value} meters";
             }
@@ -197,16 +197,16 @@ public sealed class TelegramService
             {
                 googleMapsImageLink += $"&path={string.Join('|', _locationHistory.Select(l => $"{l.Lat},{l.Lon}"))}";
 
-                var prevLocation = _locationHistory[^2];
-                var currLocation = _locationHistory[^1];
+                (DateTime prevTimestamp, string prevLat, string prevLon) = _locationHistory[^2];
+                (DateTime curTimestamp, string curLat, string curLon) = _locationHistory[^1];
 
                 double lastDistanceMeters = GetDistanceMeters(
-                    double.Parse(prevLocation.Lon, CultureInfo.InvariantCulture),
-                    double.Parse(prevLocation.Lat, CultureInfo.InvariantCulture),
-                    double.Parse(currLocation.Lon, CultureInfo.InvariantCulture),
-                    double.Parse(currLocation.Lat, CultureInfo.InvariantCulture));
+                    double.Parse(prevLon, CultureInfo.InvariantCulture),
+                    double.Parse(prevLat, CultureInfo.InvariantCulture),
+                    double.Parse(curLon, CultureInfo.InvariantCulture),
+                    double.Parse(curLat, CultureInfo.InvariantCulture));
 
-                double timeDeltaHours = (currLocation.Timestamp - prevLocation.Timestamp).TotalHours;
+                double timeDeltaHours = (curTimestamp - prevTimestamp).TotalHours;
 
                 double speedKmph = lastDistanceMeters / 1000 / timeDeltaHours;
 
@@ -275,11 +275,11 @@ public sealed class TelegramService
     // https://stackoverflow.com/a/51839058/6845657
     private static double GetDistanceMeters(double longitude, double latitude, double otherLongitude, double otherLatitude)
     {
-        var d1 = latitude * (Math.PI / 180.0);
-        var num1 = longitude * (Math.PI / 180.0);
-        var d2 = otherLatitude * (Math.PI / 180.0);
-        var num2 = otherLongitude * (Math.PI / 180.0) - num1;
-        var d3 = Math.Pow(Math.Sin((d2 - d1) / 2.0), 2.0) + Math.Cos(d1) * Math.Cos(d2) * Math.Pow(Math.Sin(num2 / 2.0), 2.0);
+        double d1 = latitude * (Math.PI / 180.0);
+        double num1 = longitude * (Math.PI / 180.0);
+        double d2 = otherLatitude * (Math.PI / 180.0);
+        double num2 = (otherLongitude * (Math.PI / 180.0)) - num1;
+        double d3 = Math.Pow(Math.Sin((d2 - d1) / 2.0), 2.0) + (Math.Cos(d1) * Math.Cos(d2) * Math.Pow(Math.Sin(num2 / 2.0), 2.0));
 
         return 6376500.0 * (2.0 * Math.Atan2(Math.Sqrt(d3), Math.Sqrt(1.0 - d3)));
     }

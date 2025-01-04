@@ -737,7 +737,7 @@ dotnet_diagnostic.CA2312.severity = none
 dotnet_diagnostic.CA2315.severity = none
 
 # CA2321: Do not deserialize with JavaScriptSerializer using a SimpleTypeResolver
-dotnet_diagnostic.CA2321.severity = none
+dotnet_diagnostic.CA2321.severity = warning
 
 # CA2322: Ensure JavaScriptSerializer is not initialized with SimpleTypeResolver before deserializing
 dotnet_diagnostic.CA2322.severity = none
@@ -746,16 +746,16 @@ dotnet_diagnostic.CA2322.severity = none
 dotnet_diagnostic.CA2326.severity = none
 
 # CA2327: Do not use insecure JsonSerializerSettings
-dotnet_diagnostic.CA2327.severity = none
+dotnet_diagnostic.CA2327.severity = warning
 
 # CA2328: Ensure that JsonSerializerSettings are secure
-dotnet_diagnostic.CA2328.severity = none
+dotnet_diagnostic.CA2328.severity = warning
 
 # CA2329: Do not deserialize with JsonSerializer using an insecure configuration
-dotnet_diagnostic.CA2329.severity = none
+dotnet_diagnostic.CA2329.severity = warning
 
 # CA2330: Ensure that JsonSerializer has a secure configuration when deserializing
-dotnet_diagnostic.CA2330.severity = none
+dotnet_diagnostic.CA2330.severity = warning
 
 # CA2350: Do not use DataTable.ReadXml() with untrusted data
 dotnet_diagnostic.CA2350.severity = none
@@ -958,12 +958,6 @@ dotnet_diagnostic.CA5395.severity = none
 # CA5396: Set HttpOnly to true for HttpCookie
 dotnet_diagnostic.CA5396.severity = none
 
-# CA5397: Do not use deprecated SslProtocols values
-dotnet_diagnostic.CA5397.severity = none
-
-# CA5398: Avoid hardcoded SslProtocols values
-dotnet_diagnostic.CA5398.severity = none
-
 # CA5399: HttpClients should enable certificate revocation list checks
 dotnet_diagnostic.CA5399.severity = none
 
@@ -984,6 +978,9 @@ dotnet_diagnostic.CA5404.severity = none
 
 # CA5405: Do not always skip token validation in delegates
 dotnet_diagnostic.CA5405.severity = none
+
+# CS0618: 'member' is obsolete
+dotnet_diagnostic.CS0618.severity = error
 
 # IL3000: Avoid using accessing Assembly file path when publishing as a single-file
 dotnet_diagnostic.IL3000.severity = warning
@@ -1146,7 +1143,7 @@ dotnet_diagnostic.SA1000.severity = suggestion
 dotnet_diagnostic.SA1001.severity = warning
 
 # SA1002: Semicolons should not be preceded by a space
-dotnet_diagnostic.SA1002.severity = none
+dotnet_diagnostic.SA1002.severity = warning
 
 # SA1003: Operator should not appear at the end of a line
 dotnet_diagnostic.SA1003.severity = none
@@ -1188,10 +1185,10 @@ dotnet_diagnostic.SA1018.severity = warning
 dotnet_diagnostic.SA1020.severity = warning
 
 # SA1021: Negative sign should be preceded by a space
-dotnet_diagnostic.SA1021.severity = none
+dotnet_diagnostic.SA1021.severity = warning
 
 # SA1023: Dereference symbol '*' should not be preceded by a space."
-dotnet_diagnostic.SA1023.severity = none
+dotnet_diagnostic.SA1023.severity = warning
 
 # SA1024: Colon should be followed by a space
 dotnet_diagnostic.SA1024.severity = none
@@ -1269,7 +1266,7 @@ dotnet_diagnostic.SA1122.severity = none
 dotnet_diagnostic.SA1123.severity = none
 
 # SA1124: Do not use regions
-dotnet_diagnostic.SA1124.severity = none
+dotnet_diagnostic.SA1124.severity = warning
 
 # SA1125: Use shorthand for nullable types
 dotnet_diagnostic.SA1125.severity = none
@@ -1365,7 +1362,7 @@ dotnet_diagnostic.SA1300.severity = none
 dotnet_diagnostic.SA1302.severity = warning
 
 # SA1303: Const field names should begin with upper-case letter
-dotnet_diagnostic.SA1303.severity = none
+dotnet_diagnostic.SA1303.severity = warning
 
 # SA1304: Non-private readonly fields should begin with upper-case letter
 dotnet_diagnostic.SA1304.severity = none
@@ -1596,16 +1593,16 @@ dotnet_diagnostic.IDE0007.severity = silent
 dotnet_diagnostic.IDE0008.severity = suggestion
 
 # IDE0009: Add this or Me qualification
-dotnet_diagnostic.IDE0009.severity = silent
+dotnet_diagnostic.IDE0009.severity = none
 
 # IDE0010: Add missing cases
-dotnet_diagnostic.IDE0010.severity = silent
+dotnet_diagnostic.IDE0010.severity = warning
 
 # IDE0011: Add braces
 dotnet_diagnostic.IDE0011.severity = silent
 
 # IDE0016: Use 'throw' expression
-dotnet_diagnostic.IDE0016.severity = silent
+dotnet_diagnostic.IDE0016.severity = warning
 
 # IDE0017: Simplify object initialization
 dotnet_diagnostic.IDE0017.severity = suggestion
@@ -1668,7 +1665,7 @@ dotnet_diagnostic.IDE0035.severity = suggestion
 dotnet_diagnostic.IDE0036.severity = warning
 
 # IDE0037: Use inferred member name
-dotnet_diagnostic.IDE0037.severity = silent
+dotnet_diagnostic.IDE0037.severity = warning
 
 # IDE0038: Use pattern matching to avoid is check followed by a cast (without variable)
 dotnet_diagnostic.IDE0038.severity = suggestion
@@ -1683,7 +1680,7 @@ dotnet_diagnostic.IDE0040.severity = suggestion
 dotnet_diagnostic.IDE0041.severity = warning
 
 # IDE0042: Deconstruct variable declaration
-dotnet_diagnostic.IDE0042.severity = silent
+dotnet_diagnostic.IDE0042.severity = warning
 
 # IDE0043: Invalid format string
 dotnet_diagnostic.IDE0043.severity = warning
@@ -1698,10 +1695,10 @@ dotnet_diagnostic.IDE0045.severity = suggestion
 dotnet_diagnostic.IDE0046.severity = suggestion
 
 # IDE0047: Remove unnecessary parentheses
-dotnet_diagnostic.IDE0047.severity = silent
+dotnet_diagnostic.IDE0047.severity = warning
 
 # IDE0048: Add parentheses for clarity
-dotnet_diagnostic.IDE0048.severity = silent
+dotnet_diagnostic.IDE0048.severity = warning
 
 # IDE0049: Use language keywords instead of framework type names for type references
 dotnet_diagnostic.IDE0049.severity = warning
@@ -1737,14 +1734,11 @@ dotnet_diagnostic.IDE0059.severity = warning
 dotnet_diagnostic.IDE0060.severity = warning
 dotnet_code_quality_unused_parameters = non_public
 
-# IDE0061: Use expression body for local functions
-dotnet_diagnostic.IDE0061.severity = silent
-
 # IDE0062: Make local function 'static'
 dotnet_diagnostic.IDE0062.severity = warning
 
 # IDE0063: Use simple 'using' statement
-dotnet_diagnostic.IDE0063.severity = silent
+dotnet_diagnostic.IDE0063.severity = warning
 
 # IDE0064: Make readonly fields writable
 dotnet_diagnostic.IDE0064.severity = silent
@@ -1760,9 +1754,6 @@ dotnet_diagnostic.IDE0070.severity = suggestion
 
 # IDE0071: Simplify interpolation
 dotnet_diagnostic.IDE0071.severity = warning
-
-# IDE0072: Add missing cases
-dotnet_diagnostic.IDE0072.severity = silent
 
 # IDE0073: The file header is missing or not located at the top of the file
 dotnet_diagnostic.IDE0073.severity = warning
@@ -1780,28 +1771,22 @@ dotnet_diagnostic.IDE0076.severity = warning
 dotnet_diagnostic.IDE0077.severity = silent
 
 # IDE0078: Use pattern matching
-dotnet_diagnostic.IDE0078.severity = suggestion
+dotnet_diagnostic.IDE0078.severity = warning
 
 # IDE0079: Remove unnecessary suppression
-dotnet_diagnostic.IDE0079.severity = suggestion
+dotnet_diagnostic.IDE0079.severity = warning
 
 # IDE0080: Remove unnecessary suppression operator
 dotnet_diagnostic.IDE0080.severity = warning
-
-# IDE0081: Remove unnecessary suppression operator
-dotnet_diagnostic.IDE0081.severity = none
 
 # IDE0082: 'typeof' can be converted  to 'nameof'
 dotnet_diagnostic.IDE0082.severity = warning
 
 # IDE0083: Use pattern matching
-dotnet_diagnostic.IDE0083.severity = silent
+dotnet_diagnostic.IDE0083.severity = error
 
 # IDE0084: Use pattern matching (IsNot operator)
-dotnet_diagnostic.IDE0084.severity = none
-
-# IDE0090: Use 'new(...)'
-dotnet_diagnostic.IDE0090.severity = silent
+dotnet_diagnostic.IDE0084.severity = error
 
 # IDE0100: Remove redundant equality
 dotnet_diagnostic.IDE0100.severity = warning
@@ -1810,7 +1795,7 @@ dotnet_diagnostic.IDE0100.severity = warning
 dotnet_diagnostic.IDE0110.severity = warning
 
 # IDE0120: Simplify LINQ expression
-dotnet_diagnostic.IDE0120.severity = none
+dotnet_diagnostic.IDE0120.severity = warning
 
 # IDE0130: Namespace does not match folder structure
 dotnet_diagnostic.IDE0130.severity = silent
@@ -1819,7 +1804,7 @@ dotnet_diagnostic.IDE0130.severity = silent
 dotnet_diagnostic.IDE0140.severity = none
 
 # IDE0150: Prefer 'null' check over type check
-dotnet_diagnostic.IDE0150.severity = silent
+dotnet_diagnostic.IDE0150.severity = error
 
 # IDE0160: Convert to block scoped namespace
 dotnet_diagnostic.IDE0160.severity = silent
@@ -1837,7 +1822,7 @@ dotnet_diagnostic.IDE0180.severity = suggestion
 dotnet_diagnostic.IDE0200.severity = warning
 
 # IDE0210: Use top-level statements
-dotnet_diagnostic.IDE0210.severity = none
+dotnet_diagnostic.IDE0210.severity = error
 
 # IDE0211: Convert to 'Program.Main' style program
 dotnet_diagnostic.IDE0211.severity = none
