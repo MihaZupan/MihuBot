@@ -75,8 +75,8 @@ public sealed class CommandContext : MessageContext
         }
     }
 
-    public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger, IPermissionsService permissions)
-        : base(discord, message, logger)
+    public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger, IPermissionsService permissions, CancellationToken cancellationToken)
+        : base(discord, message, logger, cancellationToken)
     {
         Command = command ?? throw new ArgumentNullException(nameof(command));
         _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));

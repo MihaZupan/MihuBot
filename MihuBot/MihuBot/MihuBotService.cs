@@ -1,6 +1,7 @@
-﻿using MihuBot.Configuration;
-using MihuBot.Permissions;
+﻿using MihuBot.Permissions;
 using SharpCollections.Generic;
+using SpotifyAPI.Web;
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -14,6 +15,8 @@ public class MihuBotService : IHostedService
 
     private readonly CompactPrefixTree<CommandBase> _commands = new(ignoreCase: true);
     private readonly List<INonCommandHandler> _nonCommandHandlers = new();
+
+    private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _runningCommands = [];
 
     public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
     {
@@ -60,6 +63,24 @@ public class MihuBotService : IHostedService
                     }
                 }
             }
+
+            if (reaction.Emote?.Name == Emotes.RedCross.Name)
+            {
+                if (_runningCommands.TryRemove(reaction.MessageId, out CancellationTokenSource cts))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            cts.Cancel();
+                        }
+                        catch (Exception ex)
+                        {
+                            await _logger.DebugAsync($"Failure while cancelling running command: {ex}");
+                        }
+                    });
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -97,21 +118,34 @@ public class MihuBotService : IHostedService
 
             if (_commands.TryMatchExact(spaceIndex == -1 ? content.AsSpan(1) : content.AsSpan(1, spaceIndex - 1), out var match))
             {
-                var command = match.Value;
+                CommandBase command = match.Value;
 
-                var context = new CommandContext(_discord, message, match.Key, _logger, _permissions);
+                var cts = new CancellationTokenSource();
+                var context = new CommandContext(_discord, message, match.Key, _logger, _permissions, cts.Token);
 
                 if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
                 {
                     _ = Task.Run(async () =>
                     {
+                        _runningCommands.TryAdd(context.Message.Id, cts);
                         try
                         {
                             await command.ExecuteAsync(context);
                         }
                         catch (Exception ex)
                         {
-                            await context.DebugAsync(ex);
+                            if (cts.Token.IsCancellationRequested)
+                            {
+                                context.DebugLog($"Error during cancellation: {ex}");
+                            }
+                            else
+                            {
+                                await context.DebugAsync(ex);
+                            }
+                        }
+                        finally
+                        {
+                            _runningCommands.TryRemove(context.Message.Id, out _);
                         }
                     });
                 }
@@ -123,7 +157,8 @@ public class MihuBotService : IHostedService
         }
         else
         {
-            var messageContext = new MessageContext(_discord, message, _logger);
+            var cts = new CancellationTokenSource();
+            var messageContext = new MessageContext(_discord, message, _logger, cts.Token);
 
             foreach (var handler in _nonCommandHandlers)
             {
@@ -140,13 +175,25 @@ public class MihuBotService : IHostedService
                     {
                         _ = Task.Run(async () =>
                         {
+                            _runningCommands.TryAdd(messageContext.Message.Id, cts);
                             try
                             {
                                 await task;
                             }
                             catch (Exception ex)
                             {
-                                await messageContext.DebugAsync(ex);
+                                if (cts.Token.IsCancellationRequested)
+                                {
+                                    messageContext.DebugLog($"Error during cancellation: {ex}");
+                                }
+                                else
+                                {
+                                    await messageContext.DebugAsync(ex);
+                                }
+                            }
+                            finally
+                            {
+                                _runningCommands.TryRemove(messageContext.Message.Id, out _);
                             }
                         });
                     }

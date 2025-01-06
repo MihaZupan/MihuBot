@@ -89,20 +89,22 @@ public sealed class NclMentionsCommand : CommandBase
 
         List<Issue> issues = [];
 
-        foreach (var arg in ctx.Arguments)
+        foreach (string arg in ctx.Arguments)
         {
+            ctx.CancellationToken.ThrowIfCancellationRequested();
+
             if (GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number))
             {
                 issues.Add(await GitHub.Issue.Get("dotnet", "runtime", number));
             }
         }
 
-        int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray());
+        int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray(), ctx.CancellationToken);
 
         await ctx.ReplyAsync($"Subscribed to {subscribedTo} new issues");
     }
 
-    private async Task RescanAsync(SocketTextChannel channel, DateTimeOffset since, ItemStateFilter state)
+    private async Task RescanAsync(SocketTextChannel channel, DateTimeOffset since, ItemStateFilter state, CancellationToken cancellationToken = default)
     {
         foreach (string area in new string[] { "System.Net", "System.Net.Http", "System.Net.Security", "System.Net.Sockets", "System.Net.Quic", "Extensions-HttpClientFactory" })
         {
@@ -117,7 +119,7 @@ public sealed class NclMentionsCommand : CommandBase
 
             var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
 
-            int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray());
+            int subscribedTo = await SubscribeToRuntimeIssuesAsync(issues.ToArray(), cancellationToken);
 
             if (subscribedTo > 0)
             {
@@ -126,21 +128,23 @@ public sealed class NclMentionsCommand : CommandBase
         }
     }
 
-    private async Task<int> SubscribeToRuntimeIssuesAsync(Issue[] issues)
+    private async Task<int> SubscribeToRuntimeIssuesAsync(Issue[] issues, CancellationToken cancellationToken)
     {
-        var currentUser = await GitHub.User.Current();
+        User currentUser = await GitHub.User.Current();
 
         int counter = 0;
 
-        foreach (var issue in issues)
+        foreach (Issue issue in issues)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (await SubscribeToRuntimeIssueAsync(currentUser, issue))
             {
                 counter++;
-                await Task.Delay(2_000);
+                await Task.Delay(2_000, cancellationToken);
             }
 
-            await Task.Delay(10);
+            await Task.Delay(10, cancellationToken);
         }
 
         return counter;

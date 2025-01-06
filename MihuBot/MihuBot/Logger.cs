@@ -192,12 +192,7 @@ public sealed partial class Logger
 
                 string extension = Path.GetExtension(FilePath).ToLowerInvariant();
 
-                bool isImage =
-                    extension == ".jpg" ||
-                    extension == ".jpeg" ||
-                    extension == ".png" ||
-                    extension == ".gif" ||
-                    extension == ".webp";
+                bool isImage = extension is ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp";
 
                 AccessTier accessTier = extension switch
                 {
@@ -677,7 +672,7 @@ public sealed partial class Logger
         if (message is not SocketUserMessage userMessage)
             return Task.CompletedTask;
 
-        if (channelId == Channels.LogText || channelId == 750706839431413870ul || channelId == Channels.Files)
+        if (channelId is Channels.LogText or 750706839431413870ul or Channels.Files)
             return Task.CompletedTask;
 
         if (message.Author.Id != KnownUsers.MihuBot)

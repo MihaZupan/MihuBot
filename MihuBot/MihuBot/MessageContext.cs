@@ -33,13 +33,16 @@ public class MessageContext
         }
     }
 
-    public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger)
+    public MessageContext(DiscordSocketClient discord, SocketUserMessage message, Logger logger, CancellationToken cancellationToken)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Discord = discord ?? throw new ArgumentNullException(nameof(discord));
         Message = message ?? throw new ArgumentNullException(nameof(message));
         Content = message.Content.Trim();
+        CancellationToken = cancellationToken;
     }
+
+    public CancellationToken CancellationToken { get; private set; }
 
     public SocketTextChannel Channel => (SocketTextChannel)Message.Channel;
     public SocketGuild Guild => Message.Guild();
