@@ -8,72 +8,47 @@ public sealed class CommandContext : MessageContext
 
     private readonly IPermissionsService _permissions;
 
-    private string[] _arguments;
     public string[] Arguments
     {
         get
         {
-            if (_arguments is null)
+            if (field is null)
             {
-                var span = Content.AsSpan(Command.Length + 1);
-                int endOfLine = span.IndexOfAny('\n', '\r');
+                ReadOnlySpan<char> span = Content.AsSpan(Command.Length + 1);
+                int endOfLine = span.IndexOfAny('\r', '\n');
                 if (endOfLine != -1) span = span.Slice(0, endOfLine);
 
-                _arguments = span.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                field = span.Trim().ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             }
 
-            return _arguments;
+            return field;
         }
     }
 
-    private string _argumentString;
-    public string ArgumentString
-    {
-        get
-        {
-            if (_argumentString is null)
-            {
-                _argumentString = Content.Length <= Command.Length
-                    ? string.Empty
-                    : Content.AsSpan(Command.Length + 1).Trim().ToString();
-            }
+    public string ArgumentString =>
+        field ??= Content.Length <= Command.Length
+            ? string.Empty
+            : Content.AsSpan(Command.Length + 1).Trim().ToString();
 
-            return _argumentString;
-        }
-    }
-
-    private string[] _argumentLines;
     public string[] ArgumentLines
     {
         get
         {
-            if (_argumentLines is null)
+            if (field is null)
             {
                 string[] lines = ArgumentString.SplitLines();
 
                 for (int i = 0; i < lines.Length; i++)
                     lines[i] = lines[i].Trim();
 
-                _argumentLines = lines;
+                field = lines;
             }
 
-            return _argumentLines;
+            return field;
         }
     }
 
-    private string _argumentStringTrimmed;
-    public string ArgumentStringTrimmed
-    {
-        get
-        {
-            if (_argumentStringTrimmed is null)
-            {
-                _argumentStringTrimmed = string.Join('\n', ArgumentLines);
-            }
-
-            return _argumentStringTrimmed;
-        }
-    }
+    public string ArgumentStringTrimmed => field ??= string.Join('\n', ArgumentLines);
 
     public CommandContext(DiscordSocketClient discord, SocketUserMessage message, string command, Logger logger, IPermissionsService permissions, CancellationToken cancellationToken)
         : base(discord, message, logger, cancellationToken)
