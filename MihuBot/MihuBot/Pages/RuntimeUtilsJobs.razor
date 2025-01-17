@@ -44,7 +44,7 @@
         <p><small class="text-muted">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small></p>
     }
 
-    @if (_job.LastSystemInfo is { } info)
+    @if (!_job.Completed && _job.LastSystemInfo is { } info)
     {
         var cpuUsageCaption = $"CPU usage: {info.CpuUsagePercentage}% ({info.CpuUsage:N1} / {info.CpuCoresAvailable:N1} cores)";
         var memoryUsageCaption = $"Memory usage: {info.MemoryUsagePercentage}% ({info.MemoryUsageGB:N1} / {info.MemoryAvailableGB:N1} GB)";
