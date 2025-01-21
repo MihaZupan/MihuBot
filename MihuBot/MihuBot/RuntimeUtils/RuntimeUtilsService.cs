@@ -180,9 +180,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
 
         int consecutiveFailureCount = 0;
+        int runCounter = 0;
 
         while (await timer.WaitForNextTickAsync())
         {
+            runCounter++;
+
             try
             {
                 await TestRemoteServer(HttpVersion.Version11, "http://runtime-net-test-http11.mihubot.xyz/stats");
@@ -195,7 +198,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             {
                 consecutiveFailureCount++;
 
-                string message = $"{nameof(MonitorRuntimeTestServiceAsync)} ({consecutiveFailureCount}): {ex}";
+                string message = $"[{runCounter}] {nameof(MonitorRuntimeTestServiceAsync)} ({consecutiveFailureCount}): {ex}";
 
                 if (consecutiveFailureCount == 3 || consecutiveFailureCount % 1000 == 0) // Every ~3 hours
                 {
@@ -235,7 +238,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
             string response = await client.GetStringAsync(url);
 
-            Logger.DebugLog($"{url}:\n{response}\n{certString}");
+            if (runCounter % 10 == 0)
+            {
+                Logger.DebugLog($"[{runCounter}] {url}:\n{response}\n{certString}");
+            }
         }
     }
 
