@@ -98,6 +98,12 @@ public sealed partial class Logger
         Discord.GuildUnavailable += GuildUnavailableAsync;
         Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
 
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            _ = DebugAsync($"UnobservedTaskException: {e.Exception}");
+            e.SetObserved();
+        };
+
         _ = Task.Run(async () =>
         {
             using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
@@ -403,13 +409,13 @@ public sealed partial class Logger
 
     public async Task DebugAsync(string debugMessage, SocketUserMessage message = null, bool truncateToFile = false)
     {
-        DebugLog(debugMessage, message);
-
-        lock (Console.Out)
-            Console.WriteLine("DEBUG: " + debugMessage);
-
         try
         {
+            DebugLog(debugMessage, message);
+
+            lock (Console.Out)
+                Console.WriteLine("DEBUG: " + debugMessage);
+
             if (debugMessage.Length >= 2000)
             {
                 if (truncateToFile)

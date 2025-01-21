@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using Octokit;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
@@ -165,12 +167,77 @@ public sealed partial class RuntimeUtilsService : IHostedService
         using (ExecutionContext.SuppressFlow())
         {
             _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
+            _ = Task.Run(MonitorRuntimeTestServiceAsync, CancellationToken.None);
         }
 
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private async Task MonitorRuntimeTestServiceAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+
+        int consecutiveFailureCount = 0;
+
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
+            {
+                await TestRemoteServer(HttpVersion.Version11, "http://runtime-net-test-http11.mihubot.xyz/stats");
+                await TestRemoteServer(HttpVersion.Version11, "https://runtime-net-test-http11.mihubot.xyz/stats");
+                await TestRemoteServer(HttpVersion.Version20, "https://runtime-net-test-http2.mihubot.xyz/stats");
+
+                consecutiveFailureCount = 0;
+            }
+            catch (Exception ex)
+            {
+                consecutiveFailureCount++;
+
+                string message = $"{nameof(MonitorRuntimeTestServiceAsync)} ({consecutiveFailureCount}): {ex}";
+
+                if (consecutiveFailureCount == 3 || consecutiveFailureCount % 1000 == 0) // Every ~3 hours
+                {
+                    await Logger.DebugAsync(message);
+                }
+                else
+                {
+                    Logger.DebugLog(message);
+                }
+            }
+        }
+
+        async Task TestRemoteServer(Version version, string url)
+        {
+            string certString = null;
+
+            using var handler = new SocketsHttpHandler();
+            handler.SslOptions.RemoteCertificateValidationCallback = (_, cert, _, errors) =>
+            {
+                if (cert is X509Certificate2 cert2)
+                {
+                    if (cert2.NotAfter - DateTime.UtcNow < TimeSpan.FromDays(2))
+                    {
+                        throw new Exception($"Certificate expires on {cert2.NotAfter}");
+                    }
+
+                    certString = cert2.ToString();
+                }
+
+                return errors == SslPolicyErrors.None;
+            };
+
+            using var client = new HttpClient(handler)
+            {
+                DefaultRequestVersion = version
+            };
+
+            string response = await client.GetStringAsync(url);
+
+            Logger.DebugLog($"{url}:\n{response}\n{certString}");
+        }
+    }
 
     private async Task WatchForGitHubMentionsAsync()
     {
