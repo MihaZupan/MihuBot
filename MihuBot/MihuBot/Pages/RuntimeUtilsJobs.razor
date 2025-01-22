@@ -13,7 +13,7 @@
         <div>Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
     }
 
-    @if (_job.Completed)
+    @if (_completedJob is not null)
     {
         <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
     }

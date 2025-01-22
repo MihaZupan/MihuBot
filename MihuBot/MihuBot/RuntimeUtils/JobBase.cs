@@ -148,6 +148,7 @@ public abstract class JobBase
     protected bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     protected string Architecture => UseArm ? "ARM64" : "X64";
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
+    protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
 
     protected bool ShouldMentionJobInitiator { get; set; }
 
@@ -685,7 +686,7 @@ public abstract class JobBase
 
     protected async Task RunOnNewVirtualMachineAsync(int defaultAzureCoreCount, CancellationToken jobTimeout)
     {
-        string startupScript =
+        string linuxStartupScript =
             $"""
             apt-get update
             apt-get install -y dotnet-sdk-6.0 dotnet-sdk-8.0
@@ -695,27 +696,41 @@ public abstract class JobBase
             HOME=/root JOB_ID={JobId} dotnet run -c Release
             """;
 
+        string windowsStartupScript =
+            $"""
+            git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
+            cd runtime-utils/Runner
+
+            Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile 'dotnet-install.ps1'
+            ./dotnet-install.ps1 -Verbose -Channel '8.0' -InstallDir dotnet-install
+
+            $env:JOB_ID = '{JobId}';
+            dotnet-install/dotnet run -c Release
+            """;
+
         string cloudInitScript =
             $"""
             #cloud-config
                 runcmd:
             """;
-        cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', startupScript.SplitLines().Select(line => $"        - {line}"))}";
+        cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', linuxStartupScript.SplitLines().Select(line => $"        - {line}"))}";
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
         bool useHetzner =
             GetConfigFlag("ForceHetzner", false) ||
             CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
-        bool useHelix = CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
+        bool useHelix =
+            CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase) ||
+            UseWindows;
 
-        if (useHetzner)
-        {
-            await RunHetznerVirtualMachineAsync(jobTimeout);
-        }
-        else if (useHelix)
+        if (useHelix)
         {
             await RunAsHelixJobAsync(jobTimeout);
+        }
+        else if (useHetzner)
+        {
+            await RunHetznerVirtualMachineAsync(jobTimeout);
         }
         else
         {
@@ -861,7 +876,9 @@ public abstract class JobBase
 
         async Task RunAsHelixJobAsync(CancellationToken jobTimeout)
         {
-            string queueId = UseArm ? "ubuntu.2204.armarch.open" : "ubuntu.2204.amd64.open";
+            string queueId = UseWindows
+                ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open")
+                : (UseArm ? "ubuntu.2204.armarch.open" : "ubuntu.2204.amd64.open");
 
             LogsReceived($"Submitting a Helix job ({queueId}) ...");
 
@@ -873,8 +890,8 @@ public abstract class JobBase
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}")
                 .DefineWorkItem("runner")
-                .WithCommand("start-runner.sh")
-                .WithSingleFilePayload("start-runner.sh", startupScript)
+                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "./start-runner.sh")
+                .WithSingleFilePayload(UseWindows ? "start-runner.ps1" : "start-runner.sh", UseWindows ? windowsStartupScript : linuxStartupScript)
                 .AttachToJob()
                 .SendAsync(cancellationToken: jobTimeout);
 
@@ -923,7 +940,7 @@ public abstract class JobBase
                         }
                     }
                 }
-                catch { }
+                catch when (_idleTimeoutCts.IsCancellationRequested) { }
 
                 await JobCompletionTcs.Task.WaitAsync(jobTimeout);
             }
