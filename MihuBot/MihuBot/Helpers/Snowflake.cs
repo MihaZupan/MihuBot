@@ -52,14 +52,19 @@ public static class Snowflake
         return true;
     }
 
-    public static DateTimeOffset FromSnowflake(ReadOnlySpan<char> snowflakeString)
+    public static ulong FromString(ReadOnlySpan<char> snowflakeString)
     {
         if (!TryGetFromString(snowflakeString, out ulong snowflake))
         {
             throw new ArgumentException("Invalid snowflake string", nameof(snowflakeString));
         }
 
-        return SnowflakeUtils.FromSnowflake(snowflake);
+        return snowflake;
+    }
+
+    public static DateTimeOffset FromSnowflake(ReadOnlySpan<char> snowflakeString)
+    {
+        return SnowflakeUtils.FromSnowflake(FromString(snowflakeString));
     }
 
     private sealed class State

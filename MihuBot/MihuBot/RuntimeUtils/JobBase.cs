@@ -11,6 +11,7 @@ using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
 using Octokit;
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using static MihuBot.Helpers.HetznerClient;
 
@@ -871,12 +872,12 @@ public abstract class JobBase
                 .WithType($"MihuBot/runtime-utils/{JobType}")
                 .WithTargetQueue(queueId)
                 .WithCreator("MihuBot")
-                .WithSource(ProgressDashboardUrl)
+                .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}")
                 .DefineWorkItem("runner")
                 .WithCommand("start-runner.sh")
                 .WithSingleFilePayload("start-runner.sh", startupScript)
                 .AttachToJob()
-                .SendAsync(log => LogsReceived($"[Helix] {log}"), jobTimeout);
+                .SendAsync(cancellationToken: jobTimeout);
 
             try
             {
@@ -893,16 +894,33 @@ public abstract class JobBase
                     {
                         JobDetails details = await api.Job.DetailsAsync(job.CorrelationId, jobTimeout);
 
-                        if (details.WorkItems.Waiting == 0 && details.WorkItems.Unscheduled == 0)
+                        if (details.WorkItems.Waiting > 0 || details.WorkItems.Unscheduled > 0)
                         {
-                            break;
+                            LogsReceived($"Waiting for Helix job to start ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
+
+                            if (jobDelayStopwatch.ElapsedMilliseconds > IdleTimeoutMs * 10)
+                            {
+                                _idleTimeoutCts.Cancel();
+                            }
+
+                            continue;
                         }
 
-                        LogsReceived($"Waiting for Helix job to start ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
-
-                        if (jobDelayStopwatch.ElapsedMilliseconds > IdleTimeoutMs * 10)
+                        if (details.WorkItems.Running == 0)
                         {
-                            _idleTimeoutCts.Cancel();
+                            LogsReceived("No more running Helix work items.");
+
+                            IImmutableList<WorkItemSummary> workItems = await api.WorkItem.ListAsync(job.CorrelationId, jobTimeout);
+
+                            foreach (WorkItemSummary workItem in workItems)
+                            {
+                                if (string.Equals(workItem.State, "Failed", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    LogsReceived($"Helix work item failed: {workItem.DetailsUrl}");
+                                }
+                            }
+
+                            break;
                         }
                     }
                 }
