@@ -255,20 +255,16 @@ public abstract class JobBase
                 _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
             }
 
-            try
-            {
-                await RunJobAsyncCore(jobTimeout);
-            }
-            catch (TaskCanceledException) when (_manuallyCancelled) { }
-            finally
-            {
-                LastSystemInfo = null;
-            }
+            await RunJobAsyncCore(jobTimeout);
+
+            LastSystemInfo = null;
 
             await SaveLogsArtifactAsync();
         }
         catch (Exception ex)
         {
+            LastSystemInfo = null;
+
             LogsReceived($"Uncaught exception: {ex}");
 
             try
@@ -277,7 +273,10 @@ public abstract class JobBase
             }
             catch { }
 
-            await Logger.DebugAsync(ex.ToString());
+            if (!_manuallyCancelled)
+            {
+                await Logger.DebugAsync(ex.ToString());
+            }
 
             await UpdateIssueBodyAsync(
                 $"""
