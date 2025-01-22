@@ -7,6 +7,8 @@ using Azure.ResourceManager.Resources.Models;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
+using Microsoft.DotNet.Helix.Client;
+using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
 using Octokit;
 using System.Runtime.CompilerServices;
@@ -54,6 +56,8 @@ public abstract class JobBase
     public string JobTitle => _jobTitle ??= PullRequest is null
         ? $"[{JobTitlePrefix}] {Metadata["PrRepo"]}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99)
         : $"[{JobTitlePrefix}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+
+    private string JobType => GetType().Name;
 
     public abstract string JobTitlePrefix { get; }
 
@@ -128,7 +132,7 @@ public abstract class JobBase
         Metadata.Add("PrRepo", prRepo);
         Metadata.Add("PrBranch", prBranch);
         Metadata.Add("CustomArguments", arguments);
-        Metadata.Add("JobType", GetType().Name);
+        Metadata.Add("JobType", JobType);
         Metadata.Add("JobStartTime", StartTime.Ticks.ToString());
 
         var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
@@ -681,27 +685,37 @@ public abstract class JobBase
 
     protected async Task RunOnNewVirtualMachineAsync(int defaultAzureCoreCount, CancellationToken jobTimeout)
     {
+        string startupScript =
+            $"""
+            apt-get update
+            apt-get install -y dotnet-sdk-6.0 dotnet-sdk-8.0
+            cd /home
+            git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
+            cd runtime-utils/Runner
+            HOME=/root JOB_ID={JobId} dotnet run -c Release
+            """;
+
         string cloudInitScript =
             $"""
             #cloud-config
                 runcmd:
-                    - apt-get update
-                    - apt-get install -y dotnet-sdk-6.0
-                    - apt-get install -y dotnet-sdk-8.0
-                    - cd /home
-                    - git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-                    - cd runtime-utils/Runner
-                    - HOME=/root JOB_ID={JobId} dotnet run -c Release
             """;
+        cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', startupScript.SplitLines().Select(line => $"        - {line}"))}";
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
         bool useHetzner =
             GetConfigFlag("ForceHetzner", false) ||
             CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
+        bool useHelix = CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
+
         if (useHetzner)
         {
             await RunHetznerVirtualMachineAsync(jobTimeout);
+        }
+        else if (useHelix)
+        {
+            await RunAsHelixJobAsync(jobTimeout);
         }
         else
         {
@@ -841,6 +855,71 @@ public abstract class JobBase
                 else
                 {
                     LogsReceived("Configuration opted not to delete the VM");
+                }
+            }
+        }
+
+        async Task RunAsHelixJobAsync(CancellationToken jobTimeout)
+        {
+            string queueId = UseArm ? "ubuntu.2204.armarch.open" : "ubuntu.2204.amd64.open";
+
+            LogsReceived($"Submitting a Helix job ({queueId}) ...");
+
+            IHelixApi api = ApiFactory.GetAnonymous();
+
+            ISentJob job = await api.Job.Define()
+                .WithType($"MihuBot/runtime-utils/{JobType}")
+                .WithTargetQueue(queueId)
+                .WithCreator("MihuBot")
+                .WithSource(ProgressDashboardUrl)
+                .DefineWorkItem("runner")
+                .WithCommand("start-runner.sh")
+                .WithSingleFilePayload("start-runner.sh", startupScript)
+                .AttachToJob()
+                .SendAsync(log => LogsReceived($"[Helix] {log}"), jobTimeout);
+
+            try
+            {
+                Stopwatch jobDelayStopwatch = Stopwatch.StartNew();
+
+                JobSummary summary = await api.Job.SummaryAsync(job.CorrelationId, jobTimeout);
+                LogsReceived($"Job queued {summary.DetailsUrl} ...");
+
+                try
+                {
+                    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+
+                    while (!JobCompletionTcs.Task.IsCompleted && await timer.WaitForNextTickAsync(jobTimeout))
+                    {
+                        JobDetails details = await api.Job.DetailsAsync(job.CorrelationId, jobTimeout);
+
+                        if (details.WorkItems.Waiting == 0 && details.WorkItems.Unscheduled == 0)
+                        {
+                            break;
+                        }
+
+                        LogsReceived($"Waiting for Helix job to start ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
+
+                        if (jobDelayStopwatch.ElapsedMilliseconds > IdleTimeoutMs * 10)
+                        {
+                            _idleTimeoutCts.Cancel();
+                        }
+                    }
+                }
+                catch { }
+
+                await JobCompletionTcs.Task.WaitAsync(jobTimeout);
+            }
+            finally
+            {
+                if (_idleTimeoutCts.IsCancellationRequested)
+                {
+                    LogsReceived("Cancelling the Helix job");
+
+                    QueueResourceDeletion(async () =>
+                    {
+                        await api.Job.CancelAsync(job.CorrelationId, job.HelixCancellationToken, CancellationToken.None);
+                    }, job.CorrelationId);
                 }
             }
         }
