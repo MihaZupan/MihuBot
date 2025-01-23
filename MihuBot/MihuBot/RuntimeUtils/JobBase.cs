@@ -698,6 +698,7 @@ public abstract class JobBase
 
         string windowsStartupScript =
             $"""
+            winget install -e --id Git.Git
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
 
@@ -890,7 +891,7 @@ public abstract class JobBase
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}")
                 .DefineWorkItem("runner")
-                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "./start-runner.sh")
+                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s ./start-runner.sh")
                 .WithSingleFilePayload(UseWindows ? "start-runner.ps1" : "start-runner.sh", UseWindows ? windowsStartupScript : linuxStartupScript)
                 .AttachToJob()
                 .SendAsync(cancellationToken: jobTimeout);
