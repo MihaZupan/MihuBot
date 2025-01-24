@@ -230,10 +230,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 return errors == SslPolicyErrors.None;
             };
+            handler.ConnectTimeout = TimeSpan.FromSeconds(3);
 
             using var client = new HttpClient(handler)
             {
-                DefaultRequestVersion = version
+                DefaultRequestVersion = version,
+                Timeout = TimeSpan.FromSeconds(5),
             };
 
             string response = await client.GetStringAsync(url);
