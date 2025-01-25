@@ -224,14 +224,25 @@ public abstract class JobBase
             using var jobTimeoutCts = new CancellationTokenSource(MaxJobDuration);
             var jobTimeout = jobTimeoutCts.Token;
 
-            using var ctsReg = _idleTimeoutCts.Token.Register(() =>
+            using var idleCtsReg = _idleTimeoutCts.Token.Register(() =>
             {
                 if (FirstErrorMessage is null)
                 {
-                    LogsReceived("Job idle timeout exceeded, terminating ...");
+                    _firstErrorMessage = "Job idle timeout exceeded, terminating ...";
+                    LogsReceived(FirstErrorMessage);
                 }
 
                 jobTimeoutCts.Cancel();
+            });
+
+            using var jobTimeoutReg = jobTimeout.Register(() =>
+            {
+                if (FirstErrorMessage is null)
+                {
+                    _firstErrorMessage = "Job duration exceeded, terminating ...";
+                    LogsReceived(FirstErrorMessage);
+                }
+
                 JobCompletionTcs.TrySetCanceled();
             });
 
@@ -689,7 +700,7 @@ public abstract class JobBase
         string linuxStartupScript =
             $"""
             apt-get update
-            apt-get install -y dotnet-sdk-6.0 dotnet-sdk-8.0
+            apt-get install -y dotnet-sdk-8.0
             cd /home
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
@@ -805,7 +816,7 @@ public abstract class JobBase
                     RemoteLoginCredentials = $"ssh runner@{ip.Data.IPAddress}  {password}";
                 }
 
-                await JobCompletionTcs.Task.WaitAsync(jobTimeout);
+                await JobCompletionTcs.Task;
             }
             finally
             {
@@ -855,7 +866,7 @@ public abstract class JobBase
                     RemoteLoginCredentials = $"ssh root@{ip}  {server.RootPassword}";
                 }
 
-                await JobCompletionTcs.Task.WaitAsync(jobTimeout);
+                await JobCompletionTcs.Task;
             }
             finally
             {
@@ -889,9 +900,9 @@ public abstract class JobBase
                 .WithType($"MihuBot/runtime-utils/{JobType}")
                 .WithTargetQueue(queueId)
                 .WithCreator("MihuBot")
-                .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}")
+                .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
                 .DefineWorkItem("runner")
-                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s ./start-runner.sh")
+                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
                 .WithSingleFilePayload(UseWindows ? "start-runner.ps1" : "start-runner.sh", UseWindows ? windowsStartupScript : linuxStartupScript)
                 .AttachToJob()
                 .SendAsync(cancellationToken: jobTimeout);
@@ -923,27 +934,16 @@ public abstract class JobBase
                             continue;
                         }
 
-                        if (details.WorkItems.Running == 0)
+                        if (details.WorkItems.Running == 0 && details.WorkItems.Finished > 0)
                         {
                             LogsReceived("No more running Helix work items.");
-
-                            IImmutableList<WorkItemSummary> workItems = await api.WorkItem.ListAsync(job.CorrelationId, jobTimeout);
-
-                            foreach (WorkItemSummary workItem in workItems)
-                            {
-                                if (string.Equals(workItem.State, "Failed", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    LogsReceived($"Helix work item failed: {workItem.DetailsUrl}");
-                                }
-                            }
-
                             break;
                         }
                     }
                 }
                 catch when (_idleTimeoutCts.IsCancellationRequested) { }
 
-                await JobCompletionTcs.Task.WaitAsync(jobTimeout);
+                await JobCompletionTcs.Task;
             }
             finally
             {
