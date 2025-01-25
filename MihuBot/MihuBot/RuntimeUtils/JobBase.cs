@@ -440,11 +440,15 @@ public abstract class JobBase
             ? $" (remote runner delay: {(InitialRemoteRunnerContact.Value - StartTime).ToElapsedTime(true)})"
             : string.Empty;
 
+        string customArguments = !string.IsNullOrWhiteSpace(CustomArguments)
+            ? $"Using arguments: ````{CustomArguments}````"
+            : string.Empty;
+
         await UpdateIssueBodyAsync(
             $$"""
             [Job]({{ProgressDashboardUrl}}) completed in {{GetElapsedTime()}}{{runnerDelay}}.
             {{(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}}
-            Using arguments: ````{{CustomArguments}}````
+            {{customArguments}}
             {{error}}
 
             {{customInfo}}
