@@ -44,4 +44,10 @@
     <EditorConfigFiles Include="$(MSBuildThisFileDirectory)..\CodeAnalysis.globalconfig" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Update="credentials.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
