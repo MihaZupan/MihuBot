@@ -135,6 +135,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
+    public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     public readonly UrlShortenerService UrlShortener;
     private readonly IDbContextFactory<MihuBotDbContext> _db;
 
@@ -159,6 +160,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
             RunnerPersistentStateBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "runner-persistent");
+
+            JitDiffExtraAssembliesBlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                "jitdiff-extra-assemblies");
         }
     }
 

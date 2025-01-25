@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using Azure.Storage.Sas;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -21,6 +22,15 @@ public sealed class JitDiffJob : JobBase
     public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
+
+    protected override Task InitializeAsync(CancellationToken jobTimeout)
+    {
+        var containerClient = Parent.JitDiffExtraAssembliesBlobContainerClient;
+        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
+        Metadata.Add("JitDiffExtraAssembliesSasUri", sasUri.AbsoluteUri);
+
+        return Task.CompletedTask;
+    }
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {

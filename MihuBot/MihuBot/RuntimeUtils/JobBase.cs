@@ -19,7 +19,7 @@ namespace MihuBot.RuntimeUtils;
 
 public abstract class JobBase
 {
-    private static readonly TimeSpan MaxJobDuration = TimeSpan.FromHours(5);
+    protected static readonly TimeSpan MaxJobDuration = TimeSpan.FromHours(5);
 
     protected const string IssueRepositoryOwner = "MihuBot";
     protected const string IssueRepositoryName = "runtime-utils";
