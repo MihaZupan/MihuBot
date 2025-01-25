@@ -43,28 +43,15 @@ public sealed class BenchmarkLibrariesJob : JobBase
             }
         }
 
-        string error = FirstErrorMessage is { } message
-            ? $"\n```\n{message}\n```\n"
-            : string.Empty;
-
-        await UpdateIssueBodyAsync(
-            $"""
-            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            Using arguments: ````{CustomArguments}````
-            {error}
-            {resultsMarkdown}
-            {GetArtifactList()}
-            """);
+        await SetFinalTrackingIssueBodyAsync(resultsMarkdown);
 
         if (!string.IsNullOrEmpty(resultsMarkdown) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
             PullRequest is not null)
         {
-            ShouldMentionJobInitiator = false;
-
             await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, resultsMarkdown);
+            ShouldMentionJobInitiator = false;
         }
     }
 

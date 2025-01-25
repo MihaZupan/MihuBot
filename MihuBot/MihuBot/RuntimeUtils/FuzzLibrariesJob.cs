@@ -26,10 +26,6 @@ public sealed class FuzzLibrariesJob : JobBase
     {
         await JobCompletionTcs.Task;
 
-        string error = FirstErrorMessage is { } message
-            ? $"\n```\n{message}\n```\n"
-            : string.Empty;
-
         string errorStackTraces = string.Empty;
         if (_errorStackTraces.Count > 0)
         {
@@ -44,14 +40,10 @@ public sealed class FuzzLibrariesJob : JobBase
             errorStackTraces = $"\n{errorStackTraces}\n";
         }
 
-        await UpdateIssueBodyAsync(
+        await SetFinalTrackingIssueBodyAsync(
             $"""
-            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            {error}
             {errorStackTraces}
-            {(string.IsNullOrEmpty(error) && string.IsNullOrEmpty(errorStackTraces) ? "Ran the fuzzer(s) successfully." : "")}
-            {GetArtifactList()}
+            {(FirstErrorMessage is null && string.IsNullOrEmpty(errorStackTraces) ? "Ran the fuzzer(s) successfully." : "")}
             """);
 
         if (!string.IsNullOrEmpty(errorStackTraces) &&
@@ -59,13 +51,11 @@ public sealed class FuzzLibrariesJob : JobBase
             ShouldMentionJobInitiator &&
             PullRequest is not null)
         {
-            ShouldMentionJobInitiator = false;
-
             string artifacts;
             lock (Artifacts)
             {
                 artifacts = string.Join('\n', _errorStackTraces
-                    .Select(error => Artifacts.Where(a => a.FileName == $"{error.Key}-input.bin").FirstOrDefault())
+                    .Select(error => Artifacts.FirstOrDefault(a => a.FileName == $"{error.Key}-input.bin"))
                     .Where(error => error.Url is not null)
                     .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
             }
@@ -76,6 +66,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
                 {artifacts}
                 """);
+
+            ShouldMentionJobInitiator = false;
         }
 
         if (string.IsNullOrEmpty(errorStackTraces) &&

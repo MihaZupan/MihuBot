@@ -20,19 +20,9 @@ public sealed class RebaseJob : JobBase
     {
         await JobCompletionTcs.Task;
 
-        string error = FirstErrorMessage is { } message
-            ? $"\n```\n{message}\n```\n"
-            : string.Empty;
+        await SetFinalTrackingIssueBodyAsync();
 
-        await UpdateIssueBodyAsync(
-            $"""
-            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            {error}
-            {GetArtifactList()}
-            """);
-
-        if (string.IsNullOrEmpty(error))
+        if (FirstErrorMessage is null)
         {
             ShouldMentionJobInitiator = false;
         }

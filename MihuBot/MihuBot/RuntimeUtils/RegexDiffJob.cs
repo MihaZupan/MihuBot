@@ -165,15 +165,7 @@ public sealed partial class RegexDiffJob : JobBase
             ? $"\n```\n{message}\n```\n"
             : string.Empty;
 
-        await UpdateIssueBodyAsync(
-            $"""
-            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            Using arguments: ````{CustomArguments}````
-            {error}
-            {resultsMarkdown}
-            {GetArtifactList()}
-            """);
+        await SetFinalTrackingIssueBodyAsync(resultsMarkdown);
 
         if (!string.IsNullOrEmpty(resultsMarkdown) &&
             ShouldLinkToPROrBranch &&

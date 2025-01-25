@@ -54,13 +54,7 @@ public sealed partial class BackportJob : JobBase
             ? $"\n```\n{message}\n```\n"
             : string.Empty;
 
-        await UpdateIssueBodyAsync(
-            $"""
-            [Job]({ProgressDashboardUrl}) completed in {GetElapsedTime()}.
-            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-            {error}
-            {GetArtifactList()}
-            """);
+        await SetFinalTrackingIssueBodyAsync();
 
         if (string.IsNullOrEmpty(error))
         {

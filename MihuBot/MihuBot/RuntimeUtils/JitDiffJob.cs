@@ -51,14 +51,7 @@ public sealed class JitDiffJob : JobBase
 
         bool gotAnyDiffs = _frameworksDiffSummary is not null;
 
-        await UpdateIssueBodyAsync(
-            $$"""
-            [Job]({{ProgressDashboardUrl}}) completed in {{GetElapsedTime()}}.
-            {{(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}}
-
-            {{(gotAnyDiffs ? frameworksDiffs : "")}}
-            {{GetArtifactList()}}
-            """);
+        await SetFinalTrackingIssueBodyAsync(gotAnyDiffs ? frameworksDiffs : "");
 
         if (gotAnyDiffs && ShouldPostDiffsComment)
         {

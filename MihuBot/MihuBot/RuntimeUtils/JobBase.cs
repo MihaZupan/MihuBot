@@ -73,6 +73,7 @@ public abstract class JobBase
 
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public DateTime? InitialRemoteRunnerContact { get; set; }
     public SystemHardwareInfo LastSystemInfo { get; set; }
     public string LastProgressSummary { get; set; }
 
@@ -422,11 +423,34 @@ public abstract class JobBase
         return $"{size} B";
     }
 
-    protected async Task UpdateIssueBodyAsync(string newBody)
+    private async Task UpdateIssueBodyAsync(string newBody)
     {
         IssueUpdate update = TrackingIssue.ToUpdate();
         update.Body = newBody;
         await Github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, update);
+    }
+
+    protected async Task SetFinalTrackingIssueBodyAsync(string customInfo = "")
+    {
+        string error = FirstErrorMessage is { } message
+            ? $"\n```\n{message}\n```\n"
+            : string.Empty;
+
+        string runnerDelay = InitialRemoteRunnerContact.HasValue
+            ? $" (remote runner delay: {(InitialRemoteRunnerContact.Value - StartTime).ToElapsedTime(true)})"
+            : string.Empty;
+
+        await UpdateIssueBodyAsync(
+            $$"""
+            [Job]({{ProgressDashboardUrl}}) completed in {{GetElapsedTime()}}{{runnerDelay}}.
+            {{(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}}
+            Using arguments: ````{{CustomArguments}}````
+            {{error}}
+
+            {{customInfo}}
+
+            {{GetArtifactList()}}
+            """);
     }
 
     protected string GetArtifactList()

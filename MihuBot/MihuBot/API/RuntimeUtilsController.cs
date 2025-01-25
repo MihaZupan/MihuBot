@@ -115,6 +115,7 @@ public sealed class RuntimeUtilsController : ControllerBase
             }
         }
 
+        job.InitialRemoteRunnerContact ??= DateTime.UtcNow;
         return new JsonResult(job.Metadata);
     }
 
