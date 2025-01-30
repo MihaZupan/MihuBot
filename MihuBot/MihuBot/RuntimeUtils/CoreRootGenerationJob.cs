@@ -8,7 +8,9 @@ public sealed class CoreRootGenerationJob : JobBase
 
     public CoreRootGenerationJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
         : base(parent, githubCommenterLogin, arguments)
-    { }
+    {
+        TestedPROrBranchLink = "https://github.com/dotnet/runtime";
+    }
 
     protected override Task InitializeAsync(CancellationToken jobTimeout)
     {

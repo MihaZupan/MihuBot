@@ -65,7 +65,7 @@ public abstract class JobBase
 
     public abstract string JobTitlePrefix { get; }
 
-    public string TestedPROrBranchLink { get; }
+    public string TestedPROrBranchLink { get; set; }
     public string JobId { get; } = Guid.NewGuid().ToString("N");
     public string ExternalId { get; } = Snowflake.NextString();
 
