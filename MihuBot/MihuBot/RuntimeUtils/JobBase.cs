@@ -56,9 +56,10 @@ public abstract class JobBase
     public PullRequest PullRequest { get; private set; }
 
     private string _jobTitle;
-    public string JobTitle => _jobTitle ??= PullRequest is null
-        ? $"[{JobTitlePrefix}] {Metadata["PrRepo"]}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99)
-        : $"[{JobTitlePrefix}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99);
+    public string JobTitle => _jobTitle ??=
+        PullRequest is not null ? $"[{JobTitlePrefix}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99) :
+        Metadata.TryGetValue("PrRepo", out string prRepo) ? $"[{JobTitlePrefix}] {prRepo}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99) :
+        $"[{JobTitlePrefix}] {StartTime.ToISODateTime()}".TruncateWithDotDotDot(99);
 
     private string JobType => GetType().Name;
 
