@@ -31,7 +31,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
             {
                 var newGist = new NewGist
                 {
-                    Description = $"Benchmark results for {TrackingIssue.HtmlUrl}",
+                    Description = $"Benchmark results for {TrackingIssue?.HtmlUrl ?? ProgressDashboardUrl}",
                     Public = false,
                 };
 

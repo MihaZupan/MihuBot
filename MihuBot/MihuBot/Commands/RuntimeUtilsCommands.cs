@@ -9,7 +9,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "cancel";
-    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff", "backport"];
+    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff", "backport", "corerootgen"];
 
     public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -43,6 +43,15 @@ public sealed class RuntimeUtilsCommands : CommandBase
             return;
         }
 
+        const string Initiator = "MihaZupan";
+        string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
+
+        if (ctx.Command == "corerootgen")
+        {
+            await ctx.ReplyAsync(_runtimeUtilsService.StartCoreRootGenerationJob(Initiator, arguments).ProgressDashboardUrl);
+            return;
+        }
+
         PullRequest pr = null;
         BranchReference branch = null;
 
@@ -66,9 +75,6 @@ public sealed class RuntimeUtilsCommands : CommandBase
 
         JobBase job;
         GitHubComment comment = null;
-
-        const string Initiator = "MihaZupan";
-        string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
 
         if (ctx.Command is "fuzz" or "benchmark")
         {

@@ -53,7 +53,7 @@ public sealed class JitDiffJob : JobBase
 
         await SetFinalTrackingIssueBodyAsync(gotAnyDiffs ? frameworksDiffs : "");
 
-        if (gotAnyDiffs && ShouldPostDiffsComment)
+        if (gotAnyDiffs && ShouldPostDiffsComment && TrackingIssue is not null)
         {
             await PostDiffExamplesAsync(regressions: true, _shortDiffsRegressions, _longDiffsRegressions);
             await PostDiffExamplesAsync(regressions: false, _shortDiffsImprovements, _longDiffsImprovements);
@@ -77,7 +77,7 @@ public sealed class JitDiffJob : JobBase
     {
         var newGist = new NewGist
         {
-            Description = $"JIT diffs {(regressions ? "regressions" : "improvements")} for {job.TrackingIssue.HtmlUrl}",
+            Description = $"JIT diffs {(regressions ? "regressions" : "improvements")} for {job.TrackingIssue?.HtmlUrl ?? job.ProgressDashboardUrl}",
             Public = false
         };
 

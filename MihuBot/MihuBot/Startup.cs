@@ -133,6 +133,8 @@ public class Startup
 
         services.AddSingleton<GitHubNotificationsService>();
 
+        services.AddSingleton<CoreRootService>();
+
         services.AddSingleton<RuntimeUtilsService>();
         services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 

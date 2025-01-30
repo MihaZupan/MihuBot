@@ -19,7 +19,7 @@ namespace MihuBot.RuntimeUtils;
 
 public abstract class JobBase
 {
-    protected static readonly TimeSpan MaxJobDuration = TimeSpan.FromHours(5);
+    protected TimeSpan MaxJobDuration { get; set; } = TimeSpan.FromHours(5);
 
     protected const string IssueRepositoryOwner = "MihuBot";
     protected const string IssueRepositoryName = "runtime-utils";
@@ -49,9 +49,11 @@ public abstract class JobBase
     protected HetznerClient Hetzner => Parent.Hetzner;
 
     public Stopwatch Stopwatch { get; private set; } = Stopwatch.StartNew();
-    public PullRequest PullRequest { get; private set; }
-    public Issue TrackingIssue { get; private set; }
     public bool Completed => !Stopwatch.IsRunning;
+
+    protected bool SuppressTrackingIssue { get; set; }
+    public Issue TrackingIssue { get; private set; }
+    public PullRequest PullRequest { get; private set; }
 
     private string _jobTitle;
     public string JobTitle => _jobTitle ??= PullRequest is null
@@ -92,54 +94,57 @@ public abstract class JobBase
     public int TotalProgressSiteViews;
     public int CurrentProgressSiteViews;
 
-    private JobBase(RuntimeUtilsService parent, string githubCommenterLogin)
+    public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
     {
         Parent = parent;
         GithubCommenterLogin = githubCommenterLogin;
 
+        Metadata.Add("JobId", JobId);
+        Metadata.Add("ExternalId", ExternalId);
+        Metadata.Add("JobType", JobType);
+        Metadata.Add("JobStartTime", StartTime.Ticks.ToString());
+
+        arguments ??= string.Empty;
+        arguments = arguments.SplitLines()[0].Trim();
+        Metadata.Add("CustomArguments", arguments);
+
+        var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
+        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
+        Metadata.Add("PersistentStateSasUri", sasUri.AbsoluteUri);
+
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
+        SuppressTrackingIssue = githubCommenterLogin == "MihaZupan" && CustomArguments.Contains("-noTrackingIssue", StringComparison.OrdinalIgnoreCase);
+
+        Logger.DebugLog($"Starting {JobType}: {ProgressDashboardUrl}");
     }
 
     public JobBase(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
-        : this(parent, githubCommenterLogin)
+        : this(parent, githubCommenterLogin, arguments)
     {
-        InitMetadata("dotnet/runtime", "main", branch.Repository, branch.Branch.Name, arguments);
+        InitMetadata("dotnet/runtime", "main", branch.Repository, branch.Branch.Name);
 
         TestedPROrBranchLink = $"https://github.com/{branch.Repository}/tree/{branch.Branch.Name}";
     }
 
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-        : this(parent, githubCommenterLogin)
+        : this(parent, githubCommenterLogin, arguments)
     {
         PullRequest = pullRequest;
         GitHubComment = comment;
 
         InitMetadata(
             PullRequest.Base.Repository.FullName, PullRequest.Base.Ref,
-            PullRequest.Head.Repository.FullName, PullRequest.Head.Ref,
-            arguments);
+            PullRequest.Head.Repository.FullName, PullRequest.Head.Ref);
 
         TestedPROrBranchLink = PullRequest.HtmlUrl;
     }
 
-    private void InitMetadata(string baseRepo, string baseBranch, string prRepo, string prBranch, string arguments)
+    private void InitMetadata(string baseRepo, string baseBranch, string prRepo, string prBranch)
     {
-        arguments ??= string.Empty;
-        arguments = arguments.SplitLines()[0].Trim();
-
-        Metadata.Add("JobId", JobId);
-        Metadata.Add("ExternalId", ExternalId);
         Metadata.Add("BaseRepo", baseRepo);
         Metadata.Add("BaseBranch", baseBranch);
         Metadata.Add("PrRepo", prRepo);
         Metadata.Add("PrBranch", prBranch);
-        Metadata.Add("CustomArguments", arguments);
-        Metadata.Add("JobType", JobType);
-        Metadata.Add("JobStartTime", StartTime.Ticks.ToString());
-
-        var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
-        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
-        Metadata.Add("PersistentStateSasUri", sasUri.AbsoluteUri);
     }
 
     protected bool ShouldLinkToPROrBranch =>
@@ -198,6 +203,8 @@ public abstract class JobBase
             await ParsePRListAsync(CustomArguments, "combineWith", timeoutCts.Token);
 
             await InitializeAsync(timeoutCts.Token);
+
+            Metadata.Add("JobMaxEndTime", (StartTime + MaxJobDuration).Ticks.ToString());
         }
         catch (Exception ex)
         {
@@ -206,19 +213,29 @@ public abstract class JobBase
 
         bool startGithubActions = RunUsingGitHubActions && initializationException is null;
 
-        TrackingIssue = await Github.Issue.Create(
-            IssueRepositoryOwner,
-            IssueRepositoryName,
-            new NewIssue(JobTitle)
+        if (SuppressTrackingIssue)
+        {
+            if (startGithubActions)
             {
-                Body =
-                    $"""
-                    Job is in progress - see {ProgressDashboardUrl}
-                    {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+                await Logger.DebugAsync($"Can't use GH Actions when tracking issue is suppressed: <{ProgressDashboardUrl}>");
+            }
+        }
+        else
+        {
+            TrackingIssue = await Github.Issue.Create(
+                IssueRepositoryOwner,
+                IssueRepositoryName,
+                new NewIssue(JobTitle)
+                {
+                    Body =
+                        $"""
+                        Job is in progress - see {ProgressDashboardUrl}
+                        {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
 
-                    {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
-                    """
-            });
+                        {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
+                        """
+                });
+        }
 
         try
         {
@@ -318,7 +335,7 @@ public abstract class JobBase
                 Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray()
             });
 
-            if (ShouldMentionJobInitiator && GithubCommenterLogin is not null)
+            if (ShouldMentionJobInitiator && GithubCommenterLogin is not null && TrackingIssue is not null)
             {
                 try
                 {
@@ -425,6 +442,12 @@ public abstract class JobBase
 
     private async Task UpdateIssueBodyAsync(string newBody)
     {
+        if (TrackingIssue is null)
+        {
+            LogsReceived($"No tracking issue. New body:\n{newBody}");
+            return;
+        }
+
         IssueUpdate update = TrackingIssue.ToUpdate();
         update.Body = newBody;
         await Github.Issue.Update(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, update);
@@ -608,7 +631,11 @@ public abstract class JobBase
 
     public void NotifyJobCompletion()
     {
-        JobCompletionTcs.TrySetResult();
+        if (JobCompletionTcs.TrySetResult())
+        {
+            Logger.DebugLog($"Finished job {ProgressDashboardUrl} in {GetElapsedTime()}");
+        }
+
         _idleTimeoutCts.CancelAfter(Timeout.InfiniteTimeSpan);
     }
 

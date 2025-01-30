@@ -48,7 +48,7 @@ public sealed partial class RegexDiffJob : JobBase
             {
                 var newGist = new NewGist
                 {
-                    Description = $"Regex source generator diff examples for {TrackingIssue.HtmlUrl}",
+                    Description = $"Regex source generator diff examples for {TrackingIssue?.HtmlUrl ?? ProgressDashboardUrl}",
                     Public = false,
                 };
 

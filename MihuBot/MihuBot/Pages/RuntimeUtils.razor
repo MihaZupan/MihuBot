@@ -336,10 +336,11 @@
                     return;
                 }
 
-#if DEBUG
-                _submittingJobError = $"PR={pullRequest.Title}";
-                return;
-#endif
+                if (OperatingSystem.IsWindows())
+                {
+                    _submittingJobError = $"PR={pullRequest.Title}";
+                    return;
+                }
 
                 newJob = runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, _newJob.Arguments, comment: null);
             }
@@ -351,10 +352,11 @@
                     return;
                 }
 
-#if DEBUG
-                _submittingJobError = $"Repo={branch.Repository} Branch={branch.Branch.Name}";
-                return;
-#endif
+                if (OperatingSystem.IsWindows())
+                {
+                    _submittingJobError = $"Repo={branch.Repository} Branch={branch.Branch.Name}";
+                    return;
+                }
 
                 newJob = runtimeUtils.StartJitDiffJob(branch, _githubUserLogin, _newJob.Arguments);
             }

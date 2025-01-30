@@ -16,4 +16,6 @@ public sealed class MihuBotDbContext : DbContext
     public DbSet<UrlShortenerService.Entry> UrlShortenerEntries { get; set; }
 
     public DbSet<LocationService.UserLocation> UserLocation { get; set; }
+
+    public DbSet<CoreRootService.CoreRootDbEntry> CoreRoot { get; set; }
 }

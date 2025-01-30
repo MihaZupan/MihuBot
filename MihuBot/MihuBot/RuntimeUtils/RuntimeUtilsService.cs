@@ -137,9 +137,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
     public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     public readonly UrlShortenerService UrlShortener;
+    public readonly CoreRootService CoreRoot;
     private readonly IDbContextFactory<MihuBotDbContext> _db;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db, UrlShortenerService urlShortener)
+    private bool _shuttingDown;
+
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db, UrlShortenerService urlShortener, CoreRootService coreRoot)
     {
         Logger = logger;
         Github = github;
@@ -148,8 +151,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Configuration = configuration;
         ConfigurationService = configurationService;
         Hetzner = hetzner;
-        _db = db;
         UrlShortener = urlShortener;
+        CoreRoot = coreRoot;
+
+        _db = db;
 
         if (Program.AzureEnabled)
         {
@@ -173,12 +178,29 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
             _ = Task.Run(MonitorRuntimeTestServiceAsync, CancellationToken.None);
+            _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
         }
 
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _shuttingDown = true;
+
+        JobBase[] activeJobs = GetAllActiveJobs();
+
+        foreach (JobBase job in activeJobs)
+        {
+            job.FailFast("MihuBot is restarting", cancelledByAuthor: false);
+        }
+
+        if (activeJobs.Length > 0)
+        {
+            // Delay shutdown to give jobs time to delete any cloud resources / save state.
+            await Task.Delay(10_000, cancellationToken);
+        }
+    }
 
     private async Task MonitorRuntimeTestServiceAsync()
     {
@@ -248,6 +270,30 @@ public sealed partial class RuntimeUtilsService : IHostedService
             if (runCounter % 10 == 0)
             {
                 Logger.DebugLog($"[{runCounter}] {url}:\n{response}\n{certString}");
+            }
+        }
+    }
+
+    private async Task StartCoreRootGenerationJobsAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(8));
+
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
+            {
+                if (GetAllActiveJobs().Any(j => j is CoreRootGenerationJob))
+                {
+                    Logger.DebugLog("Skipping CoreRoot generation job, one is already running");
+                }
+                else
+                {
+                    StartCoreRootGenerationJob("MihaZupan", "-automated");
+                }
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync($"{ex}");
             }
         }
     }
@@ -502,10 +548,18 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartBackportJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new BackportJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
+    public JobBase StartCoreRootGenerationJob(string githubCommenterLogin, string arguments) =>
+        StartJobCore(new CoreRootGenerationJob(this, githubCommenterLogin, arguments));
+
     private JobBase StartJobCore(JobBase job)
     {
         lock (_jobs)
         {
+            if (_shuttingDown)
+            {
+                return job;
+            }
+
             _jobs.Add(job.JobId, job);
             _jobs.Add(job.ExternalId, job);
         }
