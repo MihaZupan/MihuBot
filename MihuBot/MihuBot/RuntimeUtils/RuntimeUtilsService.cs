@@ -211,6 +211,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         while (await timer.WaitForNextTickAsync())
         {
+            if (ConfigurationService.TryGet(null, "RuntimeUtils.MonitorRuntimeTestService.Disable", out _))
+            {
+                continue;
+            }
+
             runCounter++;
 
             try
