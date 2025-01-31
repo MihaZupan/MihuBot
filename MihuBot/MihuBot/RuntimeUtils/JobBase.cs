@@ -117,6 +117,8 @@ public abstract class JobBase
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
         SuppressTrackingIssue = githubCommenterLogin == "MihaZupan" && CustomArguments.Contains("-noTrackingIssue", StringComparison.OrdinalIgnoreCase);
 
+        TestedPROrBranchLink = comment?.Url;
+
         Logger.DebugLog($"Starting {JobType}: {ProgressDashboardUrl}");
     }
 
