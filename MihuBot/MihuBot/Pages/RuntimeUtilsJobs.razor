@@ -34,7 +34,7 @@
 
             @if (_job.ShouldDeleteVM)
             {
-                <button class="btn btn-danger" onclick="@(() => _job.ShouldDeleteVM = false)">Do not delete the VM</button>
+                <button class="btn btn-danger" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
             }
         }
     }
@@ -211,6 +211,14 @@ else
 
                 _canViewCredentials = _githubUserLogin == "MihaZupan";
             }
+        }
+    }
+
+    private void DoNotDeleteTheVm()
+    {
+        if (_job is { } job)
+        {
+            job.ShouldDeleteVM = false;
         }
     }
 
