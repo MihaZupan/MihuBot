@@ -56,10 +56,25 @@ public abstract class JobBase
     public PullRequest PullRequest { get; private set; }
 
     private string _jobTitle;
-    public string JobTitle => _jobTitle ??=
-        PullRequest is not null ? $"[{JobTitlePrefix}] [{PullRequest.User.Login}] {PullRequest.Title}".TruncateWithDotDotDot(99) :
-        Metadata.TryGetValue("PrRepo", out string prRepo) ? $"[{JobTitlePrefix}] {prRepo}/{Metadata["PrBranch"]}".TruncateWithDotDotDot(99) :
-        $"[{JobTitlePrefix}] {StartTime.ToISODateTime()}".TruncateWithDotDotDot(99);
+    public string JobTitle
+    {
+        get
+        {
+            return _jobTitle ??= Create();
+
+            string Create()
+            {
+                string title =
+                    PullRequest is not null ? $"[{PullRequest.User.Login}] {PullRequest.Title}" :
+                    Metadata.TryGetValue("PrRepo", out string prRepo) ? $"{prRepo}/{Metadata["PrBranch"]}" :
+                    GitHubComment is not null ? $"For {GithubCommenterLogin} in {GitHubComment.RepoOwner}/{GitHubComment.RepoName}#{GitHubComment.IssueId}" :
+                    GithubCommenterLogin is not null ? $"For {GithubCommenterLogin}" :
+                    $"{StartTime.ToISODateTime()}";
+
+                return $"[{JobTitlePrefix}] {title}".TruncateWithDotDotDot(99);
+            }
+        }
+    }
 
     private string JobType => GetType().Name;
 
@@ -98,8 +113,8 @@ public abstract class JobBase
     public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         Parent = parent;
-        GithubCommenterLogin = githubCommenterLogin;
         GitHubComment = comment;
+        GithubCommenterLogin = githubCommenterLogin ?? comment?.User?.Login;
 
         Metadata.Add("JobId", JobId);
         Metadata.Add("ExternalId", ExternalId);
