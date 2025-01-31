@@ -1,7 +1,6 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Sas;
 using System.ComponentModel.DataAnnotations.Schema;
-using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
 using Octokit;
@@ -137,9 +136,10 @@ public sealed class CoreRootService
     }
 
     [Table("coreRoot")]
+    [Index(nameof(Sha))]
     public sealed class CoreRootDbEntry
     {
-        [Key]
+        public long Id { get; set; }
         public string Sha { get; set; }
         public string Arch { get; set; }
         public string Os { get; set; }
