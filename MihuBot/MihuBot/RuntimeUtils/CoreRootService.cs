@@ -100,6 +100,25 @@ public sealed class CoreRootService
             return null;
         }
 
+        return Remap(entry);
+    }
+
+    public async Task<IEnumerable<CoreRootEntry>> AllAsync(string arch, string os, string type)
+    {
+        await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
+
+        List<CoreRootDbEntry> entries = await context.CoreRoot.AsNoTracking()
+            .Where(e => e.Arch == arch && e.Os == os && e.Type == type)
+            .ToListAsync();
+
+        return entries
+            .Where(e => e is not null && (DateTime.UtcNow - e.CreatedOn).TotalDays <= 60)
+            .Select(Remap)
+            .ToArray();
+    }
+
+    private CoreRootEntry Remap(CoreRootDbEntry entry)
+    {
         BlobClient blob = CoreRootBlobContainerClient.GetBlobClient(entry.BlobName);
         Uri sasUri = blob.GenerateSasUri(BlobSasPermissions.Read, DateTime.UtcNow.AddHours(8));
 

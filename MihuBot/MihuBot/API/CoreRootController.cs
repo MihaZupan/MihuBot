@@ -31,6 +31,18 @@ public sealed partial class CoreRootController : ControllerBase
         return await _coreRoot.ListAsync(gitRangeMatch.Groups[1].Value, gitRangeMatch.Groups[2].Value, arch, os, type);
     }
 
+    [HttpGet("All")]
+    public async Task<IEnumerable<CoreRootService.CoreRootEntry>> All(string arch, string os, string type = "release")
+    {
+        if (!CoreRootService.TryValidate(ref arch, ref os, ref type))
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            return [];
+        }
+
+        return await _coreRoot.AllAsync(arch, os, type);
+    }
+
     [HttpGet("Get")]
     public async Task<CoreRootService.CoreRootEntry> Get(string sha, string arch, string os, string type = "release")
     {
