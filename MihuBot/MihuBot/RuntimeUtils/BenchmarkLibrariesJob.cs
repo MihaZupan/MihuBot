@@ -24,7 +24,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        await RunOnNewVirtualMachineAsync(8, jobTimeout);
+        await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 8, jobTimeout);
 
         string resultsMarkdown = string.Empty;
         if (!string.IsNullOrWhiteSpace(_resultsMarkdown))

@@ -28,6 +28,6 @@ public sealed class CoreRootGenerationJob : JobBase
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
         // TODO: Run on a spot VM?
-        await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 4, jobTimeout: jobTimeout);
+        await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 4, jobTimeout);
     }
 }
