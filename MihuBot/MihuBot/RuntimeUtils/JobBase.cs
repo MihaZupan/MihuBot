@@ -807,14 +807,22 @@ public abstract class JobBase
 
         async Task RunAzureVirtualMachineAsync(CancellationToken jobTimeout)
         {
+            if (Fast)
+            {
+                defaultAzureCoreCount *= 2;
+            }
+
+            // Larger VMs have enough RAM for a ram disk.
+            bool needsFastSideDisk = defaultAzureCoreCount < 8;
+
             string cpuType = UseArm ? "ARM64" : (useIntelCpu ? "X64Intel" : "X64Amd");
 
             string defaultVmSize =
-                UseArm ? "DXps_v6" :
+                UseArm ? (needsFastSideDisk ? "DXpds_v6" : "DXps_v6") :
                 useIntelCpu ? "DXds_v5" :
                 //fast ? "FXas_v6" :
-                "DXas_v6";
-            defaultVmSize = $"Standard_{defaultVmSize.Replace("X", (Fast ? 2 * defaultAzureCoreCount : defaultAzureCoreCount).ToString())}";
+                (needsFastSideDisk ? "DXads_v6" : "DXas_v6");
+            defaultVmSize = $"Standard_{defaultVmSize.Replace("X", defaultAzureCoreCount.ToString())}";
 
             string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
             string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
@@ -829,7 +837,7 @@ public abstract class JobBase
                 Parameters = BinaryData.FromObjectAsJson(new
                 {
                     runnerId = new { value = JobId },
-                    osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", "128")) },
+                    osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", (defaultAzureCoreCount * 8).ToString())) },
                     virtualMachineSize = new { value = vmSize },
                     adminPassword = new { value = password },
                     customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(cloudInitScript)) },
