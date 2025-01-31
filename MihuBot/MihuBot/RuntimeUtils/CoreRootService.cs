@@ -68,6 +68,7 @@ public sealed class CoreRootService
 
         if (!await blob.ExistsAsync())
         {
+            _logger.DebugLog($"CoreRoot blob does not exist? '{blobName}'");
             return false;
         }
 
@@ -84,6 +85,8 @@ public sealed class CoreRootService
         });
 
         await context.SaveChangesAsync();
+
+        _logger.DebugLog($"CoreRoot saved: '{blobName}'");
 
         return true;
     }

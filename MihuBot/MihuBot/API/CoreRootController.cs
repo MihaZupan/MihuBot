@@ -59,16 +59,24 @@ public sealed partial class CoreRootController : ControllerBase
     [HttpGet("Save")]
     public async Task<IActionResult> Save(string jobId, string sha, string arch, string os, string type, string blobName)
     {
-        if (!CoreRootService.TryValidate(ref arch, ref os, ref type) ||
-            string.IsNullOrEmpty(sha) || !ShaRegex().IsMatch(sha) ||
-            !_runtimeUtils.TryGetJob(jobId, publicId: false, out JobBase job) || job is not CoreRootGenerationJob)
+        try
         {
-            return BadRequest();
-        }
+            if (!CoreRootService.TryValidate(ref arch, ref os, ref type) ||
+                string.IsNullOrEmpty(sha) || !ShaRegex().IsMatch(sha) ||
+                !_runtimeUtils.TryGetJob(jobId, publicId: false, out JobBase job) || job is not CoreRootGenerationJob)
+            {
+                return BadRequest();
+            }
 
-        if (!await _coreRoot.SaveAsync(sha, arch, os, type, blobName))
+            if (!await _coreRoot.SaveAsync(sha, arch, os, type, blobName))
+            {
+                return BadRequest();
+            }
+        }
+        catch (Exception ex)
         {
-            return BadRequest();
+            _runtimeUtils.Logger.DebugLog($"Failed to save core root '{blobName}': {ex}");
+            throw;
         }
 
         return Ok();
