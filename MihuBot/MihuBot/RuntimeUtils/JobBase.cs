@@ -152,7 +152,7 @@ public abstract class JobBase
         GetConfigFlag("LinkToPR", true) &&
         !CustomArguments.Contains("-NoPRLink", StringComparison.OrdinalIgnoreCase);
 
-    protected bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
+    public bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     protected string Architecture => UseArm ? "ARM64" : "X64";
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);

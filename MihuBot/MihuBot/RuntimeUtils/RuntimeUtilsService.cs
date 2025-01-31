@@ -285,20 +285,23 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         while (await timer.WaitForNextTickAsync())
         {
-            try
+            foreach (bool isArm in new[] { true, false })
             {
-                if (GetAllActiveJobs().Any(j => j is CoreRootGenerationJob))
+                try
                 {
-                    Logger.DebugLog("Skipping CoreRoot generation job, one is already running");
+                    if (GetAllActiveJobs().Any(j => j is CoreRootGenerationJob job && job.UseArm == isArm))
+                    {
+                        Logger.DebugLog($"Skipping CoreRoot generation job {nameof(isArm)}={isArm}, one is already running");
+                    }
+                    else
+                    {
+                        StartCoreRootGenerationJob("MihaZupan", $"{(isArm ? "-arm" : "")} -automated");
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    StartCoreRootGenerationJob("MihaZupan", "-automated");
+                    await Logger.DebugAsync($"{ex}");
                 }
-            }
-            catch (Exception ex)
-            {
-                await Logger.DebugAsync($"{ex}");
             }
         }
     }
