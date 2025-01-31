@@ -366,16 +366,22 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                     if (comment.IsOnPullRequest)
                     {
-                        int pullRequestNumber = int.Parse(new Uri(comment.Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
-                        PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, pullRequestNumber);
+                        PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
 
                         if (comment.RepoOwner == "dotnet" && comment.RepoName == "runtime")
                         {
-                            await ProcessMihuBotDotnetRuntimeMentions(comment, arguments, pullRequest);
+                            await ProcessMihuBotDotnetRuntimeMention(comment, arguments, pullRequest);
                         }
                         else if (comment.RepoOwner == "microsoft" && comment.RepoName == "reverse-proxy")
                         {
-                            await ProcessMihuBotReverseProxyMentions(comment, arguments, pullRequest);
+                            await ProcessMihuBotReverseProxyMention(comment, arguments, pullRequest);
+                        }
+                    }
+                    else
+                    {
+                        if (comment.RepoOwner == "dotnet" && comment.RepoName == "runtime")
+                        {
+                            await ProcessMihuBotDotnetRuntimeIssueMention(comment, arguments);
                         }
                     }
                 }
@@ -386,7 +392,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
         }
 
-        Task ProcessMihuBotReverseProxyMentions(GitHubComment comment, string arguments, PullRequest pullRequest)
+        Task ProcessMihuBotReverseProxyMention(GitHubComment comment, string arguments, PullRequest pullRequest)
         {
             if (arguments.StartsWith("backport to ", StringComparison.OrdinalIgnoreCase))
             {
@@ -396,7 +402,17 @@ public sealed partial class RuntimeUtilsService : IHostedService
             return Task.CompletedTask;
         }
 
-        async Task ProcessMihuBotDotnetRuntimeMentions(GitHubComment comment, string arguments, PullRequest pullRequest)
+        Task ProcessMihuBotDotnetRuntimeIssueMention(GitHubComment comment, string arguments)
+        {
+            if (BenchmarkWithCompareRangeRegex().Match(arguments) is { Success: true } benchmarkMatch)
+            {
+                StartBenchmarkJob(comment.User.Login, arguments, comment);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        async Task ProcessMihuBotDotnetRuntimeMention(GitHubComment comment, string arguments, PullRequest pullRequest)
         {
             if (pullRequest.State.Value != ItemState.Open)
             {
@@ -547,6 +563,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
         StartJobCore(new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
+    public JobBase StartBenchmarkJob(string githubCommenterLogin, string arguments, GitHubComment comment) =>
+        StartJobCore(new BenchmarkLibrariesJob(this, githubCommenterLogin, arguments, comment));
+
     public JobBase StartRegexDiffJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
         StartJobCore(new RegexDiffJob(this, branch, githubCommenterLogin, arguments));
 
@@ -657,4 +676,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     [GeneratedRegex(@"^benchmark ([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex BenchmarkFilterNameRegex();
+
+    // @MihuBot benchmark GetUnicodeCategory https://github.com/dotnet/runtime/compare/4bb0bcd9b5c47df97e51b462d8204d66c7d470fc...c74440f8291edd35843f3039754b887afe61766e
+    [GeneratedRegex(@"^benchmark ([^ ]+) https:\/\/github\.com\/dotnet\/runtime\/compare\/([a-f0-9]{40}\.\.\.[a-f0-9]{40})", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex BenchmarkWithCompareRangeRegex();
 }

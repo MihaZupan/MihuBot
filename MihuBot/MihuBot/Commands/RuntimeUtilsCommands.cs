@@ -67,7 +67,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
                 ? await _github.PullRequest.Get("microsoft", "reverse-proxy", (int)prNumber)
                 : await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
         }
-        else if ((branch = await GitHubHelper.TryParseGithubRepoAndBranch(_github, ctx.Arguments[0])) is null)
+        else if ((branch = await GitHubHelper.TryParseGithubRepoAndBranch(_github, ctx.Arguments[0])) is null && ctx.Command != "benchmark")
         {
             await ctx.ReplyAsync($"Failed to parse '{ctx.Arguments[0]}'");
             return;
@@ -92,9 +92,10 @@ public sealed class RuntimeUtilsCommands : CommandBase
             }
             else if (ctx.Command == "benchmark")
             {
-                job = pr is null
-                    ? _runtimeUtilsService.StartBenchmarkJob(branch, Initiator, arguments)
-                    : _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments, comment);
+                job =
+                    branch is not null ? _runtimeUtilsService.StartBenchmarkJob(branch, Initiator, arguments) :
+                    pr is not null ? _runtimeUtilsService.StartBenchmarkJob(pr, Initiator, arguments, comment) :
+                    _runtimeUtilsService.StartBenchmarkJob(Initiator, arguments, comment: null);
             }
             else throw new UnreachableException(ctx.Command);
         }

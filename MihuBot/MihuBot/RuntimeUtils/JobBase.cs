@@ -95,10 +95,11 @@ public abstract class JobBase
     public int TotalProgressSiteViews;
     public int CurrentProgressSiteViews;
 
-    public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
+    public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, GitHubComment comment = null)
     {
         Parent = parent;
         GithubCommenterLogin = githubCommenterLogin;
+        GitHubComment = comment;
 
         Metadata.Add("JobId", JobId);
         Metadata.Add("ExternalId", ExternalId);
@@ -128,10 +129,9 @@ public abstract class JobBase
     }
 
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
-        : this(parent, githubCommenterLogin, arguments)
+        : this(parent, githubCommenterLogin, arguments, comment)
     {
         PullRequest = pullRequest;
-        GitHubComment = comment;
 
         InitMetadata(
             PullRequest.Base.Repository.FullName, PullRequest.Base.Ref,
