@@ -43,8 +43,10 @@ public sealed class RuntimeUtilsCommands : CommandBase
             return;
         }
 
+        int minArgs = ctx.Command == "corerootgen" ? 0 : 1;
+
         const string Initiator = "MihaZupan";
-        string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(1)).Trim()} -NoPRLink";
+        string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(minArgs)).Trim()} -NoPRLink";
 
         if (ctx.Command == "corerootgen")
         {
@@ -55,7 +57,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         PullRequest pr = null;
         BranchReference branch = null;
 
-        if (ctx.Arguments.Length < 1)
+        if (ctx.Arguments.Length < minArgs)
         {
             await ctx.ReplyAsync("Invalid args");
             return;
