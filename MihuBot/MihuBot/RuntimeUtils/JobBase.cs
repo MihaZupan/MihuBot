@@ -922,15 +922,15 @@ public abstract class JobBase
             string cpuType = UseArm ? "ARM64" : (useIntelCpu ? "X64Intel" : "X64Amd");
 
             string serverType = Fast
-                ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx51" : "cpx51"))
-                : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx41" : "cpx41"));
+                ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx52" : "cpx51"))
+                : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx42" : "cpx41"));
 
             LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
                 $"runner-{JobId}",
                 GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
-                GetConfigFlag($"HetznerLocation{cpuType}", UseArm || useIntelCpu ? "fsn1" : "ash"),
+                GetConfigFlag($"HetznerLocation{cpuType}", "hel1"),
                 serverType,
                 cloudInitScript,
                 jobTimeout);
