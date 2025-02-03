@@ -68,11 +68,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
         @MihuBot benchmark <benchmarks filter> [options]
 
         Options:
+            <link to a GitHub commit diff (compare)>
             <link to a custom dotnet/performance branch>
             -medium/long
 
         Example:
             @MihuBot benchmark Regex
+            @MihuBot benchmark GetUnicodeCategory https://github.com/dotnet/runtime/compare/4bb0bcd9b5c47df97e51b462d8204d66c7d470fc...c74440f8291edd35843f3039754b887afe61766e
             @MihuBot benchmark RustLang_Sherlock https://github.com/MihaZupan/performance/tree/compiled-regex-only -intel -medium
         ```
 
