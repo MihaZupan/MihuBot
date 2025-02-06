@@ -320,7 +320,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }),
             Task.Run(async () =>
             {
-                await foreach (GitHubComment comment in Github.PollCommentsAsync("microsoft", "reverse-proxy", TimeSpan.FromSeconds(30), Logger))
+                await foreach (GitHubComment comment in Github.PollCommentsAsync("dotnet", "yarp", TimeSpan.FromSeconds(30), Logger))
                 {
                     await ProcessCommentAsync(comment);
                 }
@@ -374,9 +374,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             await ProcessMihuBotDotnetRuntimeMention(comment, arguments, pullRequest);
                         }
-                        else if (comment.RepoOwner == "microsoft" && comment.RepoName == "reverse-proxy")
+                        else if (comment.RepoOwner == "dotnet" && comment.RepoName == "yarp")
                         {
-                            await ProcessMihuBotReverseProxyMention(comment, arguments, pullRequest);
+                            await ProcessMihuBotYarpMention(comment, arguments, pullRequest);
                         }
                     }
                     else
@@ -394,7 +394,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
         }
 
-        Task ProcessMihuBotReverseProxyMention(GitHubComment comment, string arguments, PullRequest pullRequest)
+        Task ProcessMihuBotYarpMention(GitHubComment comment, string arguments, PullRequest pullRequest)
         {
             if (arguments.StartsWith("backport to ", StringComparison.OrdinalIgnoreCase))
             {

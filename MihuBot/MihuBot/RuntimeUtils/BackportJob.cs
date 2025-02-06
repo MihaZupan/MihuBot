@@ -11,8 +11,8 @@ public sealed partial class BackportJob : JobBase
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
-    protected override string RepoOwner => "microsoft";
-    protected override string RepoName => "reverse-proxy";
+    protected override string RepoOwner => "dotnet";
+    protected override string RepoName => "yarp";
 
     public BackportJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)

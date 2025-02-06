@@ -66,7 +66,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         if (uint.TryParse(ctx.Arguments[0], out uint prNumber))
         {
             pr = ctx.Command == "backport"
-                ? await _github.PullRequest.Get("microsoft", "reverse-proxy", (int)prNumber)
+                ? await _github.PullRequest.Get("dotnet", "yarp", (int)prNumber)
                 : await _github.PullRequest.Get("dotnet", "runtime", (int)prNumber);
         }
         else if ((branch = await GitHubHelper.TryParseGithubRepoAndBranch(_github, ctx.Arguments[0])) is null && ctx.Command != "benchmark")
