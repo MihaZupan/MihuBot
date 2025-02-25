@@ -100,7 +100,7 @@ public sealed partial class Logger
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
-            _ = DebugAsync($"UnobservedTaskException: {e.Exception}");
+            _ = DebugAsync($"UnobservedTaskException: {e.Exception}", truncateToFile: true);
             e.SetObserved();
         };
 
@@ -420,7 +420,7 @@ public sealed partial class Logger
             {
                 if (truncateToFile)
                 {
-                    await Options.DebugTextChannel.SendTextFileAsync("Debug.txt", debugMessage);
+                    await Options.DebugTextChannel.SendTextFileAsync($"Debug-{Snowflake.Next()}.txt", debugMessage);
                     return;
                 }
                 else
