@@ -308,21 +308,6 @@ public static class Helpers
         static string GetString(int number, string type) => $"{number} {type}{(number == 1 ? "" : "s")}";
     }
 
-    public static async Task<TResult> TimeoutAfter<TResult>(this Task<TResult> task, TimeSpan timeout)
-    {
-        var cts = new CancellationTokenSource();
-
-        if (task == await Task.WhenAny(task, Task.Delay(timeout, cts.Token)).ConfigureAwait(false))
-        {
-            cts.Cancel();
-            return await task.ConfigureAwait(false);
-        }
-        else
-        {
-            throw new TimeoutException($"Task timed out after {timeout}");
-        }
-    }
-
     public static async Task<bool> TryDeleteAsync(this RestUserMessage message)
     {
         if (message.Channel is not SocketTextChannel textChannel ||
