@@ -202,11 +202,11 @@ public abstract class JobBase
 
     public async Task RunJobAsync()
     {
-        LogsReceived("Starting ...");
+        Log("Starting ...");
 
         if (!Program.AzureEnabled)
         {
-            LogsReceived("No Azure support. Aborting ...");
+            Log("No Azure support. Aborting ...");
             NotifyJobCompletion();
             return;
         }
@@ -265,7 +265,7 @@ public abstract class JobBase
                 if (FirstErrorMessage is null)
                 {
                     _firstErrorMessage = "Job idle timeout exceeded, terminating ...";
-                    LogsReceived(FirstErrorMessage);
+                    Log(FirstErrorMessage);
                 }
 
                 jobTimeoutCts.Cancel();
@@ -276,13 +276,13 @@ public abstract class JobBase
                 if (FirstErrorMessage is null)
                 {
                     _firstErrorMessage = "Job duration exceeded, terminating ...";
-                    LogsReceived(FirstErrorMessage);
+                    Log(FirstErrorMessage);
                 }
 
                 JobCompletionTcs.TrySetCanceled();
             });
 
-            LogsReceived($"Using custom arguments: '{CustomArguments}'");
+            Log($"Using custom arguments: '{CustomArguments}'");
 
             if (initializationException is not null)
             {
@@ -291,7 +291,7 @@ public abstract class JobBase
 
             if (RunUsingGitHubActions)
             {
-                LogsReceived("Starting runner on GitHub actions ...");
+                Log("Starting runner on GitHub actions ...");
             }
 
             if (RunUsingAzurePipelines)
@@ -299,7 +299,7 @@ public abstract class JobBase
                 await AzurePipelinesHelper.TriggerWebhookAsync(Logger, Http, "MihuBot", "MihuBot",
                     Parent.Configuration["RuntimeUtils:AzurePipelinesWebhookSecret"], $"{{\"job_id\":\"{ExternalId}\"}}");
 
-                LogsReceived("Starting runner on Azure Pipelines ...");
+                Log("Starting runner on Azure Pipelines ...");
                 _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
             }
 
@@ -313,7 +313,7 @@ public abstract class JobBase
         {
             LastSystemInfo = null;
 
-            LogsReceived($"Uncaught exception: {ex}");
+            Log($"Uncaught exception: {ex}");
 
             try
             {
@@ -383,7 +383,7 @@ public abstract class JobBase
             return;
         }
 
-        LogsReceived($"Found {argument} PRs: {string.Join(", ", prs)}");
+        Log($"Found {argument} PRs: {string.Join(", ", prs)}");
 
         ArgumentOutOfRangeException.ThrowIfGreaterThan(prs.Length, 100);
 
@@ -399,18 +399,18 @@ public abstract class JobBase
                 string repo = prInfo.Head.Repository.FullName;
                 string branch = prInfo.Head.Ref;
 
-                LogsReceived($"PR {pr}: {repo}/{branch}");
+                Log($"PR {pr}: {repo}/{branch}");
                 prInfos.Add((repo, branch));
             }
             catch
             {
-                LogsReceived($"Failed to get PR info for {pr}");
+                Log($"Failed to get PR info for {pr}");
                 throw;
             }
         }
 
         string prInfoStr = string.Join(',', prInfos.Select(pr => $"{pr.Repo};{pr.Branch}"));
-        LogsReceived($"Adding {argument}: {prInfoStr}");
+        Log($"Adding {argument}: {prInfoStr}");
         Metadata.Add(argument, prInfoStr);
 
         static int[] TryParseList(ReadOnlySpan<char> arguments, string argument)
@@ -462,7 +462,7 @@ public abstract class JobBase
     {
         if (TrackingIssue is null)
         {
-            LogsReceived($"No tracking issue. New body:\n{newBody}");
+            Log($"No tracking issue. New body:\n{newBody}");
             return;
         }
 
@@ -522,12 +522,17 @@ public abstract class JobBase
         return builder.ToString();
     }
 
-    public void LogsReceived(string line)
+    public void Log(string line)
     {
-        LogsReceived([line]);
+        TimeSpan elapsed = Stopwatch.Elapsed;
+        int hours = elapsed.Hours;
+        int minutes = elapsed.Minutes;
+        int seconds = elapsed.Seconds;
+
+        RawLogsReceived([$"[{hours:D2}:{minutes:D2}:{seconds:D2}]* {line}"]);
     }
 
-    public void LogsReceived(ReadOnlySpan<string> lines)
+    public void RawLogsReceived(ReadOnlySpan<string> lines)
     {
         _logs.AddLines(lines);
         _idleTimeoutCts.CancelAfter(IdleTimeoutMs);
@@ -577,7 +582,7 @@ public abstract class JobBase
         if (Interlocked.Increment(ref _artifactsCount) > 128)
         {
             Interlocked.Decrement(ref _artifactsCount);
-            LogsReceived($"Too many artifacts received, skipping {fileName}");
+            Log($"Too many artifacts received, skipping {fileName}");
             return;
         }
 
@@ -608,7 +613,7 @@ public abstract class JobBase
 
             if (ArtifactSizeLimit - _totalArtifactsSize < size)
             {
-                LogsReceived($"Artifact '{fileName}' was not saved because it would exceed the {GetRoughSizeString(ArtifactSizeLimit)} limit");
+                Log($"Artifact '{fileName}' was not saved because it would exceed the {GetRoughSizeString(ArtifactSizeLimit)} limit");
                 blobClient.DeleteIfExists(cancellationToken: cancellationToken);
                 return;
             }
@@ -617,7 +622,7 @@ public abstract class JobBase
             _totalArtifactsSize += size;
         }
 
-        LogsReceived($"Saved artifact '{fileName}' to {entry.ShortUrl} ({GetRoughSizeString(size)})");
+        Log($"Saved artifact '{fileName}' to {entry.ShortUrl} ({GetRoughSizeString(size)})");
     }
 
     protected virtual Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken) => Task.FromResult<Stream>(null);
@@ -763,7 +768,7 @@ public abstract class JobBase
         message = $"!!! FailFast: {message}";
 
         _firstErrorMessage = message;
-        LogsReceived(message);
+        Log(message);
         _idleTimeoutCts.Cancel();
     }
 
@@ -872,7 +877,7 @@ public abstract class JobBase
                 })
             });
 
-            LogsReceived("Creating a new Azure resource group for this deployment ...");
+            Log("Creating a new Azure resource group for this deployment ...");
 
             var armClient = new ArmClient(Program.AzureCredential);
             var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
@@ -884,14 +889,14 @@ public abstract class JobBase
 
             try
             {
-                LogsReceived($"Starting deployment of Azure VM ({vmSize}) ...");
+                Log($"Starting deployment of Azure VM ({vmSize}) ...");
                 _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
 
                 string deploymentName = $"runner-deployment-{JobId}";
                 var armDeployments = resourceGroup.GetArmDeployments();
                 var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
 
-                LogsReceived("Azure deployment complete");
+                Log("Azure deployment complete");
 
                 if ((await resourceGroup.GetPublicIPAddresses().GetAllAsync(jobTimeout).FirstOrDefaultAsync(jobTimeout)) is { } ip)
                 {
@@ -904,7 +909,7 @@ public abstract class JobBase
             {
                 if (ShouldDeleteVM)
                 {
-                    LogsReceived("Deleting the VM resource group");
+                    Log("Deleting the VM resource group");
 
                     QueueResourceDeletion(async () =>
                     {
@@ -913,7 +918,7 @@ public abstract class JobBase
                 }
                 else
                 {
-                    LogsReceived("Configuration opted not to delete the VM");
+                    Log("Configuration opted not to delete the VM");
                 }
             }
         }
@@ -926,7 +931,7 @@ public abstract class JobBase
                 ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx52" : "cpx51"))
                 : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx42" : "cpx41"));
 
-            LogsReceived($"Starting a Hetzner VM ({serverType}) ...");
+            Log($"Starting a Hetzner VM ({serverType}) ...");
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
                 $"runner-{JobId}",
@@ -941,7 +946,7 @@ public abstract class JobBase
 
             try
             {
-                LogsReceived($"VM starting (CpuType={cpuType} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
+                Log($"VM starting (CpuType={cpuType} CPU={vmType?.Cores} Memory={vmType?.Memory}) ...");
 
                 if (serverInfo.PublicNet.Ipv4?.Ip is { } ip)
                 {
@@ -954,7 +959,7 @@ public abstract class JobBase
             {
                 if (ShouldDeleteVM)
                 {
-                    LogsReceived("Deleting the VM");
+                    Log("Deleting the VM");
 
                     QueueResourceDeletion(async () =>
                     {
@@ -963,7 +968,7 @@ public abstract class JobBase
                 }
                 else
                 {
-                    LogsReceived("Configuration opted not to delete the VM");
+                    Log("Configuration opted not to delete the VM");
                 }
             }
         }
@@ -974,7 +979,7 @@ public abstract class JobBase
                 ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open")
                 : (UseArm ? "ubuntu.2204.armarch.open" : "ubuntu.2204.amd64.open");
 
-            LogsReceived($"Submitting a Helix job ({queueId}) ...");
+            Log($"Submitting a Helix job ({queueId}) ...");
 
             IHelixApi api = ApiFactory.GetAnonymous();
 
@@ -994,7 +999,7 @@ public abstract class JobBase
                 Stopwatch jobDelayStopwatch = Stopwatch.StartNew();
 
                 JobSummary summary = await api.Job.SummaryAsync(job.CorrelationId, jobTimeout);
-                LogsReceived($"Job queued {summary.DetailsUrl} ...");
+                Log($"Job queued {summary.DetailsUrl} ...");
 
                 try
                 {
@@ -1006,7 +1011,7 @@ public abstract class JobBase
 
                         if (details.WorkItems.Waiting > 0 || details.WorkItems.Unscheduled > 0)
                         {
-                            LogsReceived($"Waiting for Helix job to start ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
+                            Log($"Waiting for Helix job to start ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
 
                             if (jobDelayStopwatch.ElapsedMilliseconds > IdleTimeoutMs * 10)
                             {
@@ -1018,7 +1023,7 @@ public abstract class JobBase
 
                         if (details.WorkItems.Running == 0 && details.WorkItems.Finished > 0)
                         {
-                            LogsReceived("No more running Helix work items.");
+                            Log("No more running Helix work items.");
                             break;
                         }
                     }
@@ -1031,7 +1036,7 @@ public abstract class JobBase
             {
                 if (_idleTimeoutCts.IsCancellationRequested)
                 {
-                    LogsReceived("Cancelling the Helix job");
+                    Log("Cancelling the Helix job");
 
                     QueueResourceDeletion(async () =>
                     {

@@ -69,7 +69,7 @@ public sealed class RuntimeUtilsController : ControllerBase
             }
         }
 
-        job.LogsReceived(lines);
+        job.RawLogsReceived(lines);
         return Ok();
     }
 
@@ -118,7 +118,7 @@ public sealed class RuntimeUtilsController : ControllerBase
         if (job.InitialRemoteRunnerContact is null)
         {
             job.InitialRemoteRunnerContact = DateTime.UtcNow;
-            job.LogsReceived($"Initial remote runner contact after {(job.InitialRemoteRunnerContact.Value - job.StartTime).ToElapsedTime()}");
+            job.Log("Initial remote runner contact");
         }
 
         return new JsonResult(job.Metadata);

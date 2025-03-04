@@ -136,7 +136,7 @@ public sealed class FuzzLibrariesJob : JobBase
                 catch (Exception ex)
                 {
                     string message = $"Failed to update inputs blob: {ex}";
-                    LogsReceived(message);
+                    Log(message);
                     await Logger.DebugAsync(message);
                 }
             }
