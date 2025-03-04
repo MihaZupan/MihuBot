@@ -772,6 +772,7 @@ public abstract class JobBase
     {
         string linuxStartupScript =
             $"""
+            wget https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} &
             apt-get update
             apt-get install -y dotnet-sdk-8.0
             cd /home
