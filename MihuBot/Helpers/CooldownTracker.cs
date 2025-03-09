@@ -25,7 +25,7 @@ public class CooldownTracker
 
             if (earliestValidTime > currentTime)
             {
-                short newTolerance = (short)(Math.Max(-1000, Tolerance - 1));
+                short newTolerance = (short)Math.Max(-1000, Tolerance - 1);
                 return new UserTimings(Tolerance > 0 ? currentTime : Ticks, newTolerance, MaxTolerance);
             }
             else

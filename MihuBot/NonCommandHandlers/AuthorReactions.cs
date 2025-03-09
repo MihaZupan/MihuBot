@@ -4,7 +4,7 @@ public sealed class AuthorReactions : NonCommandHandler
 {
     public override Task HandleAsync(MessageContext ctx)
     {
-        if ((ctx.AuthorId == KnownUsers.James && Rng.Chance(50)))
+        if (ctx.AuthorId == KnownUsers.James && Rng.Chance(50))
         {
             return HandleAsyncCore();
         }

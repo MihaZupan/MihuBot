@@ -138,7 +138,7 @@ public sealed partial class ReminderCommand : CommandBase
                 };
 
                 static TimeSpan FromMonths(DateTime now, double number) =>
-                    now.AddMonths((int)number) - now + TimeSpan.FromDays((365.25d / 12d) * (number % 1));
+                    now.AddMonths((int)number) - now + TimeSpan.FromDays(365.25d / 12d * (number % 1));
 
                 static TimeSpan FromYears(DateTime now, double number) =>
                     now.AddYears((int)number) - now + TimeSpan.FromDays(365.25d * (number % 1));

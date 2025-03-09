@@ -198,6 +198,7 @@ public sealed partial class RegexDiffJob : JobBase
                 case "LongExampleDiffs.md": _longResultsMarkdown = content; break;
                 case "JitDiffImprovements.md": _jitDiffImprovements = content; break;
                 case "JitDiffRegressions.md": _jitDiffRegressions = content; break;
+                default: break;
             }
 
             return replacement;

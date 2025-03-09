@@ -69,6 +69,9 @@ public sealed partial class ImperialToNormalCommand : CommandBase
                     conversion = v => v * 0.02957352965m;
                     format = "liter";
                     break;
+
+                default:
+                    break;
             }
         }
         else
@@ -89,6 +92,9 @@ public sealed partial class ImperialToNormalCommand : CommandBase
                     conversion = v => (v * 1.8m) + 32;
                     format = " fahrenheit";
                     appendS = false;
+                    break;
+
+                default:
                     break;
             }
         }

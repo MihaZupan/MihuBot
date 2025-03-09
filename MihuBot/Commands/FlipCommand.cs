@@ -19,7 +19,7 @@ public sealed class FlipCommand : CommandBase
             const string ZeroWidthSpace = "​";
 
             string choice = options.FirstOrDefault(o => o.Contains(ZeroWidthSpace, StringComparison.Ordinal))
-                ?? (options.Where(o => o.Contains("sleep", StringComparison.OrdinalIgnoreCase)).Count() == 1
+                ?? (options.Count(o => o.Contains("sleep", StringComparison.OrdinalIgnoreCase)) == 1
                     ? options.Single(o => o.Contains("sleep", StringComparison.OrdinalIgnoreCase))
                     : null)
                 ?? options.Random();

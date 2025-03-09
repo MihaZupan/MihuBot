@@ -102,6 +102,7 @@ public sealed class JitDiffJob : JobBase
                 case "ShortDiffsRegressions.md": _shortDiffsRegressions = content; break;
                 case "LongDiffsImprovements.md": _longDiffsImprovements = content; break;
                 case "LongDiffsRegressions.md": _longDiffsRegressions = content; break;
+                default: break;
             }
 
             return replacement;
