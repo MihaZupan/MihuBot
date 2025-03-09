@@ -7,56 +7,24 @@ namespace MihuBot.Helpers;
 
 public static class Rng
 {
-    [ThreadStatic]
-    private static ulong _rngBoolCache;
+    public static bool Bool() =>
+        Chance(2);
 
-    public static bool Chance(int oneInX)
-    {
-        return Next(oneInX) == 0;
-    }
+    public static bool Chance(int oneInX) =>
+        Next(oneInX) == 0;
 
-    public static int Next(int minInclusive, int maxExclusive)
-    {
-        return minInclusive + Next(maxExclusive - minInclusive);
-    }
+    public static int Next(int toExclusive) =>
+        RandomNumberGenerator.GetInt32(toExclusive);
 
-    public static int Next(int mod)
-    {
-        if (mod == 2)
-            return Bool() ? 0 : 1;
-
-        return RandomNumberGenerator.GetInt32(mod);
-    }
-
-    public static bool Bool()
-    {
-        const ulong LengthOne = 1ul << 56;
-        const ulong LengthMask = 0xFFul << 56;
-        const ulong RngBitsMask = ~LengthMask;
-
-        ulong value = _rngBoolCache;
-        if (value != 0)
-        {
-            _rngBoolCache = ((value & LengthMask) - LengthOne) | ((value & RngBitsMask) >> 1);
-            return (value & 1) == 1;
-        }
-
-        ulong buffer = 0;
-        RandomNumberGenerator.Fill(MemoryMarshal.CreateSpan(ref Unsafe.As<ulong, byte>(ref buffer), 7));
-
-        if (!BitConverter.IsLittleEndian)
-            buffer >>= 8;
-
-        _rngBoolCache = (55 * LengthOne) | (buffer >> 1);
-        return (buffer & 1) == 1;
-    }
+    public static int Next(int fromInclusive, int toExclusive) =>
+        RandomNumberGenerator.GetInt32(fromInclusive, toExclusive);
 
     public static int FlipCoins(int count)
     {
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count), "Must be > 0");
 
-        const int StackallocSize = 128;
+        const int StackallocSize = 1024;
         const int SizeAsUlong = StackallocSize / 8;
 
         int heads = 0;
@@ -99,7 +67,7 @@ public static class Rng
         ArgumentNullException.ThrowIfNull(array);
         ArgumentOutOfRangeException.ThrowIfZero(array.Length);
 
-        return array.Length == 1 ? array[0] : array[Next(array.Length)];
+        return array[Next(array.Length)];
     }
 
     public static T Random<T>(this IReadOnlyCollection<T> collection)
@@ -109,7 +77,7 @@ public static class Rng
         int count = collection.Count;
         ArgumentOutOfRangeException.ThrowIfZero(count);
 
-        return count == 0 ? collection.First() : collection.Skip(Next(collection.Count)).First();
+        return count == 0 ? collection.First() : collection.Skip(Next(count)).First();
     }
 
     public static T Random<T>(this List<T> list)
@@ -117,6 +85,6 @@ public static class Rng
         ArgumentNullException.ThrowIfNull(list);
         ArgumentOutOfRangeException.ThrowIfZero(list.Count);
 
-        return list.Count == 1 ? list[0] : list[Next(list.Count)];
+        return list[Next(list.Count)];
     }
 }
