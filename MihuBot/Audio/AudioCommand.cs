@@ -52,7 +52,7 @@ public sealed partial class AudioCommands : CommandBase
             command = ctx.Arguments[0].ToLowerInvariant();
         }
 
-        if (command == "mplay" || command == "audiocommands")
+        if (command is "mplay" or "audiocommands")
         {
             await ctx.ReplyAsync($"I know of these: {string.Join(", ", AvailableCommands.Select(c => $"`!{c}`"))}");
             return;
@@ -78,7 +78,7 @@ public sealed partial class AudioCommands : CommandBase
                         SendThumbsUpReaction();
                         audioPlayer.Pause();
                     }
-                    else if (command == "unpause" || command == "resume")
+                    else if (command is "unpause" or "resume")
                     {
                         SendThumbsUpReaction();
                         audioPlayer.Unpause();

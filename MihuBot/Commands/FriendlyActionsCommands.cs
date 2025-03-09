@@ -22,7 +22,7 @@ public sealed class FriendlyActionsCommands : CommandBase
             return;
         }
 
-        if (ctx.Command == "spit" || ctx.Command == "curbstomp" || ctx.Command == "beatup")
+        if (ctx.Command is "spit" or "curbstomp" or "beatup")
         {
             if (!ctx.HasPermission($"friendlyactions.{ctx.Command}"))
                 return;

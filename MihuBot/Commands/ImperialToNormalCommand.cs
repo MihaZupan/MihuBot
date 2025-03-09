@@ -41,7 +41,7 @@ public sealed partial class ImperialToNormalCommand : CommandBase
             switch (type)
             {
                 case "f":
-                    if (value > 0 && value < 10) goto case "feet";
+                    if (value is > 0 and < 10) goto case "feet";
                     else goto case "fahrenheit";
 
                 case "fahrenheit":

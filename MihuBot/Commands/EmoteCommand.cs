@@ -50,10 +50,7 @@ public sealed class EmoteCommand : CommandBase
                 var attachment = message.Attachments.Single();
                 extension = Path.GetExtension(attachment.Filename).ToLowerInvariant();
 
-                if (extension == ".jpg" ||
-                    extension == ".jpeg" ||
-                    extension == ".png" ||
-                    extension == ".gif")
+                if (extension is ".jpg" or ".jpeg" or ".png" or ".gif")
                 {
                     url = attachment.Url;
                 }

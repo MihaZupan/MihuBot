@@ -60,8 +60,8 @@ public static class StringHelpers
 
             arguments = arguments.Slice(nextQuote + 1);
 
-            int end = (quoteType == '‘' || quoteType == '’') ? arguments.IndexOfAny('‘', '’')
-                : (quoteType == '“' || quoteType == '“') ? arguments.IndexOfAny('“', '“')
+            int end = (quoteType is '‘' or '’') ? arguments.IndexOfAny('‘', '’')
+                : (quoteType is '“' or '“') ? arguments.IndexOfAny('“', '“')
                 : arguments.IndexOf(quoteType);
 
             if (end < 0)

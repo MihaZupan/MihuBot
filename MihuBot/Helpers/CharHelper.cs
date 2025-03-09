@@ -33,7 +33,7 @@ public static class CharHelper
         }
 
         value = (value << 4) + second;
-        Debug.Assert(value >= 0 && value <= 255);
+        Debug.Assert(value is >= 0 and <= 255);
         return true;
     }
 }

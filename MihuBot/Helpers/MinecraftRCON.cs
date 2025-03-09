@@ -104,7 +104,7 @@ public sealed class MinecraftRCON
 
                         int length = BitConverter.ToInt32(header.Span) - 8;
 
-                        if (length < 2 || length > 16 * 1024)
+                        if (length is < 2 or > (16 * 1024))
                             throw new Exception("Invalid reponse length");
 
                         int id = BitConverter.ToInt32(header.Span.Slice(4));

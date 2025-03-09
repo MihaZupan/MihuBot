@@ -57,11 +57,7 @@ internal static partial class YoutubeHelper
         if (playlistId is null)
             return false;
 
-        if (playlistId.Length != 2 &&
-            playlistId.Length != 13 &&
-            playlistId.Length != 18 &&
-            playlistId.Length != 24 &&
-            playlistId.Length != 34)
+        if (playlistId.Length is not (2 or 13 or 18 or 24 or 34))
             return false;
 
         return !playlistId.AsSpan().ContainsAnyExcept(s_videoIdChars);
