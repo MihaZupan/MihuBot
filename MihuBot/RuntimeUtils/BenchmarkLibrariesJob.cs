@@ -52,9 +52,9 @@ public sealed class BenchmarkLibrariesJob : JobBase
         if (!string.IsNullOrEmpty(resultsMarkdown) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
-            PullRequest is not null)
+            (PullRequest?.Number ?? GitHubComment?.IssueId) is int issueId)
         {
-            await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, resultsMarkdown);
+            await Github.Issue.Comment.Create(RepoOwner, RepoName, issueId, resultsMarkdown);
             ShouldMentionJobInitiator = false;
         }
     }
