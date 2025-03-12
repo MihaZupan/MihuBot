@@ -7,10 +7,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddJsonFile("credentials.json", optional: true);
 
-builder.WebHost.UseTunnelTransport("https://mihubot.xyz/_yarp-tunnel?host=mihubot-storage", options =>
+if (OperatingSystem.IsLinux())
 {
-    options.AuthorizationHeaderValue = builder.Configuration["YarpTunnelAuth"];
-});
+    builder.WebHost.UseTunnelTransport("https://mihubot.xyz/_yarp-tunnel?host=mihubot-storage", options =>
+    {
+        options.AuthorizationHeaderValue = builder.Configuration["YarpTunnelAuth"];
+    });
+}
 
 builder.WebHost.UseKestrel(options =>
 {
@@ -24,7 +27,10 @@ builder.WebHost.UseKestrel(options =>
     {
         listenOptions.UseHttps(options =>
         {
-            options.UseLettuceEncrypt(listenOptions.ApplicationServices);
+            if (OperatingSystem.IsLinux())
+            {
+                options.UseLettuceEncrypt(listenOptions.ApplicationServices);
+            }
         });
     });
 });
@@ -49,7 +55,9 @@ var app = builder.Build();
 
 app.Use((context, next) =>
 {
-    if (!AllowList(context.Request.Path) && !context.Connection.Id.StartsWith("yarp-tunnel-", StringComparison.Ordinal))
+    if (OperatingSystem.IsLinux() &&
+        !AllowList(context.Request.Path) &&
+        !context.Connection.Id.StartsWith("yarp-tunnel-", StringComparison.Ordinal))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return Task.CompletedTask;
