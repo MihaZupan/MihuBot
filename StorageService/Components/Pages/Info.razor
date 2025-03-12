@@ -1,0 +1,36 @@
+﻿@page "/info"
+@using System.Runtime.InteropServices
+@using System.Reflection
+
+<PageTitle>Info</PageTitle>
+
+<div>RID: @RuntimeInformation.RuntimeIdentifier</div>
+<div>Version: @RuntimeInformation.FrameworkDescription</div>
+@if (_commit is not null)
+{
+    <div>Build: <a href="@CommitUrl">@_commit.Substring(0, 6)</a></div>
+}
+<div>WorkDir: @Environment.CurrentDirectory</div>
+<div>Machine: @Environment.MachineName</div>
+
+@code
+{
+    string? _commit;
+    string CommitUrl => $"https://github.com/MihaZupan/MihuBot/commit/{_commit}";
+
+    protected override void OnInitialized()
+    {
+        var assembly = typeof(Program).Assembly;
+        var attribute = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+        _commit = attribute?.InformationalVersion;
+
+        if (_commit is not null)
+        {
+            int plusOffset = _commit.IndexOf('+');
+            if (plusOffset >= 0)
+            {
+                _commit = _commit.Substring(plusOffset + 1);
+            }
+        }
+    }
+}

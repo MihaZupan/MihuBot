@@ -74,38 +74,6 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.MapGet("/version", () =>
-{
-    try
-    {
-        var assembly = typeof(Program).Assembly;
-        var attribute = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
-        string? commit = attribute?.InformationalVersion;
-
-        if (commit is not null)
-        {
-            int plusOffset = commit.IndexOf('+');
-            if (plusOffset >= 0)
-            {
-                commit = commit.Substring(plusOffset + 1);
-            }
-        }
-
-        return
-            $"""
-            RID: {RuntimeInformation.RuntimeIdentifier}
-            Version: {RuntimeInformation.FrameworkDescription}
-            Build: {(commit is null ? "local" : $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/commit/{commit})")}
-            WorkDir: {Environment.CurrentDirectory}
-            Machine: {Environment.MachineName}
-            """;
-    }
-    catch (Exception ex)
-    {
-        return ex.ToString();
-    }
-});
-
 app.MapForwarder("/superpmi/{*any}", "https://clrjit2.blob.core.windows.net");
 
 try
