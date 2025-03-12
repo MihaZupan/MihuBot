@@ -3,7 +3,8 @@ name: ci
 on: push
 
 jobs:
-  build:
+  build-mihubot-storage:
+    if: contains(toJson(github.event.commits.*.modified), 'StorageService/')
     runs-on: ubuntu-latest
 
     steps:
@@ -14,18 +15,54 @@ jobs:
       run: |
         sudo apt install -y wget && \
         wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-        sudo chmod +x ./dotnet-install.sh &&
+        sudo chmod +x ./dotnet-install.sh && \
+        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
+        dotnet --info
+
+    - name: Dotnet restore
+      run: dotnet restore StorageService
+
+    - name: Dotnet publish
+      run: dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+
+    - name: Compress artifacts
+      run: tar -cvzf artifacts.tar.gz artifacts
+
+    - name: Upload to VM
+      run: "curl -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.tar.gz \"https://mihubot.xyz/manage/storage/deploy-update\""
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: publish-storage-${{ github.run_number }}
+        path: artifacts.tar.gz
+
+
+
+  build-mihubot:
+    needs: [build-mihubot-storage]
+    # Allow this job if the storage job was successful OR skipped
+    # AND if MihuBot files were changed.
+    if: >
+      (needs.build-mihubot-storage.result == 'success' || needs.build-mihubot-storage.result == 'skipped') &&
+      contains(toJson(github.event.commits.*.modified), 'MihuBot/')
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 10.0
+      run: |
+        sudo apt install -y wget && \
+        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
+        sudo chmod +x ./dotnet-install.sh && \
         sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
         dotnet --info
 
     - name: Dotnet restore
       run: dotnet restore MihuBot
-
-    #- name: Dotnet build
-    #  run: dotnet build MihuBot --no-restore
-
-    #- name: Dotnet test
-    #  run: dotnet test MihuBot
 
     - name: Dotnet publish
       run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
