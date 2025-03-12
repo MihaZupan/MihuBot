@@ -172,7 +172,10 @@ public class Startup
         });
 
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-            .AddCookie()
+            .AddCookie(options =>
+            {
+                options.LoginPath = "/Account/Login/Discord";
+            })
             .AddDiscord(options =>
             {
                 options.SaveTokens = true;
