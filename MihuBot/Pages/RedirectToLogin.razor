@@ -4,6 +4,7 @@
 {
     protected override void OnInitialized()
     {
-        Navigation.NavigateTo("Account/Login/Discord", true);
+        string relativePath = Uri.EscapeDataString(Navigation.ToBaseRelativePath(Navigation.Uri));
+        Navigation.NavigateTo($"Account/Login/Discord?returnUrl=%2F{relativePath}", true);
     }
 }

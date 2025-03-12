@@ -1,6 +1,5 @@
 ﻿using MihuBot.Permissions;
 using SharpCollections.Generic;
-using SpotifyAPI.Web;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.InteropServices;

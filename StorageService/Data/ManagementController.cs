@@ -5,16 +5,9 @@ using System.Security.Cryptography;
 namespace MihuBot.Data;
 
 [Route("[controller]/[action]")]
-public class ManagementController : ControllerBase
+public class ManagementController(IConfiguration configuration) : ControllerBase
 {
-    private readonly Logger _logger;
-    private readonly string _updateToken;
-
-    public ManagementController(Logger logger, IConfiguration configuration)
-    {
-        _logger = logger;
-        _updateToken = configuration["UPDATE-TOKEN"];
-    }
+    private readonly string _updateToken = configuration["UPDATE-TOKEN"] ?? throw new ArgumentNullException(nameof(configuration), "Missing update token.");
 
     [HttpPost]
     [RequestSizeLimit(256 * 1024 * 1024)]
@@ -22,19 +15,16 @@ public class ManagementController : ControllerBase
     {
         if (!Request.Headers.TryGetValue("X-Run-Number", out var runNumberValue) || !uint.TryParse(runNumberValue, out uint runNumber))
         {
-            _logger.DebugLog("No X-Run-Number header received");
             return Unauthorized();
         }
 
         if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
         {
-            _logger.DebugLog("No X-Update-Token header received");
             return Unauthorized();
         }
 
         if (!CheckToken(_updateToken, updateToken))
         {
-            _logger.DebugLog("Invalid X-Update-Token received");
             return Unauthorized();
         }
 
@@ -53,26 +43,26 @@ public class ManagementController : ControllerBase
 
             System.IO.File.Delete(artifactsPath);
 
-            _logger.DebugLog($"Received a deployment notification for run {runNumber}");
+            Console.WriteLine($"Received a deployment notification for run {runNumber}");
 
             await using (FileStream fs = System.IO.File.OpenWrite(artifactsPath))
             {
                 await Request.Body.CopyToAsync(fs);
             }
 
-            Program.BotStopTCS.TrySetResult();
+            Lifetime.StopTCS.TrySetResult();
         }
         catch (Exception ex)
         {
             try
             {
-                await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
+                Console.WriteLine($"Failed to deploy an update for {runNumber}: {ex}");
             }
             catch { }
         }
     }
 
-    public static bool CheckToken(string expected, string actual)
+    public static bool CheckToken(string expected, string? actual)
     {
         ArgumentException.ThrowIfNullOrEmpty(expected);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 1000);

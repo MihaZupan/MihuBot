@@ -13,6 +13,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		nuget.config = nuget.config
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StorageService", "StorageService\StorageService.csproj", "{41D344C5-A644-4419-A26E-B05A75670433}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "Shared", "Shared\Shared.shproj", "{26478BDE-C0E4-483E-989E-5029BBFE9130}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -23,11 +27,20 @@ Global
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{531DAF89-6A47-4EB2-A8DF-DC2F7F6A6206}.Release|Any CPU.Build.0 = Release|Any CPU
+		{41D344C5-A644-4419-A26E-B05A75670433}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{41D344C5-A644-4419-A26E-B05A75670433}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{41D344C5-A644-4419-A26E-B05A75670433}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{41D344C5-A644-4419-A26E-B05A75670433}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {27DA8039-40BB-4A16-BD04-B483966A861D}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		Shared\Shared.projitems*{26478bde-c0e4-483e-989e-5029bbfe9130}*SharedItemsImports = 13
+		Shared\Shared.projitems*{41d344c5-a644-4419-a26e-b05a75670433}*SharedItemsImports = 5
+		Shared\Shared.projitems*{531daf89-6a47-4eb2-a8df-dc2f7f6a6206}*SharedItemsImports = 5
 	EndGlobalSection
 EndGlobal

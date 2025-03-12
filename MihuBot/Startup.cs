@@ -4,7 +4,6 @@ using LettuceEncrypt;
 using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
@@ -274,6 +273,8 @@ public class Startup
 
         app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
             app => app.UseHttpsRedirection());
+
+        app.UseAntiforgery();
 
         app.UseStaticFiles(new StaticFileOptions
         {
