@@ -5,6 +5,7 @@ using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpsPolicy;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 using MihuBot.Audio;
@@ -302,6 +303,9 @@ public class Startup
 
             endpoints.MapHttp2Tunnel("/_yarp-tunnel")
                 .Add(ConfigureYarpTunnelAuth);
+
+            endpoints.Map("/superpmi/{**remainder}", (HttpContext context, [FromRoute] string remainder) =>
+                Results.Redirect($"https://storage.mihubot.xyz/superpmi/{remainder}"));
 
             endpoints.MapReverseProxy();
         });
