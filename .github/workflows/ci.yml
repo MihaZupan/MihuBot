@@ -4,7 +4,6 @@ on: push
 
 jobs:
   build-mihubot-storage:
-    if: contains(toJson(github.event.commits.*.modified), 'StorageService/')
     runs-on: ubuntu-latest
 
     steps:
@@ -42,11 +41,6 @@ jobs:
 
   build-mihubot:
     needs: [build-mihubot-storage]
-    # Allow this job if the storage job was successful OR skipped
-    # AND if MihuBot files were changed.
-    if: >
-      (needs.build-mihubot-storage.result == 'success' || needs.build-mihubot-storage.result == 'skipped') &&
-      contains(toJson(github.event.commits.*.modified), 'MihuBot/')
     runs-on: ubuntu-latest
 
     steps:
