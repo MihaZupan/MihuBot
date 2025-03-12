@@ -103,8 +103,6 @@ catch (Exception ex)
     Console.WriteLine(ex);
 }
 
-app.Run();
-
 static class Lifetime
 {
     public static readonly TaskCompletionSource StopTCS = new(TaskCreationOptions.RunContinuationsAsynchronously);
