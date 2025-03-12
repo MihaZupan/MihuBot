@@ -1,9 +1,7 @@
-﻿using System.Reflection;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Connections;
 using StorageService.Components;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +14,10 @@ builder.WebHost.UseTunnelTransport("https://mihubot.xyz/_yarp-tunnel?host=mihubo
 
 builder.WebHost.UseKestrel(options =>
 {
+    options.Limits.MaxResponseBufferSize *= 32;
+    options.Limits.Http2.InitialStreamWindowSize *= 32;
+    options.Limits.Http2.InitialConnectionWindowSize *= 32;
+
     options.ListenAnyIP(80);
 
     options.ListenAnyIP(443, listenOptions =>
