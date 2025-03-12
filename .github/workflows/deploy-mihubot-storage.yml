@@ -1,4 +1,4 @@
-name: ci
+name: build-mihubot-storage
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - 'MihuBot/**'
 
 jobs:
-  build-mihubot-storage:
+  build:
     runs-on: ubuntu-latest
 
     steps:
