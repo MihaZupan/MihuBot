@@ -60,7 +60,8 @@ app.Use((context, next) =>
     static bool AllowList(PathString path) =>
         path.StartsWithSegments("/s") ||
         path.StartsWithSegments("/superpmi") ||
-        path.StartsWithSegments("/.well-known");
+        path.StartsWithSegments("/.well-known") ||
+        path.StartsWithSegments("/Management");
 });
 
 if (!app.Environment.IsDevelopment())
