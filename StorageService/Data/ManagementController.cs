@@ -54,11 +54,8 @@ public class ManagementController(IConfiguration configuration) : ControllerBase
         }
         catch (Exception ex)
         {
-            try
-            {
-                Console.WriteLine($"Failed to deploy an update for {runNumber}: {ex}");
-            }
-            catch { }
+            Console.WriteLine($"Failed to deploy an update for {runNumber}: {ex}");
+            throw;
         }
     }
 
