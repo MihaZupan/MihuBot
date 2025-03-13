@@ -86,6 +86,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapForwarder("/superpmi/{*any}", "https://clrjit2.blob.core.windows.net");
+app.MapForwarder("/public/Sdk/{*any}", "https://ci.dot.net");
 
 try
 {
