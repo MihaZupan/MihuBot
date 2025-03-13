@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
 using Octokit;
+using MihuBot.Configuration;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -13,17 +14,25 @@ public sealed class CoreRootService
     private readonly IDbContextFactory<MihuBotDbContext> _dbContextFactory;
     private readonly Logger _logger;
 
-    public readonly BlobContainerClient CoreRootBlobContainerClient;
+    private readonly BlobContainerClient _coreRootBlobContainerClient;
+    public readonly StorageClient Storage;
 
-    public CoreRootService(GitHubClient github, IDbContextFactory<MihuBotDbContext> dbContextFactory, Logger logger, IConfiguration configuration)
+    public CoreRootService(GitHubClient github, HttpClient http, IDbContextFactory<MihuBotDbContext> dbContextFactory, Logger logger, IConfiguration configuration, IConfigurationService configurationService)
     {
         _github = github;
         _dbContextFactory = dbContextFactory;
         _logger = logger;
 
+        if (!configurationService.TryGet(null, "RuntimeUtils.CoreRootService.SasKey", out string sasKey))
+        {
+            throw new InvalidOperationException("Missing 'RuntimeUtils.CoreRootService.SasKey'");
+        }
+
+        Storage = new StorageClient(http, "coreroot", sasKey, isPublic: true);
+
         if (Program.AzureEnabled)
         {
-            CoreRootBlobContainerClient = new BlobContainerClient(
+            _coreRootBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "coreroot");
         }
@@ -63,9 +72,7 @@ public sealed class CoreRootService
             return false;
         }
 
-        BlobClient blob = CoreRootBlobContainerClient.GetBlobClient(blobName);
-
-        if (!await blob.ExistsAsync())
+        if (!await Storage.ExistsAsync(blobName))
         {
             _logger.DebugLog($"CoreRoot blob does not exist? '{blobName}'");
             return false;
@@ -80,7 +87,7 @@ public sealed class CoreRootService
             Os = os,
             Type = type,
             CreatedOn = DateTime.UtcNow,
-            BlobName = blob.Name,
+            BlobName = blobName,
         });
 
         await context.SaveChangesAsync();
@@ -121,8 +128,17 @@ public sealed class CoreRootService
 
     private CoreRootEntry Remap(CoreRootDbEntry entry)
     {
-        BlobClient blob = CoreRootBlobContainerClient.GetBlobClient(entry.BlobName);
-        Uri sasUri = blob.GenerateSasUri(BlobSasPermissions.Read, DateTime.UtcNow.AddHours(8));
+        string sasUrl;
+
+        if (entry.CreatedOn >= new DateTime(2025, 3, 14))
+        {
+            sasUrl = Storage.GetFileUrl(entry.BlobName, TimeSpan.FromHours(8), writeAccess: false);
+        }
+        else
+        {
+            BlobClient blob = _coreRootBlobContainerClient.GetBlobClient(entry.BlobName);
+            sasUrl = blob.GenerateSasUri(BlobSasPermissions.Read, DateTime.UtcNow.AddHours(8)).AbsoluteUri;
+        }
 
         return new CoreRootEntry
         {
@@ -130,7 +146,7 @@ public sealed class CoreRootService
             Arch = entry.Arch,
             Os = entry.Os,
             Type = entry.Type,
-            Url = sasUri.AbsoluteUri,
+            Url = sasUrl,
             CreatedOn = entry.CreatedOn,
         };
     }

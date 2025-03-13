@@ -18,9 +18,7 @@ public sealed class CoreRootGenerationJob : JobBase
 
         MaxJobDuration = TimeSpan.FromHours(12);
 
-        var containerClient = Parent.CoreRoot.CoreRootBlobContainerClient;
-        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.All, DateTimeOffset.UtcNow.Add(MaxJobDuration));
-        Metadata.Add("CoreRootSasUri", sasUri.AbsoluteUri);
+        Metadata.Add("CoreRootSasUri", Parent.CoreRoot.Storage.GetContainerUrl(MaxJobDuration, writeAccess: true));
 
         return Task.CompletedTask;
     }
