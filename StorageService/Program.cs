@@ -69,7 +69,8 @@ app.Use((context, next) =>
         path.StartsWithSegments("/s") ||
         path.StartsWithSegments("/superpmi") ||
         path.StartsWithSegments("/.well-known") ||
-        path.StartsWithSegments("/Management");
+        path.StartsWithSegments("/Management") ||
+        path.StartsWithSegments("/public/Sdk");
 });
 
 if (!app.Environment.IsDevelopment())
