@@ -41,7 +41,7 @@ public class Startup
 
         string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        if (OperatingSystem.IsLinux())
         {
             DirectoryInfo certDir = new("/home/certs");
             certDir.Create();

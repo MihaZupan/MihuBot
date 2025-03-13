@@ -1,0 +1,119 @@
+﻿@page "/storage"
+@using System.ComponentModel.DataAnnotations
+@using System.Runtime.InteropServices
+@using System.Reflection
+@using StorageService.Storage;
+@inject StorageService storage
+@rendermode InteractiveServer
+
+<PageTitle>Storage</PageTitle>
+
+<table class="table">
+    <thead class="thead-light">
+        <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Owner</th>
+            <th scope="col">Public</th>
+            <th scope="col">Retention period</th>
+        </tr>
+    </thead>
+    @foreach (var container in _containers)
+    {
+        <tr>
+            <td scope="row">@container.Name</td>
+            <td>@container.Owner</td>
+            <td>@container.IsPublic</td>
+            <td>@TimeSpan.FromSeconds(container.RetentionPeriodSeconds).ToElapsedTime()</td>
+        </tr>
+    }
+</table>
+
+<button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#staticBackdrop">
+    Create a new container
+</button>
+
+<div class="modal fade" id="staticBackdrop" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-labelledby="staticBackdropLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h1 class="modal-title fs-5" id="staticBackdropLabel">Create new container</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <EditForm FormName="NewContainer" Model="NewContainer" OnValidSubmit="CreateContainerAsync">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    @if (!string.IsNullOrEmpty(_newContainerError))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            Failed to create the container: @_newContainerError
+                        </div>
+                    }
+
+                    @if (_newContainerSasKey is not null)
+                    {
+                        <div>
+                            SAS key: <small style="font-size:12px">@_newContainerSasKey</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div>
+                            <InputText style="width: 90%;" @bind-Value=NewContainer.Name placeholder="Container name" />
+                            <InputText style="width: 90%;" @bind-Value=NewContainer.Owner placeholder="Owner" />
+                            <label>
+                                Retention period (in days):
+                                <InputNumber @bind-Value=NewContainer.RetentionPeriodDays />
+                            </label>
+                            <label>
+                                Allow public downloads:
+                                <InputCheckbox @bind-Value=NewContainer.IsPublic id="isPublicCheck" />
+                            </label>
+                        </div>
+
+                        <input type="submit" value="Submit" class="btn btn-primary" />
+                    }
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code
+{
+    private ContainerDbEntry[] _containers = [];
+
+    [SupplyParameterFromForm]
+    private NewContainerModel NewContainer { get; set; } = new();
+
+    private string? _newContainerSasKey;
+    private string? _newContainerError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _containers = await storage.GetAllContainersAsync();
+        StateHasChanged();
+    }
+
+    private async Task CreateContainerAsync()
+    {
+        (_newContainerError, _newContainerSasKey) = await storage.TryCreateContainerAsync(
+            NewContainer.Owner, NewContainer.Name, NewContainer.IsPublic, TimeSpan.FromDays(NewContainer.RetentionPeriodDays));
+
+        if (_newContainerError is null)
+        {
+            await OnInitializedAsync();
+        }
+    }
+
+    private sealed class NewContainerModel
+    {
+        public string? Name { get; set; }
+        public string? Owner { get; set; }
+        public bool IsPublic { get; set; }
+
+        [Range(1, 365 * 1000)]
+        public int RetentionPeriodDays { get; set; } = 90;
+    }
+}

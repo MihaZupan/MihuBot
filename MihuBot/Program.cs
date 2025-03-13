@@ -36,14 +36,12 @@ public class Program
 
             Task hostTask = host.RunAsync(cts.Token);
 
-            Task finishedTask = await Task.WhenAny(hostTask, BotStopTCS.Task);
-
-            if (finishedTask != hostTask)
+            if (await Task.WhenAny(hostTask, BotStopTCS.Task) != hostTask)
             {
                 cts.Cancel();
                 try
                 {
-                    await finishedTask;
+                    await BotStopTCS.Task;
                 }
                 catch { }
             }
@@ -62,7 +60,7 @@ public class Program
             {
                 if (AzureEnabled)
                 {
-                    AzureCredential = RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                    AzureCredential = OperatingSystem.IsLinux()
                         ? new ManagedIdentityCredential()
                         : new AzureCliCredential();
 

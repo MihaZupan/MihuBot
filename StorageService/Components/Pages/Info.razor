@@ -1,6 +1,6 @@
 ﻿@page "/info"
 @using System.Runtime.InteropServices
-@using System.Reflection
+@using MihuBot.Helpers;
 
 <PageTitle>Info</PageTitle>
 
@@ -20,17 +20,6 @@
 
     protected override void OnInitialized()
     {
-        var assembly = typeof(Program).Assembly;
-        var attribute = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
-        _commit = attribute?.InformationalVersion;
-
-        if (_commit is not null)
-        {
-            int plusOffset = _commit.IndexOf('+');
-            if (plusOffset >= 0)
-            {
-                _commit = _commit.Substring(plusOffset + 1);
-            }
-        }
+        _commit = Helpers.GetCommitId();
     }
 }

@@ -266,18 +266,7 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                var assembly = typeof(MihuBotService).Assembly;
-                var attribute = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
-                string commit = attribute?.InformationalVersion;
-
-                if (commit is not null)
-                {
-                    int plusOffset = commit.IndexOf('+');
-                    if (plusOffset >= 0)
-                    {
-                        commit = commit.Substring(plusOffset + 1);
-                    }
-                }
+                string commit = Helpers.Helpers.GetCommitId();
 
                 var embed = new EmbedBuilder()
                     .WithTitle("Started")
@@ -313,7 +302,7 @@ public class MihuBotService : IHostedService
                 }
                 catch { }
 
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                if (OperatingSystem.IsLinux())
                 {
                     await _logger.OnShutdownAsync();
                 }

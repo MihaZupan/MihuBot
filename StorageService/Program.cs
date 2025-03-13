@@ -1,7 +1,13 @@
-﻿using System.Runtime.InteropServices;
+﻿using Azure.Monitor.OpenTelemetry.AspNetCore;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Connections;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using StorageService.Components;
+using StorageService.Storage;
+using Yarp.ReverseProxy.Model;
+
+Directory.CreateDirectory(Constants.StateDirectory);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,7 +41,7 @@ builder.WebHost.UseKestrel(options =>
     });
 });
 
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+if (OperatingSystem.IsLinux())
 {
     DirectoryInfo certDir = new("/home/certs");
     certDir.Create();
@@ -44,19 +50,51 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         .PersistDataToDirectory(certDir, "certpass123");
 }
 
-builder.Services.AddHttpForwarder();
+if (OperatingSystem.IsLinux())
+{
+    builder.Services.AddOpenTelemetry()
+        .UseAzureMonitor(options =>
+        {
+            options.ConnectionString = builder.Configuration["AzureMonitorConnectionString"];
+        })
+        .ConfigureResource(builder =>
+        {
+            builder.AddAttributes(new Dictionary<string, object>
+            {
+                { "service.name", "storage" },
+                { "service.namespace", "mihubot" },
+                { "service.instance.id", "storage" },
+                { "service.version", Helpers.GetCommitId() }
+            });
+        })
+        .WithTracing(builder =>
+        {
+            builder.AddAspNetCoreInstrumentation();
+            builder.AddHttpClientInstrumentation();
+        })
+        .WithLogging();
+}
+
+builder.Services.AddDatabases();
+
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddControllers();
 
+builder.Services.AddStorageServices();
+
 var app = builder.Build();
+
+app.UseRouting();
 
 app.Use((context, next) =>
 {
     if (OperatingSystem.IsLinux() &&
-        !AllowList(context.Request.Path) &&
+        !AllowList(context) &&
         !context.Connection.Id.StartsWith("yarp-tunnel-", StringComparison.Ordinal))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -65,18 +103,26 @@ app.Use((context, next) =>
 
     return next();
 
-    static bool AllowList(PathString path) =>
-        path.StartsWithSegments("/s") ||
-        path.StartsWithSegments("/superpmi") ||
-        path.StartsWithSegments("/.well-known") ||
-        path.StartsWithSegments("/Management") ||
-        path.StartsWithSegments("/public/Sdk");
+    static bool AllowList(HttpContext context)
+    {
+        PathString path = context.Request.Path;
+
+        if (path.StartsWithSegments("/s") || path.StartsWithSegments("/Management"))
+        {
+            return true;
+        }
+
+        // Allow requests routed by YARP.
+        return context.GetEndpoint()?.Metadata.GetMetadata<RouteModel>() is not null;
+    }
 });
 
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
+
+app.MapGroup("/s").MapStorageApis();
 
 app.UseAntiforgery();
 
@@ -86,23 +132,27 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-app.MapForwarder("/superpmi/{*any}", "https://clrjit2.blob.core.windows.net");
-app.MapForwarder("/public/Sdk/{*any}", "https://ci.dot.net");
+app.MapReverseProxy();
 
 try
 {
+    await app.RunDatabaseMigrations();
+
     using var cts = new CancellationTokenSource();
+
+    Console.CancelKeyPress += (_, e) =>
+    {
+        cts.Cancel();
+    };
 
     Task hostTask = app.RunAsync(cts.Token);
 
-    Task finishedTask = await Task.WhenAny(hostTask, Lifetime.StopTCS.Task);
-
-    if (finishedTask != hostTask)
+    if (await Task.WhenAny(hostTask, Lifetime.StopTCS.Task) != hostTask)
     {
         cts.Cancel();
         try
         {
-            await finishedTask;
+            await Lifetime.StopTCS.Task;
         }
         catch { }
     }
