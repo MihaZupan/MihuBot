@@ -179,7 +179,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
         using (ExecutionContext.SuppressFlow())
         {
             _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
-            _ = Task.Run(MonitorRuntimeTestServiceAsync, CancellationToken.None);
             _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
         }
 
@@ -201,83 +200,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             // Delay shutdown to give jobs time to delete any cloud resources / save state.
             await Task.Delay(10_000, cancellationToken);
-        }
-    }
-
-    private async Task MonitorRuntimeTestServiceAsync()
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
-
-        int consecutiveFailureCount = 0;
-        int runCounter = 0;
-
-        while (await timer.WaitForNextTickAsync())
-        {
-            if (ConfigurationService.TryGet(null, "RuntimeUtils.MonitorRuntimeTestService.Disable", out _))
-            {
-                continue;
-            }
-
-            runCounter++;
-
-            try
-            {
-                await TestRemoteServer(HttpVersion.Version11, "http://runtime-net-test-http11.mihubot.xyz/stats");
-                await TestRemoteServer(HttpVersion.Version11, "https://runtime-net-test-http11.mihubot.xyz/stats");
-                await TestRemoteServer(HttpVersion.Version20, "https://runtime-net-test-http2.mihubot.xyz/stats");
-
-                consecutiveFailureCount = 0;
-            }
-            catch (Exception ex)
-            {
-                consecutiveFailureCount++;
-
-                string message = $"[{runCounter}] {nameof(MonitorRuntimeTestServiceAsync)} ({consecutiveFailureCount}): {ex}";
-
-                if (consecutiveFailureCount == 3 || consecutiveFailureCount % 1000 == 0) // Every ~3 hours
-                {
-                    await Logger.DebugAsync(message);
-                }
-                else
-                {
-                    Logger.DebugLog(message);
-                }
-            }
-        }
-
-        async Task TestRemoteServer(Version version, string url)
-        {
-            string certString = null;
-
-            using var handler = new SocketsHttpHandler();
-            handler.SslOptions.RemoteCertificateValidationCallback = (_, cert, _, errors) =>
-            {
-                if (cert is X509Certificate2 cert2)
-                {
-                    if (cert2.NotAfter - DateTime.UtcNow < TimeSpan.FromDays(2))
-                    {
-                        throw new Exception($"Certificate expires on {cert2.NotAfter}");
-                    }
-
-                    certString = cert2.ToString();
-                }
-
-                return errors == SslPolicyErrors.None;
-            };
-            handler.ConnectTimeout = TimeSpan.FromSeconds(3);
-
-            using var client = new HttpClient(handler)
-            {
-                DefaultRequestVersion = version,
-                Timeout = TimeSpan.FromSeconds(5),
-            };
-
-            string response = await client.GetStringAsync(url);
-
-            if (runCounter % 10 == 0)
-            {
-                Logger.DebugLog($"[{runCounter}] {url}:\n{response}\n{certString}");
-            }
         }
     }
 

@@ -25,7 +25,13 @@ public sealed class CoreRootService
 
         if (!configurationService.TryGet(null, "RuntimeUtils.CoreRootService.SasKey", out string sasKey))
         {
-            throw new InvalidOperationException("Missing 'RuntimeUtils.CoreRootService.SasKey'");
+            if (OperatingSystem.IsLinux())
+            {
+                throw new InvalidOperationException("Missing 'RuntimeUtils.CoreRootService.SasKey'");
+            }
+
+            // For local testing
+            sasKey = "";
         }
 
         Storage = new StorageClient(http, "coreroot", sasKey, isPublic: true);
