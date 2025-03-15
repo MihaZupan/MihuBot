@@ -21,11 +21,19 @@ if (OperatingSystem.IsLinux())
     });
 }
 
+const int MB = 1 << 20;
+
+builder.WebHost.UseSockets(options =>
+{
+    options.MaxReadBufferSize = 2 * MB;
+    options.MaxWriteBufferSize = 1 * MB;
+});
+
 builder.WebHost.UseKestrel(options =>
 {
-    options.Limits.MaxResponseBufferSize *= 32;
-    options.Limits.Http2.InitialStreamWindowSize *= 32;
-    options.Limits.Http2.InitialConnectionWindowSize *= 32;
+    options.Limits.MaxResponseBufferSize = 2 * MB;
+    options.Limits.Http2.InitialStreamWindowSize = 2 * MB;
+    options.Limits.Http2.InitialConnectionWindowSize = 3 * MB;
 
     options.ListenAnyIP(80);
 
