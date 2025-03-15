@@ -3,7 +3,6 @@ using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.IO.Pipelines;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -400,34 +399,23 @@ public sealed class StorageService
         }
     }
 
-    public async Task DownloadFileAsync(HttpContext context, string container, string path)
+    public async Task<IResult> DownloadFileAsync(HttpContext context, string container, string path)
     {
         Debug.Assert(await HasValidAuthorization(context, container));
 
         if (!ValidateFilePath(path))
         {
-            await Results.BadRequest("Invalid path name").ExecuteAsync(context);
+            return Results.BadRequest("Invalid path name");
         }
 
         string fullPath = GetFullPath(container, path, out _);
 
         if (File.Exists(fullPath))
         {
-            using var fileStream = new FileStream(
-                fullPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite,
-                bufferSize: 1024 * 1024,
-                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-            context.Response.ContentType = "application/octet-stream";
-            context.Response.ContentLength = fileStream.Length;
-            await fileStream.CopyToAsync(context.Response.BodyWriter, context.RequestAborted);
-            return;
+            return Results.File(fullPath);
         }
 
-        await Results.NotFound().ExecuteAsync(context);
+        return Results.NotFound();
     }
 
     public async Task<IResult> DeleteFile(HttpContext context, string container, string path)
