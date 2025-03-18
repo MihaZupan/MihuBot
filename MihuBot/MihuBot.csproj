@@ -12,15 +12,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AspNet.Security.OAuth.Discord" Version="9.0.0" />
-    <PackageReference Include="AspNet.Security.OAuth.GitHub" Version="9.0.0" />
+    <PackageReference Include="AspNet.Security.OAuth.Discord" Version="9.1.0" />
+    <PackageReference Include="AspNet.Security.OAuth.GitHub" Version="9.1.0" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
     <PackageReference Include="Azure.Identity" Version="1.13.2" />
     <PackageReference Include="Azure.ResourceManager.Network" Version="1.10.0" />
-    <PackageReference Include="Azure.ResourceManager.Resources" Version="1.9.0" />
+    <PackageReference Include="Azure.ResourceManager.Resources" Version="1.9.1" />
     <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.23.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.24.0" />
     <PackageReference Include="Discord.Net" Version="3.17.2" />
     <PackageReference Include="System.Linq.Async" Version="6.0.1">
       <ExcludeAssets>all</ExcludeAssets>
@@ -37,7 +37,7 @@
     <PackageReference Include="SpotifyAPI.Web" Version="7.2.1" />
     <PackageReference Include="Telegram.Bot" Version="22.4.4" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
-    <PackageReference Include="YoutubeExplode" Version="6.5.3" />
+    <PackageReference Include="YoutubeExplode" Version="6.5.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.3">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
