@@ -101,9 +101,7 @@ app.UseRouting();
 
 app.Use((context, next) =>
 {
-    if (OperatingSystem.IsLinux() &&
-        !AllowList(context) &&
-        !context.Connection.Id.StartsWith("yarp-tunnel-", StringComparison.Ordinal))
+    if (OperatingSystem.IsLinux() && !AllowList(context) && !context.IsTunnelRequest())
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return Task.CompletedTask;

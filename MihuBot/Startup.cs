@@ -304,7 +304,7 @@ public class Startup
             endpoints.MapBlazorHub();
             endpoints.MapFallbackToPage("/_Host");
 
-            endpoints.MapHttp2Tunnel("/_yarp-tunnel")
+            endpoints.MapTunnel("/_yarp-tunnel")
                 .Add(ConfigureYarpTunnelAuth);
 
             endpoints.Map("/superpmi/{**remainder}", (HttpContext context, [FromRoute] string remainder) =>
