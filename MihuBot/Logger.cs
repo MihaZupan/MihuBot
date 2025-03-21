@@ -48,7 +48,7 @@ public sealed partial class Logger
         Options = options;
         _dbContextFactory = dbContextFactory;
 
-        if (Program.AzureEnabled)
+        if (ProgramState.AzureEnabled)
         {
             BlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString"],
@@ -184,7 +184,7 @@ public sealed partial class Logger
     {
         await foreach (var (FileName, FilePath, Message, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
         {
-            if (!Program.AzureEnabled)
+            if (!ProgramState.AzureEnabled)
             {
                 continue;
             }

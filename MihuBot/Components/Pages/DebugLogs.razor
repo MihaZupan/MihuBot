@@ -5,6 +5,7 @@
 @inject Logger Logger
 @inject InitializedDiscordClient Discord
 @implements IDisposable
+@rendermode InteractiveServer
 
 <pre><code>
     @_logs
@@ -42,7 +43,12 @@
                     }
                     else if (logs.Length < NumLines)
                     {
-                        since = DateTime.UtcNow - ((DateTime.UtcNow - since) * 2);
+                        TimeSpan duration = DateTime.UtcNow - since;
+
+                        if (duration.TotalDays < 100)
+                        {
+                            since = DateTime.UtcNow - (duration * 2);
+                        }
                     }
 
                     foreach (var log in logs)

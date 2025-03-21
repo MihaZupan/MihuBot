@@ -60,7 +60,7 @@ public class ManagementController : ControllerBase
                 await Request.Body.CopyToAsync(fs);
             }
 
-            Program.BotStopTCS.TrySetResult();
+            ProgramState.BotStopTCS.TrySetResult();
         }
         catch (Exception ex)
         {

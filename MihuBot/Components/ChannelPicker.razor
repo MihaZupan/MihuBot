@@ -8,12 +8,12 @@
     </button>
     <div class="dropdown-menu" aria-labelledby="guildsDropdown">
         @foreach (var guild in guilds.OrderBy(g => g.Name))
-    {
-        <button @onclick="() => { selectedGuild = guild; SetChannel(null); }"
+        {
+            <button @onclick="() => { selectedGuild = guild; SetChannel(null); }"
                     class="dropdown-item" type="button">
                 @guild.Name
             </button>
-    }
+        }
     </div>
 </div>
 
@@ -25,14 +25,14 @@
         </button>
         <div class="dropdown-menu" aria-labelledby="channelsDropdown">
             @foreach (var channel in selectedGuild.TextChannels
-            .Where(c => ChannelFilter(c, selectedGuild.GetUser(userId)))
-            .OrderBy(c => c.Position))
-        {
-            <button @onclick="() => SetChannel(channel)"
+                    .Where(c => ChannelFilter(c, selectedGuild.GetUser(userId)))
+                    .OrderBy(c => c.Position))
+            {
+                <button @onclick="() => SetChannel(channel)"
                         class="dropdown-item" type="button">
                     @channel.Name
                 </button>
-        }
+            }
         </div>
     </div>
 }

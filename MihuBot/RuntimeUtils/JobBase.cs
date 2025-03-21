@@ -204,7 +204,7 @@ public abstract class JobBase
     {
         Log("Starting ...");
 
-        if (!Program.AzureEnabled)
+        if (!ProgramState.AzureEnabled)
         {
             Log("No Azure support. Aborting ...");
             NotifyJobCompletion();
@@ -879,7 +879,7 @@ public abstract class JobBase
 
             Log("Creating a new Azure resource group for this deployment ...");
 
-            var armClient = new ArmClient(Program.AzureCredential);
+            var armClient = new ArmClient(ProgramState.AzureCredential);
             var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
 
             string resourceGroupName = $"runtime-utils-runner-{JobId}";

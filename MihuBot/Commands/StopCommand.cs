@@ -12,7 +12,7 @@ public sealed class StopCommand : CommandBase
         if (ctx.IsMentioned && ctx.AuthorId == KnownUsers.Miha)
         {
             await ctx.ReplyAsync("Stopping ...");
-            Program.BotStopTCS.TrySetResult();
+            ProgramState.BotStopTCS.TrySetResult();
         }
     }
 }

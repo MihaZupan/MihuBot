@@ -87,7 +87,7 @@ public sealed class ChatGptComand : CommandBase
 
     private async Task HandleAsync(SocketTextChannel channel, SocketGuildUser author, string command, string prompt)
     {
-        if (!Program.AzureEnabled)
+        if (!ProgramState.AzureEnabled)
         {
             return;
         }

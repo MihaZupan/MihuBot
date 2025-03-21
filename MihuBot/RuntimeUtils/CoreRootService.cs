@@ -36,7 +36,7 @@ public sealed class CoreRootService
 
         Storage = new StorageClient(http, "coreroot", sasKey, isPublic: true);
 
-        if (Program.AzureEnabled)
+        if (ProgramState.AzureEnabled)
         {
             _coreRootBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],

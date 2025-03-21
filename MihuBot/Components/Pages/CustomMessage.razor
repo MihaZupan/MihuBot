@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "Discord")]
 @inject DiscordSocketClient discord
 @inject IPermissionsService permissions
+@rendermode InteractiveServer
 
 <form @onsubmit="SendMessageAsync">
     <div class="form-group">

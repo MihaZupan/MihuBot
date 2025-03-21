@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inject IPermissionsService permissions
 @inject MinecraftRCON minecraftRCON
+@rendermode InteractiveServer
 
 <form @onsubmit="SendCommandAsync">
     <div class="form-group">
@@ -19,9 +20,7 @@
 
         @if (working)
         {
-            <div class="spinner-border text-primary" role="status">
-                <span class="sr-only">Loading...</span>
-            </div>
+            <div class="spinner-border text-primary" role="status" />
         }
 
         @if (exception is not null)

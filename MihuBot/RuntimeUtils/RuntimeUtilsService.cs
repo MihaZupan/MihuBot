@@ -158,7 +158,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         _db = db;
 
-        if (Program.AzureEnabled)
+        if (ProgramState.AzureEnabled)
         {
             ArtifactsBlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
@@ -176,10 +176,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        using (ExecutionContext.SuppressFlow())
+        if (OperatingSystem.IsLinux())
         {
-            _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
-            _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
+            using (ExecutionContext.SuppressFlow())
+            {
+                _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
+                _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
+            }
         }
 
         return Task.CompletedTask;

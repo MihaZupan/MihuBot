@@ -119,7 +119,7 @@ public static class Helpers
 
     public static string GetCommitId()
     {
-        Assembly assembly = typeof(Program).Assembly;
+        Assembly assembly = typeof(ProgramState).Assembly;
         string? commit = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
         if (commit is not null)

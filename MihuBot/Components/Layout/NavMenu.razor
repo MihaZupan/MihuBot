@@ -1,7 +1,7 @@
 ﻿@inject IPermissionsService permissions
 @inject NavigationManager Navigation
 
-<div class="top-row pl-4 navbar navbar-dark">
+<div class="top-row ps-3 navbar navbar-dark">
     <AuthorizeView Policy="Discord">
         <Authorized>
             <img class="profile-image" src="@context.User.GetAvatarUrl(128)" alt="Avatar of @context.User.Identity.Name" />
@@ -11,95 +11,86 @@
             <a class="navbar-brand" href="">MihuBot</a>
         </NotAuthorized>
     </AuthorizeView>
-    <button class="navbar-toggler" @onclick="ToggleNavMenu">
-        <span class="navbar-toggler-icon"></span>
-    </button>
 </div>
 
-<div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
-    <ul class="nav flex-column">
-        <li class="nav-item px-3">
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
             <NavLink class="nav-link" href="runtime-utils">
-                <span class="oi oi-wrench" aria-hidden="true"></span> Runtime utils
+                <span class="bi bi-wrench-adjustable" aria-hidden="true"></span> Runtime utils
             </NavLink>
-        </li>
-        <li class="nav-item px-3">
+        </div>
+        <div class="nav-item px-3">
             <NavLink class="nav-link" href="runtime-notifications">
-                <span class="oi oi-bell" aria-hidden="true"></span> Runtime notifications
+                <span class="bi bi-bell-fill" aria-hidden="true"></span> Runtime notifications
             </NavLink>
-        </li>
+        </div>
         <AuthorizeView Policy="Discord">
             <NotAuthorized>
-                <li class="nav-item px-3">
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="@discordLoginHrefUrl">
-                        <span class="oi oi-account-login" aria-hidden="true"></span> Log in (Discord)
+                        <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (Discord)
                     </NavLink>
-                </li>
+                </div>
             </NotAuthorized>
             <Authorized>
-                <li class="nav-item px-3">
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="reminders">
-                        <span class="oi oi-timer" aria-hidden="true"></span> Reminders
+                        <span class="bi bi-stopwatch" aria-hidden="true"></span> Reminders
                     </NavLink>
-                </li>
+                </div>
                 @if (permissions.HasPermission("custommessage", context.User.GetDiscordUserId()))
                 {
-                    <li class="nav-item px-3">
+                    <div class="nav-item px-3">
                         <NavLink class="nav-link" href="custom-message">
-                            <span class="oi oi-chat" aria-hidden="true"></span> Custom message
+                            <span class="bi bi-chat" aria-hidden="true"></span> Custom message
                         </NavLink>
-                    </li>
+                    </div>
                 }
                 @if (permissions.HasPermission("mc", context.User.GetDiscordUserId()))
                 {
-                    <li class="nav-item px-3">
+                    <div class="nav-item px-3">
                         <NavLink class="nav-link" href="minecraft-remote">
-                            <span class="oi oi-terminal" aria-hidden="true"></span> Minecraft
+                            <span class="bi bi-terminal-fill" aria-hidden="true"></span> Minecraft
                         </NavLink>
-                    </li>
+                    </div>
                 }
                 @if (context.User.IsAdmin())
                 {
-                    <li class="nav-item px-3">
+                    <div class="nav-item px-3">
                         <NavLink class="nav-link" href="debug-logs">
-                            <span class="oi oi-bug" aria-hidden="true"></span> Debug logs
+                            <span class="bi bi-bug-fill" aria-hidden="true"></span> Debug logs
                         </NavLink>
-                    </li>
+                    </div>
                 }
             </Authorized>
         </AuthorizeView>
         <AuthorizeView Policy="GitHub">
             <NotAuthorized>
-                <li class="nav-item px-3">
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="@githubLoginHrefUrl">
-                        <span class="oi oi-account-login" aria-hidden="true"></span> Log in (GitHub)
+                        <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (GitHub)
                     </NavLink>
-                </li>
+                </div>
             </NotAuthorized>
         </AuthorizeView>
         <AuthorizeView>
             <Authorized>
-                <li class="nav-item px-3">
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Logout">
-                        <span class="oi oi-account-logout" aria-hidden="true"></span> Log out
+                        <span class="bi bi-box-arrow-right" aria-hidden="true"></span> Log out
                     </NavLink>
-                </li>
+                </div>
             </Authorized>
         </AuthorizeView>
-    </ul>
+    </nav>
 </div>
 
 @code {
-    private bool collapseNavMenu = true;
     private string discordLoginHrefUrl;
     private string githubLoginHrefUrl;
-
-    private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
-
-    private void ToggleNavMenu()
-    {
-        collapseNavMenu = !collapseNavMenu;
-    }
 
     protected override void OnInitialized()
     {
