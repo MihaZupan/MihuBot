@@ -13,7 +13,7 @@ body, pre, .card, .modal-content, .form-control {
     color: color-mix(in srgb, CanvasText, Canvas 5%);
 }
 
-    .form-control:focus, .dropdown-menu, .dropdown-item {
+    .form-control:focus, .dropdown-menu, .dropdown-item, .close, .close:hover {
         background-color: color-mix(in srgb, Canvas, CanvasText 5%);
         color: color-mix(in srgb, CanvasText, Canvas 5%);
     }
