@@ -71,6 +71,15 @@
                 <div class="btn-group" role="group">
                     <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary">@(_showOnlyCoreMethods ? "Show all" : "Show main methods")</button>
                 </div>
+                <div class="input-group-append">
+                    <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
+                    <div class="dropdown-menu">
+                        @foreach (RegexOptions option in s_validOptions)
+                        {
+                            <a class="dropdown-item" @onclick="() => ToggleRegexOption(option)" style="@(Options.HasFlag(option) ? "color: crimson" : "")">@(Options.HasFlag(option) ? "Remove" : "Add") @option.ToString()</a>
+                        }
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -98,12 +107,16 @@
 
 @code
 {
+    private static readonly RegexOptions[] s_validOptions = Enum.GetValues<RegexOptions>()
+        .Where(o => o is not (RegexOptions.None or RegexOptions.Compiled or RegexOptions.NonBacktracking))
+        .ToArray();
+
     private bool _showOnlyCoreMethods = true;
 
     private string _rawGeneratedSource;
     private string _generatedSource;
     private string _errorMessage;
-    private Debouncer<string> _debouncer;
+    private Debouncer<(string Pattern, RegexOptions Options)> _debouncer;
 
     private async Task ToggleShowOnlyCoreMethods()
     {
@@ -118,13 +131,35 @@
         set
         {
             field = value;
-            _debouncer.Update(value);
+            _debouncer.Update((value, Options));
+        }
+    }
+
+    private RegexOptions Options
+    {
+        get => field;
+        set
+        {
+            field = value;
+            _debouncer.Update((Pattern, value));
+        }
+    }
+
+    private void ToggleRegexOption(RegexOptions option)
+    {
+        if (Options.HasFlag(option))
+        {
+            Options &= ~option;
+        }
+        else
+        {
+            Options |= option;
         }
     }
 
     protected override void OnInitialized()
     {
-        _debouncer = new Debouncer<string>(TimeSpan.FromMilliseconds(50), FetchGeneratedSource);
+        _debouncer = new Debouncer<(string, RegexOptions)>(TimeSpan.FromMilliseconds(50), FetchGeneratedSource);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -142,6 +177,20 @@
                     Pattern = pattern;
                 }
 
+                if (query.TryGetValue("options", out var optionsStr) && int.TryParse(optionsStr, out int options) && options > 0)
+                {
+                    RegexOptions validated = RegexOptions.None;
+                    foreach (var option in s_validOptions)
+                    {
+                        if (((RegexOptions)options).HasFlag(option))
+                        {
+                            validated |= option;
+                        }
+                    }
+
+                    Options = validated;
+                }
+
                 if (query.TryGetValue("showAll", out var showAllStr) && showAllStr == "1")
                 {
                     _showOnlyCoreMethods = false;
@@ -150,12 +199,9 @@
         }
     }
 
-    private async Task FetchGeneratedSource(string pattern, CancellationToken cancellationToken)
+    private async Task FetchGeneratedSource((string Pattern, RegexOptions Options) input, CancellationToken cancellationToken)
     {
-        if (pattern is null)
-        {
-            return;
-        }
+        (string pattern, RegexOptions options) = input;
 
         try
         {
@@ -169,7 +215,7 @@
             }
             else
             {
-                string source = await SourceGenerator.GenerateSourceAsync(pattern, RegexOptions.None, cancellationToken);
+                string source = await SourceGenerator.GenerateSourceAsync(pattern, options, cancellationToken);
                 source = HttpUtility.HtmlEncode(source);
 
                 _rawGeneratedSource = source;
@@ -225,7 +271,8 @@
         var newUrl = Navigation.GetUriWithQueryParameters(new Dictionary<string, object>
         {
             { "pattern", Pattern },
-            { "showAll", _showOnlyCoreMethods ? null : "1" }
+            { "showAll", _showOnlyCoreMethods ? null : "1" },
+            { "options", Options == RegexOptions.None ? null : (int)Options }
         });
 
         if (newUrl.Length <= 10_000)

@@ -2,13 +2,13 @@
 
 #nullable enable
 
-public sealed class Debouncer<T> : IDisposable where T : class
+public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
 {
     private readonly TimeSpan _delay;
-    private readonly Func<T?, CancellationToken, Task> _action;
+    private readonly Func<T, CancellationToken, Task> _action;
     private readonly CancellationTokenSource _cts = new();
 
-    private T? _lastValue;
+    private object? _lastValue;
     private bool _running;
     private bool _timerScheduled;
     private Timer? _timer;
@@ -16,7 +16,7 @@ public sealed class Debouncer<T> : IDisposable where T : class
 
     private object Lock => _cts;
 
-    public Debouncer(TimeSpan delay, Func<T?, CancellationToken, Task> action)
+    public Debouncer(TimeSpan delay, Func<T, CancellationToken, Task> action)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(delay.TotalSeconds);
         ArgumentNullException.ThrowIfNull(action);
@@ -25,11 +25,13 @@ public sealed class Debouncer<T> : IDisposable where T : class
         _action = action;
     }
 
-    public void Update(T? value)
+    public void Update(T value)
     {
+        ArgumentNullException.ThrowIfNull(value);
+
         lock (Lock)
         {
-            if (ReferenceEquals(value, _lastValue))
+            if (_lastValue is not null && EqualityComparer<T>.Default.Equals(value, (T)_lastValue))
             {
                 return;
             }
@@ -65,7 +67,7 @@ public sealed class Debouncer<T> : IDisposable where T : class
 
     private void RunAction()
     {
-        T? value;
+        object? value;
         lock (Lock)
         {
             _running = true;
@@ -76,10 +78,12 @@ public sealed class Debouncer<T> : IDisposable where T : class
             _lastRun = DateTime.UtcNow;
         }
 
-        _ = Task.Run(() => RunActionAsyncCore(value), CancellationToken.None);
+        Debug.Assert(value is not null);
+
+        _ = Task.Run(() => RunActionAsyncCore((T)value), CancellationToken.None);
     }
 
-    private async Task RunActionAsyncCore(T? value)
+    private async Task RunActionAsyncCore(T value)
     {
         try
         {
@@ -91,7 +95,7 @@ public sealed class Debouncer<T> : IDisposable where T : class
         {
             _running = false;
 
-            if (!ReferenceEquals(value, _lastValue))
+            if (_lastValue is not null && !EqualityComparer<T>.Default.Equals(value, (T)_lastValue))
             {
                 ScheduleOrRun();
             }

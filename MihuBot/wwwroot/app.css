@@ -13,20 +13,16 @@ body, pre, .card, .modal-content, .form-control {
     color: color-mix(in srgb, CanvasText, Canvas 5%);
 }
 
-    .form-control:focus {
+    .form-control:focus, .dropdown-menu, .dropdown-item {
         background-color: color-mix(in srgb, Canvas, CanvasText 5%);
         color: color-mix(in srgb, CanvasText, Canvas 5%);
     }
-
-.dropdown-item {
-    color-scheme: dark;
-}
 
 .text-muted, ::placeholder {
     color: color-mix(in srgb, CanvasText, Canvas 30%) !important;
 }
 
-.modal-content {
+.modal-content, .dropdown-menu {
     border-color: deepskyblue
 }
 
