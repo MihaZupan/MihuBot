@@ -168,7 +168,7 @@
 
     protected override void OnInitialized()
     {
-        _debouncer = new Debouncer<(string, RegexOptions)>(TimeSpan.FromMilliseconds(50), FetchGeneratedSource);
+        _debouncer = new Debouncer<(string, RegexOptions)>(TimeSpan.FromMilliseconds(5), FetchGeneratedSource);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

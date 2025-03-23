@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
+using Microsoft.Extensions.Caching.Memory;
 
 #nullable enable
 
@@ -14,12 +15,17 @@ public sealed class RegexSourceGenerator
 {
     private readonly MetadataReference[] _references;
     private readonly Type _generatorType;
+    private readonly Logger _logger;
+    private readonly IMemoryCache _cache;
 
     public string? GeneratorCommit { get; }
     public string? LoadError { get; }
 
-    public RegexSourceGenerator()
+    public RegexSourceGenerator(Logger logger, IMemoryCache cache)
     {
+        _logger = logger;
+        _cache = cache;
+
         try
         {
             _references =
@@ -84,7 +90,7 @@ public sealed class RegexSourceGenerator
         return gd.GetRunResult();
     }
 
-    public async Task<string> GenerateSourceText(string code, LanguageVersion langVersion = LanguageVersion.Preview, CancellationToken cancellationToken = default)
+    private async Task<string> GenerateSourceText(string code, LanguageVersion langVersion = LanguageVersion.Preview, CancellationToken cancellationToken = default)
     {
         GeneratorDriverRunResult generatorResults = await RunGeneratorCore(code, langVersion, cancellationToken);
         string generatedSource = string.Concat(generatorResults.GeneratedTrees.Select(t => t.ToString()));
@@ -99,21 +105,45 @@ public sealed class RegexSourceGenerator
 
     public async Task<string> GenerateSourceAsync(string pattern, RegexOptions options, CancellationToken cancellationToken)
     {
-        string optionsSource = "";
-        if (options != RegexOptions.None)
+        long start = Stopwatch.GetTimestamp();
+
+        bool cacheHit = false;
+
+        if (_cache.TryGetValue((pattern, options), out string? source))
         {
-            optionsSource = $", {string.Join(" | ", options.ToString().Split(',').Select(o => $"RegexOptions.{o.Trim()}"))}";
+            Debug.Assert(source is not null);
+            cacheHit = true;
+        }
+        else
+        {
+            string optionsSource = "";
+            if (options != RegexOptions.None)
+            {
+                optionsSource = $", {string.Join(" | ", options.ToString().Split(',').Select(o => $"RegexOptions.{o.Trim()}"))}";
+            }
+
+            source = await GenerateSourceText(
+                $$"""
+                using System.Text.RegularExpressions;
+                partial class C
+                {
+                    [GeneratedRegex({{SymbolDisplay.FormatLiteral(pattern, quote: true)}}{{optionsSource}})]
+                    public static partial Regex Valid();
+                }
+                """,
+                cancellationToken: cancellationToken);
+
+            _cache.Set((pattern, options), source, new MemoryCacheEntryOptions
+            {
+                Priority = CacheItemPriority.Low,
+                SlidingExpiration = TimeSpan.FromMinutes(15),
+                Size = (pattern.Length + optionsSource.Length + source.Length) * 2
+            });
         }
 
-        return await GenerateSourceText(
-            $$"""
-            using System.Text.RegularExpressions;
-            partial class C
-            {
-                [GeneratedRegex({{SymbolDisplay.FormatLiteral(pattern, quote: true)}}{{optionsSource}})]
-                public static partial Regex Valid();
-            }
-            """,
-            cancellationToken: cancellationToken);
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+        _logger.DebugLog($"[RegexSourceGenerator] {(cacheHit ? "Fetched" : "Generated")} source for '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
+
+        return source;
     }
 }

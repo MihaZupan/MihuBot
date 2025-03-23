@@ -109,6 +109,11 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 {
     services.AddDatabases();
 
+    services.AddMemoryCache(options =>
+    {
+        options.SizeLimit = 256 * 1024 * 1024; // 256 MB
+    });
+
     string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
 
     if (OperatingSystem.IsLinux())
