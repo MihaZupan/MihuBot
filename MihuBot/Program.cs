@@ -125,7 +125,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     {
         services.AddApplicationInsightsTelemetry(options =>
         {
-            options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+            string connectionString = builder.Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+            connectionString = connectionString.Replace("https://eastus2-3.in.applicationinsights.azure.com/", "https://mihubot.xyz/_appinsights-ingest", StringComparison.Ordinal);
+            connectionString = connectionString.Replace("https://eastus2.livediagnostics.monitor.azure.com/", "https://mihubot.xyz/_appinsights-ingest-live", StringComparison.Ordinal);
+            options.ConnectionString = connectionString;
         });
 
         services.ConfigureTelemetryModule<EventCounterCollectionModule>((module, options) =>
@@ -384,6 +387,9 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.Map("/superpmi/{**remainder}", (HttpContext context, [FromRoute] string remainder) =>
         Results.Redirect($"https://storage.mihubot.xyz/superpmi/{remainder}"));
+
+    app.MapForwarder("/_appinsights-ingest/{**remainder}", "https://eastus2-3.in.applicationinsights.azure.com", "/{remainder}");
+    app.MapForwarder("/_appinsights-ingest-live/{**remainder}", "https://eastus2.livediagnostics.monitor.azure.com", "/{remainder}");
 
     app.MapReverseProxy();
 }
