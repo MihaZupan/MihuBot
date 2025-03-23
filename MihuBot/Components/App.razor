@@ -14,7 +14,9 @@
 
     @foreach (var snippet in JavaScriptSnippets)
     {
-        @((MarkupString)snippet.FullScript)
+        @((MarkupString)snippet.FullScript
+            .Replace("https://eastus2-3.in.applicationinsights.azure.com/", "https://localhost/_appinsights-ingest", StringComparison.Ordinal)
+            .Replace("https://eastus2.livediagnostics.monitor.azure.com/", "https://localhost/_appinsights-ingest-live", StringComparison.Ordinal))
     }
 
     <ImportMap />
