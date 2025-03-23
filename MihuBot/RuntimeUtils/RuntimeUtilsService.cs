@@ -140,6 +140,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
+    public readonly StorageClient LogsStorage;
     private readonly IDbContextFactory<MihuBotDbContext> _db;
 
     private bool _shuttingDown;
@@ -172,6 +173,19 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "jitdiff-extra-assemblies");
         }
+
+        if (!ConfigurationService.TryGet(null, "RuntimeUtils.JobLogs.SasKey", out string sasKey))
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                throw new InvalidOperationException("Missing 'RuntimeUtils.JobLogs.SasKey'");
+            }
+
+            // For local testing
+            sasKey = "";
+        }
+
+        LogsStorage = new StorageClient(Http, "runtimeutils-logs", sasKey, isPublic: true);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

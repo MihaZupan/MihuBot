@@ -84,7 +84,7 @@ else if (_completedJob is not null)
     {
         <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
     }
-    @if (_completedJob.LogsArtifactUrl is { } logsUrl)
+    @if ((_completedJob.LogsArtifactUrl ?? _completedJob.Artifacts?.FirstOrDefault(a => a.FileName == "logs.txt")?.Url) is { } logsUrl)
     {
         <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
     }

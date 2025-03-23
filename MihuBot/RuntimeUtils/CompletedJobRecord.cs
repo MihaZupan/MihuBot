@@ -28,12 +28,10 @@ public sealed class CompletedJobRecord
     public string TrackingIssueUrl { get; set; }
     public Dictionary<string, string> Metadata { get; set; }
     public Artifact[] Artifacts { get; set; }
+    public string LogsArtifactUrl { get; set; }
 
     [JsonIgnore]
     public string CustomArguments => Metadata.TryGetValue("CustomArguments", out var value) ? value : null;
-
-    [JsonIgnore]
-    public string LogsArtifactUrl => Artifacts?.FirstOrDefault(a => a.FileName == "logs.txt")?.Url;
 
     public CompletedJobDbEntry ToDbEntry() => new()
     {

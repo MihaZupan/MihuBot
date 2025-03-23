@@ -1,4 +1,6 @@
-﻿using Azure;
+﻿using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
+using Azure;
 using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Network;
@@ -11,8 +13,6 @@ using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
 using Octokit;
-using System.Collections.Immutable;
-using System.Runtime.CompilerServices;
 using static MihuBot.Helpers.HetznerClient;
 
 namespace MihuBot.RuntimeUtils;
@@ -255,6 +255,8 @@ public abstract class JobBase
                 });
         }
 
+        string logsArtifactPath = null;
+
         try
         {
             using var jobTimeoutCts = new CancellationTokenSource(MaxJobDuration);
@@ -350,7 +352,8 @@ public abstract class JobBase
                 TestedPROrBranchLink = TestedPROrBranchLink,
                 TrackingIssueUrl = TrackingIssue?.HtmlUrl,
                 Metadata = Metadata,
-                Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray()
+                Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray(),
+                LogsArtifactUrl = logsArtifactPath is null ? null : Parent.LogsStorage.GetFileUrl(logsArtifactPath, TimeSpan.MaxValue, writeAccess: false)
             });
 
             if (ShouldMentionJobInitiator && GithubCommenterLogin is not null && TrackingIssue is not null)
@@ -368,7 +371,13 @@ public abstract class JobBase
 
         async Task SaveLogsArtifactAsync()
         {
-            await ArtifactReceivedAsync("logs.txt", new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString())), CancellationToken.None);
+            var stream = new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString()));
+
+            logsArtifactPath = $"{ExternalId}.txt";
+            await Parent.LogsStorage.UploadAsync(logsArtifactPath, stream, CancellationToken.None);
+
+            stream.Position = 0;
+            await ArtifactReceivedAsync("logs.txt", stream, CancellationToken.None);
         }
     }
 

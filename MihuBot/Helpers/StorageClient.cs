@@ -69,4 +69,11 @@ public sealed class StorageClient
         using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken);
         return response.StatusCode == HttpStatusCode.OK;
     }
+
+    public async Task UploadAsync(string path, Stream stream, CancellationToken cancellationToken = default)
+    {
+        string url = GetFileUrl(path, TimeSpan.FromMinutes(5), writeAccess: true);
+        using HttpResponseMessage response = await _http.PutAsync(url, new StreamContent(stream), cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
 }
