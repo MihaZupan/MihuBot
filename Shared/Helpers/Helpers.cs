@@ -6,6 +6,11 @@ namespace MihuBot.Helpers;
 
 public static class Helpers
 {
+    public static void Toggle(ref this bool value)
+    {
+        value = !value;
+    }
+
     public static IEnumerable<T> Unique<T>(this IEnumerable<T> source)
     {
         var hashSet = new HashSet<T>();
@@ -119,7 +124,11 @@ public static class Helpers
 
     public static string GetCommitId()
     {
-        Assembly assembly = typeof(ProgramState).Assembly;
+        return GetCommitId(typeof(Program).Assembly);
+    }
+
+    public static string GetCommitId(Assembly assembly)
+    {
         string? commit = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
         if (commit is not null)

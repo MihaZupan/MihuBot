@@ -96,7 +96,7 @@ public abstract class JobBase
     public string LastProgressSummary { get; set; }
 
     public bool ShouldDeleteVM { get; set; }
-    public string RemoteLoginCredentials { get; private set; }
+    public string RemoteLoginCredentials { get; protected set; }
 
     public string CustomArguments
     {

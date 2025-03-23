@@ -1,0 +1,269 @@
+﻿@page "/regex"
+@using System.Net.Http.Json
+@using System.Threading
+@using Microsoft.AspNetCore.WebUtilities
+@using MihuBot.RuntimeUtils
+@using System.Text.RegularExpressions
+@using System.Web
+@inject RegexSourceGenerator SourceGenerator
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Regex Source Generator</PageTitle>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+<link rel="stylesheet" href="vs2015.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/csharp.min.js"></script>
+
+<style>
+    .scroll-progress-container {
+        width: 100%;
+        height: 8px;
+        background: #ccc;
+    }
+
+    .scroll-progress-bar {
+        height: 8px;
+        background: #04AA6D;
+        width: 0%;
+    }
+
+    #regexPattern {
+        min-width: max(40vw, 500px);
+        font-size: 22px;
+    }
+
+    .commit-container {
+        position: absolute;
+        right: 20px;
+        top: 24px;
+    }
+</style>
+
+<script>
+    function replaceHistory(url) {
+        history.replaceState(null, '', url);
+    }
+
+    function registerScrollCallback() {
+        var codeblock = document.getElementById('codeblock');
+        codeblock.onscroll = onCodeBlockScroll;
+        setInterval(onCodeBlockScroll, 100);
+    }
+
+    function onCodeBlockScroll() {
+      var codeblock = document.getElementById('codeblock');
+      var winScroll = codeblock.scrollTop;
+      var height = codeblock.scrollHeight - codeblock.clientHeight;
+      var scrolled = (winScroll / height) * 100;
+      document.getElementById("scrollProgressBar").style.width = scrolled + "%";
+    }
+</script>
+
+<div>
+    <div class="d-flex justify-content-center">
+        <div class="form-group">
+            <div class="input-group">
+                <input id="regexPattern" type="text" @bind-value="Pattern" @bind-value:event="oninput" placeholder="Regex pattern">
+                <div class="btn-group" role="group">
+                    <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary">@(_showOnlyCoreMethods ? "Show all" : "Show main methods")</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (@SourceGenerator.GeneratorCommit is not null)
+    {
+        <div class="commit-container">
+            <p>Generator commit: <a href="https://github.com/dotnet/runtime/commit/@SourceGenerator.GeneratorCommit">@SourceGenerator.GeneratorCommit.Substring(0, 6)</a></p>
+        </div>
+    }
+
+    <div class="scroll-progress-container">
+        <div class="scroll-progress-bar" id="scrollProgressBar"></div>
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger">
+            @_errorMessage
+        </div>
+    }
+
+    <CodeHighlight CodeBlockId="codeblock" CodeStyle="max-height: calc(95vh - 60px)" Language="language-csharp" Code="@_generatedSource" />
+</div>
+
+@code
+{
+    private bool _showOnlyCoreMethods = true;
+
+    private string _rawGeneratedSource;
+    private string _generatedSource;
+    private string _errorMessage;
+    private Debouncer<string> _debouncer;
+
+    private async Task ToggleShowOnlyCoreMethods()
+    {
+        _showOnlyCoreMethods.Toggle();
+        await PostProcessSourceAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string Pattern
+    {
+        get => field;
+        set
+        {
+            field = value;
+            _debouncer.Update(value);
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        _debouncer = new Debouncer<string>(TimeSpan.FromMilliseconds(50), FetchGeneratedSource);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("registerScrollCallback");
+
+            if (Uri.TryCreate(Navigation.Uri, UriKind.Absolute, out Uri uri))
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+
+                if (query.TryGetValue("pattern", out var pattern))
+                {
+                    Pattern = pattern;
+                }
+
+                if (query.TryGetValue("showAll", out var showAllStr) && showAllStr == "1")
+                {
+                    _showOnlyCoreMethods = false;
+                }
+            }
+        }
+    }
+
+    private async Task FetchGeneratedSource(string pattern, CancellationToken cancellationToken)
+    {
+        if (pattern is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (pattern.Length > 10_000)
+            {
+                _errorMessage = "Stop it";
+            }
+            else if (SourceGenerator.LoadError is { } loadError)
+            {
+                _errorMessage = loadError;
+            }
+            else
+            {
+                string source = await SourceGenerator.GenerateSourceAsync(pattern, RegexOptions.None, cancellationToken);
+                source = HttpUtility.HtmlEncode(source);
+
+                _rawGeneratedSource = source;
+                _errorMessage = null;
+
+                await PostProcessSourceAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PostProcessSourceAsync()
+    {
+        string source = _rawGeneratedSource;
+
+        // if (_hideComments)
+        // {
+        //     var sb = new StringBuilder(source.Length);
+
+        //     foreach (var line in source.EnumerateLines())
+        //     {
+        //         int notSpace = line.IndexOfAnyExcept(' ');
+        //         if (notSpace >= 0)
+        //         {
+        //             if (line[notSpace] is '/' or '#')
+        //                 continue;
+        //         }
+
+        //         sb.Append(line);
+        //         sb.AppendLine();
+        //     }
+
+        //     source = sb.ToString();
+        // }
+
+        if (_showOnlyCoreMethods)
+        {
+            source =
+                $"""
+                {GetCodeBlock(source, "private bool TryFindNextPossibleStartingPosition")}
+                {GetCodeBlock(source, "private bool TryMatchAtCurrentPosition")}
+                {GetCodeBlock(source, "file static class Utilities")}
+                """;
+        }
+
+        _generatedSource = source.Trim(' ', '\t', '\r', '\n');
+
+        var newUrl = Navigation.GetUriWithQueryParameters(new Dictionary<string, object>
+        {
+            { "pattern", Pattern },
+            { "showAll", _showOnlyCoreMethods ? null : "1" }
+        });
+
+        if (newUrl.Length <= 10_000)
+        {
+            await JSRuntime.InvokeVoidAsync("replaceHistory", newUrl);
+        }
+    }
+
+    private static string GetCodeBlock(string source, string prefix)
+    {
+        StringBuilder sb = new();
+        int prefixLength = -1;
+
+        foreach (var line in source.EnumerateLines())
+        {
+            if (prefixLength < 0)
+            {
+                prefixLength = line.IndexOf(prefix, StringComparison.Ordinal);
+            }
+
+            if (prefixLength >= 0)
+            {
+                var trimmed = line.Length >= prefixLength
+                    ? line.Slice(prefixLength)
+                    : line;
+
+                sb.Append(trimmed);
+                sb.AppendLine();
+
+                if (line.IndexOf('}') == prefixLength)
+                {
+                    break;
+                }
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    public void Dispose() => _debouncer?.Dispose();
+}

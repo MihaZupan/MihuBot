@@ -27,6 +27,7 @@ using SpotifyAPI.Web;
 using Telegram.Bot;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(10));
 
 Console.WriteLine("Starting ...");
 
@@ -202,6 +203,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<GitHubNotificationsService>();
 
     services.AddSingleton<CoreRootService>();
+
+    services.AddSingleton<RegexSourceGenerator>();
 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
@@ -427,7 +430,7 @@ sealed class IPLoggerMiddleware : IMiddleware
 
 namespace MihuBot
 {
-    public class ProgramState
+    public sealed class ProgramState
     {
         public static bool AzureEnabled => true;
 

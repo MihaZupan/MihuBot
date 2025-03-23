@@ -7,14 +7,14 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
-<pre><code>
+<pre style="max-width: 95%; max-height: 95vh; overflow: hidden; display: flex; flex-direction: column-reverse;"><code style="word-wrap: break-word">
     @_logs
 </code></pre>
 
 @code
 {
-    private const int NumLines = 40;
-    private const int MaxLineLength = 200;
+    private const int NumLines = 150;
+    private const int MaxLineLength = 500;
 
     private readonly CancellationTokenSource _cts = new();
     private string _logs;

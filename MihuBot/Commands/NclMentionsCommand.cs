@@ -21,36 +21,39 @@ public sealed class NclMentionsCommand : CommandBase
 
     public override Task InitAsync()
     {
-        _ = Task.Run(async () =>
+        if (OperatingSystem.IsLinux())
         {
-            Stopwatch lastLongScan = Stopwatch.StartNew();
-
-            using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
-            while (await timer.WaitForNextTickAsync())
+            _ = Task.Run(async () =>
             {
-                try
+                Stopwatch lastLongScan = Stopwatch.StartNew();
+
+                using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
+                while (await timer.WaitForNextTickAsync())
                 {
-                    _logger.DebugLog("Running periodic NCL mentions rescan");
-
-                    TimeSpan duration = TimeSpan.FromHours(2);
-
-                    if (lastLongScan.Elapsed.TotalDays > 2)
+                    try
                     {
-                        lastLongScan.Restart();
-                        duration = TimeSpan.FromDays(90);
-                    }
+                        _logger.DebugLog("Running periodic NCL mentions rescan");
 
-                    await RescanAsync(
-                        _logger.Options.DebugTextChannel,
-                        DateTime.UtcNow - duration,
-                        ItemStateFilter.All);
+                        TimeSpan duration = TimeSpan.FromHours(2);
+
+                        if (lastLongScan.Elapsed.TotalDays > 2)
+                        {
+                            lastLongScan.Restart();
+                            duration = TimeSpan.FromDays(90);
+                        }
+
+                        await RescanAsync(
+                            _logger.Options.DebugTextChannel,
+                            DateTime.UtcNow - duration,
+                            ItemStateFilter.All);
+                    }
+                    catch (Exception ex)
+                    {
+                        await _logger.DebugAsync(ex.ToString());
+                    }
                 }
-                catch (Exception ex)
-                {
-                    await _logger.DebugAsync(ex.ToString());
-                }
-            }
-        });
+            });
+        }
 
         return Task.CompletedTask;
     }

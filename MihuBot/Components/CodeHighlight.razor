@@ -1,0 +1,57 @@
+﻿@using System.Text
+@using Microsoft.JSInterop
+@using System.Diagnostics;
+@inject IJSRuntime JS
+
+<script>
+    function updateCode(id, code) {
+        let e = document.getElementById(id);
+        e.innerHTML = code;
+        e.removeAttribute('data-highlighted');
+        hljs.highlightAll();
+    }
+</script>
+
+<pre id="@CodeBlockId" style="@CodeStyle"><code class="@Language" id="@DisplayId">@Code</code></pre>
+
+@code
+{
+    string DisplayId { get; set; } = Guid.NewGuid().ToString("n");
+
+    [Parameter]
+    public string Language { get; set; }
+
+    [Parameter]
+    public string Code { get; set; }
+
+    [Parameter]
+    public string CodeBlockId { get; set; }
+
+    [Parameter]
+    public string CodeStyle { get; set; }
+
+    private bool _isFirstRenderDone = false;
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_isFirstRenderDone && !string.IsNullOrEmpty(Code))
+        {
+            await UpdateAsync();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await UpdateAsync();
+            _isFirstRenderDone = true;
+        }
+    }
+
+    private async Task UpdateAsync()
+    {
+        await JS.InvokeVoidAsync("updateCode", DisplayId, Code);
+    }
+}

@@ -505,7 +505,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartCoreRootGenerationJob(string githubCommenterLogin, string arguments) =>
         StartJobCore(new CoreRootGenerationJob(this, githubCommenterLogin, arguments));
 
-    private JobBase StartJobCore(JobBase job)
+    public JobBase StartJobCore(JobBase job)
     {
         lock (_jobs)
         {

@@ -18,7 +18,7 @@
         @if (_currentUser is not null)
         {
             <p>PAT last updated on @_currentUser.PatUpdatedAt.ToISODate().</p>
-            <p>Last subscribed issue: @_currentUser.LastSubscribedIssue</p>
+            <p>Last subscribed issue: <a href="@_currentUser.LastSubscribedIssue">@_currentUser.LastSubscribedIssue</a></p>
 
             @if (_currentUser.Disabled)
             {

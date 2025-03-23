@@ -27,6 +27,9 @@ jobs:
     - name: Dotnet publish
       run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
 
+    - name: Copy Regex source generator
+      run: cp /usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts
+
     - name: Compress artifacts
       run: tar -cvzf artifacts.tar.gz artifacts
 

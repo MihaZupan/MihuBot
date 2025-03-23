@@ -7,7 +7,26 @@
 
 @if (_job is not null)
 {
-    <h1><a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a></h1>
+    <h1>
+        <a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a>
+        @if (_canCancelJob && _completedJob is null)
+        {
+            <button class="btn btn-danger ml-3" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
+        }
+        @if (_canViewCredentials)
+        {
+            <small class="text-muted ml-3" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
+        }
+        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+        {
+            <small class="text-muted ml-3" style="font-size: small">@remoteLogin</small>
+
+            @if (_job.ShouldDeleteVM)
+            {
+                <button class="btn btn-danger ml-3" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
+            }
+        }
+    </h1>
     <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
     @if (_job.TrackingIssue is not null)
     {
@@ -21,28 +40,7 @@
     else
     {
         <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
-
-        @if (_canCancelJob)
-        {
-            <button class="btn btn-danger" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
-        }
-
-        <br />
-
-        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
-        {
-            <div>@remoteLogin</div>
-
-            @if (_job.ShouldDeleteVM)
-            {
-                <button class="btn btn-danger" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
-            }
-        }
-    }
-
-    @if (_canViewCredentials)
-    {
-        <p><small class="text-muted">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small></p>
+        <br>
     }
 
     @if (!_job.Completed && _job.LastSystemInfo is { } info)
@@ -68,9 +66,8 @@
         <p><small class="text-muted">Arguments: @customArguments</small></p>
     }
 
-    <br />
-    <pre>
-        <code>
+    <pre style="max-width: 98%; max-height: max(calc(95vh - 260px), 200px); overflow: hidden; display: flex; flex-direction: column-reverse;">
+        <code style="word-wrap: break-word">
             @foreach (string line in _lines)
             {
                 @line
@@ -122,6 +119,9 @@ else
     private string _githubUserLogin;
     private bool _canCancelJob;
     private bool _canViewCredentials;
+
+    private const int NumLines = 150;
+    private const int MaxLineLength = 500;
 
     private const int NumberOfLogLines = 28;
 
@@ -187,12 +187,12 @@ else
                         }
                         else
                         {
-                            if (_lines.Count == NumberOfLogLines)
+                            if (_lines.Count == NumLines)
                             {
                                 _lines.TryDequeue(out _);
                             }
 
-                            string normalized = line.TruncateWithDotDotDot(190);
+                            string normalized = line.TruncateWithDotDotDot(MaxLineLength);
 
                             _lines.Enqueue(normalized);
                         }

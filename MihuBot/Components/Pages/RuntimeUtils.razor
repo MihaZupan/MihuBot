@@ -143,8 +143,8 @@
 <br />
 <h2>Currently active jobs</h2>
 
-<table class="table">
-    <thead class="thead-light">
+<table class="table table-dark">
+    <thead>
         <tr>
             <th scope="col">Title</th>
             <th scope="col">Logs</th>
@@ -243,6 +243,11 @@
             (await authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
         {
             _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions(_githubUserLogin);
+        }
+
+        if (OperatingSystem.IsWindows() && runtimeUtils.GetAllActiveJobs().Length == 0)
+        {
+            runtimeUtils.StartJobCore(new FakeInMemoryJob(runtimeUtils, "Dummy"));
         }
 
         _activeJobs = runtimeUtils.GetAllActiveJobs();
