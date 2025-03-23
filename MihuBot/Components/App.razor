@@ -14,7 +14,7 @@
 
     @foreach (var snippet in JavaScriptSnippets)
     {
-        @snippet.FullScript
+        @((MarkupString)snippet.FullScript)
     }
 
     <ImportMap />
