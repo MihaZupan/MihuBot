@@ -69,7 +69,8 @@
             <div class="input-group">
                 <input id="regexPattern" type="text" @bind-value="Pattern" @bind-value:event="oninput" placeholder="Regex pattern">
                 <div class="btn-group" role="group">
-                    <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary">@(_showOnlyCoreMethods ? "Show all" : "Show main methods")</button>
+                    <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary">@(_showOnlyCoreMethods ? "Show all" : "Show core methods")</button>
+                    <button type="button" @onclick="() => ToggleHideComments()" class="btn btn-primary">@(_hideComments ? "Show comments" : "Hide comments")</button>
                 </div>
                 <div class="input-group-append">
                     <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
@@ -112,6 +113,7 @@
         .ToArray();
 
     private bool _showOnlyCoreMethods = true;
+    private bool _hideComments;
 
     private string _rawGeneratedSource;
     private string _generatedSource;
@@ -121,6 +123,13 @@
     private async Task ToggleShowOnlyCoreMethods()
     {
         _showOnlyCoreMethods.Toggle();
+        await PostProcessSourceAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleHideComments()
+    {
+        _hideComments.Toggle();
         await PostProcessSourceAsync();
         await InvokeAsync(StateHasChanged);
     }
@@ -195,6 +204,11 @@
                 {
                     _showOnlyCoreMethods = false;
                 }
+
+                if (query.TryGetValue("hideComments", out var hideCommentsStr) && hideCommentsStr == "1")
+                {
+                    _hideComments = true;
+                }
             }
         }
     }
@@ -236,25 +250,25 @@
     {
         string source = _rawGeneratedSource;
 
-        // if (_hideComments)
-        // {
-        //     var sb = new StringBuilder(source.Length);
+        if (_hideComments)
+        {
+            var sb = new StringBuilder(source.Length);
 
-        //     foreach (var line in source.EnumerateLines())
-        //     {
-        //         int notSpace = line.IndexOfAnyExcept(' ');
-        //         if (notSpace >= 0)
-        //         {
-        //             if (line[notSpace] is '/' or '#')
-        //                 continue;
-        //         }
+            foreach (var line in source.EnumerateLines())
+            {
+                int notSpace = line.IndexOfAnyExcept(' ');
+                if (notSpace >= 0)
+                {
+                    if (line[notSpace] is '/' or '#')
+                        continue;
+                }
 
-        //         sb.Append(line);
-        //         sb.AppendLine();
-        //     }
+                sb.Append(line);
+                sb.AppendLine();
+            }
 
-        //     source = sb.ToString();
-        // }
+            source = sb.ToString();
+        }
 
         if (_showOnlyCoreMethods)
         {
@@ -272,6 +286,7 @@
         {
             { "pattern", Pattern },
             { "showAll", _showOnlyCoreMethods ? null : "1" },
+            { "hideComments", _hideComments ? "1" : null },
             { "options", Options == RegexOptions.None ? null : (int)Options }
         });
 
