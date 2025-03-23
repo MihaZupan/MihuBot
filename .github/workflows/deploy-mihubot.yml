@@ -18,17 +18,17 @@ jobs:
         sudo apt install -y wget && \
         wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
         sudo chmod +x ./dotnet-install.sh && \
-        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
-        dotnet --info
+        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir dotnet-latest && \
+        dotnet-latest/dotnet --info
 
     - name: Dotnet restore
-      run: dotnet restore MihuBot
+      run: dotnet-latest/dotnet restore MihuBot
 
     - name: Dotnet publish
-      run: dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+      run: dotnet-latest/dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
 
     - name: Copy Regex source generator
-      run: cp /usr/lib/dotnet/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts
+      run: cp dotnet-latest/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts
 
     - name: Compress artifacts
       run: tar -cvzf artifacts.tar.gz artifacts
