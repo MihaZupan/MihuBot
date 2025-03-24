@@ -1,4 +1,6 @@
-﻿using System.Reflection;
+﻿using System.Collections.Immutable;
+using System.Globalization;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -13,12 +15,23 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class RegexSourceGenerator
 {
+    public sealed record Generator(string Name, string Commit, Type GeneratorType);
+
+    public static readonly RegexOptions[] ValidOptions =
+    [
+        // All except None, Compiled, NonBacktracking
+        RegexOptions.IgnoreCase, RegexOptions.Multiline, RegexOptions.ExplicitCapture, RegexOptions.Singleline,
+        RegexOptions.IgnorePatternWhitespace, RegexOptions.RightToLeft, RegexOptions.ECMAScript, RegexOptions.CultureInvariant
+    ];
+
+    private readonly CSharpParseOptions _languageOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview);
     private readonly MetadataReference[] _references;
-    private readonly Type _generatorType;
     private readonly Logger _logger;
     private readonly IMemoryCache _cache;
 
-    public string? GeneratorCommit { get; }
+    public ImmutableArray<Generator> Generators { get; }
+    public Generator Latest => Generators[0];
+
     public string? LoadError { get; }
 
     public RegexSourceGenerator(Logger logger, IMemoryCache cache)
@@ -37,17 +50,43 @@ public sealed class RegexSourceGenerator
                     .Single(a => a.FullName is not null && a.FullName.StartsWith("System.Runtime,", StringComparison.Ordinal)))
             ];
 
-            Assembly generatorAssembly = Assembly.LoadFile(Path.GetFullPath("System.Text.RegularExpressions.Generator.dll"));
+            List<(string name, string path)> versions =
+            [
+                ("10.0", Path.GetFullPath("System.Text.RegularExpressions.Generator.dll"))
+            ];
 
-            _generatorType = generatorAssembly.GetTypes().Single(t => t.Name == "RegexGenerator");
+            string generatorsDirectory = Path.Combine(Constants.StateDirectory, "RegexSourceGenerators");
+            if (Directory.Exists(generatorsDirectory))
+            {
+                foreach (string path in Directory.GetFiles(generatorsDirectory))
+                {
+                    versions.Add((Path.GetFileNameWithoutExtension(path), Path.GetFullPath(path)));
+                }
+            }
 
-            GeneratorCommit = Helpers.Helpers.GetCommitId(generatorAssembly);
+            List<Generator> generators = [];
+
+            foreach ((string name, string path) in versions)
+            {
+                try
+                {
+                    Assembly generatorAssembly = Assembly.LoadFile(path);
+                    Type generatorType = generatorAssembly.GetTypes().Single(t => t.Name == "RegexGenerator");
+                    string commit = Helpers.Helpers.GetCommitId(generatorAssembly);
+
+                    generators.Add(new Generator(name, commit, generatorType));
+                }
+                catch (Exception ex) when (generators.Count == 0)
+                {
+                    _logger.DebugLog($"Failed to load generator '{name}' from '{path}': {ex}");
+                }
+            }
+
+            Generators = [.. generators.OrderByDescending(g => g.Name, StringComparer.Create(CultureInfo.InvariantCulture, CompareOptions.NumericOrdering))];
         }
         catch (Exception ex)
         {
             _references = null!;
-            _generatorType = null!;
-
             LoadError = ex.Message;
         }
 
@@ -67,7 +106,7 @@ public sealed class RegexSourceGenerator
         }
     }
 
-    private async Task<GeneratorDriverRunResult> RunGeneratorCore(string code, LanguageVersion langVersion = LanguageVersion.Preview, CancellationToken cancellationToken = default)
+    private async Task<GeneratorDriverRunResult> RunGeneratorCore(Generator generator, string code, CancellationToken cancellationToken = default)
     {
         Project proj = new AdhocWorkspace()
             .AddSolution(SolutionInfo.Create(SolutionId.CreateNewId(), VersionStamp.Create()))
@@ -75,7 +114,7 @@ public sealed class RegexSourceGenerator
             .WithMetadataReferences(_references)
             .WithCompilationOptions(new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true, checkOverflow: false)
             .WithNullableContextOptions(NullableContextOptions.Enable))
-            .WithParseOptions(new CSharpParseOptions(langVersion))
+            .WithParseOptions(_languageOptions)
             .AddDocument("RegexGenerator.g.cs", SourceText.From(code, Encoding.UTF8)).Project;
 
         proj.Solution.Workspace.TryApplyChanges(proj.Solution);
@@ -83,16 +122,16 @@ public sealed class RegexSourceGenerator
         Compilation? comp = await proj.GetCompilationAsync(CancellationToken.None).ConfigureAwait(false);
         Debug.Assert(comp is not null);
 
-        var generator = (IIncrementalGenerator)Activator.CreateInstance(_generatorType)!;
+        ISourceGenerator sourceGenerator = ((IIncrementalGenerator)Activator.CreateInstance(generator.GeneratorType)!).AsSourceGenerator();
 
-        CSharpGeneratorDriver cgd = CSharpGeneratorDriver.Create([generator.AsSourceGenerator()], parseOptions: CSharpParseOptions.Default.WithLanguageVersion(langVersion));
+        CSharpGeneratorDriver cgd = CSharpGeneratorDriver.Create([sourceGenerator], parseOptions: _languageOptions);
         GeneratorDriver gd = cgd.RunGenerators(comp, cancellationToken);
         return gd.GetRunResult();
     }
 
-    private async Task<string> GenerateSourceText(string code, LanguageVersion langVersion = LanguageVersion.Preview, CancellationToken cancellationToken = default)
+    private async Task<string> GenerateSourceText(Generator generator, string code, CancellationToken cancellationToken = default)
     {
-        GeneratorDriverRunResult generatorResults = await RunGeneratorCore(code, langVersion, cancellationToken);
+        GeneratorDriverRunResult generatorResults = await RunGeneratorCore(generator, code, cancellationToken);
         string generatedSource = string.Concat(generatorResults.GeneratedTrees.Select(t => t.ToString()));
 
         if (generatorResults.Diagnostics.Length != 0)
@@ -103,13 +142,14 @@ public sealed class RegexSourceGenerator
         return generatedSource;
     }
 
-    public async Task<string> GenerateSourceAsync(string pattern, RegexOptions options, CancellationToken cancellationToken)
+    public async Task<string> GenerateSourceAsync(Generator generator, string pattern, RegexOptions options, CancellationToken cancellationToken)
     {
         long start = Stopwatch.GetTimestamp();
 
         bool cacheHit = false;
+        var cacheKey = (pattern, options, generator.Name);
 
-        if (_cache.TryGetValue((pattern, options), out string? source))
+        if (_cache.TryGetValue(cacheKey, out string? source))
         {
             Debug.Assert(source is not null);
             cacheHit = true;
@@ -123,6 +163,7 @@ public sealed class RegexSourceGenerator
             }
 
             source = await GenerateSourceText(
+                generator,
                 $$"""
                 using System.Text.RegularExpressions;
                 partial class C
@@ -133,7 +174,7 @@ public sealed class RegexSourceGenerator
                 """,
                 cancellationToken: cancellationToken);
 
-            _cache.Set((pattern, options), source, new MemoryCacheEntryOptions
+            _cache.Set(cacheKey, source, new MemoryCacheEntryOptions
             {
                 Priority = CacheItemPriority.Low,
                 SlidingExpiration = TimeSpan.FromMinutes(15),
@@ -142,7 +183,7 @@ public sealed class RegexSourceGenerator
         }
 
         TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
-        _logger.DebugLog($"[RegexSourceGenerator] {(cacheHit ? "Fetched" : "Generated")} source for '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
+        _logger.DebugLog($"[RegexSourceGenerator] {(cacheHit ? "Fetched" : "Generated")} source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
 
         return source;
     }

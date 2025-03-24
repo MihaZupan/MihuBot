@@ -19,6 +19,19 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/csharp.min.js"></script>
 
 <style>
+    .regex-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
+
+    .toolbar-center {
+        display: flex;
+        justify-content: center;
+        flex-grow: 2;
+    }
+
     .scroll-progress-container {
         width: 100%;
         height: 8px;
@@ -32,14 +45,12 @@
     }
 
     #regexPattern {
-        min-width: max(40vw, 500px);
+        width: clamp(35vw, 200px, 500px);
         font-size: 22px;
     }
 
     .commit-container {
-        position: absolute;
-        right: 20px;
-        top: 24px;
+        margin-left: auto;
     }
 </style>
 
@@ -64,33 +75,43 @@
 </script>
 
 <div>
-    <div class="d-flex justify-content-center">
-        <div class="form-group">
-            <div class="input-group">
-                <input id="regexPattern" type="text" @bind-value="Pattern" @bind-value:event="oninput" placeholder="Regex pattern">
-                <div class="btn-group" role="group">
-                    <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary">@(_showOnlyCoreMethods ? "Show all" : "Show core methods")</button>
-                    <button type="button" @onclick="() => ToggleHideComments()" class="btn btn-primary">@(_hideComments ? "Show comments" : "Hide comments")</button>
-                </div>
-                <div class="input-group-append">
-                    <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
-                    <div class="dropdown-menu">
-                        @foreach (RegexOptions option in s_validOptions)
-                        {
-                            <a class="dropdown-item" @onclick="() => ToggleRegexOption(option)" style="@(Options.HasFlag(option) ? "color: crimson" : "")">@(Options.HasFlag(option) ? "Remove" : "Add") @option.ToString()</a>
-                        }
+    <div class="regex-toolbar">
+        <div class="toolbar-center">
+            <div class="form-group">
+                <div class="input-group">
+                    <input id="regexPattern" type="text" @bind-value="Pattern" @bind-value:event="oninput" placeholder="Regex pattern">
+                    <div class="btn-group" role="group">
+                        <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary ml-1">@(_showOnlyCoreMethods ? "Show all" : "Show core methods")</button>
+                        <button type="button" @onclick="() => ToggleHideComments()" class="btn btn-primary ml-1">@(_hideComments ? "Show comments" : "Hide comments")</button>
+                    </div>
+                    <div class="input-group-append ml-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
+                        <div class="dropdown-menu">
+                            @foreach (RegexOptions option in RegexSourceGenerator.ValidOptions)
+                            {
+                                <a class="dropdown-item" @onclick="() => ToggleRegexOption(option)" style="@(Options.HasFlag(option) ? "color: crimson" : "")">@(Options.HasFlag(option) ? "Remove" : "Add") @option.ToString()</a>
+                            }
+                        </div>
+                    </div>
+                    <div class="input-group-append ml-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Generator.Name</button>
+                        <div class="dropdown-menu">
+                            @foreach (var generator in SourceGenerator.Generators)
+                            {
+                                <a class="dropdown-item" @onclick="() => Generator = generator">@generator.Name</a>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+        @if (Generator.Commit is not null)
+        {
+            <div class="commit-container">
+                <p>Generator commit: <a href="https://github.com/dotnet/runtime/commit/@Generator.Commit">@Generator.Commit.Substring(0, 6)</a></p>
+            </div>
+        }
     </div>
-
-    @if (@SourceGenerator.GeneratorCommit is not null)
-    {
-        <div class="commit-container">
-            <p>Generator commit: <a href="https://github.com/dotnet/runtime/commit/@SourceGenerator.GeneratorCommit">@SourceGenerator.GeneratorCommit.Substring(0, 6)</a></p>
-        </div>
-    }
 
     <div class="scroll-progress-container">
         <div class="scroll-progress-bar" id="scrollProgressBar"></div>
@@ -108,9 +129,6 @@
 
 @code
 {
-    private static readonly RegexOptions[] s_validOptions = Enum.GetValues<RegexOptions>()
-        .Where(o => o is not (RegexOptions.None or RegexOptions.Compiled or RegexOptions.NonBacktracking))
-        .ToArray();
 
     private bool _showOnlyCoreMethods = true;
     private bool _hideComments;
@@ -118,7 +136,7 @@
     private string _rawGeneratedSource;
     private string _generatedSource;
     private string _errorMessage;
-    private Debouncer<(string Pattern, RegexOptions Options)> _debouncer;
+    private Debouncer<(RegexSourceGenerator.Generator Generator, string Pattern, RegexOptions Options)> _debouncer;
 
     private async Task ToggleShowOnlyCoreMethods()
     {
@@ -140,7 +158,7 @@
         set
         {
             field = value;
-            _debouncer.Update((value, Options));
+            RegenerateSource();
         }
     }
 
@@ -150,7 +168,17 @@
         set
         {
             field = value;
-            _debouncer.Update((Pattern, value));
+            RegenerateSource();
+        }
+    }
+
+    private RegexSourceGenerator.Generator Generator
+    {
+        get => field ?? SourceGenerator.Latest;
+        set
+        {
+            field = value;
+            RegenerateSource();
         }
     }
 
@@ -166,9 +194,14 @@
         }
     }
 
+    private void RegenerateSource()
+    {
+        _debouncer.Update((Generator, Pattern, Options));
+    }
+
     protected override void OnInitialized()
     {
-        _debouncer = new Debouncer<(string, RegexOptions)>(TimeSpan.FromMilliseconds(5), FetchGeneratedSource);
+        _debouncer = new Debouncer<(RegexSourceGenerator.Generator, string, RegexOptions)>(TimeSpan.FromMilliseconds(5), FetchGeneratedSource);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -189,7 +222,7 @@
                 if (query.TryGetValue("options", out var optionsStr) && int.TryParse(optionsStr, out int options) && options > 0)
                 {
                     RegexOptions validated = RegexOptions.None;
-                    foreach (var option in s_validOptions)
+                    foreach (var option in RegexSourceGenerator.ValidOptions)
                     {
                         if (((RegexOptions)options).HasFlag(option))
                         {
@@ -209,13 +242,18 @@
                 {
                     _hideComments = true;
                 }
+
+                if (query.TryGetValue("version", out var version) && SourceGenerator.Generators.FirstOrDefault(g => g.Name == version) is { } generator)
+                {
+                    Generator = generator;
+                }
             }
         }
     }
 
-    private async Task FetchGeneratedSource((string Pattern, RegexOptions Options) input, CancellationToken cancellationToken)
+    private async Task FetchGeneratedSource((RegexSourceGenerator.Generator Generator, string Pattern, RegexOptions Options) input, CancellationToken cancellationToken)
     {
-        (string pattern, RegexOptions options) = input;
+        (RegexSourceGenerator.Generator generator, string pattern, RegexOptions options) = input;
 
         try
         {
@@ -229,7 +267,7 @@
             }
             else
             {
-                string source = await SourceGenerator.GenerateSourceAsync(pattern, options, cancellationToken);
+                string source = await SourceGenerator.GenerateSourceAsync(generator, pattern, options, cancellationToken);
                 source = HttpUtility.HtmlEncode(source);
 
                 _rawGeneratedSource = source;
@@ -287,7 +325,8 @@
             { "pattern", Pattern },
             { "showAll", _showOnlyCoreMethods ? null : "1" },
             { "hideComments", _hideComments ? "1" : null },
-            { "options", Options == RegexOptions.None ? null : (int)Options }
+            { "options", Options == RegexOptions.None ? null : (int)Options },
+            { "version", Generator.Name == SourceGenerator.Latest.Name ? null : Generator.Name },
         });
 
         if (newUrl.Length <= 10_000)
