@@ -1,6 +1,4 @@
-﻿using Azure.Storage.Sas;
-
-namespace MihuBot.RuntimeUtils.Jobs;
+﻿namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class CoreRootGenerationJob : JobBase
 {
