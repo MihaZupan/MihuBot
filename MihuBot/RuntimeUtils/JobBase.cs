@@ -71,7 +71,7 @@ public abstract class JobBase
                     GithubCommenterLogin is not null ? $"For {GithubCommenterLogin}" :
                     $"{StartTime.ToISODateTime()}";
 
-                return $"[{JobTitlePrefix}] {title}".TruncateWithDotDotDot(99);
+                return $"[{JobTitlePrefix}] {title}".TruncateWithDotDotDot(80);
             }
         }
     }

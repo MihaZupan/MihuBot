@@ -40,7 +40,6 @@
     else
     {
         <div>The job is still in progress (@_job.GetElapsedTime(includeSeconds: false)). @_job.LastProgressSummary</div>
-        <br>
     }
 
     @if (!_job.Completed && _job.LastSystemInfo is { } info)
@@ -61,12 +60,14 @@
         </div>
     }
 
-    @if (_job.CustomArguments is { Length: > 0 } customArguments)
-    {
-        <p><small class="text-muted">Arguments: @customArguments</small></p>
-    }
+    <p>
+        @if (_job.CustomArguments is { Length: > 0 } customArguments)
+        {
+            <small class="text-muted">Arguments: @customArguments</small>
+        }
+    </p>
 
-    <pre style="max-width: 98%; max-height: max(calc(95vh - 260px), 200px); overflow: hidden; display: flex; flex-direction: column-reverse;">
+    <pre style="max-width: 98%; max-height: max(calc(95vh - 240px), 200px); overflow: hidden; display: flex; flex-direction: column-reverse;">
         <code style="word-wrap: break-word">
             @foreach (string line in _lines)
             {
