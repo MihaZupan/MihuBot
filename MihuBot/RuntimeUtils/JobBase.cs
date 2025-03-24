@@ -373,8 +373,16 @@ public abstract class JobBase
         {
             var stream = new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString()));
 
-            logsArtifactPath = $"{ExternalId}.txt";
-            await Parent.LogsStorage.UploadAsync(logsArtifactPath, stream, CancellationToken.None);
+            try
+            {
+                string path = $"{ExternalId}.txt";
+                await Parent.LogsStorage.UploadAsync(path, stream, CancellationToken.None);
+                logsArtifactPath = path;
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync(ex.ToString());
+            }
 
             stream.Position = 0;
             await ArtifactReceivedAsync("logs.txt", stream, CancellationToken.None);
