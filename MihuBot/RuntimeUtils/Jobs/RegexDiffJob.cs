@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using MihuBot.RuntimeUtils.Jobs;
+using Octokit;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;

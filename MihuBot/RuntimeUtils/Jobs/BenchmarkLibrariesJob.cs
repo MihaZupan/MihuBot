@@ -1,6 +1,6 @@
 ﻿using Octokit;
 
-namespace MihuBot.RuntimeUtils;
+namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class BenchmarkLibrariesJob : JobBase
 {

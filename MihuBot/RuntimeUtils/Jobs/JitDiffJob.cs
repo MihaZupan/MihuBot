@@ -1,7 +1,7 @@
 ﻿using Azure.Storage.Sas;
 using Octokit;
 
-namespace MihuBot.RuntimeUtils;
+namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class JitDiffJob : JobBase
 {

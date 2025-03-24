@@ -1,4 +1,4 @@
-﻿namespace MihuBot.RuntimeUtils;
+﻿namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class FakeInMemoryJob : JobBase
 {

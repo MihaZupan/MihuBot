@@ -4,6 +4,7 @@ using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
+using MihuBot.RuntimeUtils.Jobs;
 using Octokit;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
