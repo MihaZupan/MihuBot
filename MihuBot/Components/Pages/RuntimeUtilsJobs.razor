@@ -9,21 +9,24 @@
 {
     <h1>
         <a href="@(_job.GitHubComment?.Url ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a>
-        @if (_canCancelJob && _completedJob is null)
+        @if (_completedJob is null)
         {
-            <button class="btn btn-danger ml-3" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
-        }
-        @if (_canViewCredentials)
-        {
-            <small class="text-muted ml-3" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
-        }
-        @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
-        {
-            <small class="text-muted ml-3" style="font-size: small">@remoteLogin</small>
-
-            @if (_job.ShouldDeleteVM)
+            @if (_canCancelJob)
             {
-                <button class="btn btn-danger ml-3" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
+                <button class="btn btn-danger ml-3" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
+            }
+            @if (_canViewCredentials)
+            {
+                <small class="text-muted ml-3" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
+            }
+            @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
+            {
+                <small class="text-muted ml-3" style="font-size: small">@remoteLogin</small>
+
+                @if (_job.ShouldDeleteVM)
+                {
+                    <button class="btn btn-danger ml-3" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
+                }
             }
         }
     </h1>
