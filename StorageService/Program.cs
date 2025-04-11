@@ -101,6 +101,12 @@ app.UseRouting();
 
 app.Use((context, next) =>
 {
+    if (string.Equals(context.Request.Host.Host, "mihubot-sec-arm", StringComparison.OrdinalIgnoreCase) && context.Connection.LocalPort != 80)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return Task.CompletedTask;
+    }
+
     if (OperatingSystem.IsLinux() && !AllowList(context) && !context.IsTunnelRequest())
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
