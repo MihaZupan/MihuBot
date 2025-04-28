@@ -1,8 +1,8 @@
 ﻿using Azure.AI.OpenAI;
 using Azure;
-using OpenAI.Chat;
 using OpenAI.Images;
 using MihuBot.Configuration;
+using Microsoft.Extensions.AI;
 
 #nullable enable
 
@@ -29,13 +29,13 @@ public sealed class OpenAIService
             new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"] ?? throw new InvalidOperationException("Missing AzureOpenAI Image Key")));
     }
 
-    public ChatClient GetChat(ulong? context)
+    public IChatClient GetChat(ulong? context)
     {
         _configurationService.TryGet(context, "ChatGPT.Deployment", out string? deployment);
 
         deployment ??= "gpt-4o";
 
-        return _chat.GetChatClient(deployment);
+        return _chat.GetChatClient(deployment).AsIChatClient();
     }
 
     public ImageClient GetImage(ulong? context)
@@ -49,11 +49,11 @@ public sealed class OpenAIService
 
     public async Task<string> GetSimpleChatCompletionAsync(ulong? context, string prompt)
     {
-        ChatClient chatClient = GetChat(context);
+        IChatClient chatClient = GetChat(context);
 
-        ChatCompletion completion = (await chatClient.CompleteChatAsync(ChatMessage.CreateUserMessage(prompt))).Value;
+        ChatResponse chatResponse = await chatClient.GetResponseAsync(prompt);
 
-        string response = string.Concat(completion.Content.SelectMany(u => u.Text));
+        string response = chatResponse.Text;
 
         _logger.DebugLog($"ChatGPT response for '{prompt}' for {context}: '{response}'");
 

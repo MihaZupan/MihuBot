@@ -1,6 +1,6 @@
 ﻿using Discord.Rest;
+using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
-using OpenAI.Chat;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
@@ -37,12 +37,12 @@ public sealed class ChatGptComand : CommandBase
 
         public void AddUserPrompt(SocketGuildUser user, string prompt)
         {
-            _entries.Add(new HistoryEntry(ChatMessage.CreateUserMessage($"{user.GlobalName ?? user.Username}: {prompt}"), DateTime.UtcNow));
+            _entries.Add(new HistoryEntry(new ChatMessage(ChatRole.User, $"{user.GlobalName ?? user.Username}: {prompt}"), DateTime.UtcNow));
         }
 
         public void AddAssistantResponse(string response)
         {
-            _entries.Add(new HistoryEntry(ChatMessage.CreateAssistantMessage(response), DateTime.UtcNow));
+            _entries.Add(new HistoryEntry(new ChatMessage(ChatRole.Assistant, response), DateTime.UtcNow));
         }
 
         public List<ChatMessage> GetChatMessages(string systemPrompt, int maxChatHistory)
@@ -58,7 +58,7 @@ public sealed class ChatGptComand : CommandBase
 
             if (!string.IsNullOrEmpty(systemPrompt))
             {
-                messages.Insert(0, ChatMessage.CreateSystemMessage(systemPrompt));
+                messages.Insert(0, new ChatMessage(ChatRole.Assistant, systemPrompt));
             }
 
             return messages;
@@ -122,12 +122,12 @@ public sealed class ChatGptComand : CommandBase
             }
         }
 
-        ChatClient client = _openAI.GetChat(channel.Guild.Id);
+        IChatClient client = _openAI.GetChat(channel.Guild.Id);
 
-        var options = new ChatCompletionOptions
+        var options = new ChatOptions
         {
-            EndUserId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{author.Id}"))),
-            MaxOutputTokenCount = maxTokens
+            ChatThreadId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{author.Id}"))),
+            MaxOutputTokens = maxTokens
         };
 
         var chatHistoryCollection = isJared ? _jaredChatHistory : _chatHistory;
@@ -145,12 +145,12 @@ public sealed class ChatGptComand : CommandBase
 
             Stopwatch stopwatch = Stopwatch.StartNew();
             Task<RestUserMessage> sendMessageTask = null;
-            List<StreamingChatCompletionUpdate> updates = new();
+            List<ChatResponseUpdate> updates = new();
             string lastUpdateText = string.Empty;
 
             async Task UpdateMessageAsync(bool final = false)
             {
-                string currentText = string.Concat(updates.SelectMany(u => u.ContentUpdate).SelectMany(u => u.Text));
+                string currentText = string.Concat(updates.Select(u => u.Text));
                 currentText = currentText.TruncateWithDotDotDot(2000);
 
                 if (lastUpdateText == currentText)
@@ -167,7 +167,7 @@ public sealed class ChatGptComand : CommandBase
                     return;
                 }
 
-                _logger.DebugLog($"ChatGPT response for {author.Id} in channel={channel.Id} with model={updates[0].Model} maxTokens={maxTokens} prompt='{prompt}' was '{currentText}'");
+                _logger.DebugLog($"ChatGPT response for {author.Id} in channel={channel.Id} with model={updates[0].ModelId} maxTokens={maxTokens} prompt='{prompt}' was '{currentText}'");
 
                 if (sendMessageTask is null)
                 {
@@ -189,9 +189,9 @@ public sealed class ChatGptComand : CommandBase
 
             List<ChatMessage> messages = chatHistory.GetChatMessages(systemPrompt, maxChatHistory);
 
-            await foreach (StreamingChatCompletionUpdate completionUpdate in client.CompleteChatStreamingAsync(messages, options))
+            await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(messages, options))
             {
-                updates.Add(completionUpdate);
+                updates.Add(update);
                 await UpdateMessageAsync();
             }
 
