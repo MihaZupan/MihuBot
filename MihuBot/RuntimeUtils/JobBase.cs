@@ -12,6 +12,7 @@ using Azure.Storage.Sas;
 using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
+using MihuBot.DB.GitHub;
 using Octokit;
 using static MihuBot.Helpers.HetznerClient;
 
@@ -36,11 +37,11 @@ public abstract class JobBase
 
     protected TaskCompletionSource JobCompletionTcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public GitHubComment GitHubComment { get; }
+    public CommentInfo GitHubComment { get; }
     public string GithubCommenterLogin { get; }
 
-    protected virtual string RepoOwner => GitHubComment?.RepoOwner ?? "dotnet";
-    protected virtual string RepoName => GitHubComment?.RepoName ?? "runtime";
+    protected virtual string RepoOwner => GitHubComment?.RepoOwner() ?? "dotnet";
+    protected virtual string RepoName => GitHubComment?.RepoName() ?? "runtime";
 
     protected Logger Logger => Parent.Logger;
     public GitHubClient Github => Parent.Github;
@@ -67,7 +68,7 @@ public abstract class JobBase
                 string title =
                     PullRequest is not null ? $"[{PullRequest.User.Login}] {PullRequest.Title}" :
                     Metadata.TryGetValue("PrRepo", out string prRepo) ? $"{prRepo}/{Metadata["PrBranch"]}" :
-                    GitHubComment is not null ? $"For {GithubCommenterLogin} in {GitHubComment.RepoOwner}/{GitHubComment.RepoName}#{GitHubComment.IssueId}" :
+                    GitHubComment is not null ? $"For {GithubCommenterLogin} in {RepoOwner}/{RepoName}#{GitHubComment.Issue.Number}" :
                     GithubCommenterLogin is not null ? $"For {GithubCommenterLogin}" :
                     $"{StartTime.ToISODateTime()}";
 
@@ -110,7 +111,7 @@ public abstract class JobBase
     public int TotalProgressSiteViews;
     public int CurrentProgressSiteViews;
 
-    public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, GitHubComment comment = null)
+    public JobBase(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, CommentInfo comment = null)
     {
         Parent = parent;
         GitHubComment = comment;
@@ -132,7 +133,7 @@ public abstract class JobBase
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
         SuppressTrackingIssue = githubCommenterLogin == "MihaZupan" && CustomArguments.Contains("-noTrackingIssue", StringComparison.OrdinalIgnoreCase);
 
-        TestedPROrBranchLink = comment?.Url;
+        TestedPROrBranchLink = comment?.HtmlUrl;
 
         Logger.DebugLog($"Starting {JobType}: {ProgressDashboardUrl}");
     }
@@ -145,7 +146,7 @@ public abstract class JobBase
         TestedPROrBranchLink = $"https://github.com/{branch.Repository}/tree/{branch.Branch.Name}";
     }
 
-    public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : this(parent, githubCommenterLogin, arguments, comment)
     {
         PullRequest = pullRequest;
@@ -448,7 +449,7 @@ public abstract class JobBase
             return arguments.ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(number => number.TrimStart('#'))
-                .Select(number => GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(number, out int prNumber) ? prNumber.ToString() : number)
+                .Select(number => GitHubHelper.TryParseIssueOrPRNumber(number, out int prNumber) ? prNumber.ToString() : number)
                 .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
                 .Select(int.Parse)
                 .ToArray();

@@ -1,4 +1,5 @@
-﻿using MihuBot.RuntimeUtils;
+﻿using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils;
 using Octokit;
 
 namespace MihuBot.Commands;
@@ -76,7 +77,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
         }
 
         JobBase job;
-        GitHubComment comment = null;
+        CommentInfo comment = null;
 
         if (ctx.Command is "fuzz" or "benchmark")
         {

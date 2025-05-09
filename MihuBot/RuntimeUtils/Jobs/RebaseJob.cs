@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using MihuBot.DB.GitHub;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils.Jobs;
 
@@ -11,7 +12,8 @@ public sealed class RebaseJob : JobBase
 
     protected override bool RunUsingGitHubActions => true;
 
-    public RebaseJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
+    public RebaseJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
+        : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     {
         Metadata.Add("MihuBotPushToken", parent.Configuration["GitHub:Token"]);
     }

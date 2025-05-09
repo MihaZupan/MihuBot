@@ -1,6 +1,7 @@
-﻿using MihuBot.RuntimeUtils.Jobs;
+﻿using System.Text.RegularExpressions;
+using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils.Jobs;
 using Octokit;
-using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -20,7 +21,7 @@ public sealed partial class RegexDiffJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
-    public RegexDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public RegexDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 

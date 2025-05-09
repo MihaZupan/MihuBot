@@ -212,6 +212,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<RegexSourceGenerator>();
 
+    services.AddHostedService<GitHubDataService>();
+
+    services.AddSingleton<GitHubSearchService>();
+
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 

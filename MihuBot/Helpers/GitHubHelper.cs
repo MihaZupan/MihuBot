@@ -1,104 +1,11 @@
-﻿using Octokit;
+﻿using MihuBot.DB.GitHub;
+using Octokit;
 using System.Text.RegularExpressions;
 
 namespace MihuBot.Helpers;
 
 public static partial class GitHubHelper
 {
-    public static async IAsyncEnumerable<GitHubComment> PollCommentsAsync(this GitHubClient github, string repoOwner, string repoName, TimeSpan interval, Logger logger)
-    {
-        List<GitHubComment> commentsToReturn = new();
-
-        int consecutiveFailureCount = 0;
-        DateTimeOffset lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-        DateTimeOffset lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
-
-        using var timer = new PeriodicTimer(interval);
-        while (await timer.WaitForNextTickAsync())
-        {
-            try
-            {
-                IReadOnlyList<PullRequestReviewComment> pullReviewComments = await github.PullRequest.ReviewComment.GetAllForRepository(repoOwner, repoName, new PullRequestReviewCommentRequest
-                {
-                    Since = lastCheckTimeReviewComments
-                }, new ApiOptions { PageCount = 100 });
-
-                if (pullReviewComments.Count > 0)
-                {
-                    lastCheckTimeReviewComments = pullReviewComments.Max(c => c.UpdatedAt != default ? c.UpdatedAt : c.CreatedAt);
-                }
-
-                foreach (PullRequestReviewComment reviewComment in pullReviewComments)
-                {
-                    commentsToReturn.Add(new GitHubComment(github, repoOwner, repoName, reviewComment.Id, reviewComment.PullRequestUrl, reviewComment.Body, reviewComment.User, IsPrReviewComment: true));
-                }
-
-                IReadOnlyList<IssueComment> issueComments = await github.Issue.Comment.GetAllForRepository(repoOwner, repoName, new IssueCommentRequest
-                {
-                    Since = lastCheckTimeIssueComments,
-                    Sort = IssueCommentSort.Created,
-                }, new ApiOptions { PageCount = 100 });
-
-                if (issueComments.Count > 0)
-                {
-                    lastCheckTimeIssueComments = issueComments.Max(c => c.UpdatedAt ?? c.CreatedAt);
-                }
-
-                var recentTimestamp = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(30);
-
-                if (recentTimestamp > lastCheckTimeIssueComments)
-                {
-                    lastCheckTimeIssueComments = recentTimestamp;
-                }
-
-                if (recentTimestamp > lastCheckTimeReviewComments)
-                {
-                    lastCheckTimeReviewComments = recentTimestamp;
-                }
-
-                foreach (IssueComment issueComment in issueComments)
-                {
-                    commentsToReturn.Add(new GitHubComment(github, repoOwner, repoName, issueComment.Id, issueComment.HtmlUrl, issueComment.Body, issueComment.User, IsPrReviewComment: false));
-                }
-
-                consecutiveFailureCount = 0;
-            }
-            catch (Exception ex)
-            {
-                consecutiveFailureCount++;
-                lastCheckTimeReviewComments = DateTimeOffset.UtcNow;
-                lastCheckTimeIssueComments = DateTimeOffset.UtcNow;
-                logger?.DebugLog($"Failed to fetch GitHub notifications: {ex}");
-
-                if (consecutiveFailureCount == 15 * 4) // 15 min
-                {
-                    await logger?.DebugAsync($"Failed to fetch GitHub notifications: {ex}");
-                }
-
-                if (ex is RateLimitExceededException rateLimitEx)
-                {
-                    TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
-                    if (toWait.TotalSeconds > 1)
-                    {
-                        logger?.DebugLog($"GitHub polling toWait={toWait}");
-                        if (toWait > TimeSpan.FromMinutes(5))
-                        {
-                            toWait = TimeSpan.FromMinutes(5);
-                        }
-                        await Task.Delay(toWait);
-                    }
-                }
-            }
-
-            foreach (GitHubComment comment in commentsToReturn)
-            {
-                yield return comment;
-            }
-
-            commentsToReturn.Clear();
-        }
-    }
-
     public static async Task<BranchReference> TryParseGithubRepoAndBranch(GitHubClient github, string url)
     {
         Match match = RepoAndBranchRegex().Match(url);
@@ -142,7 +49,7 @@ public static partial class GitHubHelper
         return null;
     }
 
-    public static bool TryParseDotnetRuntimeIssueOrPRNumber(string input, out int prNumber)
+    public static bool TryParseIssueOrPRNumber(string input, out int prNumber)
     {
         string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -154,7 +61,7 @@ public static partial class GitHubHelper
         return Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) &&
             (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
             uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            (uri.AbsolutePath.StartsWith("/dotnet/runtime/pull/", StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath.StartsWith("/dotnet/runtime/issues/", StringComparison.OrdinalIgnoreCase)) &&
+            (uri.AbsolutePath.Contains("/pull/", StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath.Contains("/issues/", StringComparison.OrdinalIgnoreCase)) &&
             int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
             prNumber > 0;
     }
@@ -188,24 +95,19 @@ public static partial class GitHubHelper
             return (true, scopes.Length == 0);
         }
     }
-}
 
-public record BranchReference(string Repository, Branch Branch);
-
-public record GitHubComment(GitHubClient Github, string RepoOwner, string RepoName, long CommentId, string Url, string Body, User User, bool IsPrReviewComment)
-{
-    public int IssueId { get; } = int.Parse(new Uri(Url, UriKind.Absolute).AbsolutePath.Split('/').Last());
-
-    public bool IsOnPullRequest => Url.Contains("/pull", StringComparison.OrdinalIgnoreCase);
-
-    public string IssueUrl => $"https://github.com/{RepoOwner}/{RepoName}/{(IsOnPullRequest ? "pull" : "issues")}/{IssueId}";
-
-    public async Task<Reaction> AddReactionAsync(Octokit.ReactionType reactionType)
+    public static async Task<Reaction> AddReactionAsync(this CommentInfo comment, GitHubClient gitHub, Octokit.ReactionType reactionType)
     {
         var reaction = new NewReaction(reactionType);
 
-        return await (IsPrReviewComment
-            ? Github.Reaction.PullRequestReviewComment.Create(RepoOwner, RepoName, CommentId, reaction)
-            : Github.Reaction.IssueComment.Create(RepoOwner, RepoName, CommentId, reaction));
+        return await (comment.IsPrReviewComment
+            ? gitHub.Reaction.PullRequestReviewComment.Create(comment.RepoOwner(), comment.RepoName(), comment.Id, reaction)
+            : gitHub.Reaction.IssueComment.Create(comment.RepoOwner(), comment.RepoName(), comment.Id, reaction));
     }
+
+    public static string RepoOwner(this CommentInfo comment) => comment.Issue.Repository.Owner.Login;
+
+    public static string RepoName(this CommentInfo comment) => comment.Issue.Repository.Name;
 }
+
+public record BranchReference(string Repository, Branch Branch);

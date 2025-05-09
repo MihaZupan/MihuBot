@@ -29,6 +29,16 @@ public static class Constants
         .Select(i => i.ToString() + CombiningEnclosingKeycap)
         .Select(e => new Emoji(e))
         .ToArray();
+
+    public static readonly HashSet<string> NetworkingLabels =
+    [
+        "area-System.Net",
+        "area-System.Net.Http",
+        "area-System.Net.Security",
+        "area-System.Net.Sockets",
+        "area-System.Net.Quic",
+        "area-Extensions-HttpClientFactory"
+    ];
 }
 
 public static class Guilds

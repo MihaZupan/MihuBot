@@ -4,6 +4,7 @@ using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
+using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Jobs;
 using Octokit;
 using System.Text.RegularExpressions;
@@ -140,11 +141,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
     public readonly StorageClient LogsStorage;
-    private readonly IDbContextFactory<MihuBotDbContext> _db;
+    private readonly IDbContextFactory<MihuBotDbContext> _mihuBotDb;
+    private readonly IDbContextFactory<GitHubDbContext> _gitHubDataDb;
 
     private bool _shuttingDown;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> db, UrlShortenerService urlShortener, CoreRootService coreRoot)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb)
     {
         Logger = logger;
         Github = github;
@@ -156,7 +158,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
         UrlShortener = urlShortener;
         CoreRoot = coreRoot;
 
-        _db = db;
+        _mihuBotDb = mihuBotDb;
+        _gitHubDataDb = gitHubDataDb;
 
         if (ProgramState.AzureEnabled)
         {
@@ -248,23 +251,51 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private async Task WatchForGitHubMentionsAsync()
     {
-        await Task.WhenAll(
-            Task.Run(async () =>
-            {
-                await foreach (GitHubComment comment in Github.PollCommentsAsync("dotnet", "runtime", TimeSpan.FromSeconds(15), Logger))
-                {
-                    await ProcessCommentAsync(comment);
-                }
-            }),
-            Task.Run(async () =>
-            {
-                await foreach (GitHubComment comment in Github.PollCommentsAsync("dotnet", "yarp", TimeSpan.FromSeconds(30), Logger))
-                {
-                    await ProcessCommentAsync(comment);
-                }
-            }));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
-        async Task ProcessCommentAsync(GitHubComment comment)
+        DateTime lastScan = DateTime.UtcNow;
+
+        while (await timer.WaitForNextTickAsync())
+        {
+            if (_shuttingDown)
+            {
+                break;
+            }
+
+            try
+            {
+                await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
+
+                lastScan = DateTime.UtcNow;
+
+                var comments = await db.Comments
+                    .AsNoTracking()
+                    .Where(c => c.UpdatedAt >= lastScan - TimeSpan.FromMinutes(5))
+                    .OrderByDescending(c => c.UpdatedAt)
+                    .Include(c => c.Issue)
+                        .ThenInclude(i => i.Repository)
+                            .ThenInclude(r => r.Owner)
+                    .Include(c => c.Issue)
+                        .ThenInclude(i => i.PullRequest)
+                    .Include(c => c.User)
+                    .Take(25)
+                    .ToListAsync();
+
+                foreach (CommentInfo comment in comments)
+                {
+                    if (comment.RepoOwner() == "dotnet" && comment.RepoName() is "runtime" or "yarp")
+                    {
+                        await ProcessCommentAsync(comment);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Failure while polling for mentions: {ex}");
+            }
+        }
+
+        async Task ProcessCommentAsync(CommentInfo comment)
         {
             try
             {
@@ -276,10 +307,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 if (comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                     comment.User.Type == AccountType.User &&
                     !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                    _processedMentions.TryAdd(comment.CommentId.ToString()) &&
+                    _processedMentions.TryAdd(comment.Id.ToString()) &&
                     TryExtractMihuBotArguments(comment.Body, out string arguments))
                 {
-                    Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.Url}: '{comment.Body}'");
+                    Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.HtmlUrl}: '{comment.Body}'");
 
                     if (arguments.Contains("-help", StringComparison.OrdinalIgnoreCase) ||
                         arguments.StartsWith("help", StringComparison.OrdinalIgnoreCase) ||
@@ -296,7 +327,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         {
                             await Logger.DebugAsync(
                                 $"""
-                                User {comment.User.Login} tried to start a job, but is not authorized. <{comment.Url}>
+                                User {comment.User.Login} tried to start a job, but is not authorized. <{comment.HtmlUrl}>
 
                                 `!cfg set global RuntimeUtils.AuthorizedUser.{comment.User.Login} true`
                                 """);
@@ -304,22 +335,22 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         return;
                     }
 
-                    if (comment.IsOnPullRequest)
+                    if (comment.Issue.PullRequest is not null)
                     {
-                        PullRequest pullRequest = await Github.PullRequest.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
+                        PullRequest pullRequest = await Github.PullRequest.Get(comment.Issue.RepositoryId, comment.Issue.Number);
 
-                        if (comment.RepoOwner == "dotnet" && comment.RepoName == "runtime")
+                        if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "runtime")
                         {
                             await ProcessMihuBotDotnetRuntimeMention(comment, arguments, pullRequest);
                         }
-                        else if (comment.RepoOwner == "dotnet" && comment.RepoName == "yarp")
+                        else if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "yarp")
                         {
                             await ProcessMihuBotYarpMention(comment, arguments, pullRequest);
                         }
                     }
                     else
                     {
-                        if (comment.RepoOwner == "dotnet" && comment.RepoName == "runtime")
+                        if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "runtime")
                         {
                             await ProcessMihuBotDotnetRuntimeIssueMention(comment, arguments);
                         }
@@ -328,11 +359,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync($"Failure while processing comment {comment.Url} {comment.CommentId}: {ex}");
+                await Logger.DebugAsync($"Failure while processing comment {comment.HtmlUrl}: {ex}");
             }
         }
 
-        Task ProcessMihuBotYarpMention(GitHubComment comment, string arguments, PullRequest pullRequest)
+        Task ProcessMihuBotYarpMention(CommentInfo comment, string arguments, PullRequest pullRequest)
         {
             if (arguments.StartsWith("backport to ", StringComparison.OrdinalIgnoreCase))
             {
@@ -342,7 +373,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             return Task.CompletedTask;
         }
 
-        Task ProcessMihuBotDotnetRuntimeIssueMention(GitHubComment comment, string arguments)
+        Task ProcessMihuBotDotnetRuntimeIssueMention(CommentInfo comment, string arguments)
         {
             if (BenchmarkWithCompareRangeRegex().Match(arguments) is { Success: true } benchmarkMatch)
             {
@@ -352,7 +383,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             return Task.CompletedTask;
         }
 
-        async Task ProcessMihuBotDotnetRuntimeMention(GitHubComment comment, string arguments, PullRequest pullRequest)
+        async Task ProcessMihuBotDotnetRuntimeMention(CommentInfo comment, string arguments, PullRequest pullRequest)
         {
             if (pullRequest.State.Value != ItemState.Open)
             {
@@ -412,9 +443,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
         }
 
-        async Task ReplyToCommentAsync(GitHubComment comment, string content)
+        async Task ReplyToCommentAsync(CommentInfo comment, string content)
         {
-            await Github.Issue.Comment.Create(comment.RepoOwner, comment.RepoName, comment.IssueId, content);
+            await Github.Issue.Comment.Create(comment.Issue.RepositoryId, comment.Issue.Number, content);
         }
 
         static bool TryExtractMihuBotArguments(string commentBody, out string arguments)
@@ -485,34 +516,34 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartJitDiffJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
         StartJobCore(new JitDiffJob(this, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartJitDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new JitDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
     public JobBase StartFuzzLibrariesJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
         StartJobCore(new FuzzLibrariesJob(this, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartFuzzLibrariesJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new FuzzLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartRebaseJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new RebaseJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
     public JobBase StartBenchmarkJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
         StartJobCore(new BenchmarkLibrariesJob(this, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartBenchmarkJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new BenchmarkLibrariesJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartBenchmarkJob(string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartBenchmarkJob(string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new BenchmarkLibrariesJob(this, githubCommenterLogin, arguments, comment));
 
     public JobBase StartRegexDiffJob(BranchReference branch, string githubCommenterLogin, string arguments) =>
         StartJobCore(new RegexDiffJob(this, branch, githubCommenterLogin, arguments));
 
-    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
-    public JobBase StartBackportJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment) =>
+    public JobBase StartBackportJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new BackportJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
     public JobBase StartCoreRootGenerationJob(string githubCommenterLogin, string arguments) =>
@@ -587,7 +618,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public async Task<CompletedJobRecord> TryGetCompletedJobRecordAsync(string externalId, CancellationToken cancellationToken)
     {
-        await using var context = _db.CreateDbContext();
+        await using var context = _mihuBotDb.CreateDbContext();
 
         CompletedJobDbEntry entry = await context.CompletedJobs.FindAsync([externalId], cancellationToken: cancellationToken);
 
@@ -604,7 +635,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public async Task SaveCompletedJobRecordAsync(CompletedJobRecord record)
     {
-        await using var context = _db.CreateDbContext();
+        await using var context = _mihuBotDb.CreateDbContext();
 
         context.CompletedJobs.Add(record.ToDbEntry());
 

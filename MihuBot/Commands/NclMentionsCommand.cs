@@ -96,7 +96,7 @@ public sealed class NclMentionsCommand : CommandBase
         {
             ctx.CancellationToken.ThrowIfCancellationRequested();
 
-            if (GitHubHelper.TryParseDotnetRuntimeIssueOrPRNumber(arg, out int number))
+            if (GitHubHelper.TryParseIssueOrPRNumber(arg, out int number))
             {
                 issues.Add(await GitHub.Issue.Get("dotnet", "runtime", number));
             }
@@ -109,7 +109,7 @@ public sealed class NclMentionsCommand : CommandBase
 
     private async Task RescanAsync(SocketTextChannel channel, DateTimeOffset since, ItemStateFilter state, CancellationToken cancellationToken = default)
     {
-        foreach (string area in new string[] { "System.Net", "System.Net.Http", "System.Net.Security", "System.Net.Sockets", "System.Net.Quic", "Extensions-HttpClientFactory" })
+        foreach (string area in Constants.NetworkingLabels)
         {
             var request = new RepositoryIssueRequest
             {
@@ -118,7 +118,7 @@ public sealed class NclMentionsCommand : CommandBase
                 Since = since,
             };
 
-            request.Labels.Add($"area-{area}");
+            request.Labels.Add(area);
 
             var issues = await GitHub.Issue.GetAllForRepository("dotnet", "runtime", request);
 
@@ -155,13 +155,30 @@ public sealed class NclMentionsCommand : CommandBase
 
     private async Task<bool> SubscribeToRuntimeIssueAsync(User currentUser, Issue issue)
     {
-        return await _gitHubNotifications.ProcessGitHubMentionAsync(new GitHubComment(
-            GitHub,
-            "dotnet", "runtime", 1,
-            issue.HtmlUrl,
-            "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
-            currentUser,
-            IsPrReviewComment: false),
-            issue);
+        return await _gitHubNotifications.ProcessGitHubMentionAsync(new DB.GitHub.CommentInfo
+        {
+            Id = 1,
+            Body = "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
+            Issue = new DB.GitHub.IssueInfo
+            {
+                Number = issue.Number,
+                HtmlUrl = issue.HtmlUrl,
+                RepositoryId = issue.Repository.Id,
+                Repository = new DB.GitHub.RepositoryInfo
+                {
+                    Id = issue.Repository.Id,
+                    Owner = new DB.GitHub.UserInfo { Login = "dotnet" },
+                    Name = "runtime"
+                },
+            },
+            UserId = currentUser.Id,
+            User = new DB.GitHub.UserInfo
+            {
+                Id = currentUser.Id,
+                Login = currentUser.Login,
+                Name = currentUser.Name,
+            },
+            IsPrReviewComment = false,
+        });
     }
 }

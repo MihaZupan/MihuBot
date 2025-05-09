@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using MihuBot.DB.GitHub;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils.Jobs;
 
@@ -18,7 +19,7 @@ public sealed class FuzzLibrariesJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
-    public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public FuzzLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
@@ -74,7 +75,7 @@ public sealed class FuzzLibrariesJob : JobBase
             string.IsNullOrEmpty(FirstErrorMessage) &&
             GitHubComment is not null)
         {
-            await GitHubComment.AddReactionAsync(Octokit.ReactionType.Plus1);
+            await GitHubComment.AddReactionAsync(Github, Octokit.ReactionType.Plus1);
         }
     }
 

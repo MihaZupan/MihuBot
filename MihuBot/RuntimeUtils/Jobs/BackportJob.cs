@@ -1,5 +1,6 @@
-﻿using Octokit;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using MihuBot.DB.GitHub;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -14,7 +15,7 @@ public sealed partial class BackportJob : JobBase
     protected override string RepoOwner => "dotnet";
     protected override string RepoName => "yarp";
 
-    public BackportJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public BackportJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     {
         Metadata.Add("MihuBotPushToken", parent.Configuration["GitHub:Token"]);

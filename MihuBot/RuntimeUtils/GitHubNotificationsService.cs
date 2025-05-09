@@ -1,4 +1,5 @@
 ﻿using MihuBot.Configuration;
+using MihuBot.DB.GitHub;
 using Newtonsoft.Json;
 using Octokit;
 using Octokit.GraphQL.Internal;
@@ -31,20 +32,18 @@ public sealed partial class GitHubNotificationsService
         ConfigurationService = configurationService;
     }
 
-    public async Task<bool> ProcessGitHubMentionAsync(GitHubComment comment, Issue issue = null)
+    public async Task<bool> ProcessGitHubMentionAsync(CommentInfo comment, Issue issue = null)
     {
         bool enabledAny = false;
 
         try
         {
-            Logger.DebugLog($"Processing mentions comment {comment.Url}: '{comment.Body}'");
-
             if (ConfigurationService.TryGet(null, "RuntimeUtils.NclNotifications.Disable", out _))
             {
                 return enabledAny;
             }
 
-            if (comment.RepoOwner != "dotnet")
+            if (comment.RepoOwner() != "dotnet")
             {
                 return enabledAny;
             }
@@ -56,7 +55,7 @@ public sealed partial class GitHubNotificationsService
 
             foreach (UserRecord user in users)
             {
-                string duplicationKey = $"{comment.IssueUrl}/{user.Name}";
+                string duplicationKey = $"{comment.Issue.HtmlUrl}/{user.Name}";
 
                 if (_processedMentions.Contains(duplicationKey))
                 {
@@ -65,11 +64,11 @@ public sealed partial class GitHubNotificationsService
 
                 if (user.Disabled)
                 {
-                    Logger.DebugLog($"Skipping notifications on {comment.Url} for {user.Name} due to previous errors.");
+                    Logger.DebugLog($"Skipping notifications on {comment.HtmlUrl} for {user.Name} due to previous errors.");
                     continue;
                 }
 
-                issue ??= await Github.Issue.Get(comment.RepoOwner, comment.RepoName, comment.IssueId);
+                issue ??= await Github.Issue.Get(comment.Issue.RepositoryId, comment.Issue.Number);
 
                 enabledAny = true;
                 bool failed = false;
@@ -90,7 +89,7 @@ public sealed partial class GitHubNotificationsService
                 catch (Exception ex)
                 {
                     failed = true;
-                    await Logger.DebugAsync($"Failed to enable notifications on {comment.Url} for {user.Name}: {ex}");
+                    await Logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name}: {ex}");
                 }
                 finally
                 {
@@ -115,7 +114,7 @@ public sealed partial class GitHubNotificationsService
         }
         catch (Exception ex)
         {
-            await Logger.DebugAsync($"Failed to enable notifications on {comment.Url}: {ex}");
+            await Logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl}: {ex}");
         }
 
         return enabledAny;

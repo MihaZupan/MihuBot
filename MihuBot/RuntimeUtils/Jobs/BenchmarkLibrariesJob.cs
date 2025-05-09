@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using MihuBot.DB.GitHub;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils.Jobs;
 
@@ -10,7 +11,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
 
     private string _resultsMarkdown;
 
-    public BenchmarkLibrariesJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public BenchmarkLibrariesJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, githubCommenterLogin, arguments, comment)
     { }
 
@@ -18,7 +19,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
-    public BenchmarkLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public BenchmarkLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
@@ -52,7 +53,7 @@ public sealed class BenchmarkLibrariesJob : JobBase
         if (!string.IsNullOrEmpty(resultsMarkdown) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
-            (PullRequest?.Number ?? GitHubComment?.IssueId) is int issueId)
+            (PullRequest?.Number ?? GitHubComment?.Issue.Number) is int issueId)
         {
             await Github.Issue.Comment.Create(RepoOwner, RepoName, issueId, resultsMarkdown);
             ShouldMentionJobInitiator = false;

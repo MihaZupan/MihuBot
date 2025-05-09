@@ -1,0 +1,206 @@
+﻿@page "/search"
+@using MihuBot.RuntimeUtils
+@rendermode InteractiveServer
+@inject GitHubSearchService GitHubSearchService
+@implements IDisposable
+
+<PageTitle>GitHub Search</PageTitle>
+
+<style>
+    .search-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
+
+    .toolbar-center {
+        display: flex;
+        justify-content: center;
+        flex-grow: 2;
+    }
+
+    .scroll-progress-container {
+        width: 100%;
+        height: 8px;
+    }
+
+    .scroll-progress-bar {
+        height: 8px;
+        background: #04AA6D;
+    }
+
+    #searchQuery {
+        width: clamp(35vw, 200px, 500px);
+        font-size: 22px;
+    }
+</style>
+
+<div>
+    <div class="search-toolbar">
+        <div class="toolbar-center">
+            <div class="form-group">
+                <div class="input-group">
+                    <input id="searchQuery" type="text" @bind-value="SearchQuery" @bind-value:event="oninput" placeholder="Search query">
+                    <div class="btn-group" role="group">
+                        <button type="button" @onclick="() => ToggleNetworkingLabelsOnly()" class="btn btn-primary ml-1">@(_networkingLabelsOnly ? "Show all" : "Show networking only")</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="scroll-progress-container">
+        <div class="scroll-progress-bar" id="scrollProgressBar" style="width: @(_isLoading ? "100" : "0")%"></div>
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger">
+            @_errorMessage
+        </div>
+    }
+
+    @if (_searchResults.Length == 0)
+    {
+        <div class="alert alert-info">
+            No results found.
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var result in _searchResults)
+            {
+                <a href="@result.Issue.HtmlUrl" class="list-group-item list-group-item-action">
+                    <span class="mb-1">@result.Issue.Title.TruncateWithDotDotDot(300)</span>
+                    <div>
+                        <span class="mr-1">@result.Score.ToString("F2")</span>
+                        <span class="ml-1 mr-1">@result.Issue.CreatedAt.ToISODate()</span>
+                        <span class="ml-1 mr-1">@result.Issue.User.Login</span>
+                        @foreach (var label in result.Issue.Labels)
+                        {
+                            <span class="badge badge-pill ml-1" style="background-color: #@label.Color; color: @PickCssTextColor(label.Color)">@label.Name</span>
+                        }
+                    </div>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code
+{
+    static string PickCssTextColor(string backgroundColor)
+    {
+        // https://stackoverflow.com/a/36888120/6845657
+        var color = Color.Parse(backgroundColor);
+        double luma = ((0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B)) / 255;
+        return luma > 0.5 ? "black" : "white";
+    }
+
+    private bool _networkingLabelsOnly;
+
+    private GitHubSearchService.IssueSearchResult[] _rawSearchResults = [];
+    private GitHubSearchService.IssueSearchResult[] _searchResults = [];
+    private string _errorMessage;
+    private Debouncer<string> _debouncer;
+    private bool _isLoading;
+
+    private async Task ToggleNetworkingLabelsOnly()
+    {
+        _networkingLabelsOnly.Toggle();
+        PostProcessSearchResults();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string SearchQuery
+    {
+        get => field;
+        set
+        {
+            field = value;
+            RefreshSearchResults();
+        }
+    }
+
+    private void RefreshSearchResults()
+    {
+        _debouncer.Update(SearchQuery);
+    }
+
+    protected override void OnInitialized()
+    {
+        _debouncer = new Debouncer<string>(TimeSpan.FromMilliseconds(5), SearchAsync);
+    }
+
+    private async Task SearchAsync(string searchQuery, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (searchQuery.Length > 1_000)
+            {
+                _errorMessage = "Stop it";
+            }
+            else
+            {
+                Console.WriteLine($"Searching for: {searchQuery}");
+
+                if (string.IsNullOrWhiteSpace(searchQuery))
+                {
+                    _rawSearchResults = [];
+                }
+                else
+                {
+                    _isLoading = true;
+
+                    var searchTask = GitHubSearchService.SearchIssuesAsync(searchQuery, cancellationToken);
+
+                    using var loadingBarTimer = new Timer(_ =>
+                    {
+                        if (!searchTask.IsCompleted)
+                        {
+                            _ = InvokeAsync(StateHasChanged);
+                        }
+                    }, null, 20, Timeout.Infinite);
+
+                    await searchTask;
+
+                    loadingBarTimer.Dispose();
+
+                    _rawSearchResults =
+                        (await searchTask)
+                        .OrderByDescending(r => r.Score)
+                        .ToArray();
+                }
+
+                _errorMessage = null;
+                _isLoading = false;
+
+                PostProcessSearchResults();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void PostProcessSearchResults()
+    {
+        GitHubSearchService.IssueSearchResult[] results = _rawSearchResults;
+
+        if (_networkingLabelsOnly)
+        {
+            results = results
+                .Where(r => r.Issue.Labels.Any(l => Constants.NetworkingLabels.Contains(l.Name)))
+                .ToArray();
+        }
+
+        _searchResults = results;
+    }
+
+    public void Dispose() => _debouncer?.Dispose();
+}

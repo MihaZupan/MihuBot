@@ -1,4 +1,5 @@
 ﻿using Azure.Storage.Sas;
+using MihuBot.DB.GitHub;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils.Jobs;
@@ -19,7 +20,7 @@ public sealed class JitDiffJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
-    public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, GitHubComment comment)
+    public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }
 
