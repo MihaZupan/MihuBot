@@ -49,11 +49,20 @@ public static partial class GitHubHelper
         return null;
     }
 
-    public static bool TryParseIssueOrPRNumber(string input, out int prNumber)
+    public static bool TryParseIssueOrPRNumber(string input, out int prNumber) =>
+        TryParseIssueOrPRNumber(input, dotnetRuntimeOnly: false, out prNumber);
+
+    public static bool TryParseIssueOrPRNumber(string input, bool dotnetRuntimeOnly, out int prNumber)
     {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            prNumber = 0;
+            return false;
+        }
+
         string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (int.TryParse(parts[0], out prNumber) && prNumber > 0)
+        if (int.TryParse(parts[0].AsSpan().Trim('#'), out prNumber) && prNumber > 0)
         {
             return true;
         }
@@ -62,6 +71,7 @@ public static partial class GitHubHelper
             (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
             uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
             (uri.AbsolutePath.Contains("/pull/", StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath.Contains("/issues/", StringComparison.OrdinalIgnoreCase)) &&
+            (!dotnetRuntimeOnly || uri.AbsolutePath.Contains("/dotnet/runtime/", StringComparison.OrdinalIgnoreCase)) &&
             int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
             prNumber > 0;
     }

@@ -24,9 +24,6 @@ public static class SemanticMarkdownChunker
             yield break;
         }
 
-        markdown = markdown.ReplaceLineEndings("\n");
-        markdown = markdown.Trim();
-
         if (IsLikelySpam(issue, comment, ref markdown))
         {
             yield break;
@@ -185,11 +182,23 @@ public static class SemanticMarkdownChunker
         }
     }
 
+    public static bool IsUnlikelyToBeUseful(IssueInfo issue, CommentInfo comment)
+    {
+        string body = comment.Body;
+
+        return string.IsNullOrWhiteSpace(body)
+            || IsLikelySpam(issue, comment, ref body)
+            || IsSectionWithoutContext(body);
+    }
+
     private static bool IsLikelySpam(IssueInfo issue, CommentInfo? comment, ref string markdown)
     {
         const string EmailReplyFooter = "You are receiving this because you are subscribed to this thread";
 
         UserInfo author = comment?.User ?? issue.User;
+
+        markdown = markdown.ReplaceLineEndings("\n");
+        markdown = markdown.Trim();
 
         if (author.Login.EndsWith("[bot]", StringComparison.Ordinal))
         {
@@ -337,17 +346,17 @@ public static class SemanticMarkdownChunker
 #pragma warning restore SKEXP0050
     }
 
-    //private static string TrimTextToTokens(Tokenizer tokenizer, string text, int maxTokens)
-    //{
-    //    int tokens = tokenizer.CountTokens(text);
-    //    if (tokens <= maxTokens)
-    //    {
-    //        return text;
-    //    }
+    public static string TrimTextToTokens(Tokenizer tokenizer, string text, int maxTokens)
+    {
+        int tokens = tokenizer.CountTokens(text);
+        if (tokens <= maxTokens)
+        {
+            return text;
+        }
 
-    //    int index = tokenizer.GetIndexByTokenCount(text, maxTokens, out _, out _);
-    //    return text.Substring(0, index);
-    //}
+        int index = tokenizer.GetIndexByTokenCount(text, maxTokens, out _, out _);
+        return text.Substring(0, index);
+    }
 
     private static readonly SearchValues<string> s_spamPhrases = SearchValues.Create(
     [

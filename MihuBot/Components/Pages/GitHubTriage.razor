@@ -1,0 +1,422 @@
+﻿@page "/triage"
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.AI
+@using MihuBot.DB.GitHub
+@using MihuBot.RuntimeUtils
+@using Octokit
+@using System.ComponentModel
+@using System.Collections.Concurrent
+@rendermode InteractiveServer
+@inject GitHubSearchService GitHubSearchService
+@inject IDbContextFactory<GitHubDbContext> GitHubDb
+@inject OpenAIService OpenAIService
+@implements IDisposable
+
+<PageTitle>GitHub Triage</PageTitle>
+
+<style>
+    .search-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+    }
+
+    .toolbar-center {
+        display: flex;
+        justify-content: center;
+        flex-grow: 2;
+    }
+
+    .loading-progress-container {
+        width: 100%;
+        height: 8px;
+    }
+
+    .loading-progress-bar {
+        height: 8px;
+        background: #04AA6D;
+    }
+
+    #triageIssueUrl {
+        width: clamp(35vw, 200px, 500px);
+        font-size: 22px;
+    }
+</style>
+
+<div>
+    <div class="search-toolbar">
+        <div class="toolbar-center">
+            <div class="form-group">
+                <div class="input-group">
+                    <input id="triageIssueUrl" type="text" @bind-value="TriageIssueUrl" @bind-value:event="oninput" placeholder="Issue/PR (number or link)">
+                    <div class="input-group-append ml-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@ModelName</button>
+                        <div class="dropdown-menu">
+                            @foreach (var modelName in s_availableModels)
+                            {
+                                <a class="dropdown-item" @onclick="() => ModelName = modelName">@modelName</a>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-progress-container">
+        <div class="loading-progress-bar" id="loadingProgressBar" style="width: @(_isLoading ? "100" : "0")%"></div>
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-danger">
+            @_errorMessage
+        </div>
+    }
+
+    <pre style="max-width: 95%; max-height: 95vh; overflow: hidden; display: flex;">
+        <code style="word-wrap: break-word">
+            @foreach (string line in _toolLogs)
+            {
+                @line
+            }
+        </code>
+    </pre>
+
+    <pre>
+        @((MarkupString)_htmlResponse)
+    </pre>
+
+    <div>
+    </div>
+</div>
+
+@code
+{
+    private const string SystemPrompt =
+        """
+        You are an assistant helping triage new GitHub issues as they are opened.
+        You are given a new issue and you need to find related issues or comments among the existing GitHub data.
+
+        Use tools to find issues, comments, and documentation that may be relevant. It is up to you to determine whether the results are relevant.
+        Be thorough with your searches and always consider existing discussions on related issues. You may perform as many searches as needed.
+        Pay close attention to existing discussions on related issues as the questions may have already been answered.
+        Keep in mind that some information may be outdated, incorrect.
+
+        Reply with a list of related issues and include a short summary of previous discussions on related issues.
+        Assume that the user is familiar with the repository and its processes, but not necessarily with the specific issue at hand.
+
+        Reply in GitHub markdown format.
+        """;
+
+    private static readonly HashSet<string> s_networkingTeam = new(
+        ["MihaZupan", "CarnaViire", "karelz", "antonfirsov", "ManickaP", "wfurt", "rzikm", "liveans", "rokonec"],
+        StringComparer.OrdinalIgnoreCase);
+
+    private static readonly string[] s_availableModels = ["o4-mini", "o1", "gpt-4.1"];
+
+    private string _errorMessage;
+    private bool _isLoading;
+    private readonly ConcurrentQueue<string> _toolLogs = new();
+    private string _htmlResponse;
+
+    private readonly object _lock = new();
+    private (string TriageIssueUrl, string Model) _currentTriage;
+    private CancellationTokenSource _currentTriageCts;
+    private Task _currentTriageTask = Task.CompletedTask;
+
+    private string TriageIssueUrl
+    {
+        get => field;
+        set
+        {
+            field = value;
+            UpdateTriageOperation();
+        }
+    }
+
+    private string ModelName
+    {
+        get => field ?? "o4-mini";
+        set
+        {
+            field = value;
+            UpdateTriageOperation();
+        }
+    }
+
+    private void UpdateTriageOperation()
+    {
+        lock (_lock)
+        {
+            string triageIssueUrl = TriageIssueUrl;
+            string model = ModelName;
+
+            if (_currentTriage.TriageIssueUrl == triageIssueUrl && _currentTriage.Model == model)
+            {
+                return;
+            }
+
+            _currentTriage = default;
+
+            if (_currentTriageCts is not null)
+            {
+                _currentTriageCts.Cancel();
+                _currentTriageCts = null;
+            }
+
+            _currentTriage = (triageIssueUrl, model);
+            _currentTriageCts = new CancellationTokenSource();
+
+            CancellationToken cancellationToken = _currentTriageCts.Token;
+
+            _currentTriageTask = _currentTriageTask
+                .ContinueWith(_ => DoTriageAsync(triageIssueUrl, model, cancellationToken));
+        }
+    }
+
+    private void LogToolLine(string message)
+    {
+        _toolLogs.Enqueue($"{message}\n");
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DoTriageAsync(string triageIssueUrl, string model, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _errorMessage = null;
+            _isLoading = true;
+            _htmlResponse = null;
+            _toolLogs.Clear();
+
+            if (string.IsNullOrEmpty(triageIssueUrl))
+            {
+                return;
+            }
+
+            if (!GitHubHelper.TryParseIssueOrPRNumber(triageIssueUrl, dotnetRuntimeOnly: true, out int issueNumber))
+            {
+                _errorMessage = "Invalid issue/PR URL. Use the number or the full link.";
+                return;
+            }
+
+            LogToolLine($"Starting triage for issue #{issueNumber} with model {model} ...");
+
+            IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: false, cancellationToken);
+
+            if (issue is null)
+            {
+                _errorMessage = $"Issue #{issueNumber} not found.";
+                return;
+            }
+
+            LogToolLine($"{issue.Title} by {issue.User.Login}\n");
+
+            var options = new ChatOptions
+            {
+                Tools =
+                [
+                    AIFunctionFactory.Create(Search),
+                    AIFunctionFactory.Create(GetIssueDiscussion),
+                ],
+                ToolMode = ChatToolMode.RequireAny
+            };
+
+            List<ChatMessage> messages = [new ChatMessage(ChatRole.System, SystemPrompt)];
+
+            messages.Add(new ChatMessage(ChatRole.User,
+                $"""
+                Please help me triage issue #{issue.Number} titled '{issue.Title}'.
+
+                Here is the issue:
+                {issue.Body}
+                """));
+
+            using var chatClient = OpenAIService.GetChat(model, secondary: true);
+            using var toolClient = new FunctionInvokingChatClient(chatClient);
+            toolClient.AllowConcurrentInvocation = true;
+
+            await foreach (var update in toolClient.GetStreamingResponseAsync(messages, options, cancellationToken))
+            {
+                _htmlResponse += update.Text;
+                _ = InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task<IssueInfo> GetIssueAsync(int issueNumber, bool includeComments, CancellationToken cancellationToken)
+    {
+        await using GitHubDbContext db = GitHubDb.CreateDbContext();
+
+        IQueryable<IssueInfo> query = db.Issues
+            .AsNoTracking()
+            .Where(i => i.Number == issueNumber)
+            .Include(i => i.User)
+            .Include(i => i.PullRequest)
+            .Include(i => i.Labels)
+            .Include(i => i.Repository);
+
+        if (includeComments)
+        {
+            query = query.Include(i => i.Comments).ThenInclude(c => c.User);
+        }
+
+        return await query
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    [Description("Get the full discussion on a specific issue, including responses from the networking team.")]
+    private async Task<string[]> GetIssueDiscussion(
+        [Description("The issue number to get discussion for.")] int issueNumber,
+        CancellationToken cancellationToken)
+    {
+        IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: true, cancellationToken);
+
+        if (issue is null)
+        {
+            LogToolLine($"[Tool] Issue #{issueNumber} not found.");
+            return ["No issue found."];
+        }
+
+        LogToolLine($"[Tool] Getting comments for issue #{issue.Number}: {issue.Title}");
+
+        var comments = issue.Comments
+            .OrderByDescending(c => c.CreatedAt)
+            .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c))
+            .Select(c => CreateCommentText(c.CreatedAt, c.User, c.Body, issue, c))
+            .Take(200);
+
+        var originalIssue = CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null);
+
+        return [originalIssue, .. comments];
+    }
+
+    [Description("Search for related information in existing issues, comments, or documentation using a set of phrases or keywords.")]
+    private async Task<string[]> Search(
+        [Description("The phrases to search for.")] string[] searchPhrases,
+        [Description("The maximum number of response to return.")] int maxRespones,
+        CancellationToken cancellationToken)
+    {
+        LogToolLine($"[Tool] Searching for: {string.Join(", ", searchPhrases)} (max {maxRespones})");
+
+        maxRespones = Math.Clamp(maxRespones, 1, 100);
+
+        List<GitHubSearchService.IssueOrCommentSearchResult> searchResults = new();
+
+        await Parallel.ForEachAsync(searchPhrases, async (phrase, _) =>
+        {
+            var localResults = await GitHubSearchService.SearchIssuesAndCommentsAsync(phrase, maxResults: 10, cancellationToken);
+
+            lock (searchResults)
+            {
+                searchResults.AddRange(localResults);
+            }
+        });
+
+        List<string> results = [];
+
+        foreach (string phrase in searchPhrases)
+        {
+            if (GitHubHelper.TryParseIssueOrPRNumber(phrase, dotnetRuntimeOnly: true, out int issueNumber) &&
+                await GetIssueAsync(issueNumber, includeComments: false, cancellationToken) is { } singleIssue)
+            {
+                results.Add(GetComment(singleIssue, singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, comment: null));
+            }
+        }
+
+        List<(string InfoText, double Score)> gitHubIssueResults = searchResults
+            .DistinctBy(r => (r.Issue.Id, r.Comment?.Id ?? 0))
+            .Select(r =>
+            {
+                string issueResult = r.Comment is null
+                    ? GetComment(r.Issue, r.Issue.CreatedAt, r.Issue.User, r.Issue.Body, comment: null)
+                    : GetComment(r.Issue, r.Comment.CreatedAt, r.Comment.User, r.Comment.Body, r.Comment);
+
+                return (issueResult, r.Score);
+            })
+            .ToList();
+
+        LogToolLine($"[Tool] Obtained {results.Count + gitHubIssueResults.Count} issues/comments");
+
+        results.AddRange(gitHubIssueResults
+            .Where(r => !string.IsNullOrEmpty(r.InfoText))
+            .OrderByDescending(r => r.Score)
+            .Select(r => r.InfoText)
+            .Take(maxRespones));
+
+        return [.. results];
+
+        string GetComment(IssueInfo issue, DateTimeOffset createdAt, UserInfo author, string text, CommentInfo comment)
+        {
+            return
+                $"""
+                Issue #{issue.Number} - {issue.Title}:
+                {CreateCommentText(createdAt, author, text, issue, comment)}
+                """;
+        }
+    }
+
+    private string CreateCommentText(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, CommentInfo comment)
+    {
+        string authorSuffix = s_networkingTeam.Contains(author.Login)
+            ? $" (member of the .NET networking team)"
+            : string.Empty;
+
+        return
+            $"""
+            {author.Login}{authorSuffix} commented on {createdAt:yyyy-MM-dd}:
+            {SemanticMarkdownChunker.TrimTextToTokens(GitHubSearchService.Tokenizer, text, 1_000)}
+
+            {FormatReactions(issue, comment)}
+            """.Trim(' ', '\t', '\n', '\r');
+
+        static string FormatReactions(IssueInfo issue, CommentInfo comment)
+        {
+            string result = string.Empty;
+
+            int positive =
+                (comment?.Plus1 ?? issue.Plus1) +
+                (comment?.Heart ?? issue.Heart) +
+                (comment?.Hooray ?? issue.Hooray) +
+                (comment?.Rocket ?? issue.Rocket);
+
+            int negative =
+                (comment?.Minus1 ?? issue.Minus1) +
+                (comment?.Confused ?? issue.Confused);
+
+            if (positive > 0)
+            {
+                result += $"Community upvotes: {positive}\n";
+            }
+
+            if (negative > 0)
+            {
+                result += $"Community downvotes: {negative}\n";
+            }
+
+            return result;
+        }
+    }
+
+    public void Dispose()
+    {
+        _currentTriageCts?.Cancel();
+    }
+}

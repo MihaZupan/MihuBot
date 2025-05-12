@@ -163,10 +163,8 @@ public sealed class NclMentionsCommand : CommandBase
             {
                 Number = issue.Number,
                 HtmlUrl = issue.HtmlUrl,
-                RepositoryId = issue.Repository.Id,
                 Repository = new DB.GitHub.RepositoryInfo
                 {
-                    Id = issue.Repository.Id,
                     Owner = new DB.GitHub.UserInfo { Login = "dotnet" },
                     Name = "runtime"
                 },

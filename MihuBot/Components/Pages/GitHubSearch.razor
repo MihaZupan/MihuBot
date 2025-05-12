@@ -23,12 +23,12 @@
         flex-grow: 2;
     }
 
-    .scroll-progress-container {
+    .loading-progress-container {
         width: 100%;
         height: 8px;
     }
 
-    .scroll-progress-bar {
+    .loading-progress-bar {
         height: 8px;
         background: #04AA6D;
     }
@@ -68,8 +68,8 @@
         </div>
     </div>
 
-    <div class="scroll-progress-container">
-        <div class="scroll-progress-bar" id="scrollProgressBar" style="width: @(_isLoading ? "100" : "0")%"></div>
+    <div class="loading-progress-container">
+        <div class="loading-progress-bar" id="loadingProgressBar" style="width: @(_isLoading ? "100" : "0")%"></div>
     </div>
 
     @if (_errorMessage is not null)
@@ -187,7 +187,7 @@
                 {
                     _isLoading = true;
 
-                    var searchTask = GitHubSearchService.SearchIssuesAsync(searchQuery, cancellationToken);
+                    var searchTask = GitHubSearchService.SearchIssuesAsync(searchQuery, maxResults: int.MaxValue, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
                     _rawSearchResults = await searchTask;

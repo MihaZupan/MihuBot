@@ -11,31 +11,6 @@ public static class Helpers
         value = !value;
     }
 
-    public static IEnumerable<T> Unique<T>(this IEnumerable<T> source)
-    {
-        var hashSet = new HashSet<T>();
-
-        foreach (T element in source)
-        {
-            if (hashSet.Add(element))
-            {
-                yield return element;
-            }
-        }
-    }
-
-    public static bool All<T>(this Predicate<T>[] predicates, T value)
-    {
-        foreach (var predicate in predicates)
-        {
-            if (!predicate(value))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");
 
     public static string ToISODate(this DateTimeOffset date) => ToISODate(date.UtcDateTime);

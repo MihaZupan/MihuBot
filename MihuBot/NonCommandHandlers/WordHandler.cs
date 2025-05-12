@@ -72,6 +72,6 @@ public sealed class WordHandler : NonCommandHandler
         }
         while (space + 1 < text.Length);
 
-        return list?.Unique().ToList();
+        return list?.Distinct().ToList();
     }
 }
