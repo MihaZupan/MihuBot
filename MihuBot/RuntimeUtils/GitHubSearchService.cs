@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using System.ClientModel;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.VectorData;
@@ -218,7 +219,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 100;
+        const int BatchSize = 25;
 
         await using GitHubDbContext db = _db.CreateDbContext();
 
@@ -287,7 +288,7 @@ public sealed class GitHubSearchService : IHostedService
         int updatesPerformed = 0;
         int tokensConumed = 0;
 
-        await Parallel.ForEachAsync(updatedIssueIds, new ParallelOptions { MaxDegreeOfParallelism = 20 }, async (issueId, _) =>
+        await Parallel.ForEachAsync(updatedIssueIds, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (issueId, _) =>
         {
             (int dbUpdates, int tokens) = await UpdateRecordsForIssueAsync(issueId, vectorCollection, cancellationToken);
             Interlocked.Add(ref updatesPerformed, dbUpdates);
@@ -381,17 +382,25 @@ public sealed class GitHubSearchService : IHostedService
             return (removedRecords, [], 0);
         }
 
-        int tokens = keyedSections.Sum(section => _tokenizer.CountTokens(section.Text));
-        GeneratedEmbeddings<Embedding<float>> embeddings = await _embeddingGenerator2.GenerateAsync(keyedSections.Select(section => section.Text), cancellationToken: cancellationToken);
-
-        SemanticSearchRecord[] newRecords = keyedSections.Zip(embeddings).Select(pair => new SemanticSearchRecord
+        try
         {
-            Key = pair.First.Key,
-            IssueId = issue.Id,
-            Vector = pair.Second.Vector,
-        }).ToArray();
+            int tokens = keyedSections.Sum(section => _tokenizer.CountTokens(section.Text));
+            GeneratedEmbeddings<Embedding<float>> embeddings = await _embeddingGenerator2.GenerateAsync(keyedSections.Select(section => section.Text), cancellationToken: cancellationToken);
 
-        return (removedRecords, newRecords, tokens);
+            SemanticSearchRecord[] newRecords = keyedSections.Zip(embeddings).Select(pair => new SemanticSearchRecord
+            {
+                Key = pair.First.Key,
+                IssueId = issue.Id,
+                Vector = pair.Second.Vector,
+            }).ToArray();
+
+            return (removedRecords, newRecords, tokens);
+        }
+        catch (ClientResultException cre) when (cre.Status == 400)
+        {
+            _logger.DebugLog($"{nameof(GitHubSearchService)}: Failed to generate embeddings for {issue.HtmlUrl}: {cre}.\nTexts:\n{string.Join("\n\n\n", keyedSections.Select(s => s.Text))}");
+            return (removedRecords, [], 0);
+        }
     }
 
     private static byte[] HashText(string text)
