@@ -114,7 +114,7 @@
         ["MihaZupan", "CarnaViire", "karelz", "antonfirsov", "ManickaP", "wfurt", "rzikm", "liveans", "rokonec"],
         StringComparer.OrdinalIgnoreCase);
 
-    private static readonly string[] s_availableModels = ["o4-mini", "o1", "gpt-4.1"];
+    private static readonly string[] s_availableModels = ["o4-mini", "gpt-4.1"];
 
     private string _errorMessage;
     private bool _isLoading;
@@ -295,13 +295,14 @@
             return ["No issue found."];
         }
 
-        LogToolLine($"[Tool] Getting comments for issue #{issue.Number}: {issue.Title}");
-
         var comments = issue.Comments
             .OrderByDescending(c => c.CreatedAt)
             .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c))
             .Select(c => CreateCommentText(c.CreatedAt, c.User, c.Body, issue, c))
-            .Take(200);
+            .Take(200)
+            .ToArray();
+
+        LogToolLine($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
         var originalIssue = CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null);
 
@@ -353,13 +354,13 @@
             })
             .ToList();
 
-        LogToolLine($"[Tool] Obtained {results.Count + gitHubIssueResults.Count} issues/comments");
-
         results.AddRange(gitHubIssueResults
             .Where(r => !string.IsNullOrEmpty(r.InfoText))
             .OrderByDescending(r => r.Score)
             .Select(r => r.InfoText)
             .Take(maxRespones));
+
+        LogToolLine($"[Tool] Obtained {results.Count} issues/comments");
 
         return [.. results];
 
