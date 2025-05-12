@@ -288,7 +288,7 @@ public sealed class GitHubSearchService : IHostedService
         int updatesPerformed = 0;
         int tokensConumed = 0;
 
-        await Parallel.ForEachAsync(updatedIssueIds, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (issueId, _) =>
+        await Parallel.ForEachAsync(updatedIssueIds, new ParallelOptions { MaxDegreeOfParallelism = 20 }, async (issueId, _) =>
         {
             (int dbUpdates, int tokens) = await UpdateRecordsForIssueAsync(issueId, vectorCollection, cancellationToken);
             Interlocked.Add(ref updatesPerformed, dbUpdates);
