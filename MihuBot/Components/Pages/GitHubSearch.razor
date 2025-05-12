@@ -1,6 +1,9 @@
 ﻿@page "/search"
+@using MihuBot.DB.GitHub
 @using MihuBot.RuntimeUtils
+@using Octokit
 @rendermode InteractiveServer
+@inject GitHubDataService GitHubDataService
 @inject GitHubSearchService GitHubSearchService
 @implements IDisposable
 
@@ -34,6 +37,17 @@
         width: clamp(35vw, 200px, 500px);
         font-size: 22px;
     }
+
+    .statistics-container {
+        margin-left: auto;
+    }
+
+    .issue-icon {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        margin-bottom: -2px;
+    }
 </style>
 
 <div>
@@ -47,6 +61,10 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div class="statistics-container">
+            <p>@(GitHubDataService.IssueCount / 1_000)k issues, @(GitHubDataService.CommentCount / 1_000)k comments, @(GitHubDataService.SearchVectorCount / 1_000)k vectors</p>
         </div>
     </div>
 
@@ -73,11 +91,14 @@
             @foreach (var result in _searchResults)
             {
                 <a href="@result.Issue.HtmlUrl" class="list-group-item list-group-item-action">
-                    <span class="mb-1">@result.Issue.Title.TruncateWithDotDotDot(300)</span>
+                    <div>
+                        <span class="issue-icon @PickCssIconClass(result.Issue)" aria-hidden="true"></span>
+                        <span class="mb-1">@result.Issue.Title.TruncateWithDotDotDot(300)</span>
+                    </div>
                     <div>
                         <span class="mr-1">@result.Score.ToString("F2")</span>
                         <span class="ml-1 mr-1">@result.Issue.CreatedAt.ToISODate()</span>
-                        <span class="ml-1 mr-1">@result.Issue.User.Login</span>
+                        <span class="ml-1 mr-1">#@result.Issue.Number by @result.Issue.User.Login</span>
                         @foreach (var label in result.Issue.Labels)
                         {
                             <span class="badge badge-pill ml-1" style="background-color: #@label.Color; color: @PickCssTextColor(label.Color)">@label.Name</span>
@@ -97,6 +118,20 @@
         var color = Color.Parse(backgroundColor);
         double luma = ((0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B)) / 255;
         return luma > 0.5 ? "black" : "white";
+    }
+
+    static string PickCssIconClass(IssueInfo issue)
+    {
+        if (issue.PullRequest is { } pr)
+        {
+            return issue.State == ItemState.Open
+                ? pr.Draft ? "icon-pr-opened-draft" : "icon-pr-opened"
+                : pr.MergedAt.HasValue ? "icon-pr-merged" : "icon-pr-closed";
+        }
+
+        return issue.State == ItemState.Open
+            ? "icon-issue-opened"
+            : "icon-issue-closed";
     }
 
     private bool _networkingLabelsOnly;
@@ -144,8 +179,6 @@
             }
             else
             {
-                Console.WriteLine($"Searching for: {searchQuery}");
-
                 if (string.IsNullOrWhiteSpace(searchQuery))
                 {
                     _rawSearchResults = [];
@@ -155,23 +188,9 @@
                     _isLoading = true;
 
                     var searchTask = GitHubSearchService.SearchIssuesAsync(searchQuery, cancellationToken);
+                    await InvokeAsync(StateHasChanged);
 
-                    using var loadingBarTimer = new Timer(_ =>
-                    {
-                        if (!searchTask.IsCompleted)
-                        {
-                            _ = InvokeAsync(StateHasChanged);
-                        }
-                    }, null, 20, Timeout.Infinite);
-
-                    await searchTask;
-
-                    loadingBarTimer.Dispose();
-
-                    _rawSearchResults =
-                        (await searchTask)
-                        .OrderByDescending(r => r.Score)
-                        .ToArray();
+                    _rawSearchResults = await searchTask;
                 }
 
                 _errorMessage = null;

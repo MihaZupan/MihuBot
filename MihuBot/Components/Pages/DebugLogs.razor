@@ -32,16 +32,23 @@
                 var sb = new StringBuilder(NumLines * MaxLineLength);
                 using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
 
-                while (await timer.WaitForNextTickAsync(_cts.Token))
+                DB.LogDbEntry[] logs = [];
+                bool balance = true;
+
+                while (balance || await timer.WaitForNextTickAsync(_cts.Token))
                 {
-                    var logs = await Logger.GetLogsAsync(since, DateTime.UtcNow, query: q => q.Take(NumLines * 2));
+                    balance = false;
+                    logs = await Logger.GetLogsAsync(since, DateTime.UtcNow, query: q => q.Take(NumLines * 3));
 
                     if (logs.Length > NumLines)
                     {
                         logs = logs.AsSpan(logs.Length - NumLines).ToArray();
                         since = logs[0].Timestamp;
+                        balance = true;
+                        continue;
                     }
-                    else if (logs.Length < NumLines)
+
+                    if (logs.Length < NumLines)
                     {
                         TimeSpan duration = DateTime.UtcNow - since;
 

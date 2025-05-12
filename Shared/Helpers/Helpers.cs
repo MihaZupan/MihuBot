@@ -42,6 +42,8 @@ public static class Helpers
 
     public static string ToISODateTime(this DateTime dateTime, char separator = '_') => dateTime.ToString($"yyyy-MM-dd{separator}HH-mm-ss");
 
+    public static string ToISODateTime(this DateTimeOffset date, char separator = '_') => ToISODateTime(date.UtcDateTime, separator);
+
     public static string ToElapsedTime(this TimeSpan elapsed, bool includeSeconds = true)
     {
         if (elapsed.TotalMinutes < 1)

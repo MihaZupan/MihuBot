@@ -24,6 +24,9 @@
     <PackageReference Include="Discord.Net" Version="3.17.4" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.4.0-preview.1.25207.5" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="1.0.2" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.49.0-preview" />
+    <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.49.0" />
+    <PackageReference Include="Qdrant.Client" Version="1.14.0" />
     <PackageReference Include="System.Linq.Async" Version="6.0.1">
       <ExcludeAssets>all</ExcludeAssets>
     </PackageReference>

@@ -15,10 +15,12 @@ public sealed class GitHubDbContext : DbContext
     public DbSet<UserInfo> Users { get; set; }
     public DbSet<LabelInfo> Labels { get; set; }
     public DbSet<BodyEditHistoryEntry> BodyEditHistory { get; set; }
+    public DbSet<IngestedEmbeddingRecord> IngestedEmbeddings { get; set; }
 }
 
 [Table("issues")]
 [Index(nameof(Number))]
+[Index(nameof(UpdatedAt))]
 public sealed class IssueInfo
 {
     public long Id { get; set; }
@@ -40,7 +42,7 @@ public sealed class IssueInfo
     public long RepositoryId { get; set; }
     public RepositoryInfo Repository { get; set; }
 
-    public PullRequestInfo PullRequest { get; set; } // Optional
+    public PullRequestInfo PullRequest { get; set; }
 
     public ICollection<CommentInfo> Comments { get; set; }
 
@@ -86,9 +88,22 @@ public sealed class RepositoryInfo
 public sealed class PullRequestInfo
 {
     public long Id { get; set; }
+    public string NodeId { get; set; }
+    public DateTime? MergedAt { get; set; }
+    public bool Draft { get; set; }
+    public bool? Mergeable { get; set; }
+    public MergeableState? MergeableState { get; set; }
+    public string MergeCommitSha { get; set; }
+    public int Commits { get; set; }
+    public int Additions { get; set; }
+    public int Deletions { get; set; }
+    public int ChangedFiles { get; set; }
+    public bool? MaintainerCanModify { get; set; }
 
     public long IssueId { get; set; }
     public IssueInfo Issue { get; set; }
+
+    public long? MergedById { get; set; }
 }
 
 [Table("comments")]
@@ -164,5 +179,14 @@ public sealed class BodyEditHistoryEntry
     public long ResourceIdentifier { get; set; }
     public bool IsComment { get; set; }
     public string PreviousBody { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+[Table("ingested_embedding_history")]
+[Index(nameof(ResourceIdentifier))]
+public sealed class IngestedEmbeddingRecord
+{
+    public Guid Id { get; set; }
+    public long ResourceIdentifier { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

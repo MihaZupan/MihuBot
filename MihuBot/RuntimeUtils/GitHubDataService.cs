@@ -6,14 +6,16 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class GitHubDataService : IHostedService
 {
-    private static readonly TimeSpan UserInfoRefreshInterval = TimeSpan.FromDays(1);
+    private const int GhostUserId = 10137;
+
+    private static readonly TimeSpan UserInfoRefreshInterval = TimeSpan.FromDays(5);
     private static readonly TimeSpan RepositoryInfoRefreshInterval = TimeSpan.FromHours(1);
-    private static readonly TimeSpan DataPollingOffset = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DataPollingOffset = TimeSpan.FromSeconds(10);
 
     private readonly (string Owner, string Name, TimeSpan IssueUpdateFrequency, TimeSpan CommentUpdateFrequency)[] _watchedRepos =
     [
-        ("dotnet", "runtime", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(15))
-        // ("dotnet", "yarp", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60))
+        ("dotnet", "runtime", TimeSpan.FromHours(1), TimeSpan.FromSeconds(15))
+        // ("dotnet", "yarp", TimeSpan.FromHours(1), TimeSpan.FromSeconds(60))
     ];
 
     private readonly GitHubClient _github;
@@ -23,6 +25,10 @@ public sealed class GitHubDataService : IHostedService
     private readonly Dictionary<(string Owner, string Name), long> _repositoryIds = [];
     private Task _updatesTask;
 
+    public int IssueCount { get; private set; }
+    public int CommentCount { get; private set; }
+    public int SearchVectorCount { get; private set; }
+
     public GitHubDataService(GitHubClient gitHub, IDbContextFactory<GitHubDbContext> db, Logger logger)
     {
         _github = gitHub;
@@ -30,82 +36,27 @@ public sealed class GitHubDataService : IHostedService
         _logger = logger;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    private async Task RefreshStatsAsync()
     {
-        if (OperatingSystem.IsWindows())
+        await using GitHubDbContext dbContext = _db.CreateDbContext();
+
+        IssueCount = await dbContext.Issues.AsNoTracking().CountAsync();
+        CommentCount = await dbContext.Comments.AsNoTracking().CountAsync();
+        SearchVectorCount = await dbContext.IngestedEmbeddings.AsNoTracking().CountAsync();
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
         {
-            return Task.CompletedTask;
+            using AsyncFlowControl _ = ExecutionContext.SuppressFlow();
+
+            _updatesTask = Task.Run(async () => await RunUpdateLoopAsync(cancellationToken), CancellationToken.None);
         }
-
-        _updatesTask = Task.Run(async () =>
+        else
         {
-            const int TargetMaxUpdatesPerHour = 20_000;
-
-            try
-            {
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
-                cancellationToken = linkedCts.Token;
-
-                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
-
-                int consecutiveFailureCount = 0;
-
-                while (await timer.WaitForNextTickAsync(cancellationToken))
-                {
-                    try
-                    {
-                        foreach ((string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentUpdateFrequency) in _watchedRepos)
-                        {
-                            int updates = await UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentUpdateFrequency, cancellationToken);
-
-                            if (updates > 0)
-                            {
-                                TimeSpan sleepTime = TimeSpan.FromHours(1) / TargetMaxUpdatesPerHour * updates;
-                                _logger.DebugLog($"Performed {updates} updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
-                                await Task.Delay(sleepTime, cancellationToken);
-                            }
-                        }
-
-                        consecutiveFailureCount = 0;
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!cancellationToken.IsCancellationRequested)
-                        {
-                            consecutiveFailureCount++;
-
-                            string errorMessage = $"{nameof(GitHubDataService)}: Update failed: {ex}";
-                            _logger.DebugLog(errorMessage);
-
-                            if (consecutiveFailureCount == 15 * 4) // 15 min
-                            {
-                                await _logger.DebugAsync(errorMessage);
-                            }
-
-                            if (ex is RateLimitExceededException rateLimitEx)
-                            {
-                                TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
-                                if (toWait.TotalSeconds > 1)
-                                {
-                                    _logger.DebugLog($"GitHub polling toWait={toWait}");
-                                    if (toWait > TimeSpan.FromMinutes(5))
-                                    {
-                                        toWait = TimeSpan.FromMinutes(5);
-                                    }
-                                    await Task.Delay(toWait);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Unexpected exception: {ex}");
-            }
-        }, CancellationToken.None);
-
-        return Task.CompletedTask;
+            await RefreshStatsAsync();
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -114,118 +65,261 @@ public sealed class GitHubDataService : IHostedService
 
         if (_updatesTask is not null)
         {
-            await _updatesTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await _updatesTask.WaitAsync(TimeSpan.FromSeconds(60), CancellationToken.None).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
 
-    private async Task<int> UpdateRepositoryDataAsync(string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentspdateFrequency, CancellationToken cancellationToken)
+    private async Task RunUpdateLoopAsync(CancellationToken cancellationToken)
+    {
+        const int TargetMaxApiCallsPerHour = 4_000;
+        const int TargetMaxUpdatesPerHour = 3600 * 50;
+
+        try
+        {
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
+            cancellationToken = linkedCts.Token;
+
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+
+            int consecutiveFailureCount = 0;
+
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                try
+                {
+                    foreach ((string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentUpdateFrequency) in _watchedRepos)
+                    {
+                        (int apiCalls, int updates) = await UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentUpdateFrequency);
+
+                        if (apiCalls > 0 && updates > 0)
+                        {
+                            TimeSpan sleepTimeCalls = TimeSpan.FromHours(1) / TargetMaxApiCallsPerHour * apiCalls;
+                            TimeSpan sleepTimeUpdates = TimeSpan.FromHours(1) / TargetMaxUpdatesPerHour * updates;
+                            TimeSpan sleepTime = sleepTimeCalls > sleepTimeUpdates ? sleepTimeCalls : sleepTimeUpdates;
+                            _logger.DebugLog($"{nameof(GitHubDataService)}: Performed {apiCalls} API calls (estimate), {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
+                            await Task.Delay(sleepTime, cancellationToken);
+                        }
+                    }
+
+                    consecutiveFailureCount = 0;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveFailureCount++;
+
+                    string errorMessage = $"{nameof(GitHubDataService)}: Update failed ({consecutiveFailureCount}): {ex}";
+                    _logger.DebugLog(errorMessage);
+
+                    await Task.Delay(TimeSpan.FromMinutes(2) * consecutiveFailureCount, cancellationToken);
+
+                    if (consecutiveFailureCount == 4) // 20 min
+                    {
+                        await _logger.DebugAsync(errorMessage);
+                    }
+
+                    if (ex is RateLimitExceededException rateLimitEx)
+                    {
+                        TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
+                        if (toWait.TotalSeconds > 1)
+                        {
+                            _logger.DebugLog($"GitHub polling toWait={toWait}");
+                            if (toWait > TimeSpan.FromMinutes(5))
+                            {
+                                toWait = TimeSpan.FromMinutes(5);
+                            }
+                            await Task.Delay(toWait, cancellationToken);
+                        }
+                    }
+                }
+            }
+        }
+        catch when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unexpected exception: {ex}");
+        }
+    }
+
+    private async Task<(int ApiCalls, int Updates)> UpdateRepositoryDataAsync(string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentspdateFrequency)
     {
         await using GitHubDbContext dbContext = _db.CreateDbContext();
 
-        Dictionary<long, UserInfo> updatedUsers = [];
+        HashSet<long> updatedUsers = [];
+        HashSet<long> updatedPRsByIssueId = [];
         Dictionary<int, long> issueNumberToId = [];
+
+        var apiOptions = new ApiOptions
+        {
+            PageSize = 100,
+            PageCount = 100,
+        };
+
+        int apiCallsPerformed = 0;
 
         if (!_repositoryIds.TryGetValue((repoOwner, repoName), out long repoId))
         {
+            apiCallsPerformed++;
             Repository repo = await _github.Repository.Get(repoOwner, repoName);
             repoId = repo.Id;
             _repositoryIds[(repoOwner, repoName)] = repo.Id;
         }
 
-        RepositoryInfo repoInfo = await GetOrUpdateRepositoryInfoAsync();
+        RepositoryInfo repoInfo = null;
+        repoInfo = await GetOrUpdateRepositoryInfoAsync();
+        Debug.Assert(repoId == repoInfo.Id);
+
+        int updatesPerformed = await dbContext.SaveChangesAsync(CancellationToken.None);
 
         if (repoInfo.Archived)
         {
-            return await dbContext.SaveChangesAsync(CancellationToken.None);
+            return (apiCallsPerformed, updatesPerformed);
         }
 
-        var apiOptions = new ApiOptions
-        {
-            PageSize = 100,
-            PageCount = 2
-        };
+        await RefreshStatsAsync();
 
         DateTime startTime = DateTime.UtcNow;
         if (startTime - repoInfo.LastIssuesUpdate >= issueUpdateFrequency)
         {
-            Log("Fetching updated issues");
             IReadOnlyList<Issue> issues = await _github.Issue.GetAllForRepository(repoId, new RepositoryIssueRequest
             {
                 Since = repoInfo.LastIssuesUpdate - DataPollingOffset,
                 SortProperty = IssueSort.Updated,
-                SortDirection = SortDirection.Ascending
+                SortDirection = SortDirection.Descending,
+                Filter = IssueFilter.All,
+                State = ItemStateFilter.All,
             }, apiOptions);
-            Log($"Found {issues.Count} updated issues");
+
+            Log($"Found {issues.Count} updated issues since {repoInfo.LastIssuesUpdate.ToISODateTime()}", verbose: true);
+
+            apiCallsPerformed += (issues.Count / apiOptions.PageSize.Value) + 1;
 
             foreach (Issue issue in issues)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 await UpdateIssueInfoAsync(issue);
-
-                Log($"Updated issue metadata {issue.Number}: {issue.Title}");
             }
 
-            DateTime updateTime = issues.Count > 0 ? issues.Max(issue => issue.UpdatedAt ?? issue.CreatedAt).UtcDateTime : startTime;
-            (await dbContext.Repositories.SingleAsync(r => r.Id == repoId, CancellationToken.None)).LastIssuesUpdate = updateTime;
+            repoInfo.LastIssuesUpdate = DeduceLastUpdateTime(issues.Select(i => (i.UpdatedAt ?? i.CreatedAt).UtcDateTime).ToList());
+            updatesPerformed += await dbContext.SaveChangesAsync(CancellationToken.None);
         }
 
         startTime = DateTime.UtcNow;
         if (startTime - repoInfo.LastIssueCommentsUpdate >= commentspdateFrequency)
         {
-            Log("Fetching updated issue comments");
             IReadOnlyList<IssueComment> issueComments = await _github.Issue.Comment.GetAllForRepository(repoId, new IssueCommentRequest
             {
                 Since = repoInfo.LastIssueCommentsUpdate - DataPollingOffset,
                 Sort = IssueCommentSort.Updated,
-                Direction = SortDirection.Ascending,
+                Direction = SortDirection.Descending,
             }, apiOptions);
-            Log($"Found {issueComments.Count} updated issue comments");
+
+            Log($"Found {issueComments.Count} updated issue comments since {repoInfo.LastIssueCommentsUpdate.ToISODateTime()}", verbose: true);
+
+            apiCallsPerformed += (issueComments.Count / apiOptions.PageSize.Value) + 1;
 
             foreach (IssueComment comment in issueComments)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 await UpdateIssueCommentInfoAsync(comment);
 
-                Log($"Updated issue comment data {comment.HtmlUrl}");
+                Log($"Updated issue comment data {comment.HtmlUrl}", verbose: true);
             }
 
-            DateTime updateTime = issueComments.Count > 0 ? issueComments.Max(comment => comment.UpdatedAt ?? comment.CreatedAt).UtcDateTime : startTime;
-            (await dbContext.Repositories.SingleAsync(r => r.Id == repoId, CancellationToken.None)).LastIssueCommentsUpdate = updateTime;
+            repoInfo.LastIssueCommentsUpdate = DeduceLastUpdateTime(issueComments.Select(comment => (comment.UpdatedAt ?? comment.CreatedAt).UtcDateTime).ToList());
+            updatesPerformed += await dbContext.SaveChangesAsync(CancellationToken.None);
         }
 
         startTime = DateTime.UtcNow;
         if (startTime - repoInfo.LastPullRequestReviewCommentsUpdate >= commentspdateFrequency)
         {
-            Log("Fetching updated PR review comments");
             IReadOnlyList<PullRequestReviewComment> prReviewComments = await _github.PullRequest.ReviewComment.GetAllForRepository(repoId, new PullRequestReviewCommentRequest
             {
                 Since = repoInfo.LastPullRequestReviewCommentsUpdate - DataPollingOffset,
                 Sort = PullRequestReviewCommentSort.Updated,
-                Direction = SortDirection.Ascending,
+                Direction = SortDirection.Descending,
             }, apiOptions);
-            Log($"Found {prReviewComments.Count} updated PR review comments");
+
+            Log($"Found {prReviewComments.Count} updated PR review comments since {repoInfo.LastPullRequestReviewCommentsUpdate.ToISODateTime()}", verbose: true);
+
+            apiCallsPerformed += (prReviewComments.Count / apiOptions.PageSize.Value) + 1;
 
             foreach (PullRequestReviewComment comment in prReviewComments)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 await UpdatePullRequestReviewCommentInfoAsync(comment);
 
-                Log($"Updated PR review comment data {comment.HtmlUrl}");
+                Log($"Updated PR review comment data {comment.HtmlUrl}", verbose: true);
             }
 
-            DateTime updateTime = prReviewComments.Count > 0 ? prReviewComments.Max(comment => comment.UpdatedAt.Year > 2000 ? comment.UpdatedAt : comment.CreatedAt).UtcDateTime : startTime;
-            (await dbContext.Repositories.SingleAsync(r => r.Id == repoId, CancellationToken.None)).LastPullRequestReviewCommentsUpdate = updateTime;
+            repoInfo.LastPullRequestReviewCommentsUpdate = DeduceLastUpdateTime(prReviewComments.Select(comment => (comment.UpdatedAt.Year > 2000 ? comment.UpdatedAt : comment.CreatedAt).UtcDateTime).ToList());
         }
 
-        Log("Finished updating repository");
-        return await dbContext.SaveChangesAsync(CancellationToken.None);
+        updatesPerformed += await dbContext.SaveChangesAsync(CancellationToken.None);
+        Log($"Finished updating repository. {apiCallsPerformed} API calls (estimate), {updatesPerformed} DB updates.", verbose: true);
+        return (apiCallsPerformed, updatesPerformed);
 
-        void Log(string message)
+        void Log(string message, bool verbose = false)
         {
+            if (repoInfo is null || verbose)
+            {
+                return;
+            }
+
             _logger.DebugLog($"{nameof(GitHubDataService)}: {repoInfo.Owner.Login}/{repoInfo.Name} {message}");
+        }
+
+        DateTime DeduceLastUpdateTime(List<DateTime> dates)
+        {
+            if (dates.Count == 0)
+            {
+                return startTime;
+            }
+
+            DateTime min = dates.Min();
+            DateTime max = dates.Max();
+
+            Log($"Count={dates.Count} Min={min} Max={max} Start={startTime}", verbose: true);
+
+            if (// Recent update. Next request will fetch everything anyway.
+                dates.Count < apiOptions.PageSize.Value / 2 ||
+                // This wasn't a recent change.
+                startTime - max > TimeSpan.FromDays(1) ||
+                // All updates are within a few seconds of each other.
+                max - min < DataPollingOffset)
+            {
+                return max;
+            }
+
+            if (TryGetMaxWithoutRecent(TimeSpan.FromMinutes(60), out DateTime last) ||
+                TryGetMaxWithoutRecent(TimeSpan.FromMinutes(30), out last) ||
+                TryGetMaxWithoutRecent(TimeSpan.FromMinutes(15), out last) ||
+                TryGetMaxWithoutRecent(TimeSpan.FromMinutes(5), out last) ||
+                TryGetMaxWithoutRecent(TimeSpan.FromMinutes(1), out last))
+            {
+                return last;
+            }
+
+            return min + ((max - min) / 2);
+
+            bool TryGetMaxWithoutRecent(TimeSpan recentThreshold, out DateTime max)
+            {
+                int recentUpdates = dates.Count(d => startTime - d < recentThreshold);
+                if (recentUpdates < dates.Count / 2)
+                {
+                    max = dates.Where(d => startTime - d > recentThreshold).Max();
+                    return true;
+                }
+
+                max = default;
+                return false;
+            }
+        }
+
+        static bool ShouldUpdateUserInfo(long currentUserId, User newUser)
+        {
+            ArgumentNullException.ThrowIfNull(newUser);
+
+            return
+                currentUserId == 0 ||
+                currentUserId == newUser.Id ||
+                newUser.Id != GhostUserId;
         }
 
         async Task<RepositoryInfo> GetOrUpdateRepositoryInfoAsync()
@@ -241,50 +335,56 @@ public sealed class GitHubDataService : IHostedService
                 return info;
             }
 
+            apiCallsPerformed++;
             Repository repo = await _github.Repository.Get(repoId);
 
-            info = new RepositoryInfo
+            if (info is null)
             {
-                Id = repoId,
-                NodeIdentifier = repo.NodeId,
-                HtmlUrl = repo.HtmlUrl,
-                Name = repo.Name,
-                FullName = repo.FullName,
-                Description = repo.Description,
-                OwnerId = repo.Owner.Id,
-                CreatedAt = repo.CreatedAt.UtcDateTime,
-                UpdatedAt = repo.UpdatedAt.UtcDateTime,
-                Private = repo.Private,
-                Archived = repo.Archived,
-                LastRepositoryMetadataUpdate = DateTime.UtcNow,
-                LastIssuesUpdate = info?.LastIssuesUpdate ?? repo.CreatedAt.UtcDateTime,
-                LastIssueCommentsUpdate = info?.LastIssueCommentsUpdate ?? repo.CreatedAt.UtcDateTime,
-                LastPullRequestReviewCommentsUpdate = info?.LastPullRequestReviewCommentsUpdate ?? repo.CreatedAt.UtcDateTime,
-            };
+                info = new RepositoryInfo();
+                dbContext.Repositories.Add(info);
+            }
 
-            dbContext.Repositories.Add(info);
+            info.Id = repo.Id;
+            info.NodeIdentifier = repo.NodeId;
+            info.HtmlUrl = repo.HtmlUrl;
+            info.Name = repo.Name;
+            info.FullName = repo.FullName;
+            info.Description = repo.Description;
+            info.CreatedAt = repo.CreatedAt.UtcDateTime;
+            info.UpdatedAt = repo.UpdatedAt.UtcDateTime;
+            info.Private = repo.Private;
+            info.Archived = repo.Archived;
+            info.LastRepositoryMetadataUpdate = DateTime.UtcNow;
+            info.LastIssuesUpdate = info.LastIssuesUpdate == default ? repo.CreatedAt.UtcDateTime : info.LastIssuesUpdate;
+            info.LastIssueCommentsUpdate = info.LastIssueCommentsUpdate == default ? repo.CreatedAt.UtcDateTime : info.LastIssueCommentsUpdate;
+            info.LastPullRequestReviewCommentsUpdate = info.LastPullRequestReviewCommentsUpdate == default ? repo.CreatedAt.UtcDateTime : info.LastPullRequestReviewCommentsUpdate;
 
-            info.Owner = await UpdateUserAsync(repo.Owner);
+            if (ShouldUpdateUserInfo(info.OwnerId, repo.Owner))
+            {
+                info.OwnerId = repo.Owner.Id;
+                await UpdateUserAsync(repo.Owner);
+            }
 
-            IReadOnlyList<Label> labels = await _github.Issue.Labels.GetAllForRepository(repoId);
+            apiCallsPerformed++;
+            IReadOnlyList<Label> labels = await _github.Issue.Labels.GetAllForRepository(repoId, apiOptions);
 
             foreach (Label label in labels)
             {
-                if (await dbContext.Labels.FirstOrDefaultAsync(l => l.Id == label.Id, CancellationToken.None) is { } existingLabel)
+                LabelInfo labelInfo = await dbContext.Labels.FirstOrDefaultAsync(l => l.Id == label.Id, CancellationToken.None);
+
+                if (labelInfo is null)
                 {
-                    dbContext.Labels.Remove(existingLabel);
+                    labelInfo = new LabelInfo();
+                    dbContext.Labels.Add(labelInfo);
                 }
 
-                dbContext.Labels.Add(new LabelInfo
-                {
-                    Id = label.Id,
-                    NodeIdentifier = label.NodeId,
-                    Url = label.Url,
-                    Name = label.Name,
-                    Color = label.Color,
-                    Description = label.Description,
-                    RepositoryId = repoId,
-                });
+                labelInfo.Id = label.Id;
+                labelInfo.NodeIdentifier = label.NodeId;
+                labelInfo.Url = label.Url;
+                labelInfo.Name = label.Name;
+                labelInfo.Color = label.Color;
+                labelInfo.Description = label.Description;
+                labelInfo.RepositoryId = repoId;
             }
 
             info.Labels = await dbContext.Labels
@@ -298,88 +398,128 @@ public sealed class GitHubDataService : IHostedService
         {
             issueNumberToId[issue.Number] = issue.Id;
 
-            if (await dbContext.Issues
+            IssueInfo info = await dbContext.Issues
                 .Where(i => i.Id == issue.Id)
                 .Include(i => i.Labels)
-                .SingleOrDefaultAsync(CancellationToken.None) is { } existingIssue)
-            {
-                if (existingIssue.Body != issue.Body)
-                {
-                    dbContext.BodyEditHistory.Add(new BodyEditHistoryEntry
-                    {
-                        ResourceIdentifier = issue.Id,
-                        UpdatedAt = issue.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow,
-                        PreviousBody = existingIssue.Body,
-                        IsComment = false
-                    });
-                }
+                .SingleOrDefaultAsync(CancellationToken.None);
 
-                dbContext.Issues.Remove(existingIssue);
+            if (info is not null && info.Body != issue.Body)
+            {
+                dbContext.BodyEditHistory.Add(new BodyEditHistoryEntry
+                {
+                    ResourceIdentifier = issue.Id,
+                    UpdatedAt = issue.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow,
+                    PreviousBody = info.Body,
+                    IsComment = false
+                });
             }
 
-            var info = new IssueInfo
+            if (info is null)
             {
-                Id = issue.Id,
-                NodeIdentifier = issue.NodeId,
-                HtmlUrl = issue.HtmlUrl,
-                Number = issue.Number,
-                Title = issue.Title,
-                Body = issue.Body,
-                State = issue.State.Value,
-                CreatedAt = issue.CreatedAt.UtcDateTime,
-                UpdatedAt = (issue.UpdatedAt ?? issue.CreatedAt).UtcDateTime,
-                ClosedAt = issue.ClosedAt?.UtcDateTime,
-                Locked = issue.Locked,
-                ActiveLockReason = issue.ActiveLockReason?.Value,
-                UserId = issue.User.Id,
-                RepositoryId = repoId,
+                info = new IssueInfo();
+                dbContext.Issues.Add(info);
+            }
 
-                Plus1 = issue.Reactions.Plus1,
-                Minus1 = issue.Reactions.Minus1,
-                Laugh = issue.Reactions.Laugh,
-                Confused = issue.Reactions.Confused,
-                Eyes = issue.Reactions.Eyes,
-                Heart = issue.Reactions.Heart,
-                Hooray = issue.Reactions.Hooray,
-                Rocket = issue.Reactions.Rocket,
-            };
+            info.Id = issue.Id;
+            info.NodeIdentifier = issue.NodeId;
+            info.HtmlUrl = issue.HtmlUrl;
+            info.Number = issue.Number;
+            info.Title = issue.Title;
+            info.Body = issue.Body;
+            info.State = issue.State.Value;
+            info.CreatedAt = issue.CreatedAt.UtcDateTime;
+            info.UpdatedAt = (issue.UpdatedAt ?? issue.CreatedAt).UtcDateTime;
+            info.ClosedAt = issue.ClosedAt?.UtcDateTime;
+            info.Locked = issue.Locked;
+            info.ActiveLockReason = issue.ActiveLockReason?.Value;
+            info.RepositoryId = repoId;
 
-            //List<long> labelIds = [.. issue.Labels.Select(l => l.Id)];
-            //var existingLabels = dbContext.Issues.Find(issue.Id).Labels;
-
-            //info.Labels = await dbContext.Labels
-            //    .Where(l => labelIds.Contains(l.Id))
-            //    .ToListAsync(CancellationToken.None);
+            info.Plus1 = issue.Reactions.Plus1;
+            info.Minus1 = issue.Reactions.Minus1;
+            info.Laugh = issue.Reactions.Laugh;
+            info.Confused = issue.Reactions.Confused;
+            info.Eyes = issue.Reactions.Eyes;
+            info.Heart = issue.Reactions.Heart;
+            info.Hooray = issue.Reactions.Hooray;
+            info.Rocket = issue.Reactions.Rocket;
 
             info.Labels = [.. repoInfo.Labels.Where(l => issue.Labels.Any(il => il.Id == l.Id))];
 
-            dbContext.Issues.Add(info);
-
-            await UpdateUserAsync(issue.User);
+            if (ShouldUpdateUserInfo(info.UserId, issue.User))
+            {
+                info.UserId = issue.User.Id;
+                await UpdateUserAsync(issue.User);
+            }
 
             if (issue.PullRequest is { } pullRequest)
             {
-                if (await dbContext.PullRequests.SingleOrDefaultAsync(i => i.Id == issue.Id, CancellationToken.None) is { } existingPullRequest)
-                {
-                    dbContext.PullRequests.Remove(existingPullRequest);
-                }
-
-                dbContext.PullRequests.Add(new PullRequestInfo
-                {
-                    Id = pullRequest.Id,
-                    IssueId = issue.Id,
-                });
+                await UpdatePullRequestInfoAsync(pullRequest, info);
             }
+
+            Log($"Updated issue metadata {issue.Number}: {issue.Title}", verbose: true);
 
             return info;
         }
 
-        async Task<long> RemoveExistingCommentAndGetIssueIdAsync(long commentId, string commentUrl, DateTime updatedAt, string newCommentBody)
+        async Task UpdatePullRequestInfoAsync(PullRequest pullRequest, IssueInfo issue)
         {
-            long issueId = -1;
+            ArgumentNullException.ThrowIfNull(pullRequest);
+            ArgumentNullException.ThrowIfNull(issue);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issue.Id);
 
+            if (!updatedPRsByIssueId.Add(issue.Id))
+            {
+                return;
+            }
+
+            if (pullRequest.Id == 0)
+            {
+                apiCallsPerformed++;
+                pullRequest = await _github.PullRequest.Get(repoId, issue.Number);
+            }
+
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pullRequest.Id);
+            ArgumentOutOfRangeException.ThrowIfNotEqual(pullRequest.HtmlUrl, issue.HtmlUrl);
+
+            PullRequestInfo prInfo = await dbContext.PullRequests.SingleOrDefaultAsync(i => i.Id == pullRequest.Id, CancellationToken.None);
+
+            if (prInfo is null)
+            {
+                prInfo = new PullRequestInfo();
+                dbContext.PullRequests.Add(prInfo);
+            }
+
+            prInfo.Id = pullRequest.Id;
+            prInfo.IssueId = issue.Id;
+            prInfo.NodeId = pullRequest.NodeId;
+            prInfo.MergedAt = pullRequest.MergedAt?.UtcDateTime;
+            prInfo.Draft = pullRequest.Draft;
+            prInfo.Mergeable = pullRequest.Mergeable;
+            prInfo.MergeableState = pullRequest.MergeableState?.Value;
+            prInfo.MergeCommitSha = pullRequest.MergeCommitSha;
+            prInfo.Commits = pullRequest.Commits;
+            prInfo.Additions = pullRequest.Additions;
+            prInfo.Deletions = pullRequest.Deletions;
+            prInfo.ChangedFiles = pullRequest.ChangedFiles;
+            prInfo.MaintainerCanModify = pullRequest.MaintainerCanModify;
+
+            if (pullRequest.MergedBy is not null && ShouldUpdateUserInfo(prInfo.MergedById ?? 0, pullRequest.MergedBy))
+            {
+                prInfo.MergedById = pullRequest.MergedBy.Id;
+                await UpdateUserAsync(pullRequest.MergedBy);
+            }
+        }
+
+        async Task<CommentInfo> GetOrCreateCommentInfoAsync(long commentId, string commentUrl, DateTime updatedAt, string newCommentBody)
+        {
             if (await dbContext.Comments.SingleOrDefaultAsync(c => c.Id == commentId, CancellationToken.None) is { } existingComment)
             {
+                if (updatedAt < existingComment.UpdatedAt)
+                {
+                    // Ignore stale update
+                    return existingComment;
+                }
+
                 if (existingComment.Body != newCommentBody)
                 {
                     dbContext.BodyEditHistory.Add(new BodyEditHistoryEntry
@@ -391,8 +531,7 @@ public sealed class GitHubDataService : IHostedService
                     });
                 }
 
-                issueId = existingComment.IssueId;
-                dbContext.Comments.Remove(existingComment);
+                return existingComment;
             }
 
             if (!GitHubHelper.TryParseIssueOrPRNumber(commentUrl, out int issueNumber))
@@ -400,12 +539,13 @@ public sealed class GitHubDataService : IHostedService
                 throw new Exception($"Failed to parse issue number from comment URL: {commentUrl}");
             }
 
-            if (issueId == -1 && !issueNumberToId.TryGetValue(issueNumber, out issueId))
+            if (!issueNumberToId.TryGetValue(issueNumber, out long issueId))
             {
                 IssueInfo issueInfo = await dbContext.Issues.SingleOrDefaultAsync(issue => issue.Number == issueNumber && issue.RepositoryId == repoId, CancellationToken.None);
 
                 if (issueInfo is null)
                 {
+                    apiCallsPerformed++;
                     Issue issue = await _github.Issue.Get(repoId, issueNumber);
                     issueInfo = await UpdateIssueInfoAsync(issue);
                 }
@@ -415,112 +555,132 @@ public sealed class GitHubDataService : IHostedService
 
             issueNumberToId[issueNumber] = issueId;
 
-            return issueId;
+            var newComment = new CommentInfo
+            {
+                Id = commentId,
+                IssueId = issueId,
+            };
+
+            dbContext.Comments.Add(newComment);
+
+            return newComment;
         }
 
         async Task UpdateIssueCommentInfoAsync(IssueComment comment)
         {
-            long issueId = await RemoveExistingCommentAndGetIssueIdAsync(comment.Id, comment.HtmlUrl, comment.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow, comment.Body);
+            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, comment.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow, comment.Body);
 
-            dbContext.Comments.Add(new CommentInfo
+            info.NodeIdentifier = comment.NodeId;
+            info.HtmlUrl = comment.HtmlUrl;
+            info.Body = comment.Body;
+            info.CreatedAt = comment.CreatedAt.UtcDateTime;
+            info.UpdatedAt = (comment.UpdatedAt ?? comment.CreatedAt).UtcDateTime;
+            info.AuthorAssociation = comment.AuthorAssociation.Value;
+            info.IsPrReviewComment = false;
+
+            info.Plus1 = comment.Reactions.Plus1;
+            info.Minus1 = comment.Reactions.Minus1;
+            info.Laugh = comment.Reactions.Laugh;
+            info.Confused = comment.Reactions.Confused;
+            info.Eyes = comment.Reactions.Eyes;
+            info.Heart = comment.Reactions.Heart;
+            info.Hooray = comment.Reactions.Hooray;
+            info.Rocket = comment.Reactions.Rocket;
+
+            if (ShouldUpdateUserInfo(info.UserId, comment.User))
             {
-                Id = comment.Id,
-                NodeIdentifier = comment.NodeId,
-                HtmlUrl = comment.HtmlUrl,
-                Body = comment.Body,
-                CreatedAt = comment.CreatedAt.UtcDateTime,
-                UpdatedAt = (comment.UpdatedAt ?? comment.CreatedAt).UtcDateTime,
-                AuthorAssociation = comment.AuthorAssociation.Value,
-                IssueId = issueId,
-                UserId = comment.User.Id,
-                IsPrReviewComment = false,
-
-                Plus1 = comment.Reactions.Plus1,
-                Minus1 = comment.Reactions.Minus1,
-                Laugh = comment.Reactions.Laugh,
-                Confused = comment.Reactions.Confused,
-                Eyes = comment.Reactions.Eyes,
-                Heart = comment.Reactions.Heart,
-                Hooray = comment.Reactions.Hooray,
-                Rocket = comment.Reactions.Rocket,
-            });
-
-            await UpdateUserAsync(comment.User);
+                info.UserId = comment.User.Id;
+                await UpdateUserAsync(comment.User);
+            }
         }
 
         async Task UpdatePullRequestReviewCommentInfoAsync(PullRequestReviewComment comment)
         {
             DateTime updatedAt = (comment.UpdatedAt.Year > 2000 ? comment.UpdatedAt : comment.CreatedAt).UtcDateTime;
 
-            long issueId = await RemoveExistingCommentAndGetIssueIdAsync(comment.Id, comment.HtmlUrl, updatedAt, comment.Body);
+            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, updatedAt, comment.Body);
 
-            dbContext.Comments.Add(new CommentInfo
+            info.NodeIdentifier = comment.NodeId;
+            info.HtmlUrl = comment.HtmlUrl;
+            info.Body = comment.Body;
+            info.CreatedAt = comment.CreatedAt.UtcDateTime;
+            info.UpdatedAt = updatedAt;
+            info.AuthorAssociation = comment.AuthorAssociation.Value;
+            info.IsPrReviewComment = true;
+
+            info.Plus1 = comment.Reactions.Plus1;
+            info.Minus1 = comment.Reactions.Minus1;
+            info.Laugh = comment.Reactions.Laugh;
+            info.Confused = comment.Reactions.Confused;
+            info.Eyes = comment.Reactions.Eyes;
+            info.Heart = comment.Reactions.Heart;
+            info.Hooray = comment.Reactions.Hooray;
+            info.Rocket = comment.Reactions.Rocket;
+
+            if (comment.User is null)
             {
-                Id = comment.Id,
-                NodeIdentifier = comment.NodeId,
-                HtmlUrl = comment.HtmlUrl,
-                Body = comment.Body,
-                CreatedAt = comment.CreatedAt.UtcDateTime,
-                UpdatedAt = updatedAt,
-                AuthorAssociation = comment.AuthorAssociation.Value,
-                IssueId = issueId,
-                UserId = comment.User.Id,
-                IsPrReviewComment = true,
-
-                Plus1 = comment.Reactions.Plus1,
-                Minus1 = comment.Reactions.Minus1,
-                Laugh = comment.Reactions.Laugh,
-                Confused = comment.Reactions.Confused,
-                Eyes = comment.Reactions.Eyes,
-                Heart = comment.Reactions.Heart,
-                Hooray = comment.Reactions.Hooray,
-                Rocket = comment.Reactions.Rocket,
-            });
-
-            await UpdateUserAsync(comment.User);
+                Log($"No user information on comment {comment.HtmlUrl}. Replacing with the Ghost user.");
+                info.UserId = GhostUserId;
+            }
+            else if (ShouldUpdateUserInfo(info.UserId, comment.User))
+            {
+                info.UserId = comment.User.Id;
+                await UpdateUserAsync(comment.User);
+            }
         }
 
-        async Task<UserInfo> UpdateUserAsync(User user)
+        async Task UpdateUserAsync(User user)
         {
-            if (updatedUsers.TryGetValue(user.Id, out UserInfo info))
+            if (!updatedUsers.Add(user.Id))
             {
-                return info;
+                return;
             }
 
-            if (await dbContext.Users.SingleOrDefaultAsync(u => u.Id == user.Id, CancellationToken.None) is { } existingUser)
+            UserInfo info = await dbContext.Users.SingleOrDefaultAsync(u => u.Id == user.Id, CancellationToken.None);
+
+            if (info is not null && DateTime.UtcNow - info.EntryUpdatedAt < UserInfoRefreshInterval)
             {
-                if (DateTime.UtcNow - existingUser.EntryUpdatedAt < UserInfoRefreshInterval)
+                return;
+            }
+
+            try
+            {
+                apiCallsPerformed++;
+                user = await _github.User.Get(user.Login);
+            }
+            catch (NotFoundException)
+            {
+                Log($"User {user.Id} {user.Login} not found.");
+
+                if (info is not null)
                 {
-                    updatedUsers.Add(user.Id, existingUser);
-                    return existingUser;
+                    // We already have some info about this user.
+                    info.EntryUpdatedAt = DateTime.UtcNow;
+                    return;
                 }
-
-                dbContext.Users.Remove(existingUser);
             }
 
-            user = await _github.User.Get(user.Login);
-
-            info = new UserInfo
+            if (info is null)
             {
-                Id = user.Id,
-                NodeIdentifier = user.NodeId,
-                Login = user.Login,
-                Name = user.Name,
-                HtmlUrl = user.HtmlUrl,
-                Followers = user.Followers,
-                Following = user.Following,
-                Company = user.Company,
-                Location = user.Location,
-                Bio = user.Bio,
-                Type = user.Type,
-                CreatedAt = user.CreatedAt.UtcDateTime,
-                EntryUpdatedAt = DateTime.UtcNow,
-            };
+                info = new UserInfo();
+                dbContext.Users.Add(info);
+            }
 
-            dbContext.Users.Add(info);
+            info.Id = user.Id;
+            info.NodeIdentifier = user.NodeId;
+            info.Login = user.Login;
+            info.Name = user.Name;
+            info.HtmlUrl = user.HtmlUrl;
+            info.Followers = user.Followers;
+            info.Following = user.Following;
+            info.Company = user.Company;
+            info.Location = user.Location;
+            info.Bio = user.Bio;
+            info.Type = user.Type;
+            info.CreatedAt = user.CreatedAt.UtcDateTime;
+            info.EntryUpdatedAt = DateTime.UtcNow;
 
-            updatedUsers.Add(user.Id, info);
-            return info;
+            Log($"Updated user metadata {user.Id}: {user.Login} ({user.Name})", verbose: true);
         }
     }
 }

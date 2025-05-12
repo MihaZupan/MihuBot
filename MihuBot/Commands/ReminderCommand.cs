@@ -162,7 +162,11 @@ public sealed partial class ReminderCommand : CommandBase
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _reminderService = reminderService ?? throw new ArgumentNullException(nameof(reminderService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            _reminderTimer = new Timer(_ => Task.Run(OnReminderTimerAsync), null, 1_000, Timeout.Infinite);
+        }
     }
 
     private static bool ContainsMentionsWithoutPermissions(SocketUserMessage message)

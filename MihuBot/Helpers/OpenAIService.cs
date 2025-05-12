@@ -13,6 +13,7 @@ public sealed class OpenAIService
     private readonly Logger _logger;
     private readonly AzureOpenAIClient _chat;
     private readonly AzureOpenAIClient _image;
+    private readonly AzureOpenAIClient _secondaryEmbedding;
     private readonly IConfigurationService _configurationService;
 
     public OpenAIService(IConfiguration configuration, IConfigurationService configurationService, Logger logger)
@@ -27,6 +28,16 @@ public sealed class OpenAIService
         _image = new AzureOpenAIClient(
             new Uri("https://mihaz-m30zd4gd-eastus.openai.azure.com"),
             new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"] ?? throw new InvalidOperationException("Missing AzureOpenAI Image Key")));
+
+        _secondaryEmbedding = new AzureOpenAIClient(
+            new Uri(configuration["AzureOpenAI:SecondaryEmbedding:Endpoint"] ?? throw new InvalidOperationException("Missing secondary embedding endpoint")),
+            new AzureKeyCredential(configuration["AzureOpenAI:SecondaryEmbedding:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI secondary embedding Key")));
+    }
+
+    public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool secondary = false)
+    {
+        AzureOpenAIClient client = secondary ? _secondaryEmbedding : _chat;
+        return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator();
     }
 
     public IChatClient GetChat(ulong? context)

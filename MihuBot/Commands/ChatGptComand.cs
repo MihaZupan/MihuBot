@@ -126,7 +126,7 @@ public sealed class ChatGptComand : CommandBase
 
         var options = new ChatOptions
         {
-            ChatThreadId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{author.Id}"))),
+            ConversationId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{author.Id}"))),
             MaxOutputTokens = maxTokens
         };
 

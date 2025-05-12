@@ -35,7 +35,7 @@ public static class DatabaseSetupHelper
         if (OperatingSystem.IsWindows() && File.Exists(databasePath))
         {
             Console.WriteLine("DEBUG: Deleting existing database ...");
-            await db.Database.EnsureDeletedAsync();
+            //await db.Database.EnsureDeletedAsync();
         }
 
         if (File.Exists(databasePath))

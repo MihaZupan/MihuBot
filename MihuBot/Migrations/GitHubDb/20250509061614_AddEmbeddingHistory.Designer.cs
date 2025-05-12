@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MihuBot.DB.GitHub;
 
@@ -10,9 +11,11 @@ using MihuBot.DB.GitHub;
 namespace MihuBot.Migrations.GitHubDb
 {
     [DbContext(typeof(GitHubDbContext))]
-    partial class GitHubDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250509061614_AddEmbeddingHistory")]
+    partial class AddEmbeddingHistory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.4");
@@ -261,44 +264,8 @@ namespace MihuBot.Migrations.GitHubDb
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("Additions")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ChangedFiles")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Commits")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Deletions")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("Draft")
-                        .HasColumnType("INTEGER");
-
                     b.Property<long>("IssueId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<bool?>("MaintainerCanModify")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("MergeCommitSha")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool?>("Mergeable")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("MergeableState")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("MergedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long?>("MergedById")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("NodeId")
-                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 

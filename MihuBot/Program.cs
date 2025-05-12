@@ -12,7 +12,9 @@ using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
+using Microsoft.SemanticKernel.Connectors.Qdrant;
 using MihuBot;
 using MihuBot.Audio;
 using MihuBot.Components;
@@ -23,6 +25,7 @@ using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
 using Octokit;
+using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
 using Yarp.ReverseProxy.Transforms;
@@ -212,9 +215,14 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<RegexSourceGenerator>();
 
-    services.AddHostedService<GitHubDataService>();
+    services.AddSingleton<GitHubDataService>();
+    services.AddHostedService(s => s.GetRequiredService<GitHubDataService>());
+
+    builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
+    builder.Services.AddSingleton<IVectorStore, QdrantVectorStore>();
 
     services.AddSingleton<GitHubSearchService>();
+    services.AddHostedService(s => s.GetRequiredService<GitHubSearchService>());
 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
