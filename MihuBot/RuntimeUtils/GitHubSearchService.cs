@@ -219,7 +219,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 25;
+        const int BatchSize = 100;
 
         await using GitHubDbContext db = _db.CreateDbContext();
 
@@ -389,7 +389,7 @@ public sealed class GitHubSearchService : IHostedService
             List<Embedding<float>> embeddings = [];
             foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(1000))
             {
-                embeddings.AddRange(await _embeddingGenerator.GenerateAsync(chunk, cancellationToken: cancellationToken));
+                embeddings.AddRange(await _embeddingGenerator2.GenerateAsync(chunk, cancellationToken: cancellationToken));
             }
 
             SemanticSearchRecord[] newRecords = keyedSections.Zip(embeddings).Select(pair => new SemanticSearchRecord
