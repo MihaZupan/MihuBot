@@ -387,7 +387,7 @@ public sealed class GitHubSearchService : IHostedService
             int tokens = keyedSections.Sum(section => _tokenizer.CountTokens(section.Text));
 
             List<Embedding<float>> embeddings = [];
-            foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(50))
+            foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(1000))
             {
                 embeddings.AddRange(await _embeddingGenerator.GenerateAsync(chunk, cancellationToken: cancellationToken));
             }
