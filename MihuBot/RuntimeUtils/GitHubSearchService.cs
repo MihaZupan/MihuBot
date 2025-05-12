@@ -385,7 +385,12 @@ public sealed class GitHubSearchService : IHostedService
         try
         {
             int tokens = keyedSections.Sum(section => _tokenizer.CountTokens(section.Text));
-            GeneratedEmbeddings<Embedding<float>> embeddings = await _embeddingGenerator2.GenerateAsync(keyedSections.Select(section => section.Text), cancellationToken: cancellationToken);
+
+            List<Embedding<float>> embeddings = [];
+            foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(50))
+            {
+                embeddings.AddRange(await _embeddingGenerator.GenerateAsync(chunk, cancellationToken: cancellationToken));
+            }
 
             SemanticSearchRecord[] newRecords = keyedSections.Zip(embeddings).Select(pair => new SemanticSearchRecord
             {
