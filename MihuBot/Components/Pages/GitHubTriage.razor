@@ -323,19 +323,24 @@
             toolClient.MaximumIterationsPerRequest = 20;
 
             string markdownResponse = "";
+            Task stateChangedTask = Task.CompletedTask;
 
             await foreach (var update in toolClient.GetStreamingResponseAsync(messages, options, cancellationToken))
             {
                 markdownResponse += update.Text;
 
-                MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdownResponse);
-                MarkdownHelper.FixUpPartialDocument(document);
-                _htmlResponse = document.ToHtmlAdvanced();
+                if (stateChangedTask.IsCompleted)
+                {
+                    MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdownResponse);
+                    MarkdownHelper.FixUpPartialDocument(document);
+                    _htmlResponse = document.ToHtmlAdvanced();
 
-                _ = InvokeAsync(StateHasChanged);
+                    stateChangedTask = InvokeAsync(StateHasChanged);
+                }
             }
 
             _htmlResponse = MarkdownHelper.ParseAdvanced(markdownResponse).ToHtmlAdvanced();
+            await stateChangedTask;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
