@@ -191,11 +191,11 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         Channels.LogText,
         Channels.Files));
 
+    services.AddSingleton<IConfigurationService, ConfigurationService>();
+
     services.AddSingleton<Logger>();
 
     services.AddSingleton<IPermissionsService, PermissionsService>();
-
-    services.AddSingleton<IConfigurationService, ConfigurationService>();
 
     services.AddSingleton<OpenAIService>();
 

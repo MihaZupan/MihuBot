@@ -424,7 +424,7 @@ public sealed class GitHubSearchService : IHostedService
             record.UpdatedAt = lastIssueUpdate;
         }
 
-        //_logger.DebugLog($"{nameof(GitHubSearchService)}: Issue {issue.Number}: {issue.Comments.Count} comments, {removed.Length} removed, {added.Length} added");
+        _logger.TraceLog($"{nameof(GitHubSearchService)}: Issue {issue.Number}: {previousRecords.Count} previous records, {issue.Comments.Count} comments, {removed.Length} removed, {added.Length} added");
 
         if (removed.Length > 0)
         {
@@ -458,8 +458,15 @@ public sealed class GitHubSearchService : IHostedService
         List<(long SubIdentifier, string Text, Guid Key)> keyedSections = rawSections
             .Where(section => !string.IsNullOrWhiteSpace(section.Text))
             .DistinctBy(section => section.Text)
-            .Select(section => (section.SubIdentifier, section.Text, new Guid(HashText($"{issue.Id}-{section}")[..16])))
+            .Select(section => (section.SubIdentifier, section.Text, GetGuidFromSectionHash(issue.Id, section)))
             .ToList();
+
+        if (keyedSections.Count == 0)
+        {
+            // Ensure there's at least one entry per issue so that the update loop sees the updated timestamp.
+            string text = $"{issue.Title} (#{issue.Number})";
+            keyedSections.Add((0, text, GetGuidFromSectionHash(issue.Id, (0, text))));
+        }
 
         IngestedEmbeddingRecord[] removedRecords = [.. previousRecords.Where(prev => !keyedSections.Any(r => r.Key == prev.Id))];
 
@@ -494,6 +501,11 @@ public sealed class GitHubSearchService : IHostedService
         {
             _logger.DebugLog($"{nameof(GitHubSearchService)}: Failed to generate embeddings for {issue.HtmlUrl}: {cre}.\nTexts:\n{string.Join("\n\n\n", keyedSections.Select(s => s.Text))}");
             return (removedRecords, [], 0);
+        }
+
+        static Guid GetGuidFromSectionHash(long issueId, (long SubIdentifier, string Text) section)
+        {
+            return new Guid(HashText($"{issueId}-{section}")[..16]);
         }
     }
 

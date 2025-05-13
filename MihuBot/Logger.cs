@@ -1,6 +1,7 @@
 ﻿using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
 using MihuBot.DB;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -25,6 +26,7 @@ public sealed partial class Logger
     internal static readonly JsonSerializerOptions JsonOptions = new() { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     private readonly IDbContextFactory<LogsDbContext> _dbContextFactory;
+    private readonly IConfigurationService _configurationService;
     private readonly Channel<LogDbEntry> LogChannel;
 
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
@@ -42,11 +44,12 @@ public sealed partial class Logger
         { ".wav",   (".mp3",    "-b:a 192k") },
     };
 
-    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration, IDbContextFactory<LogsDbContext> dbContextFactory)
+    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration, IConfigurationService configurationService, IDbContextFactory<LogsDbContext> dbContextFactory)
     {
         _http = httpClient;
         Options = options;
         _dbContextFactory = dbContextFactory;
+        _configurationService = configurationService;
 
         if (ProgramState.AzureEnabled)
         {
@@ -406,6 +409,14 @@ public sealed partial class Logger
 
     public void DebugLog(string debugMessage, ulong guildId = 0, ulong channelId = 0, ulong messageId = 0, ulong userId = 0) =>
         Log<object>(EventType.DebugMessage, guildId, channelId, messageId, userId, debugMessage);
+
+    public void TraceLog(string debugMessage)
+    {
+        if (_configurationService.TryGet(null, "Logger.Trace", out _))
+        {
+            DebugLog(debugMessage);
+        }
+    }
 
     public async Task DebugAsync(string debugMessage, SocketUserMessage message = null, bool truncateToFile = false)
     {

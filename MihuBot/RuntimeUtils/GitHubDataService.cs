@@ -258,12 +258,21 @@ public sealed class GitHubDataService : IHostedService
 
         void Log(string message, bool verbose = false)
         {
-            if (repoInfo is null || verbose)
+            if (repoInfo is null)
             {
                 return;
             }
 
-            _logger.DebugLog($"{nameof(GitHubDataService)}: {repoInfo.Owner.Login}/{repoInfo.Name} {message}");
+            message = $"{nameof(GitHubDataService)}: {repoInfo.Owner.Login}/{repoInfo.Name} {message}";
+
+            if (verbose)
+            {
+                _logger.TraceLog(message);
+            }
+            else
+            {
+                _logger.DebugLog(message);
+            }
         }
 
         DateTime DeduceLastUpdateTime(List<DateTime> dates)
