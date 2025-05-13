@@ -1,10 +1,12 @@
-﻿using Markdig;
+﻿using System.Text.RegularExpressions;
+using Markdig;
+using Markdig.Helpers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
 namespace MihuBot.Helpers;
 
-public static class MarkdownHelper
+public static partial class MarkdownHelper
 {
     private static readonly MarkdownPipeline s_pipeline = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
@@ -158,4 +160,44 @@ public static class MarkdownHelper
             return text is "*" or "**" or "***" or "_" or "__" or "___";
         }
     }
+
+    public static void ReplaceIssueReferencesWithLinks(this MarkdownDocument document, string repoOwnerAndName)
+    {
+        foreach (LiteralInline originalLiteral in document.Descendants<LiteralInline>())
+        {
+            if (originalLiteral.Parent is LinkInline)
+            {
+                continue;
+            }
+
+            LiteralInline literal = originalLiteral;
+
+            while (literal.Content.AsSpan().Contains('#'))
+            {
+                StringSlice slice = literal.Content;
+
+                string content = slice.ToString();
+
+                if (IssueNumberRegex().Match(content) is not { Success: true } match)
+                {
+                    break;
+                }
+
+                string issueNumber = match.Groups[1].Value;
+
+                literal.InsertBefore(new LiteralInline(new StringSlice(content, 0, match.Index - 1)));
+
+                var link = new LinkInline { Url = $"https://github.com/{repoOwnerAndName}/issues/{issueNumber}" };
+                link.AppendChild(new LiteralInline($"#{issueNumber}"));
+                literal.InsertBefore(link);
+
+                var newLiteral = new LiteralInline(new StringSlice(content, match.Index + issueNumber.Length + 1, content.Length - 1));
+                literal.ReplaceBy(newLiteral);
+                literal = newLiteral;
+            }
+        }
+    }
+
+    [GeneratedRegex(@"#(\d{3,8})(?:[^\d]|$)")]
+    private static partial Regex IssueNumberRegex();
 }

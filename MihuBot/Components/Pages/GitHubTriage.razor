@@ -331,16 +331,28 @@
 
                 if (stateChangedTask.IsCompleted)
                 {
-                    MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdownResponse);
-                    MarkdownHelper.FixUpPartialDocument(document);
-                    _htmlResponse = document.ToHtmlAdvanced();
+                    _htmlResponse = ConvertMarkdownToHtml(markdownResponse, partial: true);
 
                     stateChangedTask = InvokeAsync(StateHasChanged);
                 }
             }
 
-            _htmlResponse = MarkdownHelper.ParseAdvanced(markdownResponse).ToHtmlAdvanced();
+            _htmlResponse = ConvertMarkdownToHtml(markdownResponse, partial: false);
             await stateChangedTask;
+
+            static string ConvertMarkdownToHtml(string markdown, bool partial)
+            {
+                MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
+
+                if (partial)
+                {
+                    MarkdownHelper.FixUpPartialDocument(document);
+                }
+
+                MarkdownHelper.ReplaceIssueReferencesWithLinks(document, "dotnet/runtime");
+
+                return document.ToHtmlAdvanced();
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
