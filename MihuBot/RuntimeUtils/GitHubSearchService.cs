@@ -88,6 +88,7 @@ public sealed class GitHubSearchService : IHostedService
 
     public async Task<IssueOrCommentSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
 
         await using GitHubDbContext db = await _db.CreateDbContextAsync(cancellationToken);
@@ -120,7 +121,7 @@ public sealed class GitHubSearchService : IHostedService
 
         stopwatch.Restart();
 
-        long[] issueIds = [.. results.Where(r => r.Record.SubIdentifier == 0).Select(r => r.Record.IssueId).Distinct()];
+        long[] issueIds = [.. results.Select(r => r.Record.IssueId).Distinct()];
         long[] commentIds = [.. results.Where(r => r.Record.SubIdentifier != 0).Select(r => r.Record.SubIdentifier).Distinct()];
 
         List<IssueInfo> issues = await db.Issues
@@ -131,6 +132,7 @@ public sealed class GitHubSearchService : IHostedService
             .Include(i => i.Labels)
             .Include(i => i.Repository)
             .Include(i => i.PullRequest)
+            .Include(i => i.Comments)
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
@@ -150,9 +152,10 @@ public sealed class GitHubSearchService : IHostedService
             .Select(r =>
             {
                 IssueInfo issue = issues.FirstOrDefault(issues => issues.Id == r.Record.IssueId);
-                CommentInfo comment = comments.FirstOrDefault(comment => comment.Id == r.Record.SubIdentifier);
-                return new IssueOrCommentSearchResult(r.Score.Value, issue, null);
+                CommentInfo comment = r.Record.SubIdentifier == 0 ? null : comments.FirstOrDefault(comment => comment.Id == r.Record.SubIdentifier);
+                return new IssueOrCommentSearchResult(r.Score.Value, issue, comment);
             })
+            .Where(r => r.Issue is not null)
             .OrderByDescending(r => r.Score)
             .ToArray();
     }
@@ -304,7 +307,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 50;
+        const int BatchSize = 100;
 
         await using GitHubDbContext db = _db.CreateDbContext();
 

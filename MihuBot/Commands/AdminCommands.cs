@@ -21,7 +21,16 @@ public sealed class AdminCommands : CommandBase
         if (ctx.Command == "dropingestedembeddings")
         {
             await using GitHubDbContext db = _db.CreateDbContext();
-            await db.IngestedEmbeddings.ExecuteDeleteAsync();
+            int updates = await db.IngestedEmbeddings.ExecuteDeleteAsync();
+            await ctx.ReplyAsync($"Deleted {updates} ingested embeddings.");
+        }
+
+        if (ctx.Command == "clearingestedembeddingsupdatedat")
+        {
+            await using GitHubDbContext db = _db.CreateDbContext();
+            int updates = await db.IngestedEmbeddings
+                .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2020, 1, 1)));
+            await ctx.ReplyAsync($"Updated {updates} ingested embeddings.");
         }
     }
 }

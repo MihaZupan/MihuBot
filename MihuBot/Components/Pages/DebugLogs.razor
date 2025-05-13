@@ -35,17 +35,25 @@
                 DB.LogDbEntry[] logs = [];
                 bool balance = true;
 
+                int maxLogsPerQuery = NumLines * 2;
+
                 while (balance || await timer.WaitForNextTickAsync(_cts.Token))
                 {
                     balance = false;
-                    logs = await Logger.GetLogsAsync(since, DateTime.UtcNow, query: q => q.Take(NumLines * 3));
+                    logs = await Logger.GetLogsAsync(since, DateTime.UtcNow, query: q => q.Take(maxLogsPerQuery));
 
                     if (logs.Length > NumLines)
                     {
+                        int logsReturned = logs.Length;
                         logs = logs.AsSpan(logs.Length - NumLines).ToArray();
                         since = logs[0].Timestamp;
-                        balance = true;
-                        continue;
+
+                        if (logsReturned == maxLogsPerQuery)
+                        {
+                            maxLogsPerQuery = (int)(maxLogsPerQuery * 1.1);
+                            balance = true;
+                            continue;
+                        }
                     }
 
                     if (logs.Length < NumLines)

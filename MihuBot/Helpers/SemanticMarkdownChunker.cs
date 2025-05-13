@@ -12,11 +12,6 @@ namespace MihuBot.Helpers;
 
 public static class SemanticMarkdownChunker
 {
-    private static readonly MarkdownPipeline s_pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
-        .UsePreciseSourceLocation()
-        .Build();
-
     public static IEnumerable<string> GetSections(Tokenizer tokenizer, int smallSectionTokenThreshold, IssueInfo issue, CommentInfo? comment, string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown))
@@ -77,7 +72,7 @@ public static class SemanticMarkdownChunker
             yield break;
         }
 
-        MarkdownDocument document = Markdown.Parse(markdown, s_pipeline);
+        MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
 
         if (document.Count > 1)
         {

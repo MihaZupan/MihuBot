@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
 using Octokit;
+using Org.BouncyCastle.Ocsp;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -14,7 +15,7 @@ public sealed class GitHubDataService : IHostedService
 
     private readonly (string Owner, string Name, TimeSpan IssueUpdateFrequency, TimeSpan CommentUpdateFrequency)[] _watchedRepos =
     [
-        ("dotnet", "runtime", TimeSpan.FromHours(1), TimeSpan.FromSeconds(15))
+        ("dotnet", "runtime", TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15))
         // ("dotnet", "yarp", TimeSpan.FromHours(1), TimeSpan.FromSeconds(60))
     ];
 
@@ -420,29 +421,9 @@ public sealed class GitHubDataService : IHostedService
                 dbContext.Issues.Add(info);
             }
 
-            info.Id = issue.Id;
-            info.NodeIdentifier = issue.NodeId;
-            info.HtmlUrl = issue.HtmlUrl;
-            info.Number = issue.Number;
-            info.Title = issue.Title;
-            info.Body = issue.Body;
-            info.State = issue.State.Value;
-            info.CreatedAt = issue.CreatedAt.UtcDateTime;
-            info.UpdatedAt = (issue.UpdatedAt ?? issue.CreatedAt).UtcDateTime;
-            info.ClosedAt = issue.ClosedAt?.UtcDateTime;
-            info.Locked = issue.Locked;
-            info.ActiveLockReason = issue.ActiveLockReason?.Value;
+            PopulateBasicIssueInfo(info, issue);
+
             info.RepositoryId = repoId;
-
-            info.Plus1 = issue.Reactions.Plus1;
-            info.Minus1 = issue.Reactions.Minus1;
-            info.Laugh = issue.Reactions.Laugh;
-            info.Confused = issue.Reactions.Confused;
-            info.Eyes = issue.Reactions.Eyes;
-            info.Heart = issue.Reactions.Heart;
-            info.Hooray = issue.Reactions.Hooray;
-            info.Rocket = issue.Reactions.Rocket;
-
             info.Labels = [.. repoInfo.Labels.Where(l => issue.Labels.Any(il => il.Id == l.Id))];
 
             if (ShouldUpdateUserInfo(info.UserId, issue.User))
@@ -682,5 +663,30 @@ public sealed class GitHubDataService : IHostedService
 
             Log($"Updated user metadata {user.Id}: {user.Login} ({user.Name})", verbose: true);
         }
+    }
+
+    public static void PopulateBasicIssueInfo(IssueInfo info, Issue issue)
+    {
+        info.Id = issue.Id;
+        info.NodeIdentifier = issue.NodeId;
+        info.HtmlUrl = issue.HtmlUrl;
+        info.Number = issue.Number;
+        info.Title = issue.Title;
+        info.Body = issue.Body;
+        info.State = issue.State.Value;
+        info.CreatedAt = issue.CreatedAt.UtcDateTime;
+        info.UpdatedAt = (issue.UpdatedAt ?? issue.CreatedAt).UtcDateTime;
+        info.ClosedAt = issue.ClosedAt?.UtcDateTime;
+        info.Locked = issue.Locked;
+        info.ActiveLockReason = issue.ActiveLockReason?.Value;
+
+        info.Plus1 = issue.Reactions.Plus1;
+        info.Minus1 = issue.Reactions.Minus1;
+        info.Laugh = issue.Reactions.Laugh;
+        info.Confused = issue.Reactions.Confused;
+        info.Eyes = issue.Reactions.Eyes;
+        info.Heart = issue.Reactions.Heart;
+        info.Hooray = issue.Reactions.Hooray;
+        info.Rocket = issue.Reactions.Rocket;
     }
 }
