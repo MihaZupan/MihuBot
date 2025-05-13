@@ -258,7 +258,7 @@
 
             LogToolLine($"Starting triage for issue #{issueNumber} with model {model.Name} ...");
 
-            IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: false, cancellationToken);
+            IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: true, cancellationToken);
 
             if (issue is null)
             {
@@ -279,6 +279,7 @@
                         Id = newIssue.User.Id,
                         Login = newIssue.User.Login,
                     };
+                    issue.Comments = [];
                 }
             }
 
@@ -310,6 +311,7 @@
             messages.Add(new ChatMessage(ChatRole.User,
                 $"""
                 Please help me triage issue #{issue.Number} from {issue.User.Login} titled '{issue.Title}'.
+                Existing comments: {issue.Comments.Count(c => !c.User.Login.EndsWith("[bot]", StringComparison.Ordinal))}
 
                 Here is the issue:
                 {issue.Body}
