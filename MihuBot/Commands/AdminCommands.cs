@@ -6,6 +6,7 @@ namespace MihuBot.Commands;
 public sealed class AdminCommands : CommandBase
 {
     public override string Command => "dropingestedembeddings";
+    public override string[] Aliases => ["clearingestedembeddingsupdatedat"];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
 
@@ -29,7 +30,7 @@ public sealed class AdminCommands : CommandBase
         {
             await using GitHubDbContext db = _db.CreateDbContext();
             int updates = await db.IngestedEmbeddings
-                .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2020, 1, 1)));
+                .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2010, 1, 1)));
             await ctx.ReplyAsync($"Updated {updates} ingested embeddings.");
         }
     }
