@@ -1,4 +1,6 @@
 ﻿using System.Buffers;
+using System.Buffers.Text;
+using System.Security.Cryptography;
 
 namespace MihuBot.Helpers;
 
@@ -105,5 +107,24 @@ public static class StringHelpers
             return source.Trim();
 
         return source.AsSpan(index + 1).Trim().ToString();
+    }
+
+    public static string GetUtf8Sha384HashBase64Url(this string text)
+    {
+        byte[] utf8 = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(text.Length));
+        int byteCount = Encoding.UTF8.GetBytes(text, utf8);
+
+        Span<byte> hash = stackalloc byte[SHA384.HashSizeInBytes];
+        SHA384.HashData(utf8.AsSpan(0, byteCount), hash);
+
+        ArrayPool<byte>.Shared.Return(utf8);
+
+        return Base64Url.EncodeToString(hash);
+    }
+
+    public static byte[] GetUtf8Sha384Hash(this string text)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        return SHA384.HashData(bytes);
     }
 }

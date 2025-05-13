@@ -114,7 +114,18 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddMemoryCache(options =>
     {
-        options.SizeLimit = 256 * 1024 * 1024; // 256 MB
+        options.SizeLimit = 512 * 1024 * 1024; // 512 MB
+    });
+
+    services.AddHybridCache(options =>
+    {
+        options.MaximumKeyLength = 10 * 1024;
+
+        options.DefaultEntryOptions = new HybridCacheEntryOptions
+        {
+            Expiration = TimeSpan.FromMinutes(15),
+            LocalCacheExpiration = TimeSpan.FromMinutes(15),
+        };
     });
 
     string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";

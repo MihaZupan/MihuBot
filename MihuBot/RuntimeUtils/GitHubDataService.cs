@@ -2,7 +2,6 @@
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using Octokit;
-using Org.BouncyCastle.Ocsp;
 
 namespace MihuBot.RuntimeUtils;
 

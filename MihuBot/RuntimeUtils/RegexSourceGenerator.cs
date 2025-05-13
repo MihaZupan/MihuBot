@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.Extensions.Caching.Memory;
 
 #nullable enable
 
@@ -27,14 +26,14 @@ public sealed class RegexSourceGenerator
     private readonly CSharpParseOptions _languageOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview);
     private readonly MetadataReference[] _references;
     private readonly Logger _logger;
-    private readonly IMemoryCache _cache;
+    private readonly HybridCache _cache;
 
     public ImmutableArray<Generator> Generators { get; }
     public Generator Latest => Generators[0];
 
     public string? LoadError { get; }
 
-    public RegexSourceGenerator(Logger logger, IMemoryCache cache)
+    public RegexSourceGenerator(Logger logger, HybridCache cache)
     {
         _logger = logger;
         _cache = cache;
@@ -146,15 +145,7 @@ public sealed class RegexSourceGenerator
     {
         long start = Stopwatch.GetTimestamp();
 
-        bool cacheHit = false;
-        var cacheKey = (pattern, options, generator.Name);
-
-        if (_cache.TryGetValue(cacheKey, out string? source))
-        {
-            Debug.Assert(source is not null);
-            cacheHit = true;
-        }
-        else
+        string source = await _cache.GetOrCreateAsync($"/regexsourcegen/{generator.Name}/{options}/{pattern.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
         {
             string optionsSource = "";
             if (options != RegexOptions.None)
@@ -162,7 +153,7 @@ public sealed class RegexSourceGenerator
                 optionsSource = $", {string.Join(" | ", options.ToString().Split(',').Select(o => $"RegexOptions.{o.Trim()}"))}";
             }
 
-            source = await GenerateSourceText(
+            return await GenerateSourceText(
                 generator,
                 $$"""
                 using System.Text.RegularExpressions;
@@ -172,18 +163,11 @@ public sealed class RegexSourceGenerator
                     public static partial Regex Valid();
                 }
                 """,
-                cancellationToken: cancellationToken);
-
-            _cache.Set(cacheKey, source, new MemoryCacheEntryOptions
-            {
-                Priority = CacheItemPriority.Low,
-                SlidingExpiration = TimeSpan.FromMinutes(15),
-                Size = (pattern.Length + optionsSource.Length + source.Length) * 2
-            });
-        }
+                cancellationToken);
+        }, cancellationToken: cancellationToken);
 
         TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
-        _logger.DebugLog($"[RegexSourceGenerator] {(cacheHit ? "Fetched" : "Generated")} source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
+        _logger.DebugLog($"[RegexSourceGenerator] Generated source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
 
         return source;
     }

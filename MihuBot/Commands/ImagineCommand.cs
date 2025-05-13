@@ -1,6 +1,5 @@
 ﻿using MihuBot.Configuration;
 using OpenAI.Images;
-using System.Security.Cryptography;
 
 namespace MihuBot.Commands;
 
@@ -94,7 +93,7 @@ public sealed class ImagineCommand : CommandBase
         {
             image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
             {
-                EndUserId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{ctx.Channel.Id}_{ctx.AuthorId}"))),
+                EndUserId = $"Discord_{ctx.Channel.Id}_{ctx.AuthorId}".GetUtf8Sha384HashBase64Url(),
                 ResponseFormat = GeneratedImageFormat.Bytes,
                 Quality = GeneratedImageQuality.High,
                 Size = size,

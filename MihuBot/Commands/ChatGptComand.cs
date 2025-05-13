@@ -2,7 +2,6 @@
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 
 namespace MihuBot.Commands;
 
@@ -126,7 +125,7 @@ public sealed class ChatGptComand : CommandBase
 
         var options = new ChatOptions
         {
-            ConversationId = Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes($"Discord_{channel.Id}_{author.Id}"))),
+            ConversationId = $"Discord_{channel.Id}_{author.Id}".GetUtf8Sha384HashBase64Url(),
             MaxOutputTokens = maxTokens
         };
 
