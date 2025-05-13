@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using Octokit;
 using Org.BouncyCastle.Ocsp;
@@ -22,6 +23,7 @@ public sealed class GitHubDataService : IHostedService
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly Logger _logger;
+    private readonly IConfigurationService _configuration;
     private readonly CancellationTokenSource _updateCts = new();
     private readonly Dictionary<(string Owner, string Name), long> _repositoryIds = [];
     private Task _updatesTask;
@@ -30,11 +32,12 @@ public sealed class GitHubDataService : IHostedService
     public int CommentCount { get; private set; }
     public int SearchVectorCount { get; private set; }
 
-    public GitHubDataService(GitHubClient gitHub, IDbContextFactory<GitHubDbContext> db, Logger logger)
+    public GitHubDataService(GitHubClient gitHub, IDbContextFactory<GitHubDbContext> db, Logger logger, IConfigurationService configuration)
     {
         _github = gitHub;
         _db = db;
         _logger = logger;
+        _configuration = configuration;
     }
 
     private async Task RefreshStatsAsync()
@@ -88,6 +91,11 @@ public sealed class GitHubDataService : IHostedService
             {
                 try
                 {
+                    if (_configuration.GetOrDefault(null, $"{nameof(GitHubDataService)}.PauseIngestion", false))
+                    {
+                        continue;
+                    }
+
                     foreach ((string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentUpdateFrequency) in _watchedRepos)
                     {
                         (int apiCalls, int updates) = await UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentUpdateFrequency);

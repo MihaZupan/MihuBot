@@ -38,7 +38,7 @@ public sealed partial class GitHubNotificationsService
 
         try
         {
-            if (ConfigurationService.TryGet(null, "RuntimeUtils.NclNotifications.Disable", out _))
+            if (ConfigurationService.GetOrDefault(null, "RuntimeUtils.NclNotifications.Disable", false))
             {
                 return enabledAny;
             }

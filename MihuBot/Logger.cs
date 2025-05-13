@@ -412,7 +412,7 @@ public sealed partial class Logger
 
     public void TraceLog(string debugMessage)
     {
-        if (_configurationService.TryGet(null, "Logger.Trace", out _))
+        if (_configurationService.GetOrDefault(null, "Logger.Trace", false))
         {
             DebugLog(debugMessage);
         }

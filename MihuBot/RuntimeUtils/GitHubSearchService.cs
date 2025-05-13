@@ -264,6 +264,11 @@ public sealed class GitHubSearchService : IHostedService
             {
                 try
                 {
+                    if (_configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.PauseIngestion", false))
+                    {
+                        continue;
+                    }
+
                     (int updates, int tokens) = await UpdateIngestedEmbeddingsAsync(cancellationToken);
                     if (updates > 0)
                     {
@@ -346,9 +351,7 @@ public sealed class GitHubSearchService : IHostedService
                 db.IngestedEmbeddings.First(entry => entry.ResourceIdentifier == comment.IssueId).UpdatedAt < comment.UpdatedAt)
             .OrderBy(c => c.UpdatedAt);
 
-        if (_configuration.TryGet(null, $"{nameof(GitHubSearchService)}.IngestHttpOnly", out string ingestHttpOnlyStr) &&
-            bool.TryParse(ingestHttpOnlyStr, out bool ingestHttpOnly) &&
-            ingestHttpOnly)
+        if (_configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.IngestHttpOnly", false))
         {
             issuesQuery = issuesQuery.Where(i => i.Labels.Any(l => l.Name == "area-System.Net.Http"));
             commentsQuery = commentsQuery.Where(c => c.Issue.Labels.Any(l => l.Name == "area-System.Net.Http"));
