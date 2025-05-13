@@ -366,12 +366,12 @@ public sealed class GitHubSearchService : IHostedService
 
         HashSet<long> updatedIssueIds = [.. updatedIssues, .. updatedComments];
 
-        _logger.DebugLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update");
-
         if (updatedIssueIds.Count == 0)
         {
             return (0, 0);
         }
+
+        _logger.DebugLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update");
 
         int updatesPerformed = 0;
         int tokensConumed = 0;
