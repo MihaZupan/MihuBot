@@ -104,7 +104,7 @@ public sealed class GitHubDataService : IHostedService
                             TimeSpan sleepTimeCalls = TimeSpan.FromHours(1) / TargetMaxApiCallsPerHour * apiCalls;
                             TimeSpan sleepTimeUpdates = TimeSpan.FromHours(1) / TargetMaxUpdatesPerHour * updates;
                             TimeSpan sleepTime = sleepTimeCalls > sleepTimeUpdates ? sleepTimeCalls : sleepTimeUpdates;
-                            _logger.DebugLog($"{nameof(GitHubDataService)}: Performed {apiCalls} API calls (estimate), {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
+                            _logger.TraceLog($"{nameof(GitHubDataService)}: Performed {apiCalls} API calls (estimate), {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
                             await Task.Delay(sleepTime, cancellationToken);
                         }
                     }

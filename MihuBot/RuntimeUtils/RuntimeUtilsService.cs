@@ -279,6 +279,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         .ThenInclude(i => i.PullRequest)
                     .Include(c => c.User)
                     .Take(25)
+                    .AsSplitQuery()
                     .ToListAsync();
 
                 foreach (CommentInfo comment in comments)

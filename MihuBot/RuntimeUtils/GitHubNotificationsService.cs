@@ -68,7 +68,19 @@ public sealed partial class GitHubNotificationsService
                     continue;
                 }
 
-                issue ??= await Github.Issue.Get(comment.Issue.RepositoryId, comment.Issue.Number);
+                if (issue is null)
+                {
+                    try
+                    {
+                        issue = await Github.Issue.Get(comment.Issue.RepositoryId, comment.Issue.Number);
+                    }
+                    catch (NotFoundException)
+                    {
+                        _processedMentions.TryAdd(duplicationKey);
+                        Logger.DebugLog($"Skipping notifications on {issue.HtmlUrl} for {user.Name} - issue not found");
+                        continue;
+                    }
+                }
 
                 enabledAny = true;
                 bool failed = false;

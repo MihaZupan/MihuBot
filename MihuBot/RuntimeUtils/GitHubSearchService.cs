@@ -196,7 +196,7 @@ public sealed class GitHubSearchService : IHostedService
                     (int updates, int tokens) = await UpdateIngestedEmbeddingsAsync(cancellationToken);
                     if (updates > 0)
                     {
-                        _logger.DebugLog($"{nameof(GitHubSearchService)}: Performed {updates} DB updates, consumed {tokens} tokens");
+                        _logger.TraceLog($"{nameof(GitHubSearchService)}: Performed {updates} DB updates, consumed {tokens} tokens");
                     }
                     else
                     {
@@ -298,7 +298,7 @@ public sealed class GitHubSearchService : IHostedService
             return (0, 0);
         }
 
-        _logger.DebugLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update");
+        _logger.TraceLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update");
 
         int updatesPerformed = 0;
         int tokensConumed = 0;

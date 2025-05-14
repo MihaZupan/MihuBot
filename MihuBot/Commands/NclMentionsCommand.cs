@@ -158,6 +158,7 @@ public sealed class NclMentionsCommand : CommandBase
         return await _gitHubNotifications.ProcessGitHubMentionAsync(new DB.GitHub.CommentInfo
         {
             Id = 1,
+            HtmlUrl = issue.HtmlUrl,
             Body = "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
             Issue = new DB.GitHub.IssueInfo
             {
