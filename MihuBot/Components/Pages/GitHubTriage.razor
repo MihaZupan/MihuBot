@@ -427,7 +427,7 @@
         LogToolLine($"[Tool] Searching for {string.Join(", ", searchTerms)}");
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        List<GitHubSearchService.IssueOrCommentSearchResult> searchResults = new();
+        List<GitHubSearchService.IssueSearchResult> searchResults = new();
 
         int maxTotalResults = UsingLargeContextWindow
             ? Math.Clamp(searchTerms.Length * 50, 75, 200)

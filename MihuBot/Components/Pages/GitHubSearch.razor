@@ -4,11 +4,12 @@
 @using MihuBot.RuntimeUtils
 @using Octokit
 @rendermode InteractiveServer
-@inject GitHubDataService GitHubDataService
-@inject GitHubSearchService GitHubSearchService
+@inject GitHubDataService GitHubData
+@inject GitHubSearchService Search
 @inject HybridCache Cache
 @inject OpenAIService OpenAI
 @inject Logger Logger
+@inject IConfigurationService Configuration
 @implements IDisposable
 
 <PageTitle>GitHub Search</PageTitle>
@@ -61,7 +62,6 @@
                 <div class="input-group">
                     <input id="searchQuery" type="text" @bind-value="SearchQuery" @bind-value:event="oninput" placeholder="Search query">
                     <div class="btn-group" role="group">
-                        <button type="button" @onclick="() => NetworkingLabelsOnly = !NetworkingLabelsOnly" class="btn btn-primary ml-1">@(NetworkingLabelsOnly ? "Show all" : "Show networking only")</button>
                         <button type="button" @onclick="() => DisableRelevanceClassification = !DisableRelevanceClassification" class="btn btn-primary ml-1">@(DisableRelevanceClassification ? "Filter unrelated results" : "I want faster searches")</button>
                     </div>
                 </div>
@@ -69,7 +69,7 @@
         </div>
 
         <div class="statistics-container">
-            <p>@(GitHubDataService.IssueCount / 1_000)k issues, @(GitHubDataService.CommentCount / 1_000)k comments, @(GitHubDataService.SearchVectorCount / 1_000)k vectors</p>
+            <p>@(GitHubData.IssueCount / 1_000)k issues, @(GitHubData.CommentCount / 1_000)k comments, @(GitHubData.SearchVectorCount / 1_000)k vectors</p>
         </div>
     </div>
 
@@ -140,20 +140,10 @@
     }
 
     private IChatClient _fastClassifierChat;
-    private GitHubSearchService.IssueSearchResult[] _searchResults = [];
+    private (IssueInfo Issue, double Score)[] _searchResults = [];
     private string _errorMessage;
-    private Debouncer<(string Query, bool NetworkingLabelsOnly, bool DsableRelevanceClassification)> _debouncer;
+    private Debouncer<(string Query, bool DsableRelevanceClassification)> _debouncer;
     private bool _isLoading;
-
-    private bool NetworkingLabelsOnly
-    {
-        get => field;
-        set
-        {
-            field = value;
-            RefreshSearchResults();
-        }
-    }
 
     private bool DisableRelevanceClassification
     {
@@ -177,18 +167,19 @@
 
     private void RefreshSearchResults()
     {
-        _debouncer.Update((SearchQuery, NetworkingLabelsOnly, DisableRelevanceClassification));
+        _debouncer.Update((SearchQuery, DisableRelevanceClassification));
     }
 
     protected override void OnInitialized()
     {
-        _fastClassifierChat = OpenAI.GetChat("gpt-4.1-mini");
-        _debouncer = new Debouncer<(string, bool, bool)>(TimeSpan.FromMilliseconds(5), SearchAsync);
+        Configuration.TryGet(null, "GitHubSearch.ClassifierModel", out string modelName);
+        _fastClassifierChat = OpenAI.GetChat(modelName ?? "gpt-4.1-mini");
+        _debouncer = new Debouncer<(string, bool)>(TimeSpan.FromMilliseconds(5), SearchAsync);
     }
 
-    private async Task SearchAsync((string SearchQuery, bool NetworkingLabelsOnly, bool DisableRelevanceClassification) state, CancellationToken cancellationToken)
+    private async Task SearchAsync((string SearchQuery, bool DisableRelevanceClassification) state, CancellationToken cancellationToken)
     {
-        (string searchQuery, bool networkingLabelsOnly, bool disableRelevanceClassification) = state;
+        (string searchQuery, bool disableRelevanceClassification) = state;
 
         try
         {
@@ -206,19 +197,25 @@
                 {
                     _isLoading = true;
 
-                    var searchTask = GitHubSearchService.SearchIssuesAsync(searchQuery, maxResults: int.MaxValue, cancellationToken);
+                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 200, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
-                    GitHubSearchService.IssueSearchResult[] results = await searchTask;
+                    (GitHubSearchService.IssueSearchResult[] Results, double Score)[] resultsByIssue = (await searchTask)
+                        .GroupBy(r => r.Issue.Id)
+                        .Select(g => g.ToArray())
+                        .Select(r => (Results: r, Score: GetCombinedScore(r)))
+                        .OrderByDescending(p => p.Score)
+                        .Take(100)
+                        .ToArray();
 
-                    if (networkingLabelsOnly)
+                    if (!disableRelevanceClassification)
                     {
-                        results = results
-                            .Where(r => r.Issue.Labels.Any(l => Constants.NetworkingLabels.Contains(l.Name)))
-                            .ToArray();
+                        resultsByIssue = await FilterOutUnrelatedResults(searchQuery, resultsByIssue);
                     }
 
-                    await PostProcessSearchResultsAsync(searchQuery, results, networkingLabelsOnly, disableRelevanceClassification);
+                    _searchResults = resultsByIssue
+                        .Select(r => (r.Results[0].Issue, r.Score))
+                        .ToArray();
                 }
 
                 _errorMessage = null;
@@ -231,55 +228,51 @@
         }
 
         await InvokeAsync(StateHasChanged);
+
+        static double GetCombinedScore(GitHubSearchService.IssueSearchResult[] results)
+        {
+            double max = results.Max(r => r.Score);
+            double offset = 1 - max;
+
+            // Boost issues with multiple potentially related comments.
+            double threshold = Math.Max(max * 0.75, 0.35);
+            offset *= Math.Pow(0.99, results.Count(r => r.Score >= threshold));
+
+            return 1 - offset;
+        }
     }
 
-
-
-    private async Task PostProcessSearchResultsAsync(string searchQuery, GitHubSearchService.IssueSearchResult[] results, bool networkingLabelsOnly, bool disableRelevanceClassification)
+    private async Task<(GitHubSearchService.IssueSearchResult[] Results, double Score)[]> FilterOutUnrelatedResults(
+        string searchQuery, (GitHubSearchService.IssueSearchResult[] Results, double Score)[] results)
     {
-        if (networkingLabelsOnly)
+        searchQuery = searchQuery.Trim();
+
+        var relevances = await GetRelevancesAsync(issueCount: 20, bodyContext: 40, maxComments: 2);
+
+        if (relevances.Length <= 5 && results.Length >= 20)
         {
-            results = results
-                .Where(r => r.Issue.Labels.Any(l => Constants.NetworkingLabels.Contains(l.Name)))
-                .ToArray();
+            relevances = await GetRelevancesAsync(issueCount: 50, bodyContext: 100, maxComments: 4);
         }
 
-        if (!disableRelevanceClassification)
-        {
-            searchQuery = searchQuery.Trim();
-
-            var relevances = await GetRelevancesAsync(issueCount: 15, bodyContext: 50);
-
-            if (relevances.Length <= 4 && results.Length >= 20)
+        var newResults = relevances
+            .Select(s =>
             {
-                relevances = await GetRelevancesAsync(issueCount: 30, bodyContext: 100);
-            }
+                var searchResult = results.FirstOrDefault(r => r.Results[0].Issue.Number == s.IssueNumber);
+                return searchResult.Results is null ? default : searchResult with { Score = s.Score };
+            })
+            .Where(r => r.Results is not null)
+            .OrderByDescending(r => r.Score)
+            .ToArray();
 
-            var newResults = relevances
-                .Select(s =>
-                {
-                    var searchResult = results.FirstOrDefault(r => r.Issue.Number == s.IssueNumber);
-                    return searchResult is null ? null : searchResult with { Score = s.Score };
-                })
-                .Where(r => r is not null)
-                .OrderByDescending(r => r.Score)
-                .ToArray();
+        return newResults.Length > 0 ? newResults : results;
 
-            if (newResults.Length > 0)
-            {
-                results = newResults;
-            }
-        }
-
-        _searchResults = results;
-
-        async Task<IssueRelevance[]> GetRelevancesAsync(int issueCount, int bodyContext)
+        async Task<IssueRelevance[]> GetRelevancesAsync(int issueCount, int bodyContext, int maxComments)
         {
-            return await Cache.GetOrCreateAsync($"/searchrelevance/{results.Length}-{issueCount}-{bodyContext}/{searchQuery.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
+            return await Cache.GetOrCreateAsync($"/searchrelevance/{results.Length}-{issueCount}-{bodyContext}-{maxComments}/{searchQuery.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
             {
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext));
+                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments));
 
                 Logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
 
@@ -289,7 +282,7 @@
             });
         }
 
-        string GeneratePrompt(int issueCount, int bodyContext)
+        string GeneratePrompt(int issueCount, int bodyContext, int maxComments)
         {
             return
                 $"""
@@ -302,17 +295,48 @@
 
                 The issues are:
 
-                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select(r => GetShortIssueDescription(r.Issue, bodyContext)))}
+                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select(r => GetShortIssueDescription(r.Results, bodyContext, maxComments)))}
                 """;
         }
 
-        string GetShortIssueDescription(IssueInfo issue, int bodyContext)
+        string GetShortIssueDescription(GitHubSearchService.IssueSearchResult[] results, int bodyContext, int maxComments)
         {
-            string body = issue.Body;
+            IssueInfo issue = results[0].Issue;
 
-            if (body is not null)
+            StringBuilder sb = new();
+
+            sb.AppendLine($"Issue #{issue.Number}: {issue.Title}");
+
+            if (issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name is { } areaLabel)
             {
-                body = SemanticMarkdownChunker.TrimTextToTokens(GitHubSearchService.Tokenizer, issue.Body, bodyContext);
+                sb.AppendLine($"Area: {areaLabel.AsSpan(5)}");
+            }
+
+            string body = TrimBody(issue.Body, bodyContext);
+
+            if (!string.IsNullOrEmpty(body))
+            {
+                sb.AppendLine($"Body: {body}");
+            }
+
+            foreach (var result in results
+                .Where(r => r.Score >= 0.25 && r.Comment is not null)
+                .OrderByDescending(r => r.Score)
+                .Take(maxComments))
+            {
+                sb.AppendLine($"Comment: {TrimBody(result.Comment.Body, bodyContext)}");
+            }
+
+            return sb.ToString();
+
+            string TrimBody(string body, int bodyContext)
+            {
+                if (string.IsNullOrEmpty(body))
+                {
+                    return string.Empty;
+                }
+
+                body = SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, body, bodyContext);
 
                 while (body.Contains("\n\n\n", StringComparison.Ordinal))
                     body = body.Replace("\n\n\n", "\n\n", StringComparison.Ordinal);
@@ -320,21 +344,8 @@
                 while (body.Contains("--", StringComparison.Ordinal))
                     body = body.Replace("--", "-", StringComparison.Ordinal);
 
-                body = body.Trim();
-
-                if (!string.IsNullOrEmpty(body))
-                {
-                    body = $"Body: {body}";
-                }
+                return body.Trim();
             }
-
-            string areaLabel = issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name;
-            if (areaLabel is not null)
-            {
-                areaLabel = $"Area: {areaLabel.AsSpan(5)}\n";
-            }
-
-            return $"Issue #{issue.Number}: {issue.Title}\n{areaLabel}{body}";
         }
     }
 

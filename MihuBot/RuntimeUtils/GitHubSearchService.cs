@@ -46,8 +46,7 @@ public sealed class GitHubSearchService : IHostedService
         Tokenizer = TiktokenTokenizer.CreateForModel(EmbeddingModel);
     }
 
-    public record IssueSearchResult(double Score, IssueInfo Issue);
-    public record IssueOrCommentSearchResult(double Score, IssueInfo Issue, CommentInfo Comment);
+    public record IssueSearchResult(double Score, IssueInfo Issue, CommentInfo Comment);
 
     [ImmutableObject(true)]
     private sealed class RawSearchResult(double score, long issueId, long subIdentifier)
@@ -82,31 +81,7 @@ public sealed class GitHubSearchService : IHostedService
         }, cancellationToken: cancellationToken);
     }
 
-    private async Task<(long Key, double Score)[]> SearchForIssuesAsync(string query, int topVectors, int topIssues, CancellationToken cancellationToken)
-    {
-        RawSearchResult[] results = await SearchAsyncCore(query, topVectors, cancellationToken);
-
-        return results
-            .GroupBy(r => r.IssueId)
-            .Select(r => (r.Key, Score: GetCombinedScore([.. r.Select(r => r.Score)])))
-            .OrderByDescending(r => r.Score)
-            .Take(topIssues)
-            .ToArray();
-
-        static double GetCombinedScore(List<double> scores)
-        {
-            double max = scores.Max();
-            double offset = 1 - max;
-
-            // Boost issues with multiple potentially related comments.
-            double threshold = max * 0.75;
-            offset *= Math.Pow(0.99, scores.Count(s => s >= threshold));
-
-            return 1 - offset;
-        }
-    }
-
-    public async Task<IssueOrCommentSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, CancellationToken cancellationToken)
+    public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
@@ -124,7 +99,7 @@ public sealed class GitHubSearchService : IHostedService
 
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        var results = await SearchAsyncCore(query, topVectors, cancellationToken);
+        RawSearchResult[] results = await SearchAsyncCore(query, topVectors, cancellationToken);
 
         TimeSpan embeddingSearchTime = stopwatch.Elapsed;
         stopwatch.Restart();
@@ -168,68 +143,9 @@ public sealed class GitHubSearchService : IHostedService
             {
                 IssueInfo issue = issues.FirstOrDefault(issues => issues.Id == r.IssueId);
                 CommentInfo comment = r.SubIdentifier == 0 ? null : comments.FirstOrDefault(comment => comment.Id == r.SubIdentifier);
-                return new IssueOrCommentSearchResult(r.Score, issue, comment);
+                return new IssueSearchResult(r.Score, issue, comment);
             })
             .Where(r => r.Issue is not null)
-            .OrderByDescending(r => r.Score)
-            .ToArray();
-    }
-
-    public async Task<IssueSearchResult[]> SearchIssuesAsync(string query, int maxResults, CancellationToken cancellationToken)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
-
-        if (!_configuration.TryGet(null, $"{nameof(GitHubSearchService)}.TopVectors", out string topVectorsStr) ||
-            !int.TryParse(topVectorsStr, out int topVectors) ||
-            topVectors is < 1 or > 10_000)
-        {
-            topVectors = 250;
-        }
-
-        if (!_configuration.TryGet(null, $"{nameof(GitHubSearchService)}.TopIssues", out string topIssuesStr) ||
-            !int.TryParse(topIssuesStr, out int topIssues) ||
-            topIssues is < 1 or > 10_000)
-        {
-            topIssues = 100;
-        }
-
-        topIssues = Math.Min(topIssues, maxResults);
-
-        Stopwatch stopwatch = Stopwatch.StartNew();
-
-        (long Key, double Score)[] resultsByIssue = await SearchForIssuesAsync(query, topVectors, topIssues, cancellationToken);
-
-        TimeSpan embeddingSearchTime = stopwatch.Elapsed;
-
-        if (resultsByIssue.Length == 0)
-        {
-            return [];
-        }
-
-        long[] issueIds = [.. resultsByIssue.Select(r => r.Key)];
-
-        stopwatch.Restart();
-
-        await using GitHubDbContext db = await _db.CreateDbContextAsync(cancellationToken);
-
-        List<IssueInfo> issues = await db.Issues
-            .AsNoTracking()
-            .Where(i => issueIds.Contains(i.Id))
-            .Where(i => i.Repository.Owner.Login == "dotnet" && i.Repository.Name == "runtime")
-            .Include(i => i.User)
-            .Include(i => i.Labels)
-            .Include(i => i.Repository)
-            .Include(i => i.PullRequest)
-            .AsSplitQuery()
-            .ToListAsync(cancellationToken);
-
-        TimeSpan databaseQueryTime = stopwatch.Elapsed;
-
-        _logger.DebugLog($"Search for '{query}' returned {issues.Count} unique issues," +
-            $" Search={embeddingSearchTime.TotalMilliseconds:F2} Database={databaseQueryTime.TotalMilliseconds:F2}");
-
-        return resultsByIssue
-            .Select(r => new IssueSearchResult(r.Score, issues.First(i => i.Id == r.Key)))
             .OrderByDescending(r => r.Score)
             .ToArray();
     }
