@@ -149,10 +149,6 @@
     private readonly ConcurrentQueue<string> _toolLogs = new();
     private string _htmlResponse;
 
-    private readonly object _lock = new();
-    private (string TriageIssueUrl, ModelInfo Model) _currentTriage;
-    private CancellationTokenSource _currentTriageCts;
-    private Task _currentTriageTask = Task.CompletedTask;
     private IssueInfo _currentIssue;
     private bool _loading;
 
@@ -185,6 +181,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _debouncer = new Debouncer<(string, ModelInfo)>(TimeSpan.FromMilliseconds(100), DoTriageAsync);
+        _debouncer.CancelPendingActions = true;
+
         if (_authenticationState is not null &&
             (await _authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
         {
@@ -192,41 +191,11 @@
         }
     }
 
+    private Debouncer<(string TriageIssueUrl, ModelInfo Model)> _debouncer;
+
     private void UpdateTriageOperation()
     {
-        lock (_lock)
-        {
-            string triageIssueUrl = TriageIssueUrl;
-            ModelInfo model = Model;
-
-            if (_currentTriage.TriageIssueUrl == triageIssueUrl && _currentTriage.Model == model)
-            {
-                return;
-            }
-
-            _currentTriage = default;
-
-            if (_currentTriageCts is not null)
-            {
-                _currentTriageCts.Cancel();
-                _currentTriageCts = null;
-            }
-
-            _currentTriage = (triageIssueUrl, model);
-            _currentTriageCts = new CancellationTokenSource();
-
-            CancellationToken cancellationToken = _currentTriageCts.Token;
-
-            var currentTask = _currentTriageTask;
-            _currentTriageTask = Task.Run(async () =>
-            {
-                await currentTask;
-                _loading = true;
-                await DoTriageAsync(triageIssueUrl, model, cancellationToken);
-                _loading = false;
-                await InvokeAsync(StateHasChanged);
-            });
-        }
+        _debouncer.Update((TriageIssueUrl, Model));
     }
 
     private void LogToolLine(string message)
@@ -235,10 +204,13 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private async Task DoTriageAsync(string triageIssueUrl, ModelInfo model, CancellationToken cancellationToken)
+    private async Task DoTriageAsync((string TriageIssueUrl, ModelInfo Model) state, CancellationToken cancellationToken)
     {
+        (string triageIssueUrl, ModelInfo model) = state;
+
         try
         {
+            _loading = true;
             _errorMessage = null;
             _htmlResponse = null;
             _toolLogs.Clear();
@@ -264,7 +236,7 @@
             {
                 Logger.DebugLog($"Triage: Issue #{issueNumber} not found in the database. Fetching from GitHub ...");
 
-                Issue newIssue = await GitHubClient.Issue.Get("dotnet", "runtime", issueNumber);
+                Issue newIssue = await GitHubClient.Issue.Get("dotnet", "runtime", issueNumber).WaitAsyncAndSupressNotObserved(cancellationToken);
                 if (newIssue is null)
                 {
                     _errorMessage = $"Issue #{issueNumber} not found.";
@@ -327,7 +299,14 @@
 
             await foreach (var update in toolClient.GetStreamingResponseAsync(messages, options, cancellationToken))
             {
-                markdownResponse += update.Text;
+                string updateText = update.Text;
+
+                if (string.IsNullOrEmpty(updateText))
+                {
+                    continue;
+                }
+
+                markdownResponse += updateText;
 
                 if (stateChangedTask.IsCompleted)
                 {
@@ -339,20 +318,6 @@
 
             _htmlResponse = ConvertMarkdownToHtml(markdownResponse, partial: false);
             await stateChangedTask;
-
-            static string ConvertMarkdownToHtml(string markdown, bool partial)
-            {
-                MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
-
-                if (partial)
-                {
-                    MarkdownHelper.FixUpPartialDocument(document);
-                }
-
-                MarkdownHelper.ReplaceIssueReferencesWithLinks(document, "dotnet/runtime");
-
-                return document.ToHtmlAdvanced();
-            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -361,6 +326,33 @@
         catch (Exception ex)
         {
             _errorMessage = ex.Message;
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                _loading = false;
+
+                try
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch { }
+            }
+        }
+
+        static string ConvertMarkdownToHtml(string markdown, bool partial)
+        {
+            MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
+
+            if (partial)
+            {
+                MarkdownHelper.FixUpPartialDocument(document);
+            }
+
+            MarkdownHelper.ReplaceIssueReferencesWithLinks(document, "dotnet/runtime");
+
+            return document.ToHtmlAdvanced();
         }
     }
 
@@ -553,6 +545,6 @@
 
     public void Dispose()
     {
-        _currentTriageCts?.Cancel();
+        _debouncer?.Dispose();
     }
 }

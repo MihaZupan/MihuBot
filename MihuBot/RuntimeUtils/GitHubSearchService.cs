@@ -66,10 +66,9 @@ public sealed class GitHubSearchService : IHostedService
 
             IVectorStoreRecordCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(SearchCollectionName);
 
-            IAsyncEnumerable<VectorSearchResult<SemanticSearchRecord>> nearest = vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: cancellationToken);
-
             var results = new List<RawSearchResult>();
-            await foreach (VectorSearchResult<SemanticSearchRecord> item in nearest)
+
+            await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: cancellationToken))
             {
                 if (item.Score.HasValue && item.Score > 0.1)
                 {
@@ -86,7 +85,7 @@ public sealed class GitHubSearchService : IHostedService
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
 
-        await using GitHubDbContext db = await _db.CreateDbContextAsync(cancellationToken);
+        await using GitHubDbContext db = _db.CreateDbContext();
 
         if (!_configuration.TryGet(null, $"{nameof(GitHubSearchService)}.TopVectors", out string topVectorsStr) ||
             !int.TryParse(topVectorsStr, out int topVectors) ||

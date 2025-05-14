@@ -103,7 +103,15 @@ public sealed partial class Logger
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
-            _ = DebugAsync($"UnobservedTaskException: {e.Exception}", truncateToFile: true);
+            string text = e.Exception.ToString();
+
+            if (text.Contains("QdrantVectorStoreRecordCollection", StringComparison.Ordinal))
+                return;
+
+            if (text.Contains("Octokit.Connection.HandleErrors", StringComparison.Ordinal))
+                return;
+
+            _ = DebugAsync($"UnobservedTaskException: {text}", truncateToFile: true);
             e.SetObserved();
         };
 

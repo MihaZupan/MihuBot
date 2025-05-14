@@ -13,8 +13,11 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
     private bool _timerScheduled;
     private Timer? _timer;
     private DateTime _lastRun = DateTime.MinValue;
+    private CancellationTokenSource? _currentActionCts;
 
     private object Lock => _cts;
+
+    public bool CancelPendingActions { get; set; }
 
     public Debouncer(TimeSpan delay, Func<T, CancellationToken, Task> action)
     {
@@ -34,6 +37,11 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
             if (_lastValue is not null && EqualityComparer<T>.Default.Equals(value, (T)_lastValue))
             {
                 return;
+            }
+
+            if (CancelPendingActions)
+            {
+                _currentActionCts?.Cancel();
             }
 
             _lastValue = value;
@@ -67,6 +75,8 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
 
     private void RunAction()
     {
+        CancellationToken actionCt;
+
         object? value;
         lock (Lock)
         {
@@ -76,24 +86,30 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
             value = _lastValue;
             _lastValue = null;
             _lastRun = DateTime.UtcNow;
+
+            _currentActionCts = new CancellationTokenSource();
+            actionCt = _currentActionCts.Token;
         }
 
         Debug.Assert(value is not null);
 
-        _ = Task.Run(() => RunActionAsyncCore((T)value), CancellationToken.None);
+        _ = Task.Run(() => RunActionAsyncCore((T)value, actionCt), CancellationToken.None);
     }
 
-    private async Task RunActionAsyncCore(T value)
+    private async Task RunActionAsyncCore(T value, CancellationToken actionCt)
     {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, actionCt);
+
         try
         {
-            await _action(value, _cts.Token);
+            await _action(value, cts.Token);
         }
         catch { }
 
         lock (Lock)
         {
             _running = false;
+            _currentActionCts = null;
 
             if (_lastValue is not null && !EqualityComparer<T>.Default.Equals(value, (T)_lastValue))
             {

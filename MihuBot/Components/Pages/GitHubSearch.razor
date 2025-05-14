@@ -174,7 +174,8 @@
     {
         Configuration.TryGet(null, "GitHubSearch.ClassifierModel", out string modelName);
         _fastClassifierChat = OpenAI.GetChat(modelName ?? "gpt-4.1-mini");
-        _debouncer = new Debouncer<(string, bool)>(TimeSpan.FromMilliseconds(5), SearchAsync);
+        _debouncer = new Debouncer<(string, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
+        _debouncer.CancelPendingActions = true;
     }
 
     private async Task SearchAsync((string SearchQuery, bool DisableRelevanceClassification) state, CancellationToken cancellationToken)
@@ -210,7 +211,7 @@
 
                     if (!disableRelevanceClassification)
                     {
-                        resultsByIssue = await FilterOutUnrelatedResults(searchQuery, resultsByIssue);
+                        resultsByIssue = await FilterOutUnrelatedResults(searchQuery, resultsByIssue, cancellationToken);
                     }
 
                     _searchResults = resultsByIssue
@@ -224,10 +225,19 @@
         }
         catch (Exception ex)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             _errorMessage = ex.Message;
         }
 
-        await InvokeAsync(StateHasChanged);
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { }
 
         static double GetCombinedScore(GitHubSearchService.IssueSearchResult[] results)
         {
@@ -243,7 +253,7 @@
     }
 
     private async Task<(GitHubSearchService.IssueSearchResult[] Results, double Score)[]> FilterOutUnrelatedResults(
-        string searchQuery, (GitHubSearchService.IssueSearchResult[] Results, double Score)[] results)
+        string searchQuery, (GitHubSearchService.IssueSearchResult[] Results, double Score)[] results, CancellationToken cancellationToken)
     {
         searchQuery = searchQuery.Trim();
 
@@ -272,14 +282,14 @@
             {
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments));
+                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: cancellationToken);
 
                 Logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
 
                 return relevances.Result
                     .Where(s => s.Score > 0.1)
                     .ToArray();
-            });
+            }, cancellationToken: cancellationToken);
         }
 
         string GeneratePrompt(int issueCount, int bodyContext, int maxComments)
