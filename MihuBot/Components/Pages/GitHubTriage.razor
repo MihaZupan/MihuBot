@@ -195,7 +195,7 @@
 
     private void UpdateTriageOperation()
     {
-        _debouncer.Update((TriageIssueUrl, Model));
+        _debouncer.Update((TriageIssueUrl.Trim(), Model));
     }
 
     private void LogToolLine(string message)

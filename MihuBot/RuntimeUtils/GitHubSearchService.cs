@@ -60,15 +60,16 @@ public sealed class GitHubSearchService : IHostedService
     {
         query = query.Trim();
 
-        return await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{query.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
+        // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.
+        return await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
         {
-            ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: cancellationToken);
+            ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: CancellationToken.None);
 
             IVectorStoreRecordCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(SearchCollectionName);
 
             var results = new List<RawSearchResult>();
 
-            await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: cancellationToken))
+            await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: CancellationToken.None))
             {
                 if (item.Score.HasValue && item.Score > 0.1)
                 {
@@ -77,7 +78,7 @@ public sealed class GitHubSearchService : IHostedService
             }
 
             return results.ToArray();
-        }, cancellationToken: cancellationToken);
+        }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
     }
 
     public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, CancellationToken cancellationToken)
@@ -178,8 +179,6 @@ public sealed class GitHubSearchService : IHostedService
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
             cancellationToken = linkedCts.Token;
 
-            //using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
-            //using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
 
             int consecutiveFailureCount = 0;

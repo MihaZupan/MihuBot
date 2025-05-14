@@ -167,7 +167,7 @@
 
     private void RefreshSearchResults()
     {
-        _debouncer.Update((SearchQuery, DisableRelevanceClassification));
+        _debouncer.Update((SearchQuery.Trim(), DisableRelevanceClassification));
     }
 
     protected override void OnInitialized()
@@ -278,18 +278,18 @@
 
         async Task<IssueRelevance[]> GetRelevancesAsync(int issueCount, int bodyContext, int maxComments)
         {
-            return await Cache.GetOrCreateAsync($"/searchrelevance/{results.Length}-{issueCount}-{bodyContext}-{maxComments}/{searchQuery.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
+            return await Cache.GetOrCreateAsync($"/searchrelevance/{results.Length}-{issueCount}-{bodyContext}-{maxComments}/{searchQuery.GetUtf8Sha384HashBase64Url()}", async _ =>
             {
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: cancellationToken);
+                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: CancellationToken.None);
 
                 Logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
 
                 return relevances.Result
                     .Where(s => s.Score > 0.1)
                     .ToArray();
-            }, cancellationToken: cancellationToken);
+            }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
         }
 
         string GeneratePrompt(int issueCount, int bodyContext, int maxComments)

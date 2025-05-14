@@ -114,7 +114,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddMemoryCache(options =>
     {
-        options.SizeLimit = 512 * 1024 * 1024; // 512 MB
+        options.SizeLimit = 1024 * 1024 * 1024; // 1 GB
     });
 
     services.AddHybridCache(options =>
@@ -123,8 +123,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
         options.DefaultEntryOptions = new HybridCacheEntryOptions
         {
-            Expiration = TimeSpan.FromMinutes(15),
-            LocalCacheExpiration = TimeSpan.FromMinutes(15),
+            Expiration = TimeSpan.FromHours(12),
+            LocalCacheExpiration = TimeSpan.FromHours(12),
         };
     });
 
