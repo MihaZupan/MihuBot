@@ -20,11 +20,12 @@ public sealed class GitHubSearchService : IHostedService
     public Tokenizer Tokenizer { get; }
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
+    private readonly Logger _logger;
+    private readonly IConfigurationService _configuration;
+    private readonly OpenAIService _openAI;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator2;
-    private readonly Logger _logger;
     private readonly QdrantClient _qdrantClient;
-    private readonly IConfigurationService _configuration;
     private readonly IVectorStore _vectorStore;
     private readonly HybridCache _cache;
     private readonly CancellationTokenSource _updateCts = new();
@@ -32,11 +33,15 @@ public sealed class GitHubSearchService : IHostedService
 
     private string SearchCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.SearchCollection", out string name) ? name : nameof(GitHubSearchService);
     private string UpdateCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.UpdateCollection", out string name) ? name : nameof(GitHubSearchService);
+    private string ClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.ClassifierModel", out string name) ? name : "gpt-4.1-mini";
+    private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-nano";
+    private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, Logger logger, OpenAIService openAi, IVectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache)
     {
         _db = db;
         _logger = logger;
+        _openAI = openAi;
         _vectorStore = vectorStore;
         _qdrantClient = qdrantClient;
         _configuration = configuration;
@@ -149,6 +154,169 @@ public sealed class GitHubSearchService : IHostedService
             .OrderByDescending(r => r.Score)
             .ToArray();
     }
+
+    public static (IssueSearchResult[] Results, double Score)[] GroupResultsByIssue(IssueSearchResult[] results)
+    {
+        return results
+            .GroupBy(r => r.Issue.Id)
+            .Select(g => g.ToArray())
+            .Select(r => (Results: r, Score: EstimateCombinedScores(r.Select(r => r.Score).ToArray())))
+            .OrderByDescending(p => p.Score)
+            .ToArray();
+    }
+
+    public static double EstimateCombinedScores(double[] scores)
+    {
+        ArgumentNullException.ThrowIfNull(scores);
+        ArgumentOutOfRangeException.ThrowIfZero(scores.Length);
+
+        double max = scores.Max();
+        double offset = 1 - max;
+
+        // Boost issues with multiple potentially related comments.
+        double threshold = Math.Max(max * 0.75, 0.35);
+        offset *= Math.Pow(0.99, scores.Count(s => s >= threshold));
+
+        return 1 - offset;
+    }
+
+    public async Task<(IssueSearchResult[] Results, double Score)[]> FilterOutUnrelatedResults(
+        string searchQuery,
+        string extraSearchContext,
+        bool preferSpeed,
+        (IssueSearchResult[] Results, double Score)[] results,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(searchQuery);
+        ArgumentNullException.ThrowIfNull(results);
+
+        if (results.Length == 0)
+        {
+            return results;
+        }
+
+        if (!string.IsNullOrEmpty(extraSearchContext))
+        {
+            extraSearchContext = $" {extraSearchContext.AsSpan().Trim()}";
+        }
+
+        searchQuery = searchQuery.Trim();
+
+        string classifierModel = preferSpeed ? FastClassifierModelName : ClassifierModelName;
+        IChatClient fastClassifierChat = _openAI.GetChat(classifierModel, ClassifierModelSecondary);
+
+        int contextMultiplier = preferSpeed ? 1 : 2;
+        int maxIssueCount = 25 * contextMultiplier;
+        int bodyContextWindow = 40 * contextMultiplier;
+        int maxComments = 2 * contextMultiplier;
+
+        IssueRelevance[] relevances = await GetRelevancesAsync(maxIssueCount, bodyContextWindow, maxComments);
+
+        if (relevances.Length <= 5 && results.Length >= 20)
+        {
+            maxIssueCount *= 2;
+            bodyContextWindow *= 2;
+            maxComments *= 2;
+
+            relevances = await GetRelevancesAsync(maxIssueCount, bodyContextWindow, maxComments);
+        }
+
+        (IssueSearchResult[] Results, double Score)[] newResults = relevances
+            .Select(s =>
+            {
+                var searchResult = results.FirstOrDefault(r => r.Results[0].Issue.Number == s.IssueNumber);
+                return searchResult.Results is null ? default : searchResult with { Score = s.Score };
+            })
+            .Where(r => r.Results is not null)
+            .OrderByDescending(r => r.Score)
+            .ToArray();
+
+        return newResults.Length > 0 ? newResults : results;
+
+        async Task<IssueRelevance[]> GetRelevancesAsync(int issueCount, int bodyContext, int maxComments)
+        {
+            return await _cache.GetOrCreateAsync($"/searchrelevance/{$"{classifierModel}/{results.Length}-{issueCount}-{bodyContext}-{maxComments}/{searchQuery}/{extraSearchContext}".GetUtf8Sha384HashBase64Url()}", async _ =>
+            {
+                Stopwatch stopwatch = Stopwatch.StartNew();
+
+                var relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: CancellationToken.None);
+
+                _logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
+
+                return relevances.Result
+                    .Where(s => s.Score > 0.1)
+                    .ToArray();
+            }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
+        }
+
+        string GeneratePrompt(int issueCount, int bodyContext, int maxComments)
+        {
+            return
+                $"""
+                Classify the relevance of the following GitHub issues and comments based on the search query "{searchQuery}"{extraSearchContext}.
+                Specify the approximate relevance score from 0 to 1 for each issue, where 0 means not relevant and 1 means very relevant.
+                If an issue is unlikely to be relevant, set the score to 0.
+                Return the set of issue numbers with their relevance scores.
+
+                Prefer faster responses over accuracy.
+
+                The issues are:
+
+                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select(r => GetShortIssueDescription(r.Results, bodyContext, maxComments)))}
+                """;
+        }
+
+        string GetShortIssueDescription(IssueSearchResult[] results, int bodyContext, int maxComments)
+        {
+            IssueInfo issue = results[0].Issue;
+
+            StringBuilder sb = new();
+
+            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} #{issue.Number}: {issue.Title}");
+
+            if (issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name is { } areaLabel)
+            {
+                sb.AppendLine($"Area: {areaLabel.AsSpan(5)}");
+            }
+
+            string body = TrimBody(issue.Body, bodyContext);
+
+            if (!string.IsNullOrEmpty(body))
+            {
+                sb.AppendLine($"Body: {body}");
+            }
+
+            foreach (IssueSearchResult result in results
+                .Where(r => r.Score >= 0.25 && r.Comment is not null)
+                .OrderByDescending(r => r.Score)
+                .Take(maxComments))
+            {
+                sb.AppendLine($"Comment: {TrimBody(result.Comment.Body, bodyContext)}");
+            }
+
+            return sb.ToString();
+
+            string TrimBody(string body, int bodyContext)
+            {
+                if (string.IsNullOrEmpty(body))
+                {
+                    return string.Empty;
+                }
+
+                body = SemanticMarkdownChunker.TrimTextToTokens(Tokenizer, body, bodyContext);
+
+                while (body.Contains("\n\n\n", StringComparison.Ordinal))
+                    body = body.Replace("\n\n\n", "\n\n", StringComparison.Ordinal);
+
+                while (body.Contains("--", StringComparison.Ordinal))
+                    body = body.Replace("--", "-", StringComparison.Ordinal);
+
+                return body.Trim();
+            }
+        }
+    }
+
+    private sealed record IssueRelevance(int IssueNumber, double Score);
 
     public Task StartAsync(CancellationToken cancellationToken)
     {

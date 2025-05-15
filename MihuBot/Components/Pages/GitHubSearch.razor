@@ -1,15 +1,11 @@
 ﻿@page "/search"
-@using Microsoft.Extensions.AI
 @using MihuBot.DB.GitHub
 @using MihuBot.RuntimeUtils
 @using Octokit
+@using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult
 @rendermode InteractiveServer
 @inject GitHubDataService GitHubData
 @inject GitHubSearchService Search
-@inject HybridCache Cache
-@inject OpenAIService OpenAI
-@inject Logger Logger
-@inject IConfigurationService Configuration
 @implements IDisposable
 
 <PageTitle>GitHub Search</PageTitle>
@@ -139,7 +135,6 @@
             : "icon-issue-closed";
     }
 
-    private IChatClient _fastClassifierChat;
     private (IssueInfo Issue, double Score)[] _searchResults = [];
     private string _errorMessage;
     private Debouncer<(string Query, bool DsableRelevanceClassification)> _debouncer;
@@ -172,8 +167,6 @@
 
     protected override void OnInitialized()
     {
-        Configuration.TryGet(null, "GitHubSearch.ClassifierModel", out string modelName);
-        _fastClassifierChat = OpenAI.GetChat(modelName ?? "gpt-4.1-mini");
         _debouncer = new Debouncer<(string, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
         _debouncer.CancelPendingActions = true;
     }
@@ -201,17 +194,11 @@
                     var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 200, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
-                    (GitHubSearchService.IssueSearchResult[] Results, double Score)[] resultsByIssue = (await searchTask)
-                        .GroupBy(r => r.Issue.Id)
-                        .Select(g => g.ToArray())
-                        .Select(r => (Results: r, Score: GetCombinedScore(r)))
-                        .OrderByDescending(p => p.Score)
-                        .Take(100)
-                        .ToArray();
+                    (IssueSearchResult[] Results, double Score)[] resultsByIssue = GitHubSearchService.GroupResultsByIssue(await searchTask);
 
                     if (!disableRelevanceClassification)
                     {
-                        resultsByIssue = await FilterOutUnrelatedResults(searchQuery, resultsByIssue, cancellationToken);
+                        resultsByIssue = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: "", preferSpeed: true, resultsByIssue, cancellationToken);
                     }
 
                     _searchResults = resultsByIssue
@@ -238,128 +225,7 @@
             await InvokeAsync(StateHasChanged);
         }
         catch { }
-
-        static double GetCombinedScore(GitHubSearchService.IssueSearchResult[] results)
-        {
-            double max = results.Max(r => r.Score);
-            double offset = 1 - max;
-
-            // Boost issues with multiple potentially related comments.
-            double threshold = Math.Max(max * 0.75, 0.35);
-            offset *= Math.Pow(0.99, results.Count(r => r.Score >= threshold));
-
-            return 1 - offset;
-        }
-    }
-
-    private async Task<(GitHubSearchService.IssueSearchResult[] Results, double Score)[]> FilterOutUnrelatedResults(
-        string searchQuery, (GitHubSearchService.IssueSearchResult[] Results, double Score)[] results, CancellationToken cancellationToken)
-    {
-        searchQuery = searchQuery.Trim();
-
-        var relevances = await GetRelevancesAsync(issueCount: 20, bodyContext: 40, maxComments: 2);
-
-        if (relevances.Length <= 5 && results.Length >= 20)
-        {
-            relevances = await GetRelevancesAsync(issueCount: 50, bodyContext: 100, maxComments: 4);
-        }
-
-        var newResults = relevances
-            .Select(s =>
-            {
-                var searchResult = results.FirstOrDefault(r => r.Results[0].Issue.Number == s.IssueNumber);
-                return searchResult.Results is null ? default : searchResult with { Score = s.Score };
-            })
-            .Where(r => r.Results is not null)
-            .OrderByDescending(r => r.Score)
-            .ToArray();
-
-        return newResults.Length > 0 ? newResults : results;
-
-        async Task<IssueRelevance[]> GetRelevancesAsync(int issueCount, int bodyContext, int maxComments)
-        {
-            return await Cache.GetOrCreateAsync($"/searchrelevance/{results.Length}-{issueCount}-{bodyContext}-{maxComments}/{searchQuery.GetUtf8Sha384HashBase64Url()}", async _ =>
-            {
-                Stopwatch stopwatch = Stopwatch.StartNew();
-
-                var relevances = await _fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: CancellationToken.None);
-
-                Logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
-
-                return relevances.Result
-                    .Where(s => s.Score > 0.1)
-                    .ToArray();
-            }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
-        }
-
-        string GeneratePrompt(int issueCount, int bodyContext, int maxComments)
-        {
-            return
-                $"""
-                Classify the relevance of the following GitHub issues based on the search query "{searchQuery}".
-                Specify the approximate relevance score from 0 to 1 for each issue, where 0 means not relevant and 1 means very relevant.
-                If an issue is unlikely to be relevant, set the score to 0.
-                Return the set of issue numbers with their relevance scores.
-
-                Prefer faster responses over accuracy.
-
-                The issues are:
-
-                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select(r => GetShortIssueDescription(r.Results, bodyContext, maxComments)))}
-                """;
-        }
-
-        string GetShortIssueDescription(GitHubSearchService.IssueSearchResult[] results, int bodyContext, int maxComments)
-        {
-            IssueInfo issue = results[0].Issue;
-
-            StringBuilder sb = new();
-
-            sb.AppendLine($"Issue #{issue.Number}: {issue.Title}");
-
-            if (issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name is { } areaLabel)
-            {
-                sb.AppendLine($"Area: {areaLabel.AsSpan(5)}");
-            }
-
-            string body = TrimBody(issue.Body, bodyContext);
-
-            if (!string.IsNullOrEmpty(body))
-            {
-                sb.AppendLine($"Body: {body}");
-            }
-
-            foreach (var result in results
-                .Where(r => r.Score >= 0.25 && r.Comment is not null)
-                .OrderByDescending(r => r.Score)
-                .Take(maxComments))
-            {
-                sb.AppendLine($"Comment: {TrimBody(result.Comment.Body, bodyContext)}");
-            }
-
-            return sb.ToString();
-
-            string TrimBody(string body, int bodyContext)
-            {
-                if (string.IsNullOrEmpty(body))
-                {
-                    return string.Empty;
-                }
-
-                body = SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, body, bodyContext);
-
-                while (body.Contains("\n\n\n", StringComparison.Ordinal))
-                    body = body.Replace("\n\n\n", "\n\n", StringComparison.Ordinal);
-
-                while (body.Contains("--", StringComparison.Ordinal))
-                    body = body.Replace("--", "-", StringComparison.Ordinal);
-
-                return body.Trim();
-            }
-        }
     }
 
     public void Dispose() => _debouncer?.Dispose();
-
-    private record IssueRelevance(int IssueNumber, double Score);
 }

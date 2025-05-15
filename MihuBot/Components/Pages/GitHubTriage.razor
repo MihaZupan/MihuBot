@@ -8,8 +8,9 @@
 @using Octokit
 @using System.ComponentModel
 @using System.Collections.Concurrent
+@using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult
 @rendermode InteractiveServer
-@inject GitHubSearchService GitHubSearchService
+@inject GitHubSearchService Search
 @inject IDbContextFactory<GitHubDbContext> GitHubDb
 @inject GitHubClient GitHubClient
 @inject OpenAIService OpenAIService
@@ -230,7 +231,7 @@
 
             LogToolLine($"Starting triage for issue #{issueNumber} with model {model.Name} ...");
 
-            IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: true, cancellationToken);
+            IssueInfo issue = await GetIssueAsync(issueNumber, cancellationToken);
 
             if (issue is null)
             {
@@ -264,8 +265,8 @@
             {
                 Tools =
                 [
-                    AIFunctionFactory.Create(Search),
-                    AIFunctionFactory.Create(GetIssueCommentHistory),
+                    AIFunctionFactory.Create(SearchDotnetRuntimeAsync),
+                    AIFunctionFactory.Create(GetCommentHistoryAsync),
                 ],
                 ToolMode = ChatToolMode.RequireAny
             };
@@ -316,6 +317,8 @@
                 }
             }
 
+            Logger.DebugLog($"Triage: Finished triaging issue #{issue.Number} with model {model.Name}:\n{markdownResponse}");
+
             _htmlResponse = ConvertMarkdownToHtml(markdownResponse, partial: false);
             await stateChangedTask;
         }
@@ -356,45 +359,39 @@
         }
     }
 
-    private async Task<IssueInfo> GetIssueAsync(int issueNumber, bool includeComments, CancellationToken cancellationToken)
+    private async Task<IssueInfo> GetIssueAsync(int issueNumber, CancellationToken cancellationToken)
     {
         await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-        IQueryable<IssueInfo> query = db.Issues
+        return await db.Issues
             .AsNoTracking()
             .Where(i => i.Number == issueNumber)
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
-            .Include(i => i.Repository);
-
-        if (includeComments)
-        {
-            query = query.Include(i => i.Comments).ThenInclude(c => c.User);
-        }
-
-        return await query
+            .Include(i => i.Repository)
+            .Include(i => i.Comments)
+                .ThenInclude(c => c.User)
             .AsSplitQuery()
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    [Description("Get the full history of comments on a specific issue.")]
-    private async Task<string[]> GetIssueCommentHistory(
-        [Description("The issue number to get comments for.")] int issueNumber,
+    [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
+    private async Task<string[]> GetCommentHistoryAsync(
+        [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
         CancellationToken cancellationToken)
     {
-        IssueInfo issue = await GetIssueAsync(issueNumber, includeComments: true, cancellationToken);
+        IssueInfo issue = await GetIssueAsync(issueOrPRNumber, cancellationToken);
 
         if (issue is null)
         {
-            LogToolLine($"[Tool] Issue #{issueNumber} not found.");
-            return ["No issue found."];
+            LogToolLine($"[Tool] Issue #{issueOrPRNumber} not found.");
+            return [$"Issue #{issueOrPRNumber} does not appear to exist."];
         }
 
         var comments = issue.Comments
             .OrderByDescending(c => c.CreatedAt)
             .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c))
-            .Select(c => CreateCommentText(c.CreatedAt, c.User, c.Body, issue, c))
             .ToArray();
 
         int maxComments = UsingLargeContextWindow ? 200 : 50;
@@ -408,18 +405,20 @@
 
         var originalIssue = CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null);
 
-        return [originalIssue, .. comments];
+        return [originalIssue, .. comments.Select(c => CreateCommentText(c.CreatedAt, c.User, c.Body, issue, c))];
     }
 
-    [Description("Perform a set of semantic searches over issues and comments. Every term represents an independent search.")]
-    private async Task<string[]> Search(
+    [Description(
+        "Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository." +
+        " Every term represents an independent search.")]
+    private async Task<string[]> SearchDotnetRuntimeAsync(
         [Description("The set of terms to search for.")] string[] searchTerms,
         CancellationToken cancellationToken)
     {
         LogToolLine($"[Tool] Searching for {string.Join(", ", searchTerms)}");
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        List<GitHubSearchService.IssueSearchResult> searchResults = new();
+        List<(IssueSearchResult[] Results, double Score)> searchResults = new();
 
         int maxTotalResults = UsingLargeContextWindow
             ? Math.Clamp(searchTerms.Length * 50, 75, 200)
@@ -428,18 +427,35 @@
 
         await Parallel.ForEachAsync(searchTerms, async (term, _) =>
         {
-            var localResults = await GitHubSearchService.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, cancellationToken);
+            var localResults = (await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, cancellationToken))
+                .Where(r => r.Score > 0.25)
+                .Where(r => r.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(r.Issue, r.Comment))
+                .ToArray();
+
+            var resultsByIssueId = GitHubSearchService.GroupResultsByIssue(localResults);
+
+            try
+            {
+                resultsByIssueId = await Search.FilterOutUnrelatedResults(term, $"on issue titled '{_currentIssue?.Title}'", preferSpeed: false, resultsByIssueId, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Triage: Error filtering unrelated results: {ex.Message}");
+            }
 
             lock (searchResults)
             {
-                searchResults.AddRange(localResults);
+                searchResults.AddRange(resultsByIssueId);
             }
         });
 
-        searchResults = searchResults
-            .Where(r => r.Score > 0.25)
-            .DistinctBy(r => (r.Issue.Id, r.Comment?.Id ?? 0))
-            .ToList();
+        var combinedResults = searchResults
+            .GroupBy(r => r.Results[0].Issue.Id)
+            .Select(g => (
+                Score: GitHubSearchService.EstimateCombinedScores(g.Select(r => r.Score).ToArray()),
+                Results: g.SelectMany(r => r.Results).DistinctBy(e => e.Comment?.Id).OrderBy(e => e.Comment?.CreatedAt ?? e.Issue.CreatedAt).ToArray()))
+            .OrderByDescending(g => g.Score)
+            .ToArray();
 
         List<string> results = [];
 
@@ -450,53 +466,74 @@
         foreach (string term in searchTerms)
         {
             if (GitHubHelper.TryParseIssueOrPRNumber(term, dotnetRuntimeOnly: true, out int issueNumber) &&
-                await GetIssueAsync(issueNumber, includeComments: false, cancellationToken) is { } singleIssue)
+                await GetIssueAsync(issueNumber, cancellationToken) is { } singleIssue)
             {
                 issueReferences++;
-                results.Add(GetComment(score: 1, singleIssue, singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, comment: null));
+
+                results.Add(
+                    $"""
+                    {GetIssueHeader(score: 1, singleIssue)}
+                    {CreateCommentText(singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, comment: null)}
+                    """);
             }
         }
 
-        List<(string InfoText, double Score)> gitHubIssueResults = searchResults
-            .Where(r => r.Issue.Id != _currentIssue?.Id)
+        string[] gitHubIssueResults = combinedResults
             .Select(r =>
             {
-                if (r.Comment is null)
+                IssueSearchResult[] results = r.Results;
+                bool hasIssue = results.Any(r => r.Comment is null);
+
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine(GetIssueHeader(r.Score, results[0].Issue));
+
+                if (results.FirstOrDefault(r => r.Comment is null)?.Issue is { } issue)
                 {
                     searchIssues++;
+                    sb.AppendLine();
+                    sb.AppendLine(CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null));
                 }
-                else
+
+                foreach (IssueSearchResult result in results)
                 {
-                    searchComments++;
+                    if (result.Comment is { } comment)
+                    {
+                        searchComments++;
+                        sb.AppendLine();
+                        sb.AppendLine(CreateCommentText(comment.CreatedAt, comment.User, comment.Body, result.Issue, comment));
+                    }
                 }
 
-                string issueResult = r.Comment is null
-                    ? GetComment(r.Score, r.Issue, r.Issue.CreatedAt, r.Issue.User, r.Issue.Body, comment: null)
-                    : GetComment(r.Score, r.Issue, r.Comment.CreatedAt, r.Comment.User, r.Comment.Body, r.Comment);
-
-                return (issueResult, r.Score);
+                return sb.ToString();
             })
-            .ToList();
+            .Take(maxTotalResults)
+            .ToArray();
 
-        results.AddRange(gitHubIssueResults
-            .Where(r => !string.IsNullOrEmpty(r.InfoText))
-            .OrderByDescending(r => r.Score)
-            .Select(r => r.InfoText)
-            .Take(maxTotalResults));
+        results.AddRange(gitHubIssueResults);
 
         LogToolLine($"[Tool] Found {searchIssues} issues, {searchComments} comments, {results.Count} returned results ({(int)stopwatch.ElapsedMilliseconds} ms)");
 
         return [.. results];
 
-        string GetComment(double score, IssueInfo issue, DateTimeOffset createdAt, UserInfo author, string text, CommentInfo comment)
+        string GetIssueHeader(double score, IssueInfo issue)
         {
-            string issueSuffix = comment is not null ? "" : $"({issue.Comments.Count} total comments)";
+            string type = "Issue";
+            string suffix = "";
+
+            if (issue.PullRequest is { } pullRequest)
+            {
+                type = "Pull request";
+
+                if (!pullRequest.MergedAt.HasValue && issue.State == ItemState.Closed)
+                {
+                    suffix = ", never got merged";
+                }
+            }
 
             return
                 $"""
                 Simmilarity score: {score:F2}
-                Issue #{issue.Number} - {issue.Title}{issueSuffix}:
-                {CreateCommentText(createdAt, author, text, issue, comment)}
+                {type} #{issue.Number} - '{issue.Title}' by {issue.User.Login} ({issue.Comments.Count} total comments{suffix}):
                 """;
         }
     }
@@ -504,21 +541,18 @@
     private string CreateCommentText(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, CommentInfo comment)
     {
         string authorSuffix = s_networkingTeam.Contains(author.Login)
-            ? $" (member of the .NET networking team)"
+            ? " (member of the .NET networking team)"
             : string.Empty;
 
         return
             $"""
-            {author.Login}{authorSuffix} commented on {createdAt:yyyy-MM-dd}:
-            {SemanticMarkdownChunker.TrimTextToTokens(GitHubSearchService.Tokenizer, text, 1_000)}
-
+            {author.Login}{authorSuffix} {(comment is null ? "wrote" : "commented")} on {createdAt:yyyy-MM-dd}:
+            {SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, 2_000)}
             {FormatReactions(issue, comment)}
             """.Trim(' ', '\t', '\n', '\r');
 
         static string FormatReactions(IssueInfo issue, CommentInfo comment)
         {
-            string result = string.Empty;
-
             int positive =
                 (comment?.Plus1 ?? issue.Plus1) +
                 (comment?.Heart ?? issue.Heart) +
@@ -529,17 +563,12 @@
                 (comment?.Minus1 ?? issue.Minus1) +
                 (comment?.Confused ?? issue.Confused);
 
-            if (positive > 0)
+            if (positive > 0 || negative > 0)
             {
-                result += $"Community upvotes: {positive}\n";
+                return $"Community reacted with {positive} upvotes, {negative} downvotes";
             }
 
-            if (negative > 0)
-            {
-                result += $"Community downvotes: {negative}\n";
-            }
-
-            return result;
+            return string.Empty;
         }
     }
 
