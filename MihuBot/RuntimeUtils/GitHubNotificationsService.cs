@@ -32,7 +32,7 @@ public sealed partial class GitHubNotificationsService
         ConfigurationService = configurationService;
     }
 
-    public async Task<bool> ProcessGitHubMentionAsync(CommentInfo comment, Issue issue = null)
+    public async Task<bool> ProcessGitHubMentionAsync(CommentInfo comment)
     {
         bool enabledAny = false;
 
@@ -68,20 +68,6 @@ public sealed partial class GitHubNotificationsService
                     continue;
                 }
 
-                if (issue is null)
-                {
-                    try
-                    {
-                        issue = await Github.Issue.Get(comment.Issue.RepositoryId, comment.Issue.Number);
-                    }
-                    catch (NotFoundException)
-                    {
-                        _processedMentions.TryAdd(duplicationKey);
-                        Logger.DebugLog($"Skipping notifications on {issue.HtmlUrl} for {user.Name} - issue not found");
-                        continue;
-                    }
-                }
-
                 enabledAny = true;
                 bool failed = false;
 
@@ -92,11 +78,11 @@ public sealed partial class GitHubNotificationsService
                         new InMemoryCredentialStore(user.Token),
                         Http);
 
-                    await connection.EnableIssueNotifiactionsAsync(issue);
+                    await connection.EnableIssueNotifiactionsAsync(comment.Issue.NodeIdentifier);
 
                     _processedMentions.TryAdd(duplicationKey);
 
-                    Logger.DebugLog($"Enabled notifications on {issue.HtmlUrl} for {user.Name}");
+                    Logger.DebugLog($"Enabled notifications on {comment.Issue.HtmlUrl} for {user.Name}");
                 }
                 catch (Exception ex)
                 {
@@ -112,7 +98,7 @@ public sealed partial class GitHubNotificationsService
                         {
                             usersJson[user.Name] = existingUser with
                             {
-                                LastSubscribedIssue = issue.HtmlUrl,
+                                LastSubscribedIssue = comment.Issue.HtmlUrl,
                                 ErrorCount = failed ? existingUser.ErrorCount + 1 : 0,
                             };
                         }

@@ -163,6 +163,7 @@ public sealed class NclMentionsCommand : CommandBase
             Issue = new DB.GitHub.IssueInfo
             {
                 Number = issue.Number,
+                NodeIdentifier = issue.NodeId,
                 HtmlUrl = issue.HtmlUrl,
                 Repository = new DB.GitHub.RepositoryInfo
                 {

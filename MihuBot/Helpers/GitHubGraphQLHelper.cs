@@ -5,12 +5,12 @@ namespace MihuBot.Helpers;
 
 public static class GitHubGraphQLHelper
 {
-    public static async Task EnableIssueNotifiactionsAsync(this Connection connection, Octokit.Issue issue)
+    public static async Task EnableIssueNotifiactionsAsync(this Connection connection, string nodeId)
     {
         var mutation = new Mutation()
             .UpdateSubscription(new UpdateSubscriptionInput
             {
-                SubscribableId = new ID(issue.NodeId),
+                SubscribableId = new ID(nodeId),
                 State = SubscriptionState.Subscribed
             })
             .Select(x => new
