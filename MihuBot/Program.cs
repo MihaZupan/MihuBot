@@ -28,6 +28,7 @@ using Octokit;
 using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
+using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -344,6 +345,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
             policy.RequireAssertion(context =>
                 context.User.TryGetGitHubLogin(out _)));
 
+    services.AddSingleton<IProxyConfigFilter, YarpConfigFilter>();
+
     services.AddTunnelServices();
 
     services.AddReverseProxy()
@@ -445,7 +448,7 @@ static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
     };
 }
 
-sealed class IPLoggerMiddleware : IMiddleware
+file sealed class IPLoggerMiddleware : IMiddleware
 {
     private readonly ILogger<IPLoggerMiddleware> _logger;
 
@@ -461,6 +464,30 @@ sealed class IPLoggerMiddleware : IMiddleware
             connection.Id, connection.RemoteIpAddress, connection.LocalPort);
 
         return next(context);
+    }
+}
+
+file sealed class YarpConfigFilter(IConfigurationService configuration) : IProxyConfigFilter
+{
+    public ValueTask<ClusterConfig> ConfigureClusterAsync(ClusterConfig cluster, CancellationToken cancel)
+    {
+        if (cluster.ClusterId.StartsWith("internal.", StringComparison.Ordinal))
+        {
+            cluster = cluster with
+            {
+                Destinations = new Dictionary<string, DestinationConfig>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["default"] = new DestinationConfig { Address = configuration.Get(null, $"YarpConfig.{cluster.ClusterId}") }
+                }
+            };
+        }
+
+        return new ValueTask<ClusterConfig>(cluster);
+    }
+
+    public ValueTask<RouteConfig> ConfigureRouteAsync(RouteConfig route, ClusterConfig cluster, CancellationToken cancel)
+    {
+        return new ValueTask<RouteConfig>(route);
     }
 }
 
