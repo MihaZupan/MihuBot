@@ -24,10 +24,10 @@ public sealed class ImagineCommand : CommandBase
     public override Task HandleAsync(MessageContext ctx)
     {
         if (ctx.Content.Equals("imagine", StringComparison.OrdinalIgnoreCase) &&
-            GetContentFromMessageReference(ctx) is { } prompt &&
+            GetContentFromMessageReference(ctx) is { Content: not null } prompt &&
             TryEnter(ctx))
         {
-            return ExecuteAsync(ctx, prompt);
+            return ExecuteAsync(ctx, prompt.Content);
         }
 
         return Task.CompletedTask;
@@ -38,7 +38,7 @@ public sealed class ImagineCommand : CommandBase
         await ExecuteAsync(ctx, ctx.ArgumentStringTrimmed);
     }
 
-    private static string GetContentFromMessageReference(MessageContext ctx)
+    public static (string Content, SocketGuildUser Author) GetContentFromMessageReference(MessageContext ctx)
     {
         if (ctx.Message.ReferencedMessage is { } referencedMessage &&
             referencedMessage.Content is not null &&
@@ -46,17 +46,17 @@ public sealed class ImagineCommand : CommandBase
             !string.IsNullOrWhiteSpace(cleanContent) &&
             referencedMessage.Attachments is null or { Count: 0 })
         {
-            return cleanContent;
+            return (cleanContent, ctx.Author);
         }
 
-        return null;
+        return (null, null);
     }
 
     private async Task ExecuteAsync(MessageContext ctx, string prompt)
     {
         if (string.IsNullOrWhiteSpace(prompt))
         {
-            prompt = GetContentFromMessageReference(ctx);
+            prompt = GetContentFromMessageReference(ctx).Content;
         }
 
         if (string.IsNullOrWhiteSpace(prompt))
