@@ -235,6 +235,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<GitHubSearchService>();
     services.AddHostedService(s => s.GetRequiredService<GitHubSearchService>());
 
+    services.AddSingleton<IssueTriageHelper>();
+
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 
