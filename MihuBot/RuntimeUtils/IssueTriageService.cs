@@ -95,6 +95,8 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
             .Take(50)
             .ToArrayAsync(cancellationToken);
 
+        int triaged = 0;
+
         foreach (long issueId in issueIds)
         {
             IssueInfo issue = await TriageHelper.GetIssueAsync(issues => issues.Where(i => i.Id == issueId), cancellationToken);
@@ -116,14 +118,16 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 triagedIssue.Body = issue.Body;
 
                 await TriageIssueAsync(issue, triagedIssue, cancellationToken);
+
+                triaged++;
             }
 
             await db.SaveChangesAsync(CancellationToken.None);
         }
 
-        if (issueIds.Length != 0)
+        if (triaged > 0)
         {
-            Logger.DebugLog($"[{nameof(IssueTriageService)}]: {issueIds.Length} issues triaged/skipped.");
+            Logger.DebugLog($"[{nameof(IssueTriageService)}]: {issueIds.Length} issues triaged.");
         }
     }
 
