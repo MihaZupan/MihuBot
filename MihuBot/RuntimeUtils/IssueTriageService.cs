@@ -118,6 +118,11 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
             await db.SaveChangesAsync(CancellationToken.None);
         }
+
+        if (issueIds.Length != 0)
+        {
+            Logger.DebugLog($"[{nameof(IssueTriageService)}]: {issueIds.Length} issues triaged/skipped.");
+        }
     }
 
     private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, CancellationToken cancellationToken)
