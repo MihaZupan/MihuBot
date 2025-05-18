@@ -37,9 +37,9 @@
                     DB.LogDbEntry[] logs = await Logger.GetLogsAsync(
                         DateTime.UtcNow - TimeSpan.FromDays(1),
                         DateTime.UtcNow + TimeSpan.FromSeconds(5),
-                        query: q => q.TakeLast(NumLines));
+                        query: q => q.OrderByDescending(l => l.Snowflake).Take(NumLines));
 
-                    foreach (var log in logs)
+                    foreach (var log in logs.Reverse())
                     {
                         int beforeLength = sb.Length;
                         log.ToString(sb, Discord);
