@@ -109,6 +109,8 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
             triagedIssue.UpdatedAt = DateTime.UtcNow;
 
             if (issue.CreatedAt >= new DateTime(2025, 05, 18) &&
+                issue.State == ItemState.Open &&
+                issue.PullRequest is null &&
                 !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
             {
                 triagedIssue.Body = issue.Body;
