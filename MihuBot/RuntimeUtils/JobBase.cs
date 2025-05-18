@@ -22,8 +22,8 @@ public abstract class JobBase
 {
     protected TimeSpan MaxJobDuration { get; set; } = TimeSpan.FromHours(5);
 
-    protected const string IssueRepositoryOwner = "MihuBot";
-    protected const string IssueRepositoryName = "runtime-utils";
+    public const string IssueRepositoryOwner = "MihuBot";
+    public const string IssueRepositoryName = "runtime-utils";
     protected const int CommentLengthLimit = 65_000;
     protected const int IdleTimeoutMs = 5 * 60 * 1000;
 

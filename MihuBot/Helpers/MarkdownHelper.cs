@@ -161,7 +161,7 @@ public static partial class MarkdownHelper
         }
     }
 
-    public static void ReplaceIssueReferencesWithLinks(this MarkdownDocument document, string repoOwnerAndName)
+    public static void ReplaceGitHubIssueReferencesWithLinks(this MarkdownDocument document, string repoOwnerAndName)
     {
         foreach (LiteralInline originalLiteral in document.Descendants<LiteralInline>())
         {
@@ -198,6 +198,46 @@ public static partial class MarkdownHelper
         }
     }
 
+    public static void ReplaceGitHubUserMentionsWithLinks(this MarkdownDocument document)
+    {
+        foreach (LiteralInline originalLiteral in document.Descendants<LiteralInline>())
+        {
+            if (originalLiteral.Parent is LinkInline)
+            {
+                continue;
+            }
+
+            LiteralInline literal = originalLiteral;
+
+            while (literal.Content.AsSpan().Contains('@'))
+            {
+                StringSlice slice = literal.Content;
+
+                string content = slice.ToString();
+
+                if (GitHubUserMentionRegex().Match(content) is not { Success: true } match)
+                {
+                    break;
+                }
+
+                string userLogin = match.Groups[1].Value;
+
+                literal.InsertBefore(new LiteralInline(new StringSlice(content, 0, match.Index - 1)));
+
+                var link = new LinkInline { Url = $"https://github.com/{userLogin}" };
+                link.AppendChild(new LiteralInline(match.Value));
+                literal.InsertBefore(link);
+
+                var newLiteral = new LiteralInline(new StringSlice(content, match.Index + match.Length, content.Length - 1));
+                literal.ReplaceBy(newLiteral);
+                literal = newLiteral;
+            }
+        }
+    }
+
     [GeneratedRegex(@"#(\d{3,8})(?:[^\d]|$)")]
     private static partial Regex IssueNumberRegex();
+
+    [GeneratedRegex(@"@([a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38})")]
+    private static partial Regex GitHubUserMentionRegex();
 }

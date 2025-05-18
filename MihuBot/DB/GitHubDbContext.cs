@@ -16,6 +16,7 @@ public sealed class GitHubDbContext : DbContext
     public DbSet<LabelInfo> Labels { get; set; }
     public DbSet<BodyEditHistoryEntry> BodyEditHistory { get; set; }
     public DbSet<IngestedEmbeddingRecord> IngestedEmbeddings { get; set; }
+    public DbSet<TriagedIssueRecord> TriagedIssues { get; set; }
 }
 
 [Table("issues")]
@@ -189,4 +190,17 @@ public sealed class IngestedEmbeddingRecord
     public Guid Id { get; set; }
     public long ResourceIdentifier { get; set; }
     public DateTime UpdatedAt { get; set; }
+}
+
+[Table("triaged_issues")]
+[Index(nameof(IssueId))]
+public sealed class TriagedIssueRecord
+{
+    public long Id { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public string Body { get; set; }
+    public int TriageReportIssueNumber { get; set; }
+
+    public long IssueId { get; set; }
+    public IssueInfo Issue { get; set; }
 }

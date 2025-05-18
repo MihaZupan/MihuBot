@@ -35,15 +35,24 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
     public async Task<IssueInfo> GetIssueAsync(int issueNumber, CancellationToken cancellationToken)
     {
+        return await GetIssueAsync(issues => issues.Where(i => i.Number == issueNumber), cancellationToken);
+    }
+
+    public async Task<IssueInfo> GetIssueAsync(Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> query, CancellationToken cancellationToken)
+    {
         await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-        return await db.Issues
-            .AsNoTracking()
-            .Where(i => i.Number == issueNumber)
+        IQueryable<IssueInfo> issues = db.Issues
+            .AsNoTracking();
+
+        issues = query(issues);
+
+        return await issues
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
             .Include(i => i.Repository)
+                .ThenInclude(r => r.Owner)
             .Include(i => i.Comments)
                 .ThenInclude(c => c.User)
             .AsSplitQuery()
@@ -162,7 +171,9 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 MarkdownHelper.FixUpPartialDocument(document);
             }
 
-            MarkdownHelper.ReplaceIssueReferencesWithLinks(document, "dotnet/runtime");
+            MarkdownHelper.ReplaceGitHubIssueReferencesWithLinks(document, "dotnet/runtime");
+
+            MarkdownHelper.ReplaceGitHubUserMentionsWithLinks(document);
 
             return document.ToHtmlAdvanced();
         }

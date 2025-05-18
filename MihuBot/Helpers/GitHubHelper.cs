@@ -115,9 +115,13 @@ public static partial class GitHubHelper
             : gitHub.Reaction.IssueComment.Create(comment.RepoOwner(), comment.RepoName(), comment.Id, reaction));
     }
 
-    public static string RepoOwner(this CommentInfo comment) => comment.Issue.Repository.Owner.Login;
+    public static string RepoOwner(this IssueInfo issue) => issue.Repository.Owner.Login;
 
-    public static string RepoName(this CommentInfo comment) => comment.Issue.Repository.Name;
+    public static string RepoName(this IssueInfo issue) => issue.Repository.Name;
+
+    public static string RepoOwner(this CommentInfo comment) => comment.Issue.RepoOwner();
+
+    public static string RepoName(this CommentInfo comment) => comment.Issue.RepoName();
 }
 
 public record BranchReference(string Repository, Branch Branch);
