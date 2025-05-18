@@ -113,6 +113,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
             if (issue.CreatedAt >= new DateTime(2025, 05, 18) &&
                 issue.State == ItemState.Open &&
                 issue.PullRequest is null &&
+                !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
             {
                 triagedIssue.Body = issue.Body;
