@@ -7,7 +7,8 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class GitHubDataService : IHostedService
 {
-    private const int GhostUserId = 10137;
+    public const int GhostUserId = 10137;
+    public const int CopilotUserId = 198982749;
 
     private static readonly TimeSpan UserInfoRefreshInterval = TimeSpan.FromDays(5);
     private static readonly TimeSpan RepositoryInfoRefreshInterval = TimeSpan.FromHours(1);
@@ -642,8 +643,11 @@ public sealed class GitHubDataService : IHostedService
 
             try
             {
-                apiCallsPerformed++;
-                user = await _github.User.Get(user.Login);
+                if (user.Id is not (GhostUserId or CopilotUserId))
+                {
+                    apiCallsPerformed++;
+                    user = await _github.User.Get(user.Login);
+                }
             }
             catch (NotFoundException)
             {

@@ -22,6 +22,7 @@ public sealed class GitHubDbContext : DbContext
 [Table("issues")]
 [Index(nameof(Number))]
 [Index(nameof(UpdatedAt))]
+[Index(nameof(CreatedAt))]
 public sealed class IssueInfo
 {
     public long Id { get; set; }

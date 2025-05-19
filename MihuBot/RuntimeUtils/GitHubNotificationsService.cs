@@ -1,9 +1,10 @@
-﻿using MihuBot.Configuration;
+﻿using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using Newtonsoft.Json;
 using Octokit;
 using Octokit.GraphQL.Internal;
-using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -22,14 +23,21 @@ public sealed partial class GitHubNotificationsService
     private readonly Logger Logger;
     public readonly GitHubClient Github;
     private readonly HttpClient Http;
-    private readonly IConfigurationService ConfigurationService;
+    private readonly IConfigurationService Configuration;
+    private readonly IDbContextFactory<GitHubDbContext> _db;
 
-    public GitHubNotificationsService(Logger logger, GitHubClient github, HttpClient http, IConfigurationService configurationService)
+    public GitHubNotificationsService(Logger logger, GitHubClient github, HttpClient http, IConfigurationService configurationService, IDbContextFactory<GitHubDbContext> db)
     {
         Logger = logger;
         Github = github;
         Http = http;
-        ConfigurationService = configurationService;
+        Configuration = configurationService;
+        _db = db;
+
+        using (ExecutionContext.SuppressFlow())
+        {
+            _ = Task.Run(MonitorNetworkingIssuesWithoutNclMentionAsync);
+        }
     }
 
     public async Task<bool> ProcessGitHubMentionAsync(CommentInfo comment)
@@ -38,7 +46,7 @@ public sealed partial class GitHubNotificationsService
 
         try
         {
-            if (ConfigurationService.GetOrDefault(null, "RuntimeUtils.NclNotifications.Disable", false))
+            if (Configuration.GetOrDefault(null, "RuntimeUtils.NclNotifications.Disable", false))
             {
                 return enabledAny;
             }
@@ -166,6 +174,95 @@ public sealed partial class GitHubNotificationsService
         finally
         {
             _users.Exit();
+        }
+    }
+
+    private async Task MonitorNetworkingIssuesWithoutNclMentionAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+
+            int consecutiveFailureCount = 0;
+
+            while (await timer.WaitForNextTickAsync())
+            {
+                try
+                {
+                    if (Configuration.GetOrDefault(null, $"{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}.Pause", false))
+                    {
+                        continue;
+                    }
+
+                    await using GitHubDbContext db = _db.CreateDbContext();
+
+                    DateTime start = DateTime.UtcNow - TimeSpan.FromDays(7);
+                    DateTime end = DateTime.UtcNow - TimeSpan.FromMinutes(10);
+
+                    IssueInfo[] networkingIssues = await db.Issues
+                        .AsNoTracking()
+                        .Where(i => i.CreatedAt >= start && i.CreatedAt <= end)
+                        .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
+                        .Where(i => i.PullRequest == null)
+                        .Include(i => i.Comments)
+                        .Take(1000)
+                        .AsSplitQuery()
+                        .ToArrayAsync();
+
+                    foreach (IssueInfo issue in networkingIssues)
+                    {
+                        if (issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+
+                        if (!_processedMentions.TryAdd($"NoNCLMention/{issue.HtmlUrl}"))
+                        {
+                            continue;
+                        }
+
+                        IReadOnlyList<IssueComment> updatedComments;
+                        try
+                        {
+                            updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.DebugLog($"Failed to get issue {issue.HtmlUrl}: {ex}");
+                            continue;
+                        }
+
+                        if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+
+                        Logger.DebugLog($"[{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}]: No NCL mention in {issue.HtmlUrl}");
+
+                        await Github.Issue.Comment.Create(issue.RepositoryId, issue.Number, "cc: @dotnet/ncl");
+                    }
+
+                    consecutiveFailureCount = 0;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveFailureCount++;
+
+                    string errorMessage = $"{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}: ({consecutiveFailureCount}): {ex}";
+                    Logger.DebugLog(errorMessage);
+
+                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount);
+
+                    if (consecutiveFailureCount == 2)
+                    {
+                        await Logger.DebugAsync(errorMessage);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Unexpected exception: {ex}");
         }
     }
 

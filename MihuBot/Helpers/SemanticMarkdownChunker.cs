@@ -4,6 +4,7 @@ using Markdig.Syntax;
 using Microsoft.ML.Tokenizers;
 using Microsoft.SemanticKernel.Text;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils;
 
 #nullable enable
 
@@ -194,7 +195,7 @@ public static class SemanticMarkdownChunker
         markdown = markdown.ReplaceLineEndings("\n");
         markdown = markdown.Trim();
 
-        if (author.Login.EndsWith("[bot]", StringComparison.Ordinal))
+        if (author.Login.EndsWith("[bot]", StringComparison.Ordinal) || author.Id == GitHubDataService.CopilotUserId)
         {
             return true;
         }

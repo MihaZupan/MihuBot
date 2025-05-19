@@ -221,14 +221,14 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<HetznerClient>();
 
-    services.AddSingleton<GitHubNotificationsService>();
-
     services.AddSingleton<CoreRootService>();
 
     services.AddSingleton<RegexSourceGenerator>();
 
     services.AddSingleton<GitHubDataService>();
     services.AddHostedService(s => s.GetRequiredService<GitHubDataService>());
+
+    services.AddSingleton<GitHubNotificationsService>();
 
     builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
     builder.Services.AddSingleton<IVectorStore, QdrantVectorStore>();
