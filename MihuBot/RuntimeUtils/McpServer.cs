@@ -5,7 +5,7 @@ using ModelContextProtocol.Server;
 namespace MihuBot.RuntimeUtils;
 
 [McpServerToolType]
-public sealed class McpServer(IssueTriageHelper TriageHelper)
+public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
 {
     private const string UserLogin = "MihuBot-McpServer";
 
@@ -15,6 +15,8 @@ public sealed class McpServer(IssueTriageHelper TriageHelper)
         [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
         CancellationToken cancellationToken)
     {
+        Logger.DebugLog($"[MCP]: {nameof(GetCommentHistory)} for {issueOrPRNumber}");
+
         return await TriageHelper.GetCommentHistoryAsync(TriageHelper.DefaultModel, UserLogin, issueOrPRNumber, cancellationToken);
     }
 

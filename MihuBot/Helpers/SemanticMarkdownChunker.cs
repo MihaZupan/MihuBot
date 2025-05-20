@@ -177,13 +177,13 @@ public static class SemanticMarkdownChunker
         }
     }
 
-    public static bool IsUnlikelyToBeUseful(IssueInfo issue, CommentInfo comment)
+    public static bool IsUnlikelyToBeUseful(IssueInfo issue, CommentInfo comment, bool removeSectionsWithoutContext = true)
     {
         string body = comment.Body;
 
         return string.IsNullOrWhiteSpace(body)
             || IsLikelySpam(issue, comment, ref body)
-            || IsSectionWithoutContext(body);
+            || (removeSectionsWithoutContext && IsSectionWithoutContext(body));
     }
 
     private static bool IsLikelySpam(IssueInfo issue, CommentInfo? comment, ref string markdown)

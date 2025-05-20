@@ -40,7 +40,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
     {
         Context context = CreateContext(model, requesterLogin);
 
-        return await context.GetCommentHistoryAsync(issueOrPRNumber, cancellationToken);
+        return await context.GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: false, cancellationToken);
     }
 
     public async Task<string[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
@@ -198,9 +198,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         }
 
         [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
-        public async Task<string[]> GetCommentHistoryAsync(
+        private async Task<string[]> GetCommentHistoryAsync(
             [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
             CancellationToken cancellationToken)
+        {
+            return await GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: true, cancellationToken);
+        }
+
+        public async Task<string[]> GetCommentHistoryAsyncCore(int issueOrPRNumber, bool removeCommentsWithoutContext, CancellationToken cancellationToken)
         {
             IssueInfo issue = await Parent.GetIssueAsync(issueOrPRNumber, cancellationToken);
 
@@ -212,7 +217,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             CommentInfo[] comments = issue.Comments
                 .OrderByDescending(c => c.CreatedAt)
-                .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c))
+                .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c, removeCommentsWithoutContext))
                 .ToArray();
 
             int maxComments = UsingLargeContextWindow ? 200 : 50;
