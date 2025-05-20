@@ -212,7 +212,7 @@
 
             Task stateChangedTask = Task.CompletedTask;
 
-            await foreach (string html in TriageHelper.TriageIssueAsync(issue, model, _githubUserLogin, LogToolLine, cancellationToken))
+            await foreach (string html in TriageHelper.TriageIssueAsync(model, _githubUserLogin, issue, LogToolLine, cancellationToken))
             {
                 _htmlResponse = html;
 

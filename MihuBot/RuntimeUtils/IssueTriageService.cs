@@ -137,7 +137,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
         ConcurrentQueue<string> toolLogs = [];
         string htmlResponse = string.Empty;
 
-        await foreach (string html in TriageHelper.TriageIssueAsync(issue, TriageHelper.DefaultModel, "MihuBot", toolLogs.Enqueue, cancellationToken))
+        await foreach (string html in TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, cancellationToken))
         {
             htmlResponse = html;
         }

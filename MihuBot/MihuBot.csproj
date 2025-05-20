@@ -16,18 +16,19 @@
     <PackageReference Include="AspNet.Security.OAuth.GitHub" Version="9.3.0" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.2.0-beta.4" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
-    <PackageReference Include="Azure.Identity" Version="1.13.2" />
+    <PackageReference Include="Azure.Identity" Version="1.14.0" />
     <PackageReference Include="Azure.ResourceManager.Network" Version="1.10.0" />
     <PackageReference Include="Azure.ResourceManager.Resources" Version="1.9.1" />
     <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.24.0" />
     <PackageReference Include="Discord.Net" Version="3.17.4" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="9.4.4-preview.1.25259.16" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="9.5.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.4.4-preview.1.25259.16" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="9.5.0" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="1.0.2" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.49.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.49.0" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.2.0-preview.1" />
     <PackageReference Include="Qdrant.Client" Version="1.14.0" />
     <PackageReference Include="System.Linq.Async" Version="6.0.1">
       <ExcludeAssets>all</ExcludeAssets>

@@ -16,25 +16,44 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
     public ModelInfo[] AvailableModels { get; } = [new("gpt-4.1", 1_000_000, true), new("o4-mini", 200_000, false)];
     public ModelInfo DefaultModel => AvailableModels[0];
 
-    public IAsyncEnumerable<string> TriageIssueAsync(IssueInfo issue, ModelInfo model, string gitHubUserLogin, Action<string> onToolLog, CancellationToken cancellationToken)
+    private Context CreateContext(ModelInfo model, string gitHubUserLogin) => new()
     {
-        var context = new Context
-        {
-            Parent = this,
-            Logger = Logger,
-            GitHubDb = GitHubDb,
-            Search = Search,
-            OpenAI = OpenAI,
-            Issue = issue,
-            Model = model,
-            OnToolLog = onToolLog,
-        };
+        Parent = this,
+        Logger = Logger,
+        GitHubDb = GitHubDb,
+        Search = Search,
+        OpenAI = OpenAI,
+        Model = model,
+        GitHubUserLogin = gitHubUserLogin
+    };
+
+    public IAsyncEnumerable<string> TriageIssueAsync(ModelInfo model, string gitHubUserLogin, IssueInfo issue, Action<string> onToolLog, CancellationToken cancellationToken)
+    {
+        Context context = CreateContext(model, gitHubUserLogin);
+        context.Issue = issue;
+        context.OnToolLog = onToolLog;
 
         return context.TriageAsync(cancellationToken);
     }
 
+    public async Task<string[]> GetCommentHistoryAsync(ModelInfo model, string requesterLogin, int issueOrPRNumber, CancellationToken cancellationToken)
+    {
+        Context context = CreateContext(model, requesterLogin);
+
+        return await context.GetCommentHistoryAsync(issueOrPRNumber, cancellationToken);
+    }
+
+    public async Task<string[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+    {
+        Context context = CreateContext(model, requesterLogin);
+
+        return await context.SearchDotnetRuntimeAsyncCore(searchTerms, extraSearchContext, cancellationToken);
+    }
+
     public async Task<IssueInfo> GetIssueAsync(int issueNumber, CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+
         return await GetIssueAsync(issues => issues.Where(i => i.Number == issueNumber), cancellationToken);
     }
 
@@ -99,7 +118,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public ModelInfo Model { get; set; }
         public string GitHubUserLogin { get; set; }
         public bool UsingLargeContextWindow => Model.ContextSize >= 500_000;
-        public Action<string> OnToolLog { get; set; }
+        public Action<string> OnToolLog { get; set; } = _ => { };
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -179,7 +198,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         }
 
         [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
-        private async Task<string[]> GetCommentHistoryAsync(
+        public async Task<string[]> GetCommentHistoryAsync(
             [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
             CancellationToken cancellationToken)
         {
@@ -217,6 +236,20 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             [Description("The set of terms to search for.")] string[] searchTerms,
             CancellationToken cancellationToken)
         {
+            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", cancellationToken);
+        }
+
+        public async Task<string[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(searchTerms);
+
+            foreach (string term in searchTerms)
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(term);
+            }
+
+            extraSearchContext ??= string.Empty;
+
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)}");
             Stopwatch stopwatch = Stopwatch.StartNew();
 
@@ -238,7 +271,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
                 try
                 {
-                    resultsByIssueId = await Search.FilterOutUnrelatedResults(term, $"on issue titled '{Issue.Title}'", preferSpeed: false, resultsByIssueId, cancellationToken);
+                    resultsByIssueId = await Search.FilterOutUnrelatedResults(term, extraSearchContext, preferSpeed: false, resultsByIssueId, cancellationToken);
                 }
                 catch (Exception ex)
                 {

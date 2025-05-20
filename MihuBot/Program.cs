@@ -243,6 +243,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 
+    services.AddSingleton<McpServer>();
+
     services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, builder.Configuration["Minecraft:RconPassword"]));
 
     if (ProgramState.AzureEnabled)
@@ -351,6 +353,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddReverseProxy()
         .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+    services.AddMcpServer()
+        .WithHttpTransport()
+        .WithTools<McpServer>();
 }
 
 static void Configure(WebApplication app, IWebHostEnvironment env)
@@ -386,8 +392,11 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.UseCors();
 
-    app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
-        app => app.UseHttpsRedirection());
+    if (!OperatingSystem.IsWindows())
+    {
+        app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
+            app => app.UseHttpsRedirection());
+    }
 
     app.UseStaticFiles(new StaticFileOptions
     {
@@ -425,6 +434,8 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
     app.MapForwarder("/_appinsights-ingest-live/{**any}", "https://eastus2.livediagnostics.monitor.azure.com", request => request.AddPathRemovePrefix("/_appinsights-ingest-live"));
 
     app.MapReverseProxy();
+
+    app.MapMcp("/mcp");
 }
 
 static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
