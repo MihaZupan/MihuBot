@@ -305,7 +305,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             foreach (string term in searchTerms)
             {
-                if (GitHubHelper.TryParseIssueOrPRNumber(term, dotnetRuntimeOnly: true, out int issueNumber) &&
+                string trimmedTerm = term;
+
+                if (trimmedTerm.StartsWith("issue ", StringComparison.OrdinalIgnoreCase))
+                {
+                    trimmedTerm = term.Substring("issue ".Length);
+                }
+
+                if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, dotnetRuntimeOnly: true, out int issueNumber) &&
                     await Parent.GetIssueAsync(issueNumber, cancellationToken) is { } singleIssue)
                 {
                     issueReferences++;
