@@ -152,7 +152,7 @@
 
     private string SearchQuery
     {
-        get => field;
+        get => field ?? string.Empty;
         set
         {
             field = value;
