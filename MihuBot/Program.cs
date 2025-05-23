@@ -245,7 +245,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<McpServer>();
 
-    services.AddSingleton(new MinecraftRCON("mihubot.xyz", 25575, builder.Configuration["Minecraft:RconPassword"]));
+    services.AddSingleton(new MinecraftRCON(builder.Configuration["Minecraft:Host"], int.Parse(builder.Configuration["Minecraft:Port"] ?? "25575"), builder.Configuration["Minecraft:RconPassword"]));
 
     if (ProgramState.AzureEnabled)
     {
