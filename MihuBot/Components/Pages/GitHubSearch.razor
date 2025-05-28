@@ -203,7 +203,7 @@
                     _isLoading = true;
 
                     var filters = new GitHubSearchService.IssueSearchFilters(IncludeOpen: true, IncludeClosed: !includeOpenIssueOnly, IncludeIssues: true, IncludePullRequests: true);
-                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, cancellationToken);
+                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, includeAllIssueComments: false, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
                     (IssueSearchResult[] Results, double Score)[] resultsByIssue = GitHubSearchService.GroupResultsByIssue(await searchTask);

@@ -81,7 +81,7 @@ public sealed class GitHubSearchService : IHostedService
 
             await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: CancellationToken.None))
             {
-                if (item.Score.HasValue && item.Score > 0.1)
+                if (item.Score.HasValue && item.Score > 0.15)
                 {
                     results.Add(new RawSearchResult(item.Score.Value, item.Record.IssueId, item.Record.SubIdentifier));
                 }
@@ -91,7 +91,7 @@ public sealed class GitHubSearchService : IHostedService
         }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
     }
 
-    public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, CancellationToken cancellationToken)
+    public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, bool includeAllIssueComments, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
@@ -157,12 +157,20 @@ public sealed class GitHubSearchService : IHostedService
             issuesQuery = issuesQuery.Where(i => i.PullRequest == null);
         }
 
-        List<IssueInfo> issues = await issuesQuery
+        issuesQuery = issuesQuery
             .Include(i => i.User)
             .Include(i => i.Labels)
             .Include(i => i.Repository)
-            .Include(i => i.PullRequest)
-            .Include(i => i.Comments)
+            .Include(i => i.PullRequest);
+
+        if (includeAllIssueComments)
+        {
+            issuesQuery = issuesQuery
+                .Include(i => i.Comments)
+                    .ThenInclude(c => c.User);
+        }
+
+        List<IssueInfo> issues = await issuesQuery
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
