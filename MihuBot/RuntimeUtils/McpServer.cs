@@ -22,18 +22,24 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
 
     [McpServerTool(Name = "search_dotnet_runtime", Title = "Search dotnet/runtime", Idempotent = true)]
     [Description(
-        "Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository. " +
+        "Perform a set of semantic searches over issues, pull requests, and comments in the dotnet/runtime GitHub repository. " +
         "Every term represents an independent search. " +
         "Prefer this tool over GitHub MCP when searching for discussions about a topic in the dotnet/runtime repository. " +
         "Does not search through code.")]
     public async Task<IssueTriageHelper.ShortIssueInfo[]> SearchDotnetRuntime(
         [Description("The set of terms to search for.")] string[] searchTerms,
         [Description("Additional context for this search, e.g. the title of a relevant GitHub issue.")] string extraSearchContext,
+        [Description("Whether to include open issues/PRs.")] bool includeOpen,
+        [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed,
+        [Description("Whether to include issues.")] bool includeIssues,
+        [Description("Whether to include pull requests.")] bool includePullRequests,
         CancellationToken cancellationToken)
     {
-        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)}");
+        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests);
 
-        return await TriageHelper.SearchDotnetRuntimeAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, cancellationToken);
+        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)} ({filters})");
+
+        return await TriageHelper.SearchDotnetRuntimeAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, filters, cancellationToken);
     }
 
     [McpServerTool(Name = "triage_github_issue", Title = "Triage Issue")]

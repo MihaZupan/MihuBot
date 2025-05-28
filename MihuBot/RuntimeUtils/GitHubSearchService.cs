@@ -51,7 +51,12 @@ public sealed class GitHubSearchService : IHostedService
         Tokenizer = TiktokenTokenizer.CreateForModel(EmbeddingModel);
     }
 
-    public record IssueSearchResult(double Score, IssueInfo Issue, CommentInfo Comment);
+    public sealed record IssueSearchResult(double Score, IssueInfo Issue, CommentInfo Comment);
+
+    public sealed record IssueSearchFilters(bool IncludeOpen, bool IncludeClosed, bool IncludeIssues, bool IncludePullRequests)
+    {
+        public override string ToString() => $"{nameof(IncludeOpen)}={IncludeOpen}, {nameof(IncludeClosed)}={IncludeClosed}, {nameof(IncludeIssues)}={IncludeIssues}, {nameof(IncludePullRequests)}={IncludePullRequests}";
+    }
 
     [ImmutableObject(true)]
     private sealed class RawSearchResult(double score, long issueId, long subIdentifier)
@@ -86,10 +91,20 @@ public sealed class GitHubSearchService : IHostedService
         }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
     }
 
-    public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, CancellationToken cancellationToken)
+    public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);
+
+        if (!filters.IncludeOpen && !filters.IncludeClosed)
+        {
+            throw new ArgumentException($"At least one of {nameof(filters.IncludeOpen)} or {nameof(filters.IncludeClosed)} must be true.");
+        }
+
+        if (!filters.IncludeIssues && !filters.IncludePullRequests)
+        {
+            throw new ArgumentException($"At least one of {nameof(filters.IncludeIssues)} or {nameof(filters.IncludePullRequests)} must be true.");
+        }
 
         await using GitHubDbContext db = _db.CreateDbContext();
 
@@ -97,10 +112,10 @@ public sealed class GitHubSearchService : IHostedService
             !int.TryParse(topVectorsStr, out int topVectors) ||
             topVectors is < 1 or > 10_000)
         {
-            topVectors = 250;
+            topVectors = 350;
         }
 
-        topVectors = Math.Min(topVectors, maxResults);
+        topVectors = Math.Min(topVectors, maxResults * 10);
 
         Stopwatch stopwatch = Stopwatch.StartNew();
 
@@ -119,10 +134,30 @@ public sealed class GitHubSearchService : IHostedService
         long[] issueIds = [.. results.Select(r => r.IssueId).Distinct()];
         long[] commentIds = [.. results.Where(r => r.SubIdentifier != 0).Select(r => r.SubIdentifier).Distinct()];
 
-        List<IssueInfo> issues = await db.Issues
+        IQueryable<IssueInfo> issuesQuery = db.Issues
             .AsNoTracking()
             .Where(i => issueIds.Contains(i.Id))
-            .Where(i => i.Repository.Owner.Login == "dotnet" && i.Repository.Name == "runtime")
+            .Where(i => i.Repository.Owner.Login == "dotnet" && i.Repository.Name == "runtime");
+
+        if (!filters.IncludeOpen)
+        {
+            issuesQuery = issuesQuery.Where(i => i.State != Octokit.ItemState.Open);
+        }
+        else if (!filters.IncludeClosed)
+        {
+            issuesQuery = issuesQuery.Where(i => i.State != Octokit.ItemState.Closed);
+        }
+
+        if (!filters.IncludeIssues)
+        {
+            issuesQuery = issuesQuery.Where(i => i.PullRequest != null);
+        }
+        else if (!filters.IncludePullRequests)
+        {
+            issuesQuery = issuesQuery.Where(i => i.PullRequest == null);
+        }
+
+        List<IssueInfo> issues = await issuesQuery
             .Include(i => i.User)
             .Include(i => i.Labels)
             .Include(i => i.Repository)
@@ -152,6 +187,7 @@ public sealed class GitHubSearchService : IHostedService
             })
             .Where(r => r.Issue is not null)
             .OrderByDescending(r => r.Score)
+            .Take(maxResults)
             .ToArray();
     }
 
@@ -175,9 +211,14 @@ public sealed class GitHubSearchService : IHostedService
 
         // Boost issues with multiple potentially related comments.
         double threshold = Math.Max(max * 0.75, 0.35);
-        offset *= Math.Pow(0.99, scores.Count(s => s >= threshold));
+        int commentsOverThreshold = scores.Count(s => s >= threshold);
 
-        return 1 - offset;
+        if (commentsOverThreshold > 0)
+        {
+            offset *= Math.Pow(0.99, commentsOverThreshold);
+        }
+
+        return Math.Clamp(1 - offset, 0, 1);
     }
 
     public async Task<(IssueSearchResult[] Results, double Score)[]> FilterOutUnrelatedResults(

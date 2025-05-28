@@ -6,6 +6,7 @@ using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
 using Octokit;
 using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
+using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -15,7 +16,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
     public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body, string ExtraInfo);
 
-    public sealed record ShortIssueInfo(string CreatedAt, string Author, string Body, string ExtraInfo, ShortCommentInfo[] Comments);
+    public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, string Author, string Body, string ExtraInfo, ShortCommentInfo[] Comments);
 
     public ModelInfo[] AvailableModels { get; } = [new("gpt-4.1", 1_000_000, true), new("o4-mini", 200_000, false)];
     public ModelInfo DefaultModel => AvailableModels[0];
@@ -47,11 +48,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         return await context.GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: false, cancellationToken);
     }
 
-    public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+    public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, requesterLogin);
 
-        return await context.SearchDotnetRuntimeAsyncCore(searchTerms, extraSearchContext, cancellationToken);
+        return await context.SearchDotnetRuntimeAsyncCore(searchTerms, extraSearchContext, filters, cancellationToken);
     }
 
     public async Task<IssueInfo> GetIssueAsync(int issueNumber, CancellationToken cancellationToken)
@@ -217,7 +218,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             if (issue is null)
             {
                 OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
-                return new ShortIssueInfo("N/A", "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", []);
+                return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", []);
             }
 
             CommentInfo[] comments = issue.Comments
@@ -243,12 +244,16 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             " Every term represents an independent search.")]
         private async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(
             [Description("The set of terms to search for.")] string[] searchTerms,
+            [Description("Whether to include open issues/PRs.")] bool includeOpen,
+            [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed,
+            [Description("Whether to include issues.")] bool includeIssues,
+            [Description("Whether to include pull requests.")] bool includePullRequests,
             CancellationToken cancellationToken)
         {
-            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", cancellationToken);
+            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", new IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests), cancellationToken);
         }
 
-        public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+        public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(searchTerms);
 
@@ -259,7 +264,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             extraSearchContext ??= string.Empty;
 
-            OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)}");
+            OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
+
+            if ((!filters.IncludeOpen && !filters.IncludeClosed) || (!filters.IncludeIssues && !filters.IncludePullRequests))
+            {
+                OnToolLog("[Tool] Nothing to search for, returning empty results.");
+                return [];
+            }
+
             Stopwatch stopwatch = Stopwatch.StartNew();
 
             List<(IssueSearchResult[] Results, double Score)> searchResults = new();
@@ -271,7 +283,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             await Parallel.ForEachAsync(searchTerms, async (term, _) =>
             {
-                IssueSearchResult[] localResults = (await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, cancellationToken))
+                IssueSearchResult[] localResults = (await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, cancellationToken))
                     .Where(r => r.Score > 0.25)
                     .Where(r => r.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(r.Issue, r.Comment))
                     .ToArray();
@@ -354,13 +366,15 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             ShortCommentInfo info = CreateCommentInfo(createdAt, author, text, issue, comment: null);
 
-            string header = GetIssueInfo(score, issue);
+            string extraInfo = GetIssueInfo(score, issue);
             if (!string.IsNullOrEmpty(info.ExtraInfo))
             {
-                header = $"{header}\n{info.ExtraInfo}";
+                extraInfo = $"{extraInfo}\n{info.ExtraInfo}";
             }
 
-            return new ShortIssueInfo(info.CreatedAt, info.Author, info.Body, header, comments);
+            string closedAt = issue.ClosedAt.HasValue ? issue.ClosedAt.Value.ToISODate() : null;
+
+            return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, info.Author, info.Body, extraInfo, comments);
 
             static string GetIssueInfo(double score, IssueInfo issue)
             {
@@ -371,15 +385,15 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 {
                     type = "Pull request";
 
-                    if (!pullRequest.MergedAt.HasValue && issue.State == ItemState.Closed)
+                    if (issue.State == ItemState.Closed)
                     {
-                        suffix = ", never got merged";
+                        suffix = pullRequest.MergedAt.HasValue ? ", got merged" : ", never got merged";
                     }
                 }
 
                 string simmilarityScore = score == 1 ? "" : $"Simmilarity score: {score:F2}\n";
 
-                return $"{simmilarityScore} {type} #{issue.Number} - '{issue.Title}' by {issue.User.Login} ({issue.Comments.Count} total comments{suffix})";
+                return $"{simmilarityScore}{type}, {issue.Comments.Count} total comments{suffix}";
             }
         }
 

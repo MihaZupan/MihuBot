@@ -205,6 +205,7 @@ public sealed partial class GitHubNotificationsService
                         .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
                         .Where(i => i.PullRequest == null)
                         .Include(i => i.Comments)
+                        .OrderByDescending(i => i.CreatedAt)
                         .Take(1000)
                         .AsSplitQuery()
                         .ToArrayAsync();

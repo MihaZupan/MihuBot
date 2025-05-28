@@ -59,6 +59,7 @@
                     <input id="searchQuery" type="text" @bind-value="SearchQuery" @bind-value:event="oninput" placeholder="Search query">
                     <div class="btn-group" role="group">
                         <button type="button" @onclick="() => DisableRelevanceClassification = !DisableRelevanceClassification" class="btn btn-primary ml-1">@(DisableRelevanceClassification ? "Filter unrelated results" : "I want faster searches")</button>
+                        <button type="button" @onclick="() => IncludeOpenIssueOnly = !IncludeOpenIssueOnly" class="btn btn-primary ml-1">@(IncludeOpenIssueOnly ? "Show all" : "Hide closed issues")</button>
                     </div>
                 </div>
             </div>
@@ -83,7 +84,7 @@
     @if (_searchResults.Length == 0)
     {
         <div class="alert alert-info">
-            No results found.
+            @(_isLoading ? "Searching ..." : "No results found.")
         </div>
     }
     else
@@ -137,8 +138,18 @@
 
     private (IssueInfo Issue, double Score)[] _searchResults = [];
     private string _errorMessage;
-    private Debouncer<(string Query, bool DsableRelevanceClassification)> _debouncer;
+    private Debouncer<(string Query, bool DisableRelevanceClassification, bool IncludeOpenIssueOnly)> _debouncer;
     private bool _isLoading;
+
+    private bool IncludeOpenIssueOnly
+    {
+        get => field;
+        set
+        {
+            field = value;
+            RefreshSearchResults();
+        }
+    }
 
     private bool DisableRelevanceClassification
     {
@@ -162,18 +173,18 @@
 
     private void RefreshSearchResults()
     {
-        _debouncer.Update((SearchQuery.Trim(), DisableRelevanceClassification));
+        _debouncer.Update((SearchQuery.Trim(), DisableRelevanceClassification, IncludeOpenIssueOnly));
     }
 
     protected override void OnInitialized()
     {
-        _debouncer = new Debouncer<(string, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
+        _debouncer = new Debouncer<(string, bool, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
         _debouncer.CancelPendingActions = true;
     }
 
-    private async Task SearchAsync((string SearchQuery, bool DisableRelevanceClassification) state, CancellationToken cancellationToken)
+    private async Task SearchAsync((string SearchQuery, bool DisableRelevanceClassification, bool IncludeOpenIssueOnly) state, CancellationToken cancellationToken)
     {
-        (string searchQuery, bool disableRelevanceClassification) = state;
+        (string searchQuery, bool disableRelevanceClassification, bool includeOpenIssueOnly) = state;
 
         try
         {
@@ -191,7 +202,8 @@
                 {
                     _isLoading = true;
 
-                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 200, cancellationToken);
+                    var filters = new GitHubSearchService.IssueSearchFilters(IncludeOpen: true, IncludeClosed: !includeOpenIssueOnly, IncludeIssues: true, IncludePullRequests: true);
+                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
                     (IssueSearchResult[] Results, double Score)[] resultsByIssue = GitHubSearchService.GroupResultsByIssue(await searchTask);
