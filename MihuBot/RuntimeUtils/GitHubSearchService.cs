@@ -53,9 +53,9 @@ public sealed class GitHubSearchService : IHostedService
 
     public sealed record IssueSearchResult(double Score, IssueInfo Issue, CommentInfo Comment);
 
-    public sealed record IssueSearchFilters(bool IncludeOpen, bool IncludeClosed, bool IncludeIssues, bool IncludePullRequests)
+    public sealed record IssueSearchFilters(bool IncludeOpen, bool IncludeClosed, bool IncludeIssues, bool IncludePullRequests, DateTime? CreatedAfter = null)
     {
-        public override string ToString() => $"{nameof(IncludeOpen)}={IncludeOpen}, {nameof(IncludeClosed)}={IncludeClosed}, {nameof(IncludeIssues)}={IncludeIssues}, {nameof(IncludePullRequests)}={IncludePullRequests}";
+        public override string ToString() => $"{nameof(IncludeOpen)}={IncludeOpen}, {nameof(IncludeClosed)}={IncludeClosed}, {nameof(IncludeIssues)}={IncludeIssues}, {nameof(IncludePullRequests)}={IncludePullRequests}, {nameof(CreatedAfter)}={CreatedAfter?.ToISODate() ?? "N/A"}";
     }
 
     [ImmutableObject(true)]
@@ -138,6 +138,11 @@ public sealed class GitHubSearchService : IHostedService
             .AsNoTracking()
             .Where(i => issueIds.Contains(i.Id))
             .Where(i => i.Repository.Owner.Login == "dotnet" && i.Repository.Name == "runtime");
+
+        if (filters.CreatedAfter.HasValue)
+        {
+            issuesQuery = issuesQuery.Where(i => i.CreatedAt >= filters.CreatedAfter.Value);
+        }
 
         if (!filters.IncludeOpen)
         {

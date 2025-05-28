@@ -33,9 +33,10 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed,
         [Description("Whether to include issues.")] bool includeIssues,
         [Description("Whether to include pull requests.")] bool includePullRequests,
-        CancellationToken cancellationToken)
+        [Description("Optionally only include issues/PRs created after this date.")] DateTime? createdAfter = null,
+        CancellationToken cancellationToken = default)
     {
-        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests);
+        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter);
 
         Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)} ({filters})");
 
