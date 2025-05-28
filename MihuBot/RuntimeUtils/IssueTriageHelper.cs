@@ -13,6 +13,10 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 {
     public sealed record ModelInfo(string Name, int ContextSize, bool SupportsTemperature);
 
+    public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body, string ExtraInfo);
+
+    public sealed record ShortIssueInfo(string CreatedAt, string Author, string Body, string ExtraInfo, ShortCommentInfo[] Comments);
+
     public ModelInfo[] AvailableModels { get; } = [new("gpt-4.1", 1_000_000, true), new("o4-mini", 200_000, false)];
     public ModelInfo DefaultModel => AvailableModels[0];
 
@@ -36,14 +40,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         return context.TriageAsync(cancellationToken);
     }
 
-    public async Task<string[]> GetCommentHistoryAsync(ModelInfo model, string requesterLogin, int issueOrPRNumber, CancellationToken cancellationToken)
+    public async Task<ShortIssueInfo> GetCommentHistoryAsync(ModelInfo model, string requesterLogin, int issueOrPRNumber, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, requesterLogin);
 
         return await context.GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: false, cancellationToken);
     }
 
-    public async Task<string[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+    public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, requesterLogin);
 
@@ -101,6 +105,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             Reply with a list of related issues and include a short summary of the discussions/conclusions for each one.
             Assume that the user is familiar with the repository and its processes, but not necessarily with the specific issue or discussion.
+            When referencing an older issue, reference when it was opened. E.g. "Issue #123 (July 2019) - Title".
 
             Reply in GitHub markdown format, not wrapped in any HTML blocks.
             """;
@@ -198,21 +203,21 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         }
 
         [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
-        private async Task<string[]> GetCommentHistoryAsync(
+        private async Task<ShortIssueInfo> GetCommentHistoryAsync(
             [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
             CancellationToken cancellationToken)
         {
             return await GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: true, cancellationToken);
         }
 
-        public async Task<string[]> GetCommentHistoryAsyncCore(int issueOrPRNumber, bool removeCommentsWithoutContext, CancellationToken cancellationToken)
+        public async Task<ShortIssueInfo> GetCommentHistoryAsyncCore(int issueOrPRNumber, bool removeCommentsWithoutContext, CancellationToken cancellationToken)
         {
             IssueInfo issue = await Parent.GetIssueAsync(issueOrPRNumber, cancellationToken);
 
             if (issue is null)
             {
                 OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
-                return [$"Issue #{issueOrPRNumber} does not appear to exist."];
+                return new ShortIssueInfo("N/A", "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", []);
             }
 
             CommentInfo[] comments = issue.Comments
@@ -229,22 +234,21 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
-            string originalIssue = CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null);
-
-            return [originalIssue, .. comments.Select(c => CreateCommentText(c.CreatedAt, c.User, c.Body, issue, c))];
+            return CreateIssueInfo(1, issue.CreatedAt, issue.User, issue.Body, issue,
+                comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body, issue, c)).ToArray());
         }
 
         [Description(
             "Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository." +
             " Every term represents an independent search.")]
-        private async Task<string[]> SearchDotnetRuntimeAsync(
+        private async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(
             [Description("The set of terms to search for.")] string[] searchTerms,
             CancellationToken cancellationToken)
         {
             return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", cancellationToken);
         }
 
-        public async Task<string[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
+        public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(searchTerms);
 
@@ -297,10 +301,10 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 .OrderByDescending(g => g.Score)
                 .ToArray();
 
-            List<string> results = [];
+            List<ShortIssueInfo> results = [];
 
             int issueReferences = 0;
-            int searchIssues = 0;
+            int searchIssues = combinedResults.Length;
             int searchComments = 0;
 
             foreach (string term in searchTerms)
@@ -317,41 +321,24 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 {
                     issueReferences++;
 
-                    results.Add(
-                        $"""
-                        {GetIssueHeader(score: 1, singleIssue)}
-                        {CreateCommentText(singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, comment: null)}
-                        """);
+                    results.Add(CreateIssueInfo(1, singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, []));
                 }
             }
 
-            string[] gitHubIssueResults = combinedResults
+            ShortIssueInfo[] gitHubIssueResults = combinedResults
                 .Select(r =>
                 {
                     IssueSearchResult[] results = r.Results;
-                    bool hasIssue = results.Any(r => r.Comment is null);
+                    IssueInfo issue = results[0].Issue;
 
-                    StringBuilder sb = new StringBuilder();
-                    sb.AppendLine(GetIssueHeader(r.Score, results[0].Issue));
+                    ShortCommentInfo[] comments = results
+                        .Where(r => r.Comment is not null)
+                        .Select(r => CreateCommentInfo(r.Comment.CreatedAt, r.Comment.User, r.Comment.Body, r.Issue, r.Comment))
+                        .ToArray();
 
-                    if (results.FirstOrDefault(r => r.Comment is null)?.Issue is { } issue)
-                    {
-                        searchIssues++;
-                        sb.AppendLine();
-                        sb.AppendLine(CreateCommentText(issue.CreatedAt, issue.User, issue.Body, issue, comment: null));
-                    }
+                    searchComments += comments.Length;
 
-                    foreach (IssueSearchResult result in results)
-                    {
-                        if (result.Comment is { } comment)
-                        {
-                            searchComments++;
-                            sb.AppendLine();
-                            sb.AppendLine(CreateCommentText(comment.CreatedAt, comment.User, comment.Body, result.Issue, comment));
-                        }
-                    }
-
-                    return sb.ToString();
+                    return CreateIssueInfo(r.Score, issue.CreatedAt, issue.User, issue.Body, issue, comments);
                 })
                 .Take(maxTotalResults)
                 .ToArray();
@@ -361,8 +348,21 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             OnToolLog($"[Tool] Found {searchIssues} issues, {searchComments} comments, {results.Count} returned results ({(int)stopwatch.ElapsedMilliseconds} ms)");
 
             return [.. results];
+        }
 
-            static string GetIssueHeader(double score, IssueInfo issue)
+        private ShortIssueInfo CreateIssueInfo(double score, DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
+        {
+            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text, issue, comment: null);
+
+            string header = GetIssueInfo(score, issue);
+            if (!string.IsNullOrEmpty(info.ExtraInfo))
+            {
+                header = $"{header}\n{info.ExtraInfo}";
+            }
+
+            return new ShortIssueInfo(info.CreatedAt, info.Author, info.Body, header, comments);
+
+            static string GetIssueInfo(double score, IssueInfo issue)
             {
                 string type = "Issue";
                 string suffix = "";
@@ -377,26 +377,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                     }
                 }
 
-                return
-                    $"""
-                    Simmilarity score: {score:F2}
-                    {type} #{issue.Number} - '{issue.Title}' by {issue.User.Login} ({issue.Comments.Count} total comments{suffix}):
-                    """;
+                string simmilarityScore = score == 1 ? "" : $"Simmilarity score: {score:F2}\n";
+
+                return $"{simmilarityScore} {type} #{issue.Number} - '{issue.Title}' by {issue.User.Login} ({issue.Comments.Count} total comments{suffix})";
             }
         }
 
-        private string CreateCommentText(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, CommentInfo comment)
+        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, CommentInfo comment)
         {
             string authorSuffix = s_networkingTeam.Contains(author.Login)
                 ? " (member of the .NET networking team)"
                 : string.Empty;
 
-            return
-                $"""
-                {author.Login}{authorSuffix} {(comment is null ? "wrote" : "commented")} on {createdAt:yyyy-MM-dd}:
-                {SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, 2_000)}
-                {FormatReactions(issue, comment)}
-                """.Trim(' ', '\t', '\n', '\r');
+            return new ShortCommentInfo(
+                createdAt.ToISODate(),
+                $"{author.Login}{authorSuffix}",
+                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, 2_000),
+                FormatReactions(issue, comment));
 
             static string FormatReactions(IssueInfo issue, CommentInfo comment)
             {

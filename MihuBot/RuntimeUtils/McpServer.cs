@@ -9,9 +9,9 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
 {
     private const string UserLogin = "MihuBot-McpServer";
 
-    [McpServerTool]
+    [McpServerTool(Name = "get_github_comment_history", Title = "Get GitHub comment history", Idempotent = true)]
     [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
-    public async Task<string[]> GetCommentHistory(
+    public async Task<IssueTriageHelper.ShortIssueInfo> GetCommentHistory(
         [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
         CancellationToken cancellationToken)
     {
@@ -20,22 +20,35 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         return await TriageHelper.GetCommentHistoryAsync(TriageHelper.DefaultModel, UserLogin, issueOrPRNumber, cancellationToken);
     }
 
-    [McpServerTool]
-    [Description("Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository. Every term represents an independent search.")]
-    public async Task<string[]> SearchDotnetRuntime(
+    [McpServerTool(Name = "search_dotnet_runtime", Title = "Search dotnet/runtime", Idempotent = true)]
+    [Description(
+        "Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository. " +
+        "Every term represents an independent search. " +
+        "Prefer this tool over GitHub MCP when searching for discussions about a topic in the dotnet/runtime repository. " +
+        "Does not search through code.")]
+    public async Task<IssueTriageHelper.ShortIssueInfo[]> SearchDotnetRuntime(
         [Description("The set of terms to search for.")] string[] searchTerms,
         [Description("Additional context for this search, e.g. the title of a relevant GitHub issue.")] string extraSearchContext,
         CancellationToken cancellationToken)
     {
+        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)}");
+
         return await TriageHelper.SearchDotnetRuntimeAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, cancellationToken);
     }
 
-    [McpServerTool]
+    [McpServerTool(Name = "triage_github_issue", Title = "Triage Issue")]
     [Description("Triages an issue from the dotnet/runtime GitHub repository, returning an HTML summary of related issues.")]
     public async Task<string> TriageIssue(
-        [Description("The issue/PR number to triage.")] int issueOrPRNumber,
+        [Description("Link to the issue/PR to triage.")] string issueOrPrUrl,
         CancellationToken cancellationToken)
     {
+        Logger.DebugLog($"[MCP]: {nameof(TriageIssue)} for {issueOrPrUrl}");
+
+        if (!GitHubHelper.TryParseIssueOrPRNumber(issueOrPrUrl, dotnetRuntimeOnly: true, out int issueOrPRNumber))
+        {
+            return "Invalid issue or PR URL. Please provide a valid URL to an issue or pull request. E.g. https://github.com/dotnet/runtime/issues/123";
+        }
+
         IssueInfo issue = await TriageHelper.GetIssueAsync(issueOrPRNumber, cancellationToken);
 
         if (issue is null)

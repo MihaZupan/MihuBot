@@ -135,12 +135,9 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
     private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, CancellationToken cancellationToken)
     {
         ConcurrentQueue<string> toolLogs = [];
-        string htmlResponse = string.Empty;
 
-        await foreach (string html in TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, cancellationToken))
-        {
-            htmlResponse = html;
-        }
+        string html = await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, cancellationToken)
+            .LastOrDefaultAsync(cancellationToken) ?? "";
 
         string newIssueBody =
             $"""
@@ -151,7 +148,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
             {string.Join('\n', toolLogs)}
             ```
 
-            {htmlResponse}
+            {html}
             """;
 
         if (triagedIssue.TriageReportIssueNumber == 0)
