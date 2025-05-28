@@ -153,7 +153,9 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
         if (triagedIssue.TriageReportIssueNumber == 0)
         {
-            Issue newIssue = await GitHub.Issue.Create(JobBase.IssueRepositoryOwner, JobBase.IssueRepositoryName, new NewIssue($"Triage for {issue.RepoOwner()}/{issue.RepoName()}#{issue.Number} by {issue.User.Login}")
+            string title = $"Triage for {issue.RepoOwner()}/{issue.RepoName()}#{issue.Number} by {issue.User.Login} - {issue.Title.TruncateWithDotDotDot(100)}";
+
+            Issue newIssue = await GitHub.Issue.Create(JobBase.IssueRepositoryOwner, JobBase.IssueRepositoryName, new NewIssue(title)
             {
                 Body = newIssueBody,
             });
