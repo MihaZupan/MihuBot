@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".github/workflows/deploy-mihubot-storage.yml" />
+    <File Path=".github/workflows/deploy-mihubot.yml" />
+    <File Path=".gitignore" />
+    <File Path="CodeAnalysis.globalconfig" />
+    <File Path="nuget.config" />
+  </Folder>
+  <Project Path="MihuBot/MihuBot.csproj" />
+  <Project Path="Shared/Shared.shproj" />
+  <Project Path="StorageService/StorageService.csproj" />
+</Solution>
