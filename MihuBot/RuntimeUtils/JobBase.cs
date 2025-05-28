@@ -872,71 +872,94 @@ public abstract class JobBase
 
             string password = $"{JobId}aA1";
 
-            var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
-            {
-                Template = BinaryData.FromString(templateJson),
-                Parameters = BinaryData.FromObjectAsJson(new
-                {
-                    runnerId = new { value = JobId },
-                    osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", (defaultAzureCoreCount * 8).ToString())) },
-                    virtualMachineSize = new { value = vmSize },
-                    adminPassword = new { value = password },
-                    customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(cloudInitScript)) },
-                    imageReference = new
-                    {
-                        value = new
-                        {
-                            publisher = "canonical",
-                            offer = "0001-com-ubuntu-server-jammy",
-                            sku = UseArm ? "22_04-lts-arm64" : "22_04-lts-gen2",
-                            version = "latest"
-                        }
-                    }
-                })
-            });
-
-            Log("Creating a new Azure resource group for this deployment ...");
-
             var armClient = new ArmClient(ProgramState.AzureCredential);
             var subscription = await armClient.GetDefaultSubscriptionAsync(jobTimeout);
 
-            string resourceGroupName = $"runtime-utils-runner-{JobId}";
-            var resourceGroupData = new ResourceGroupData(AzureLocation.EastUS2);
-            var resourceGroups = subscription.GetResourceGroups();
-            var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
+            bool deploymentComplete = false;
 
-            try
+            AzureLocation[] locations = [AzureLocation.EastUS2, AzureLocation.EastUS, AzureLocation.WestUS3];
+
+            for (int locationIndex = 0; locationIndex < locations.Length; locationIndex++)
             {
-                Log($"Starting deployment of Azure VM ({vmSize}) ...");
-                _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
-
-                string deploymentName = $"runner-deployment-{JobId}";
-                var armDeployments = resourceGroup.GetArmDeployments();
-                var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
-
-                Log("Azure deployment complete");
-
-                if ((await resourceGroup.GetPublicIPAddresses().GetAllAsync(jobTimeout).FirstOrDefaultAsync(jobTimeout)) is { } ip)
+                AzureLocation location = locations[locationIndex];
+                try
                 {
-                    RemoteLoginCredentials = $"ssh runner@{ip.Data.IPAddress}  {password}";
+                    Log($"Creating a new Azure VM ({vmSize}) in {location.DisplayName} ...");
+                    await CreateDeploymentAsync(location);
+                    break;
                 }
-
-                await JobCompletionTcs.Task;
+                catch (RequestFailedException ex) when (!deploymentComplete && locationIndex < locations.Length - 1)
+                {
+                    Log($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode} {ex.Message}. Retrying ...");
+                }
             }
-            finally
-            {
-                if (ShouldDeleteVM)
-                {
-                    Log("Deleting the VM resource group");
 
-                    QueueResourceDeletion(async () =>
-                    {
-                        await resourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken: CancellationToken.None);
-                    }, resourceGroupName);
-                }
-                else
+            async Task CreateDeploymentAsync(AzureLocation location)
+            {
+                var deploymentContent = new ArmDeploymentContent(new ArmDeploymentProperties(ArmDeploymentMode.Incremental)
                 {
-                    Log("Configuration opted not to delete the VM");
+                    Template = BinaryData.FromString(templateJson),
+                    Parameters = BinaryData.FromObjectAsJson(new
+                    {
+                        runnerId = new { value = JobId },
+                        osDiskSizeGiB = new { value = int.Parse(GetConfigFlag($"Azure.VMDisk{vmConfigName}", (defaultAzureCoreCount * 8).ToString())) },
+                        virtualMachineSize = new { value = vmSize },
+                        adminPassword = new { value = password },
+                        customData = new { value = Convert.ToBase64String(Encoding.UTF8.GetBytes(cloudInitScript)) },
+                        imageReference = new
+                        {
+                            value = new
+                            {
+                                publisher = "canonical",
+                                offer = "0001-com-ubuntu-server-jammy",
+                                sku = UseArm ? "22_04-lts-arm64" : "22_04-lts-gen2",
+                                version = "latest"
+                            }
+                        }
+                    })
+                });
+
+                Log("Creating a new Azure resource group for this deployment ...");
+
+                string resourceGroupName = $"runtime-utils-runner-{location.Name}-{JobId}";
+                var resourceGroupData = new ResourceGroupData(location);
+                var resourceGroups = subscription.GetResourceGroups();
+                var resourceGroup = (await resourceGroups.CreateOrUpdateAsync(WaitUntil.Completed, resourceGroupName, resourceGroupData, jobTimeout)).Value;
+
+                try
+                {
+                    Log($"Starting deployment of Azure VM ({vmSize}) ...");
+                    _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
+
+                    string deploymentName = $"runner-deployment-{location.Name}-{JobId}";
+                    var armDeployments = resourceGroup.GetArmDeployments();
+                    var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
+
+                    Log("Azure deployment complete");
+                    deploymentComplete = true;
+
+                    if ((await resourceGroup.GetPublicIPAddresses().GetAllAsync(jobTimeout).FirstOrDefaultAsync(jobTimeout)) is { } ip)
+                    {
+                        RemoteLoginCredentials = $"ssh runner@{ip.Data.IPAddress}  {password}";
+                    }
+
+                    await JobCompletionTcs.Task;
+                }
+                finally
+                {
+                    if (ShouldDeleteVM)
+                    {
+                        Log("Deleting the VM resource group");
+
+                        QueueResourceDeletion(async () =>
+                        {
+                            await resourceGroup.DeleteAsync(WaitUntil.Completed, cancellationToken: CancellationToken.None);
+                        }, resourceGroupName);
+                    }
+                    else
+                    {
+                        Log("Configuration opted not to delete the VM");
+                    }
                 }
             }
         }
