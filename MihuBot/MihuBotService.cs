@@ -67,17 +67,7 @@ public class MihuBotService : IHostedService
             {
                 if (_runningCommands.TryRemove(reaction.MessageId, out CancellationTokenSource cts))
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            cts.Cancel();
-                        }
-                        catch (Exception ex)
-                        {
-                            await _logger.DebugAsync($"Failure while cancelling running command: {ex}");
-                        }
-                    });
+                    TryCancelRunningCommand(cts);
                 }
             }
         }
@@ -285,6 +275,21 @@ public class MihuBotService : IHostedService
 
     private TaskCompletionSource _stopTcs;
 
+    private void TryCancelRunningCommand(CancellationTokenSource cts)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                await _logger.DebugAsync($"Failure while cancelling running command: {ex}");
+            }
+        });
+    }
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         var tcs = Interlocked.CompareExchange(
@@ -296,6 +301,21 @@ public class MihuBotService : IHostedService
         {
             try
             {
+                foreach ((_, CancellationTokenSource cts) in _runningCommands)
+                {
+                    TryCancelRunningCommand(cts);
+                }
+
+                if (!_runningCommands.IsEmpty)
+                {
+                    Stopwatch s = Stopwatch.StartNew();
+
+                    while (s.Elapsed.TotalSeconds < 3 && !_runningCommands.IsEmpty)
+                    {
+                        await Task.Delay(100, cancellationToken);
+                    }
+                }
+
                 try
                 {
                     await _discord.StopAsync();
