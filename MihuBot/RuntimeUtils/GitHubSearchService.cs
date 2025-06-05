@@ -314,7 +314,21 @@ public sealed class GitHubSearchService : IHostedService
             {
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                var relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(GeneratePrompt(issueCount, bodyContext, maxComments), cancellationToken: CancellationToken.None);
+                string prompt = GeneratePrompt(issueCount, bodyContext, maxComments);
+
+                ChatResponse<IssueRelevance[]> relevances = null;
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, cancellationToken: CancellationToken.None);
+                        break;
+                    }
+                    catch (Exception ex) when (i < 3)
+                    {
+                        _logger.DebugLog($"Relevance classification for '{searchQuery}' failed (attempt {i + 1}): {ex}");
+                    }
+                }
 
                 _logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
 
