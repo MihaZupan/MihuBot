@@ -357,6 +357,7 @@ public sealed class GitHubDataService : IHostedService
             for (int i = Math.Max(lastUpdatedIssueNumber, 1); i <= lastIssueNumber; i++)
             {
                 int newApiCalls = ApiCallsPerformed - previousApiCalls;
+                previousApiCalls = ApiCallsPerformed;
                 await Task.Delay(TimeSpan.FromSeconds(5) * Math.Max(1, newApiCalls), cancellationToken);
 
                 yield return $"Processing issue #{i} out of {lastIssueNumber}";
@@ -364,6 +365,7 @@ public sealed class GitHubDataService : IHostedService
                 Issue issue = null;
                 try
                 {
+                    ApiCallsPerformed++;
                     issue = await GitHub.Issue.Get(_repoId, i);
                 }
                 catch { }
@@ -378,6 +380,8 @@ public sealed class GitHubDataService : IHostedService
 
                 IReadOnlyList<IssueComment> issueComments = await GitHub.Issue.Comment.GetAllForIssue(_repoId, issue.Number, s_apiOptions);
 
+                ApiCallsPerformed += (issueComments.Count / s_apiOptions.PageSize.Value) + 1;
+
                 foreach (IssueComment comment in issueComments)
                 {
                     await UpdateIssueCommentInfoAsync(comment);
@@ -386,6 +390,8 @@ public sealed class GitHubDataService : IHostedService
                 if (issue.PullRequest is not null)
                 {
                     IReadOnlyList<PullRequestReviewComment> prReviewComments = await GitHub.PullRequest.ReviewComment.GetAll(_repoId, issue.Number, s_apiOptions);
+
+                    ApiCallsPerformed += (prReviewComments.Count / s_apiOptions.PageSize.Value) + 1;
 
                     foreach (PullRequestReviewComment comment in prReviewComments)
                     {
