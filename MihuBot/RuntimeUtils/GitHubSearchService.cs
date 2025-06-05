@@ -562,6 +562,7 @@ public sealed class GitHubSearchService : IHostedService
         IssueInfo issue = await db.Issues
             .AsNoTracking()
             .Where(i => i.Id == issueId)
+            .Include(i => i.Repository)
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
@@ -593,7 +594,7 @@ public sealed class GitHubSearchService : IHostedService
             record.UpdatedAt = lastIssueUpdate;
         }
 
-        _logger.TraceLog($"{nameof(GitHubSearchService)}: Issue {issue.Number}: {previousRecords.Count} previous records, {issue.Comments.Count} comments, {removed.Length} removed, {added.Length} added");
+        _logger.TraceLog($"{nameof(GitHubSearchService)}: Issue {issue.Repository.FullName}#{issue.Number}: {previousRecords.Count} previous records, {issue.Comments.Count} comments, {removed.Length} removed, {added.Length} added");
 
         if (removed.Length > 0)
         {
