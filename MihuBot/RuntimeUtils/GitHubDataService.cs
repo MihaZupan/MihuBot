@@ -354,7 +354,7 @@ public sealed class GitHubDataService : IHostedService
 
             int previousApiCalls = ApiCallsPerformed;
 
-            for (int i = Math.Max(lastUpdatedIssueNumber, 1); i <= lastIssueNumber; i++)
+            for (int i = Math.Max(lastUpdatedIssueNumber - 1, 1); i <= lastIssueNumber; i++)
             {
                 int newApiCalls = ApiCallsPerformed - previousApiCalls;
                 previousApiCalls = ApiCallsPerformed;
