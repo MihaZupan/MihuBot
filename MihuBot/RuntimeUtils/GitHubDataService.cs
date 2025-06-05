@@ -76,6 +76,22 @@ public sealed class GitHubDataService : IHostedService
         }
     }
 
+    private async Task SleepAsync(int targetMaxApiCallsPerHour, int targetMaxUpdatesPerHour, int apiCalls, int updates, string context, CancellationToken cancellationToken)
+    {
+        if (apiCalls > 0 && updates > 0)
+        {
+            TimeSpan sleepTimeCalls = TimeSpan.FromHours(1) / targetMaxApiCallsPerHour * apiCalls;
+            TimeSpan sleepTimeUpdates = TimeSpan.FromHours(1) / targetMaxUpdatesPerHour * updates;
+            TimeSpan sleepTime = sleepTimeCalls > sleepTimeUpdates ? sleepTimeCalls : sleepTimeUpdates;
+
+            if (sleepTime.TotalMilliseconds > 10)
+            {
+                _logger.TraceLog($"{nameof(GitHubDataService)}: {context} Performed {apiCalls} API calls, {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
+                await Task.Delay(sleepTime, cancellationToken);
+            }
+        }
+    }
+
     private async Task RunUpdateLoopAsync(CancellationToken cancellationToken)
     {
         const int TargetMaxApiCallsPerHour = 4_000;
@@ -103,14 +119,7 @@ public sealed class GitHubDataService : IHostedService
                     {
                         (int apiCalls, int updates) = await UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentUpdateFrequency);
 
-                        if (apiCalls > 0 && updates > 0)
-                        {
-                            TimeSpan sleepTimeCalls = TimeSpan.FromHours(1) / TargetMaxApiCallsPerHour * apiCalls;
-                            TimeSpan sleepTimeUpdates = TimeSpan.FromHours(1) / TargetMaxUpdatesPerHour * updates;
-                            TimeSpan sleepTime = sleepTimeCalls > sleepTimeUpdates ? sleepTimeCalls : sleepTimeUpdates;
-                            _logger.TraceLog($"{nameof(GitHubDataService)}: Performed {apiCalls} API calls (estimate), {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
-                            await Task.Delay(sleepTime, cancellationToken);
-                        }
+                        await SleepAsync(TargetMaxApiCallsPerHour, TargetMaxUpdatesPerHour, apiCalls, updates, $"{repoOwner}/{repoName}", cancellationToken);
                     }
 
                     consecutiveFailureCount = 0;
@@ -353,12 +362,16 @@ public sealed class GitHubDataService : IHostedService
                 .FirstOrDefaultAsync(CancellationToken.None);
 
             int previousApiCalls = ApiCallsPerformed;
+            int previousUpdates = UpdatesPerformed;
 
             for (int i = Math.Max(lastUpdatedIssueNumber - 1, 1); i <= lastIssueNumber; i++)
             {
                 int newApiCalls = ApiCallsPerformed - previousApiCalls;
                 previousApiCalls = ApiCallsPerformed;
-                await Task.Delay(TimeSpan.FromSeconds(5) * Math.Max(1, newApiCalls), cancellationToken);
+                int newUpdates = UpdatesPerformed - previousUpdates;
+                previousUpdates = UpdatesPerformed;
+
+                await Parent.SleepAsync(targetMaxApiCallsPerHour: 900, targetMaxUpdatesPerHour: 1 << 20, newApiCalls, newUpdates, $"{repoOwner}/{repoName}", cancellationToken);
 
                 yield return $"Processing issue #{i} out of {lastIssueNumber}";
 
