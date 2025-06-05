@@ -1,6 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using Newtonsoft.Json;
 using Octokit;
@@ -204,6 +205,7 @@ public sealed partial class GitHubNotificationsService
                         .Where(i => i.CreatedAt >= start && i.CreatedAt <= end)
                         .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
                         .Where(i => i.PullRequest == null)
+                        .FromDotnetRuntime()
                         .Include(i => i.Comments)
                         .OrderByDescending(i => i.CreatedAt)
                         .Take(1000)

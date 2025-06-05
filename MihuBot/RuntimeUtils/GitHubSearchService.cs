@@ -55,7 +55,24 @@ public sealed class GitHubSearchService : IHostedService
 
     public sealed record IssueSearchFilters(bool IncludeOpen, bool IncludeClosed, bool IncludeIssues, bool IncludePullRequests, DateTime? CreatedAfter = null)
     {
-        public override string ToString() => $"{nameof(IncludeOpen)}={IncludeOpen}, {nameof(IncludeClosed)}={IncludeClosed}, {nameof(IncludeIssues)}={IncludeIssues}, {nameof(IncludePullRequests)}={IncludePullRequests}, {nameof(CreatedAfter)}={CreatedAfter?.ToISODate() ?? "N/A"}";
+        public string Repository { get; set; }
+
+        public override string ToString()
+        {
+            string s = $"{nameof(IncludeOpen)}={IncludeOpen}, {nameof(IncludeClosed)}={IncludeClosed}, {nameof(IncludeIssues)}={IncludeIssues}, {nameof(IncludePullRequests)}={IncludePullRequests}";
+
+            if (CreatedAfter.HasValue)
+            {
+                s += $", {nameof(CreatedAfter)}={CreatedAfter.Value.ToISODate()}";
+            }
+
+            if (!string.IsNullOrEmpty(Repository))
+            {
+                s += $", {nameof(Repository)}={Repository}";
+            }
+
+            return s;
+        }
     }
 
     [ImmutableObject(true)]
@@ -136,8 +153,12 @@ public sealed class GitHubSearchService : IHostedService
 
         IQueryable<IssueInfo> issuesQuery = db.Issues
             .AsNoTracking()
-            .Where(i => issueIds.Contains(i.Id))
-            .Where(i => i.Repository.Owner.Login == "dotnet" && i.Repository.Name == "runtime");
+            .Where(i => issueIds.Contains(i.Id));
+
+        if (!string.IsNullOrEmpty(filters.Repository))
+        {
+            issuesQuery = issuesQuery.Where(i => i.Repository.FullName == filters.Repository);
+        }
 
         if (filters.CreatedAfter.HasValue)
         {
@@ -326,7 +347,7 @@ public sealed class GitHubSearchService : IHostedService
 
             StringBuilder sb = new();
 
-            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} #{issue.Number}: {issue.Title}");
+            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} {issue.Repository.FullName}#{issue.Number}: {issue.Title}");
 
             if (issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name is { } areaLabel)
             {
@@ -345,7 +366,7 @@ public sealed class GitHubSearchService : IHostedService
                 .OrderByDescending(r => r.Score)
                 .Take(maxComments))
             {
-                sb.AppendLine($"Comment: {TrimBody(result.Comment.Body, bodyContext)}");
+                sb.AppendLine($"Comment by {result.Comment.User.Login}: {TrimBody(result.Comment.Body, bodyContext)}");
             }
 
             return sb.ToString();

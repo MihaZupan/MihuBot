@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using Octokit;
 
@@ -91,6 +92,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
             .OrderBy(i => i.UpdatedAt)
             .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
+            .FromDotnetRuntime()
             .Select(i => i.Id)
             .Take(50)
             .ToArrayAsync(cancellationToken);

@@ -100,7 +100,7 @@
                     <div>
                         <span class="mr-1">@result.Score.ToString("F2")</span>
                         <span class="ml-1 mr-1">@result.Issue.CreatedAt.ToISODate()</span>
-                        <span class="ml-1 mr-1">#@result.Issue.Number by @result.Issue.User.Login</span>
+                        <span class="ml-1 mr-1">@result.Issue.Repository.FullName#@result.Issue.Number by @result.Issue.User.Login</span>
                         @foreach (var label in result.Issue.Labels)
                         {
                             <span class="badge badge-pill ml-1" style="background-color: #@label.Color; color: @PickCssTextColor(label.Color)">@label.Name</span>

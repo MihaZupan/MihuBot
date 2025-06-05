@@ -36,7 +36,10 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         [Description("Optionally only include issues/PRs created after this date.")] DateTime? createdAfter = null,
         CancellationToken cancellationToken = default)
     {
-        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter);
+        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter)
+        {
+            Repository = "dotnet/runtime"
+        };
 
         Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)} ({filters})");
 

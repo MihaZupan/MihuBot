@@ -7,6 +7,7 @@ using MihuBot.DB.GitHub;
 using Octokit;
 using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
 using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
+using MihuBot.DB;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -72,6 +73,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         issues = query(issues);
 
         return await issues
+            .FromDotnetRuntime()
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
@@ -250,7 +252,12 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             [Description("Whether to include pull requests.")] bool includePullRequests,
             CancellationToken cancellationToken)
         {
-            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", new IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests), cancellationToken);
+            var filters = new IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests)
+            {
+                Repository = "dotnet/runtime"
+            };
+
+            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
         }
 
         public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)

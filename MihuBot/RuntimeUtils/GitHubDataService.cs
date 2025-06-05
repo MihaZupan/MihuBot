@@ -16,8 +16,8 @@ public sealed class GitHubDataService : IHostedService
 
     private readonly (string Owner, string Name, TimeSpan IssueUpdateFrequency, TimeSpan CommentUpdateFrequency)[] _watchedRepos =
     [
-        ("dotnet", "runtime", TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15))
-        // ("dotnet", "yarp", TimeSpan.FromHours(1), TimeSpan.FromSeconds(60))
+        ("dotnet", "runtime", TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15)),
+        ("dotnet", "yarp", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60))
     ];
 
     private readonly GitHubClient _github;
