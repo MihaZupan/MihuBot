@@ -661,7 +661,7 @@ public sealed class GitHubSearchService : IHostedService
                 Key = pair.First.Key,
                 IssueId = issue.Id,
                 SubIdentifier = pair.First.SubIdentifier,
-                RepositoryId = issue.Repository.Id,
+                RepositoryId = issue.RepositoryId,
                 Vector = pair.Second.Vector,
             }).ToArray();
 
