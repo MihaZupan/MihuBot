@@ -661,6 +661,7 @@ public sealed class GitHubSearchService : IHostedService
                 Key = pair.First.Key,
                 IssueId = issue.Id,
                 SubIdentifier = pair.First.SubIdentifier,
+                RepositoryId = issue.Repository.Id,
                 Vector = pair.Second.Vector,
             }).ToArray();
 
@@ -693,6 +694,9 @@ public sealed class GitHubSearchService : IHostedService
 
         [VectorStoreRecordData]
         public long SubIdentifier { get; set; }
+
+        [VectorStoreRecordData(IsIndexed = true)]
+        public long RepositoryId { get; set; }
 
         [VectorStoreRecordVector(EmbeddingDimensions, DistanceFunction = DistanceFunction.CosineSimilarity)]
         public ReadOnlyMemory<float> Vector { get; set; }
