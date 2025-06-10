@@ -11,8 +11,8 @@ using MihuBot.DB.GitHub;
 namespace MihuBot.Migrations.GitHubDb
 {
     [DbContext(typeof(GitHubDbContext))]
-    [Migration("20250511045332_AddMorePrInfo")]
-    partial class AddMorePrInfo
+    [Migration("20250606022651_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -22,11 +22,11 @@ namespace MihuBot.Migrations.GitHubDb
 
             modelBuilder.Entity("IssueInfoLabelInfo", b =>
                 {
-                    b.Property<long>("IssuesId")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("IssuesId")
+                        .HasColumnType("TEXT");
 
-                    b.Property<long>("LabelsId")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("LabelsId")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("IssuesId", "LabelsId");
 
@@ -47,8 +47,8 @@ namespace MihuBot.Migrations.GitHubDb
                     b.Property<string>("PreviousBody")
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("ResourceIdentifier")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("ResourceIdentifier")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -60,9 +60,8 @@ namespace MihuBot.Migrations.GitHubDb
 
             modelBuilder.Entity("MihuBot.DB.GitHub.CommentInfo", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("AuthorAssociation")
                         .HasColumnType("INTEGER");
@@ -79,6 +78,9 @@ namespace MihuBot.Migrations.GitHubDb
                     b.Property<int>("Eyes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<long>("GitHubIdentifier")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Heart")
                         .HasColumnType("INTEGER");
 
@@ -91,8 +93,8 @@ namespace MihuBot.Migrations.GitHubDb
                     b.Property<bool>("IsPrReviewComment")
                         .HasColumnType("INTEGER");
 
-                    b.Property<long>("IssueId")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("IssueId")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("Laugh")
                         .HasColumnType("INTEGER");
@@ -132,8 +134,8 @@ namespace MihuBot.Migrations.GitHubDb
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<long>("ResourceIdentifier")
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("ResourceIdentifier")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -147,9 +149,8 @@ namespace MihuBot.Migrations.GitHubDb
 
             modelBuilder.Entity("MihuBot.DB.GitHub.IssueInfo", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("ActiveLockReason")
                         .HasColumnType("INTEGER");
@@ -167,6 +168,9 @@ namespace MihuBot.Migrations.GitHubDb
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Eyes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("GitHubIdentifier")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("Heart")
@@ -216,6 +220,8 @@ namespace MihuBot.Migrations.GitHubDb
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("Number");
 
                     b.HasIndex("RepositoryId");
@@ -229,15 +235,17 @@ namespace MihuBot.Migrations.GitHubDb
 
             modelBuilder.Entity("MihuBot.DB.GitHub.LabelInfo", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Color")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
+
+                    b.Property<long>("GitHubIdentifier")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .HasColumnType("TEXT");
@@ -260,9 +268,8 @@ namespace MihuBot.Migrations.GitHubDb
 
             modelBuilder.Entity("MihuBot.DB.GitHub.PullRequestInfo", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("Additions")
                         .HasColumnType("INTEGER");
@@ -279,8 +286,11 @@ namespace MihuBot.Migrations.GitHubDb
                     b.Property<bool>("Draft")
                         .HasColumnType("INTEGER");
 
-                    b.Property<long>("IssueId")
+                    b.Property<long>("GitHubIdentifier")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("IssueId")
+                        .HasColumnType("TEXT");
 
                     b.Property<bool?>("MaintainerCanModify")
                         .HasColumnType("INTEGER");
@@ -300,7 +310,7 @@ namespace MihuBot.Migrations.GitHubDb
                     b.Property<long?>("MergedById")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("NodeId")
+                    b.Property<string>("NodeIdentifier")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -364,6 +374,31 @@ namespace MihuBot.Migrations.GitHubDb
                     b.HasIndex("OwnerId");
 
                     b.ToTable("repositories");
+                });
+
+            modelBuilder.Entity("MihuBot.DB.GitHub.TriagedIssueRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Body")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IssueId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TriageReportIssueNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IssueId");
+
+                    b.ToTable("triaged_issues");
                 });
 
             modelBuilder.Entity("MihuBot.DB.GitHub.UserInfo", b =>
@@ -432,9 +467,7 @@ namespace MihuBot.Migrations.GitHubDb
                 {
                     b.HasOne("MihuBot.DB.GitHub.IssueInfo", "Issue")
                         .WithMany("Comments")
-                        .HasForeignKey("IssueId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("IssueId");
 
                     b.HasOne("MihuBot.DB.GitHub.UserInfo", "User")
                         .WithMany()
@@ -481,9 +514,7 @@ namespace MihuBot.Migrations.GitHubDb
                 {
                     b.HasOne("MihuBot.DB.GitHub.IssueInfo", "Issue")
                         .WithOne("PullRequest")
-                        .HasForeignKey("MihuBot.DB.GitHub.PullRequestInfo", "IssueId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("MihuBot.DB.GitHub.PullRequestInfo", "IssueId");
 
                     b.Navigation("Issue");
                 });
@@ -497,6 +528,15 @@ namespace MihuBot.Migrations.GitHubDb
                         .IsRequired();
 
                     b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("MihuBot.DB.GitHub.TriagedIssueRecord", b =>
+                {
+                    b.HasOne("MihuBot.DB.GitHub.IssueInfo", "Issue")
+                        .WithMany()
+                        .HasForeignKey("IssueId");
+
+                    b.Navigation("Issue");
                 });
 
             modelBuilder.Entity("MihuBot.DB.GitHub.IssueInfo", b =>

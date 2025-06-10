@@ -231,7 +231,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<GitHubNotificationsService>();
 
     builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
-    builder.Services.AddSingleton<IVectorStore, QdrantVectorStore>();
+    builder.Services.AddQdrantVectorStore();
 
     services.AddSingleton<GitHubSearchService>();
     services.AddHostedService(s => s.GetRequiredService<GitHubSearchService>());

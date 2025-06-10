@@ -1,4 +1,5 @@
 ﻿using System.ClientModel;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -13,8 +14,8 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class GitHubSearchService : IHostedService
 {
-    private const string EmbeddingModel = "text-embedding-3-large";
-    private const int EmbeddingDimensions = 3072;
+    private const string EmbeddingModel = "text-embedding-3-small";
+    private const int EmbeddingDimensions = 1536;
     private const int SmallSectionTokenThreshold = 200;
 
     public Tokenizer Tokenizer { get; }
@@ -26,18 +27,20 @@ public sealed class GitHubSearchService : IHostedService
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator2;
     private readonly QdrantClient _qdrantClient;
-    private readonly IVectorStore _vectorStore;
+    private readonly VectorStore _vectorStore;
     private readonly HybridCache _cache;
+    private readonly ConcurrentDictionary<string, long> _repoNameToId = new();
     private readonly CancellationTokenSource _updateCts = new();
     private Task _updatesTask;
 
     private string SearchCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.SearchCollection", out string name) ? name : nameof(GitHubSearchService);
     private string UpdateCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.UpdateCollection", out string name) ? name : nameof(GitHubSearchService);
+
     private string ClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.ClassifierModel", out string name) ? name : "gpt-4.1-mini";
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-nano";
     private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
-    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, Logger logger, OpenAIService openAi, IVectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache)
+    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache)
     {
         _db = db;
         _logger = logger;
@@ -76,31 +79,38 @@ public sealed class GitHubSearchService : IHostedService
     }
 
     [ImmutableObject(true)]
-    private sealed class RawSearchResult(double score, long issueId, long subIdentifier)
+    private sealed class RawSearchResult(double score, long repositoryId, string issueId, string subIdentifier)
     {
         public double Score { get; } = score;
-        public long IssueId { get; } = issueId;
-        public long SubIdentifier { get; } = subIdentifier;
+        public long RepositoryId { get; } = repositoryId;
+        public string IssueId { get; } = issueId;
+        public string SubIdentifier { get; } = subIdentifier;
     }
 
-    private async Task<RawSearchResult[]> SearchAsyncCore(string query, int topVectors, CancellationToken cancellationToken)
+    private async Task<RawSearchResult[]> SearchAsyncCore(string query, int topVectors, long repositoryFilter, CancellationToken cancellationToken)
     {
         query = query.Trim();
 
         // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.
-        return await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
+        return await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{repositoryFilter}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
         {
             ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: CancellationToken.None);
 
-            IVectorStoreRecordCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(SearchCollectionName);
+            VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(SearchCollectionName);
 
             var results = new List<RawSearchResult>();
 
-            await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchEmbeddingAsync(queryEmbedding, topVectors, cancellationToken: CancellationToken.None))
+            var options = new VectorSearchOptions<SemanticSearchRecord>
+            {
+                Filter = repositoryFilter > 0 ? record => record.RepositoryId == repositoryFilter : null,
+                IncludeVectors = false,
+            };
+
+            await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchAsync(queryEmbedding, topVectors, options, cancellationToken: CancellationToken.None))
             {
                 if (item.Score.HasValue && item.Score > 0.15)
                 {
-                    results.Add(new RawSearchResult(item.Score.Value, item.Record.IssueId, item.Record.SubIdentifier));
+                    results.Add(new RawSearchResult(item.Score.Value, item.Record.RepositoryId, item.Record.IssueId, item.Record.SubIdentifier));
                 }
             }
 
@@ -134,9 +144,31 @@ public sealed class GitHubSearchService : IHostedService
 
         topVectors = Math.Min(topVectors, maxResults * 10);
 
+        long repositoryFilter = 0;
+
+        if (!string.IsNullOrEmpty(filters.Repository) &&
+            !_repoNameToId.TryGetValue(filters.Repository, out repositoryFilter))
+        {
+            repositoryFilter = await db.Repositories
+                .AsNoTracking()
+                .Where(r => r.FullName == filters.Repository)
+                .Select(r => r.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (repositoryFilter == 0)
+            {
+                _logger.DebugLog($"Repository '{filters.Repository}' not found, skipping search.");
+                return [];
+            }
+
+            _repoNameToId[filters.Repository] = repositoryFilter;
+        }
+
+        _logger.DebugLog($"Starting search for '{query}'");
+
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        RawSearchResult[] results = await SearchAsyncCore(query, topVectors, cancellationToken);
+        RawSearchResult[] results = await SearchAsyncCore(query, topVectors, repositoryFilter, cancellationToken);
 
         TimeSpan embeddingSearchTime = stopwatch.Elapsed;
         stopwatch.Restart();
@@ -148,17 +180,12 @@ public sealed class GitHubSearchService : IHostedService
 
         stopwatch.Restart();
 
-        long[] issueIds = [.. results.Select(r => r.IssueId).Distinct()];
-        long[] commentIds = [.. results.Where(r => r.SubIdentifier != 0).Select(r => r.SubIdentifier).Distinct()];
+        string[] issueIds = [.. results.Select(r => r.IssueId).Distinct()];
+        string[] commentIds = [.. results.Where(r => !string.IsNullOrEmpty(r.SubIdentifier)).Select(r => r.SubIdentifier).Distinct()];
 
         IQueryable<IssueInfo> issuesQuery = db.Issues
             .AsNoTracking()
             .Where(i => issueIds.Contains(i.Id));
-
-        if (!string.IsNullOrEmpty(filters.Repository))
-        {
-            issuesQuery = issuesQuery.Where(i => i.Repository.FullName == filters.Repository);
-        }
 
         if (filters.CreatedAfter.HasValue)
         {
@@ -212,11 +239,14 @@ public sealed class GitHubSearchService : IHostedService
         _logger.DebugLog($"Search for '{query}' returned {issues.Count} unique issues, {comments.Count} comments." +
             $" Search={embeddingSearchTime.TotalMilliseconds:F2} Database={databaseQueryTime.TotalMilliseconds:F2}");
 
+        Dictionary<string, IssueInfo> issuesById = issues.ToDictionary(i => i.Id, i => i);
+        Dictionary<string, CommentInfo> commentsById = comments.ToDictionary(c => c.Id, c => c);
+
         return results
             .Select(r =>
             {
-                IssueInfo issue = issues.FirstOrDefault(issues => issues.Id == r.IssueId);
-                CommentInfo comment = r.SubIdentifier == 0 ? null : comments.FirstOrDefault(comment => comment.Id == r.SubIdentifier);
+                _ = issuesById.TryGetValue(r.IssueId, out IssueInfo issue);
+                CommentInfo comment = r.SubIdentifier is null ? null : (commentsById.TryGetValue(r.SubIdentifier, out CommentInfo c) ? c : null);
                 return new IssueSearchResult(r.Score, issue, comment);
             })
             .Where(r => r.Issue is not null)
@@ -249,7 +279,7 @@ public sealed class GitHubSearchService : IHostedService
 
         if (commentsOverThreshold > 0)
         {
-            offset *= Math.Pow(0.99, commentsOverThreshold);
+            offset *= Math.Pow(0.99, Math.Min(commentsOverThreshold, 10));
         }
 
         return Math.Clamp(1 - offset, 0, 1);
@@ -270,11 +300,6 @@ public sealed class GitHubSearchService : IHostedService
             return results;
         }
 
-        if (!string.IsNullOrEmpty(extraSearchContext))
-        {
-            extraSearchContext = $" {extraSearchContext.AsSpan().Trim()}";
-        }
-
         searchQuery = searchQuery.Trim();
 
         string classifierModel = preferSpeed ? FastClassifierModelName : ClassifierModelName;
@@ -283,7 +308,7 @@ public sealed class GitHubSearchService : IHostedService
         int contextMultiplier = preferSpeed ? 1 : 2;
         int maxIssueCount = 25 * contextMultiplier;
         int bodyContextWindow = 40 * contextMultiplier;
-        int maxComments = 2 * contextMultiplier;
+        int maxComments = 3 * contextMultiplier;
 
         IssueRelevance[] relevances = await GetRelevancesAsync(maxIssueCount, bodyContextWindow, maxComments);
 
@@ -294,15 +319,17 @@ public sealed class GitHubSearchService : IHostedService
             maxComments *= 2;
 
             relevances = await GetRelevancesAsync(maxIssueCount, bodyContextWindow, maxComments);
+
+            if (relevances.Length < 3 && results.Length >= 20)
+            {
+                relevances = [];
+            }
         }
 
         (IssueSearchResult[] Results, double Score)[] newResults = relevances
-            .Select(s =>
-            {
-                var searchResult = results.FirstOrDefault(r => r.Results[0].Issue.Number == s.IssueNumber);
-                return searchResult.Results is null ? default : searchResult with { Score = s.Score };
-            })
-            .Where(r => r.Results is not null)
+            .Where(r => (uint)(r.IssueNumber - 1) < (uint)results.Length)
+            .Select(s => results[s.IssueNumber - 1] with { Score = s.Score })
+            .DistinctBy(r => r.Results[0].Issue.Id)
             .OrderByDescending(r => r.Score)
             .ToArray();
 
@@ -321,7 +348,9 @@ public sealed class GitHubSearchService : IHostedService
                 {
                     try
                     {
-                        relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, cancellationToken: CancellationToken.None);
+                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+                        relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
                         break;
                     }
                     catch (Exception ex) when (i < 3)
@@ -333,7 +362,7 @@ public sealed class GitHubSearchService : IHostedService
                 _logger.DebugLog($"Relevance classification for '{searchQuery}' took {stopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
 
                 return relevances.Result
-                    .Where(s => s.Score > 0.1)
+                    .Where(s => s.Score > 0.05)
                     .ToArray();
             }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
         }
@@ -342,7 +371,7 @@ public sealed class GitHubSearchService : IHostedService
         {
             return
                 $"""
-                Classify the relevance of the following GitHub issues and comments based on the search query "{searchQuery}"{extraSearchContext}.
+                Classify the relevance of the following GitHub issues and comments based on the search query "{searchQuery}"{(string.IsNullOrEmpty(extraSearchContext) ? "" : $" in the context of '{extraSearchContext}'")}.
                 Specify the approximate relevance score from 0 to 1 for each issue, where 0 means not relevant and 1 means very relevant.
                 If an issue is unlikely to be relevant, set the score to 0.
                 Return the set of issue numbers with their relevance scores.
@@ -351,17 +380,26 @@ public sealed class GitHubSearchService : IHostedService
 
                 The issues are:
 
-                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select(r => GetShortIssueDescription(r.Results, bodyContext, maxComments)))}
+                {string.Join("\n\n\n---\n\n\n", results.Take(issueCount).Select((r, index) => GetShortIssueDescription(r.Results, index + 1, bodyContext, maxComments)))}
                 """;
         }
 
-        string GetShortIssueDescription(IssueSearchResult[] results, int bodyContext, int maxComments)
+        string GetShortIssueDescription(IssueSearchResult[] results, int position, int bodyContext, int maxComments)
         {
             IssueInfo issue = results[0].Issue;
 
             StringBuilder sb = new();
 
-            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} {issue.Repository.FullName}#{issue.Number}: {issue.Title}");
+            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} {position} in {issue.Repository.FullName} by {issue.User.Login}: {issue.Title}");
+
+            string closedInfo =
+                !issue.ClosedAt.HasValue ? "still open" :
+                issue.PullRequest is { } pr ? pr.MergedAt.HasValue
+                    ? $"merged {pr.MergedAt.Value.ToISODate()}"
+                    : $"closed {issue.ClosedAt.Value.ToISODate()} without merging" :
+                $"closed {issue.ClosedAt.Value.ToISODate()}";
+
+            sb.AppendLine($"Opened {issue.CreatedAt.ToISODate()}, {closedInfo}.");
 
             if (issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name is { } areaLabel)
             {
@@ -376,7 +414,7 @@ public sealed class GitHubSearchService : IHostedService
             }
 
             foreach (IssueSearchResult result in results
-                .Where(r => r.Score >= 0.25 && r.Comment is not null)
+                .Where(r => r.Score >= 0.20 && r.Comment is not null)
                 .OrderByDescending(r => r.Score)
                 .Take(maxComments))
             {
@@ -405,7 +443,12 @@ public sealed class GitHubSearchService : IHostedService
         }
     }
 
-    private sealed record IssueRelevance(int IssueNumber, double Score);
+    [ImmutableObject(true)]
+    private sealed class IssueRelevance
+    {
+        public int IssueNumber { get; set; }
+        public double Score { get; set; }
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -436,7 +479,7 @@ public sealed class GitHubSearchService : IHostedService
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
             cancellationToken = linkedCts.Token;
 
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
 
             int consecutiveFailureCount = 0;
 
@@ -453,15 +496,16 @@ public sealed class GitHubSearchService : IHostedService
                     if (updates > 0)
                     {
                         _logger.TraceLog($"{nameof(GitHubSearchService)}: Performed {updates} DB updates, consumed {tokens} tokens");
-                    }
-                    else
-                    {
-                        await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+
+                        if (updates < 20)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                        }
                     }
 
                     if (tokens > 1_000)
                     {
-                        const int TokenLimitPerMinute = 1_000_000;
+                        const int TokenLimitPerMinute = 950_000;
                         await Task.Delay(TimeSpan.FromMinutes((double)tokens / TokenLimitPerMinute), cancellationToken);
                     }
 
@@ -496,7 +540,7 @@ public sealed class GitHubSearchService : IHostedService
 
         await using GitHubDbContext db = _db.CreateDbContext();
 
-        IVectorStoreRecordCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(UpdateCollectionName);
+        VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(UpdateCollectionName);
 
         if (!await vectorCollection.CollectionExistsAsync(cancellationToken))
         {
@@ -537,17 +581,17 @@ public sealed class GitHubSearchService : IHostedService
             commentsQuery = commentsQuery.Where(c => c.Issue.Labels.Any(l => l.Name == "area-System.Net.Http"));
         }
 
-        List<long> updatedIssues = await issuesQuery
+        List<string> updatedIssues = await issuesQuery
             .Select(i => i.Id)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
 
-        List<long> updatedComments = await commentsQuery
+        List<string> updatedComments = await commentsQuery
             .Select(i => i.IssueId)
             .Take(BatchSize)
             .ToListAsync(cancellationToken);
 
-        HashSet<long> updatedIssueIds = [.. updatedIssues, .. updatedComments];
+        HashSet<string> updatedIssueIds = [.. updatedIssues, .. updatedComments];
 
         if (updatedIssueIds.Count == 0)
         {
@@ -569,7 +613,7 @@ public sealed class GitHubSearchService : IHostedService
         return (updatesPerformed, tokensConumed);
     }
 
-    private async Task<(int DbUpdates, int Tokens)> UpdateRecordsForIssueAsync(long issueId, IVectorStoreRecordCollection<Guid, SemanticSearchRecord> vectorCollection, CancellationToken cancellationToken)
+    private async Task<(int DbUpdates, int Tokens)> UpdateRecordsForIssueAsync(string issueId, VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection, CancellationToken cancellationToken)
     {
         await using GitHubDbContext db = _db.CreateDbContext();
 
@@ -632,14 +676,18 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(IngestedEmbeddingRecord[] RemovedRecords, SemanticSearchRecord[] NewRecords, int Tokens)> CreateUpdatedRecordsForIssueAsync(IssueInfo issue, List<IngestedEmbeddingRecord> previousRecords, CancellationToken cancellationToken)
     {
-        List<(long SubIdentifier, string Text)> rawSections =
+        string titleInfo = $"{issue.Repository.FullName}#{issue.Number}: {issue.Title}";
+
+        List<(string SubIdentifier, string Text)> rawSections =
         [
-            .. GetSections(issue, null, $"{issue.Title} (#{issue.Number})").Select(t => (0, t)),
-            .. GetSections(issue, null, $"{issue.Body}\n\nLabels: {string.Join(", ", issue.Labels.Select(l => l.Name))}").Select(t => (0, t)),
-            .. issue.Comments.SelectMany(c => GetSections(issue, c, c.Body).Select(t => (c.Id, t)))
+            (null, issue.Title),
+            (null, titleInfo),
+            (null, $"{(issue.PullRequest is null ? "" : "PR ")}{issue.Title} in {issue.Repository.FullName} by {issue.User.Login}"),
+            .. GetSections(issue, null, $"{issue.Body}\n\nLabels: {string.Join(", ", issue.Labels.Select(l => l.Name))}", titleInfo).Select(t => ((string)null, t)),
+            .. issue.Comments.SelectMany(c => GetSections(issue, c, c.Body, titleInfo).Select(t => (c.Id, t)))
         ];
 
-        List<(long SubIdentifier, string Text, Guid Key)> keyedSections = rawSections
+        List<(string SubIdentifier, string Text, Guid Key)> keyedSections = rawSections
             .Where(section => !string.IsNullOrWhiteSpace(section.Text))
             .DistinctBy(section => section.Text)
             .Select(section => (section.SubIdentifier, section.Text, GetGuidFromSectionHash(issue.Id, section)))
@@ -648,8 +696,7 @@ public sealed class GitHubSearchService : IHostedService
         if (keyedSections.Count == 0)
         {
             // Ensure there's at least one entry per issue so that the update loop sees the updated timestamp.
-            string text = $"{issue.Title} (#{issue.Number})";
-            keyedSections.Add((0, text, GetGuidFromSectionHash(issue.Id, (0, text))));
+            keyedSections.Add((null, titleInfo, GetGuidFromSectionHash(issue.Id, (null, titleInfo))));
         }
 
         IngestedEmbeddingRecord[] removedRecords = [.. previousRecords.Where(prev => !keyedSections.Any(r => r.Key == prev.Id))];
@@ -688,32 +735,77 @@ public sealed class GitHubSearchService : IHostedService
             return (removedRecords, [], 0);
         }
 
-        static Guid GetGuidFromSectionHash(long issueId, (long SubIdentifier, string Text) section)
+        static Guid GetGuidFromSectionHash(string issueId, (string SubIdentifier, string Text) section)
         {
-            return new Guid($"{issueId}-{section}".GetUtf8Sha384Hash()[..16]);
+            return new Guid($"{issueId}-{section.SubIdentifier}-{section.Text}".GetUtf8Sha384Hash().AsSpan(0, 16), bigEndian: false);
         }
     }
 
-    private IEnumerable<string> GetSections(IssueInfo issue, CommentInfo comment, string markdown)
+    private IEnumerable<string> GetSections(IssueInfo issue, CommentInfo comment, string markdown, string titleInfo)
     {
-        return SemanticMarkdownChunker.GetSections(Tokenizer, SmallSectionTokenThreshold, issue, comment, markdown);
+        return SemanticMarkdownChunker.GetSections(Tokenizer, SmallSectionTokenThreshold, issue, comment, markdown, titleInfo);
+    }
+
+    public async Task<string> DeleteIssueAndEmbeddingsAsync(string issueId)
+    {
+        VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(UpdateCollectionName);
+
+        await using GitHubDbContext db = _db.CreateDbContext();
+
+        IssueInfo issue = await db.Issues
+            .Where(i => i.Id == issueId)
+            .Include(i => i.Comments)
+            .Include(i => i.PullRequest)
+            .AsSplitQuery()
+            .SingleOrDefaultAsync();
+
+        if (issue is null)
+        {
+            return $"Issue with ID '{issueId}' not found.";
+        }
+
+        Guid[] embeddingIds = await db.IngestedEmbeddings
+            .Where(e => e.ResourceIdentifier == issueId)
+            .Select(i => i.Id)
+            .ToArrayAsync(CancellationToken.None);
+
+        db.Issues.Remove(issue);
+
+        if (issue.PullRequest is PullRequestInfo pr)
+        {
+            db.PullRequests.Remove(pr);
+        }
+
+        foreach (CommentInfo comment in issue.Comments)
+        {
+            db.Comments.Remove(comment);
+        }
+
+        int updates = await db.SaveChangesAsync(CancellationToken.None);
+
+        string message = $"{nameof(GitHubSearchService)}: Deleted issue <{issue.HtmlUrl}> ({updates} updates, {embeddingIds.Length} embeddings).";
+        _logger.DebugLog(message);
+
+        await vectorCollection.DeleteAsync(embeddingIds);
+
+        return message;
     }
 
     private sealed class SemanticSearchRecord
     {
-        [VectorStoreRecordKey]
+        [VectorStoreKey]
         public Guid Key { get; set; }
 
-        [VectorStoreRecordData]
-        public long IssueId { get; set; }
-
-        [VectorStoreRecordData]
-        public long SubIdentifier { get; set; }
-
-        [VectorStoreRecordData(IsIndexed = true)]
+        [VectorStoreData(IsIndexed = true)]
         public long RepositoryId { get; set; }
 
-        [VectorStoreRecordVector(EmbeddingDimensions, DistanceFunction = DistanceFunction.CosineSimilarity)]
+        [VectorStoreData]
+        public string IssueId { get; set; }
+
+        [VectorStoreData]
+        public string SubIdentifier { get; set; }
+
+        [VectorStoreVector(EmbeddingDimensions, DistanceFunction = DistanceFunction.CosineSimilarity)]
         public ReadOnlyMemory<float> Vector { get; set; }
     }
 }

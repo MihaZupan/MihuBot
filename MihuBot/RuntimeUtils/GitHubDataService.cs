@@ -12,16 +12,19 @@ public sealed class GitHubDataService : IHostedService
     public const int GhostUserId = 10137;
     public const int CopilotUserId = 198982749;
 
-    private static readonly TimeSpan UserInfoRefreshInterval = TimeSpan.FromDays(5);
+    private static readonly TimeSpan UserInfoRefreshInterval = TimeSpan.FromDays(50);
     private static readonly TimeSpan RepositoryInfoRefreshInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan DataPollingOffset = TimeSpan.FromSeconds(10);
 
     private readonly (string Owner, string Name, TimeSpan IssueUpdateFrequency, TimeSpan CommentUpdateFrequency)[] _watchedRepos =
     [
         ("dotnet", "runtime", TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15)),
-        //("dotnet", "yarp", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60))
-        //("dotnet", "aspnetcore", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60))
+        ("dotnet", "yarp", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60)),
+        ("dotnet", "aspnetcore", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60)),
+        ("dotnet", "extensions", TimeSpan.FromMinutes(10), TimeSpan.FromSeconds(2 * 60))
     ];
+
+    public string[] WatchedRepos => field ??= [.. _watchedRepos.Select(r => $"{r.Owner}/{r.Name}")];
 
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -29,6 +32,7 @@ public sealed class GitHubDataService : IHostedService
     private readonly IConfigurationService _configuration;
     private readonly CancellationTokenSource _updateCts = new();
     private readonly ConcurrentDictionary<(string Owner, string Name), long> _repositoryIds = [];
+    private readonly CooldownTracker _rateLimit = new(TimeSpan.FromHours(1) / 4000, cooldownTolerance: 50, adminOverride: false);
     private Task _updatesTask;
 
     public int IssueCount { get; private set; }
@@ -76,27 +80,8 @@ public sealed class GitHubDataService : IHostedService
         }
     }
 
-    private async Task SleepAsync(int targetMaxApiCallsPerHour, int targetMaxUpdatesPerHour, int apiCalls, int updates, string context, CancellationToken cancellationToken)
-    {
-        if (apiCalls > 0 && updates > 0)
-        {
-            TimeSpan sleepTimeCalls = TimeSpan.FromHours(1) / targetMaxApiCallsPerHour * apiCalls;
-            TimeSpan sleepTimeUpdates = TimeSpan.FromHours(1) / targetMaxUpdatesPerHour * updates;
-            TimeSpan sleepTime = sleepTimeCalls > sleepTimeUpdates ? sleepTimeCalls : sleepTimeUpdates;
-
-            if (sleepTime.TotalMilliseconds > 10)
-            {
-                _logger.TraceLog($"{nameof(GitHubDataService)}: {context} Performed {apiCalls} API calls, {updates} DB updates, sleeping for {sleepTime.TotalSeconds:N3} seconds");
-                await Task.Delay(sleepTime, cancellationToken);
-            }
-        }
-    }
-
     private async Task RunUpdateLoopAsync(CancellationToken cancellationToken)
     {
-        const int TargetMaxApiCallsPerHour = 4_000;
-        const int TargetMaxUpdatesPerHour = 3600 * 50;
-
         try
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
@@ -118,8 +103,6 @@ public sealed class GitHubDataService : IHostedService
                     foreach ((string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentUpdateFrequency) in _watchedRepos)
                     {
                         (int apiCalls, int updates) = await UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentUpdateFrequency);
-
-                        await SleepAsync(TargetMaxApiCallsPerHour, TargetMaxUpdatesPerHour, apiCalls, updates, $"{repoOwner}/{repoName}", cancellationToken);
                     }
 
                     consecutiveFailureCount = 0;
@@ -161,40 +144,64 @@ public sealed class GitHubDataService : IHostedService
         }
     }
 
-    public async Task<(int ApiCalls, int Updates)> UpdateRepositoryDataAsync(string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentspdateFrequency)
+    public async Task<(int ApiCalls, int Updates)> UpdateRepositoryDataAsync(string repoOwner, string repoName, TimeSpan issueUpdateFrequency, TimeSpan commentspdateFrequency, int targetApiRatePerHour = -1, GitHubClient alternativeClient = null)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            issueUpdateFrequency *= 2;
+            commentspdateFrequency *= 2;
+        }
+
         await using GitHubDbContext dbContext = _db.CreateDbContext();
 
         var context = new UpdateContext
         {
             Parent = this,
             DbContext = dbContext,
+            GitHub = alternativeClient,
         };
+
+        if (targetApiRatePerHour > 0)
+        {
+            context.RateLimit = new CooldownTracker(TimeSpan.FromHours(1) / targetApiRatePerHour, cooldownTolerance: 2, adminOverride: false);
+        }
 
         await context.UpdateRepositoryDataAsync(repoOwner, repoName, issueUpdateFrequency, commentspdateFrequency);
 
         return (context.ApiCallsPerformed, context.UpdatesPerformed);
     }
 
-    public async IAsyncEnumerable<string> IngestNewRepositoryAsync(string repoOwner, string repoName, [EnumeratorCancellation] CancellationToken cancellationToken)
+    public async IAsyncEnumerable<(string Log, int ApiCalls, int DbUpdates)> IngestNewRepositoryAsync(string repoOwner, string repoName, int initialIssueNumber, int targetApiRatePerHour, GitHubClient alternativeClient, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(targetApiRatePerHour);
+
         await using GitHubDbContext dbContext = _db.CreateDbContext();
 
         var context = new UpdateContext
         {
             Parent = this,
             DbContext = dbContext,
+            GitHub = alternativeClient,
         };
 
-        await foreach (string log in context.IngestNewRepositoryAsync(repoOwner, repoName, cancellationToken))
+        if (targetApiRatePerHour > 0)
         {
-            yield return log;
+            context.RateLimit = new CooldownTracker(TimeSpan.FromHours(1) / targetApiRatePerHour, cooldownTolerance: 2, adminOverride: false);
+        }
+
+        await foreach (string update in context.IngestNewRepositoryAsync(repoOwner, repoName, initialIssueNumber, cancellationToken))
+        {
+            yield return (update, context.ApiCallsPerformed, context.UpdatesPerformed);
         }
     }
 
     public static void PopulateBasicIssueInfo(IssueInfo info, Issue issue)
     {
-        info.Id = issue.Id;
+        ArgumentNullException.ThrowIfNull(issue);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(info.RepositoryId);
+
+        info.Id = CreateId(info.RepositoryId, issue.Id, ResourceTypes.Issue);
+        info.GitHubIdentifier = issue.Id;
         info.NodeIdentifier = issue.NodeId;
         info.HtmlUrl = issue.HtmlUrl;
         info.Number = issue.Number;
@@ -217,18 +224,37 @@ public sealed class GitHubDataService : IHostedService
         info.Rocket = issue.Reactions.Rocket;
     }
 
+    private static class ResourceTypes
+    {
+        public const string Issue = "i";
+        public const string PullRequest = "pr";
+        public const string IssueComment = "ic";
+        public const string PullRequestReviewComment = "prrc";
+        public const string Label = "l";
+    }
+
+    private static string CreateId(long repoId, long resourceId, string resourceType)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repoId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(resourceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(resourceType);
+
+        return $"{repoId}/{resourceId}/{resourceType}";
+    }
+
     private sealed class UpdateContext
     {
         private static readonly ApiOptions s_apiOptions = new()
         {
             PageSize = 100,
-            PageCount = 100,
+            PageCount = 50,
         };
 
         public required GitHubDataService Parent { get; init; }
         public required GitHubDbContext DbContext { get; init; }
 
-        private GitHubClient GitHub => Parent._github;
+        public CooldownTracker RateLimit { get => field ?? Parent._rateLimit; set => field = value; }
+        public GitHubClient GitHub { get => field ?? Parent._github; set; }
         private Logger Logger => Parent._logger;
 
         public int ApiCallsPerformed { get; private set; }
@@ -241,11 +267,28 @@ public sealed class GitHubDataService : IHostedService
         private long _repoId;
         private RepositoryInfo _repoInfo;
 
+        private async Task OnApiCall(int count = 1, CancellationToken cancellationToken = default, [CallerMemberName] string caller = null)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                ApiCallsPerformed++;
+
+                while (!RateLimit.TryEnter(0, out TimeSpan cooldown, out _))
+                {
+                    cooldown += TimeSpan.FromMilliseconds(50);
+
+                    Log($"{nameof(GitHubDataService)}: {_repoInfo?.FullName} {caller} Performed {ApiCallsPerformed} API calls, {UpdatesPerformed} DB updates, sleeping for {cooldown.TotalSeconds:N1} seconds", verbose: true);
+
+                    await Task.Delay(cooldown, cancellationToken);
+                }
+            }
+        }
+
         private async Task InitRepositoryInfo(string repoOwner, string repoName)
         {
             if (!Parent._repositoryIds.TryGetValue((repoOwner, repoName), out _repoId))
             {
-                ApiCallsPerformed++;
+                await OnApiCall();
                 Repository repo = await GitHub.Repository.Get(repoOwner, repoName);
                 _repoId = repo.Id;
                 Parent._repositoryIds[(repoOwner, repoName)] = repo.Id;
@@ -282,7 +325,7 @@ public sealed class GitHubDataService : IHostedService
 
                 Log($"Found {issues.Count} updated issues since {_repoInfo.LastIssuesUpdate.ToISODateTime()}", verbose: true);
 
-                ApiCallsPerformed += (issues.Count / s_apiOptions.PageSize.Value) + 1;
+                await OnApiCall((issues.Count / s_apiOptions.PageSize.Value) + 1);
 
                 foreach (Issue issue in issues)
                 {
@@ -305,7 +348,7 @@ public sealed class GitHubDataService : IHostedService
 
                 Log($"Found {issueComments.Count} updated issue comments since {_repoInfo.LastIssueCommentsUpdate.ToISODateTime()}", verbose: true);
 
-                ApiCallsPerformed += (issueComments.Count / s_apiOptions.PageSize.Value) + 1;
+                await OnApiCall((issueComments.Count / s_apiOptions.PageSize.Value) + 1);
 
                 foreach (IssueComment comment in issueComments)
                 {
@@ -328,7 +371,7 @@ public sealed class GitHubDataService : IHostedService
 
                 Log($"Found {prReviewComments.Count} updated PR review comments since {_repoInfo.LastPullRequestReviewCommentsUpdate.ToISODateTime()}", verbose: true);
 
-                ApiCallsPerformed += (prReviewComments.Count / s_apiOptions.PageSize.Value) + 1;
+                await OnApiCall((prReviewComments.Count / s_apiOptions.PageSize.Value) + 1);
 
                 foreach (PullRequestReviewComment comment in prReviewComments)
                 {
@@ -339,10 +382,10 @@ public sealed class GitHubDataService : IHostedService
             }
 
             UpdatesPerformed += await DbContext.SaveChangesAsync(CancellationToken.None);
-            Log($"Finished updating repository. {ApiCallsPerformed} API calls (estimate), {UpdatesPerformed} DB updates.", verbose: true);
+            Log($"Finished updating repository. {ApiCallsPerformed} API calls, {UpdatesPerformed} DB updates.", verbose: true);
         }
 
-        public async IAsyncEnumerable<string> IngestNewRepositoryAsync(string repoOwner, string repoName, [EnumeratorCancellation] CancellationToken cancellationToken)
+        public async IAsyncEnumerable<string> IngestNewRepositoryAsync(string repoOwner, string repoName, int initialIssueNumber, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             await InitRepositoryInfo(repoOwner, repoName);
 
@@ -354,38 +397,44 @@ public sealed class GitHubDataService : IHostedService
                 State = ItemStateFilter.All,
             }, new ApiOptions { PageCount = 1, PageSize = 1 })).Single().Number;
 
-            int lastUpdatedIssueNumber = await DbContext.Issues
+            HashSet<int> existingIssueNumbers = await DbContext.Issues
                 .AsNoTracking()
                 .Where(i => i.RepositoryId == _repoId)
-                .OrderByDescending(i => i.Number)
                 .Select(i => i.Number)
-                .FirstOrDefaultAsync(CancellationToken.None);
+                .ToHashSetAsync(cancellationToken);
 
-            int previousApiCalls = ApiCallsPerformed;
-            int previousUpdates = UpdatesPerformed;
-
-            for (int i = Math.Max(lastUpdatedIssueNumber - 1, 1); i <= lastIssueNumber; i++)
+            if (initialIssueNumber < 0)
             {
-                int newApiCalls = ApiCallsPerformed - previousApiCalls;
-                previousApiCalls = ApiCallsPerformed;
-                int newUpdates = UpdatesPerformed - previousUpdates;
-                previousUpdates = UpdatesPerformed;
+                initialIssueNumber = existingIssueNumbers.Max();
+            }
 
-                await Parent.SleepAsync(targetMaxApiCallsPerHour: 900, targetMaxUpdatesPerHour: 1 << 20, newApiCalls, newUpdates, $"{repoOwner}/{repoName}", cancellationToken);
+            for (int issueNumber = Math.Max(initialIssueNumber - 1, 1); issueNumber <= lastIssueNumber; issueNumber++)
+            {
+                yield return $"Processing issue #{issueNumber} out of {lastIssueNumber}";
 
-                yield return $"Processing issue #{i} out of {lastIssueNumber}";
+                if (!existingIssueNumbers.Add(issueNumber))
+                {
+                    continue;
+                }
 
                 Issue issue = null;
                 try
                 {
-                    ApiCallsPerformed++;
-                    issue = await GitHub.Issue.Get(_repoId, i);
+                    await OnApiCall(1, cancellationToken);
+                    issue = await GitHub.Issue.Get(_repoId, issueNumber);
                 }
                 catch { }
 
-                if (issue is null)
+                if (issue is null || issue.HtmlUrl is null)
                 {
-                    yield return $"Failed to fetch issue #{i}. It may have been deleted/transferred.";
+                    yield return $"Failed to fetch issue #{issueNumber}. It may have been deleted/transferred.";
+                    continue;
+                }
+
+                if (!issue.HtmlUrl.StartsWith(_repoInfo.HtmlUrl, StringComparison.Ordinal) ||
+                    issue.HtmlUrl[_repoInfo.HtmlUrl.Length] != '/') // e.g. dotnet/runtime and dotnet/runtimelab
+                {
+                    yield return $"Issue #{issueNumber} was transferred to <{issue.HtmlUrl}>.";
                     continue;
                 }
 
@@ -393,7 +442,7 @@ public sealed class GitHubDataService : IHostedService
 
                 IReadOnlyList<IssueComment> issueComments = await GitHub.Issue.Comment.GetAllForIssue(_repoId, issue.Number, s_apiOptions);
 
-                ApiCallsPerformed += (issueComments.Count / s_apiOptions.PageSize.Value) + 1;
+                await OnApiCall((issueComments.Count / s_apiOptions.PageSize.Value) + 1, cancellationToken);
 
                 foreach (IssueComment comment in issueComments)
                 {
@@ -404,7 +453,7 @@ public sealed class GitHubDataService : IHostedService
                 {
                     IReadOnlyList<PullRequestReviewComment> prReviewComments = await GitHub.PullRequest.ReviewComment.GetAll(_repoId, issue.Number, s_apiOptions);
 
-                    ApiCallsPerformed += (prReviewComments.Count / s_apiOptions.PageSize.Value) + 1;
+                    await OnApiCall((prReviewComments.Count / s_apiOptions.PageSize.Value) + 1, cancellationToken);
 
                     foreach (PullRequestReviewComment comment in prReviewComments)
                     {
@@ -498,6 +547,7 @@ public sealed class GitHubDataService : IHostedService
                 .Where(r => r.Id == _repoId)
                 .Include(r => r.Owner)
                 .Include(r => r.Labels)
+                .AsSplitQuery()
                 .SingleOrDefaultAsync(CancellationToken.None);
 
             if (info is not null && DateTime.UtcNow - info.LastRepositoryMetadataUpdate < RepositoryInfoRefreshInterval)
@@ -505,12 +555,15 @@ public sealed class GitHubDataService : IHostedService
                 return info;
             }
 
-            ApiCallsPerformed++;
+            await OnApiCall();
             Repository repo = await GitHub.Repository.Get(_repoId);
 
             if (info is null)
             {
-                info = new RepositoryInfo();
+                info = new RepositoryInfo
+                {
+                    Id = repo.Id
+                };
                 DbContext.Repositories.Add(info);
             }
 
@@ -535,20 +588,33 @@ public sealed class GitHubDataService : IHostedService
                 await UpdateUserAsync(repo.Owner);
             }
 
-            ApiCallsPerformed++;
+            await UpdateRepositoryLabelsAsync(info);
+
+            return info;
+        }
+
+        private async Task UpdateRepositoryLabelsAsync(RepositoryInfo info)
+        {
+            await OnApiCall();
             IReadOnlyList<Label> labels = await GitHub.Issue.Labels.GetAllForRepository(_repoId, s_apiOptions);
 
             foreach (Label label in labels)
             {
-                LabelInfo labelInfo = await DbContext.Labels.FirstOrDefaultAsync(l => l.Id == label.Id, CancellationToken.None);
+                string labelId = CreateId(_repoId, label.Id, ResourceTypes.Label);
+
+                LabelInfo labelInfo = await DbContext.Labels.FirstOrDefaultAsync(l => l.Id == labelId, CancellationToken.None);
 
                 if (labelInfo is null)
                 {
-                    labelInfo = new LabelInfo();
+                    labelInfo = new LabelInfo
+                    {
+                        Id = labelId
+                    };
                     DbContext.Labels.Add(labelInfo);
                 }
 
-                labelInfo.Id = label.Id;
+                labelInfo.Id = labelId;
+                labelInfo.GitHubIdentifier = label.Id;
                 labelInfo.NodeIdentifier = label.NodeId;
                 labelInfo.Url = label.Url;
                 labelInfo.Name = label.Name;
@@ -560,24 +626,25 @@ public sealed class GitHubDataService : IHostedService
             info.Labels = await DbContext.Labels
                 .Where(l => l.RepositoryId == _repoId)
                 .ToListAsync(CancellationToken.None);
-
-            return info;
         }
 
         private async Task<IssueInfo> UpdateIssueInfoAsync(Issue issue)
         {
             _issueNumberToId[issue.Number] = issue.Id;
 
+            string issueId = CreateId(_repoId, issue.Id, ResourceTypes.Issue);
+
             IssueInfo info = await DbContext.Issues
-                .Where(i => i.Id == issue.Id)
+                .Where(i => i.Id == issueId)
                 .Include(i => i.Labels)
+                .AsSplitQuery()
                 .SingleOrDefaultAsync(CancellationToken.None);
 
             if (info is not null && info.Body != issue.Body)
             {
                 DbContext.BodyEditHistory.Add(new BodyEditHistoryEntry
                 {
-                    ResourceIdentifier = issue.Id,
+                    ResourceIdentifier = issueId,
                     UpdatedAt = issue.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow,
                     PreviousBody = info.Body,
                     IsComment = false
@@ -586,14 +653,23 @@ public sealed class GitHubDataService : IHostedService
 
             if (info is null)
             {
-                info = new IssueInfo();
+                info = new IssueInfo
+                {
+                    Id = issueId
+                };
                 DbContext.Issues.Add(info);
             }
 
-            PopulateBasicIssueInfo(info, issue);
-
             info.RepositoryId = _repoId;
-            info.Labels = [.. _repoInfo.Labels.Where(l => issue.Labels.Any(il => il.Id == l.Id))];
+
+            if (issue.Labels.Any(il => !_repoInfo.Labels.Any(rl => il.Id == rl.GitHubIdentifier)))
+            {
+                await UpdateRepositoryLabelsAsync(_repoInfo);
+            }
+
+            info.Labels = [.. _repoInfo.Labels.Where(rl => issue.Labels.Any(il => il.Id == rl.GitHubIdentifier))];
+
+            PopulateBasicIssueInfo(info, issue);
 
             if (ShouldUpdateUserInfo(info.UserId, issue.User))
             {
@@ -615,33 +691,39 @@ public sealed class GitHubDataService : IHostedService
         {
             ArgumentNullException.ThrowIfNull(pullRequest);
             ArgumentNullException.ThrowIfNull(issue);
-            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issue.Id);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issue.GitHubIdentifier);
 
-            if (!_updatedPRsByIssueId.Add(issue.Id))
+            if (!_updatedPRsByIssueId.Add(issue.GitHubIdentifier))
             {
                 return;
             }
 
             if (pullRequest.Id == 0)
             {
-                ApiCallsPerformed++;
+                await OnApiCall();
                 pullRequest = await GitHub.PullRequest.Get(_repoId, issue.Number);
             }
 
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pullRequest.Id);
             ArgumentOutOfRangeException.ThrowIfNotEqual(pullRequest.HtmlUrl, issue.HtmlUrl);
 
-            PullRequestInfo prInfo = await DbContext.PullRequests.SingleOrDefaultAsync(i => i.Id == pullRequest.Id, CancellationToken.None);
+            string pullRequestId = CreateId(_repoId, pullRequest.Id, ResourceTypes.PullRequest);
+
+            PullRequestInfo prInfo = await DbContext.PullRequests.SingleOrDefaultAsync(i => i.Id == pullRequestId, CancellationToken.None);
 
             if (prInfo is null)
             {
-                prInfo = new PullRequestInfo();
+                prInfo = new PullRequestInfo
+                {
+                    Id = pullRequestId
+                };
                 DbContext.PullRequests.Add(prInfo);
             }
 
-            prInfo.Id = pullRequest.Id;
+            prInfo.Id = pullRequestId;
+            prInfo.GitHubIdentifier = pullRequest.Id;
             prInfo.IssueId = issue.Id;
-            prInfo.NodeId = pullRequest.NodeId;
+            prInfo.NodeIdentifier = pullRequest.NodeId;
             prInfo.MergedAt = pullRequest.MergedAt?.UtcDateTime;
             prInfo.Draft = pullRequest.Draft;
             prInfo.Mergeable = pullRequest.Mergeable;
@@ -660,8 +742,10 @@ public sealed class GitHubDataService : IHostedService
             }
         }
 
-        private async Task<CommentInfo> GetOrCreateCommentInfoAsync(long commentId, string commentUrl, DateTime updatedAt, string newCommentBody)
+        private async Task<CommentInfo> GetOrCreateCommentInfoAsync(long gitHubCommentId, string commentUrl, DateTime updatedAt, string newCommentBody, bool isPrReviewComment)
         {
+            string commentId = CreateId(_repoId, gitHubCommentId, isPrReviewComment ? ResourceTypes.PullRequestReviewComment : ResourceTypes.IssueComment);
+
             if (await DbContext.Comments.SingleOrDefaultAsync(c => c.Id == commentId, CancellationToken.None) is { } existingComment)
             {
                 if (commentUrl != existingComment.HtmlUrl)
@@ -694,26 +778,28 @@ public sealed class GitHubDataService : IHostedService
                 throw new Exception($"Failed to parse issue number from comment URL: {commentUrl}");
             }
 
-            if (!_issueNumberToId.TryGetValue(issueNumber, out long issueId))
+            if (!_issueNumberToId.TryGetValue(issueNumber, out long issueGitHubId))
             {
                 IssueInfo issueInfo = await DbContext.Issues.SingleOrDefaultAsync(issue => issue.Number == issueNumber && issue.RepositoryId == _repoId, CancellationToken.None);
 
                 if (issueInfo is null)
                 {
-                    ApiCallsPerformed++;
+                    await OnApiCall();
                     Issue issue = await GitHub.Issue.Get(_repoId, issueNumber);
                     issueInfo = await UpdateIssueInfoAsync(issue);
                 }
 
-                issueId = issueInfo.Id;
+                issueGitHubId = issueInfo.GitHubIdentifier;
             }
 
-            _issueNumberToId[issueNumber] = issueId;
+            _issueNumberToId[issueNumber] = issueGitHubId;
 
             var newComment = new CommentInfo
             {
                 Id = commentId,
-                IssueId = issueId,
+                GitHubIdentifier = gitHubCommentId,
+                IssueId = CreateId(_repoId, issueGitHubId, ResourceTypes.Issue),
+                IsPrReviewComment = isPrReviewComment,
             };
 
             DbContext.Comments.Add(newComment);
@@ -723,7 +809,7 @@ public sealed class GitHubDataService : IHostedService
 
         private async Task UpdateIssueCommentInfoAsync(IssueComment comment)
         {
-            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, comment.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow, comment.Body);
+            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, comment.UpdatedAt?.UtcDateTime ?? DateTime.UtcNow, comment.Body, isPrReviewComment: false);
 
             info.NodeIdentifier = comment.NodeId;
             info.HtmlUrl = comment.HtmlUrl;
@@ -731,7 +817,6 @@ public sealed class GitHubDataService : IHostedService
             info.CreatedAt = comment.CreatedAt.UtcDateTime;
             info.UpdatedAt = (comment.UpdatedAt ?? comment.CreatedAt).UtcDateTime;
             info.AuthorAssociation = comment.AuthorAssociation.Value;
-            info.IsPrReviewComment = false;
 
             info.Plus1 = comment.Reactions.Plus1;
             info.Minus1 = comment.Reactions.Minus1;
@@ -755,7 +840,7 @@ public sealed class GitHubDataService : IHostedService
         {
             DateTime updatedAt = (comment.UpdatedAt.Year > 2000 ? comment.UpdatedAt : comment.CreatedAt).UtcDateTime;
 
-            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, updatedAt, comment.Body);
+            CommentInfo info = await GetOrCreateCommentInfoAsync(comment.Id, comment.HtmlUrl, updatedAt, comment.Body, isPrReviewComment: true);
 
             info.NodeIdentifier = comment.NodeId;
             info.HtmlUrl = comment.HtmlUrl;
@@ -763,7 +848,6 @@ public sealed class GitHubDataService : IHostedService
             info.CreatedAt = comment.CreatedAt.UtcDateTime;
             info.UpdatedAt = updatedAt;
             info.AuthorAssociation = comment.AuthorAssociation.Value;
-            info.IsPrReviewComment = true;
 
             info.Plus1 = comment.Reactions.Plus1;
             info.Minus1 = comment.Reactions.Minus1;
@@ -806,7 +890,7 @@ public sealed class GitHubDataService : IHostedService
             {
                 if (user.Id is not (GhostUserId or CopilotUserId))
                 {
-                    ApiCallsPerformed++;
+                    await OnApiCall();
                     user = await GitHub.User.Get(user.Login);
                 }
             }
@@ -824,7 +908,10 @@ public sealed class GitHubDataService : IHostedService
 
             if (info is null)
             {
-                info = new UserInfo();
+                info = new UserInfo
+                {
+                    Id = user.Id
+                };
                 DbContext.Users.Add(info);
             }
 

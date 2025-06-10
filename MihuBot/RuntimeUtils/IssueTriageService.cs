@@ -85,7 +85,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
     {
         using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-        long[] issueIds = await db.Issues
+        string[] issueIds = await db.Issues
             .AsNoTracking()
             .Where(issue =>
                 !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
@@ -99,7 +99,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
         int triaged = 0;
 
-        foreach (long issueId in issueIds)
+        foreach (string issueId in issueIds)
         {
             IssueInfo issue = await TriageHelper.GetIssueAsync(issues => issues.Where(i => i.Id == issueId), cancellationToken);
             TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issueId, cancellationToken);
@@ -112,7 +112,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
             triagedIssue.UpdatedAt = DateTime.UtcNow;
 
-            if (issue.CreatedAt >= new DateTime(2025, 05, 18) &&
+            if (issue.CreatedAt >= new DateTime(2025, 06, 10, 20, 00, 00, DateTimeKind.Utc) &&
                 issue.State == ItemState.Open &&
                 issue.PullRequest is null &&
                 !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&

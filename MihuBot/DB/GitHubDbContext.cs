@@ -25,7 +25,8 @@ public sealed class GitHubDbContext : DbContext
 [Index(nameof(CreatedAt))]
 public sealed class IssueInfo
 {
-    public long Id { get; set; }
+    public string Id { get; set; }
+    public long GitHubIdentifier { get; set; } // Unique per repository
     public string NodeIdentifier { get; set; }
     public string HtmlUrl { get; set; }
     public int Number { get; set; }
@@ -81,7 +82,7 @@ public sealed class RepositoryInfo
     public ICollection<LabelInfo> Labels { get; set; }
 
     public DateTime LastRepositoryMetadataUpdate { get; set; }
-    public DateTime LastIssuesUpdate{ get; set; }
+    public DateTime LastIssuesUpdate { get; set; }
     public DateTime LastIssueCommentsUpdate { get; set; }
     public DateTime LastPullRequestReviewCommentsUpdate { get; set; }
 }
@@ -89,8 +90,9 @@ public sealed class RepositoryInfo
 [Table("pullrequests")]
 public sealed class PullRequestInfo
 {
-    public long Id { get; set; }
-    public string NodeId { get; set; }
+    public string Id { get; set; }
+    public long GitHubIdentifier { get; set; } // Unique per repository
+    public string NodeIdentifier { get; set; }
     public DateTime? MergedAt { get; set; }
     public bool Draft { get; set; }
     public bool? Mergeable { get; set; }
@@ -102,7 +104,7 @@ public sealed class PullRequestInfo
     public int ChangedFiles { get; set; }
     public bool? MaintainerCanModify { get; set; }
 
-    public long IssueId { get; set; }
+    public string IssueId { get; set; }
     public IssueInfo Issue { get; set; }
 
     public long? MergedById { get; set; }
@@ -112,7 +114,8 @@ public sealed class PullRequestInfo
 [Index(nameof(UpdatedAt))]
 public sealed class CommentInfo
 {
-    public long Id { get; set; }
+    public string Id { get; set; }
+    public long GitHubIdentifier { get; set; } // Unique per repository
     public string NodeIdentifier { get; set; }
     public string HtmlUrl { get; set; }
     public string Body { get; set; }
@@ -121,7 +124,7 @@ public sealed class CommentInfo
     public AuthorAssociation AuthorAssociation { get; set; }
     public bool IsPrReviewComment { get; set; }
 
-    public long IssueId { get; set; }
+    public string IssueId { get; set; }
     public IssueInfo Issue { get; set; }
 
     public long UserId { get; set; }
@@ -161,7 +164,8 @@ public sealed class UserInfo
 [Table("labels")]
 public sealed class LabelInfo
 {
-    public long Id { get; set; }
+    public string Id { get; set; }
+    public long GitHubIdentifier { get; set; } // Unique per repository
     public string NodeIdentifier { get; set; }
     public string Url { get; set; }
     public string Name { get; set; }
@@ -177,8 +181,8 @@ public sealed class LabelInfo
 [Table("body_edit_history")]
 public sealed class BodyEditHistoryEntry
 {
-    public long Id { get; set; }
-    public long ResourceIdentifier { get; set; }
+    public long Id { get; set; } // Auto
+    public string ResourceIdentifier { get; set; }
     public bool IsComment { get; set; }
     public string PreviousBody { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -189,7 +193,7 @@ public sealed class BodyEditHistoryEntry
 public sealed class IngestedEmbeddingRecord
 {
     public Guid Id { get; set; }
-    public long ResourceIdentifier { get; set; }
+    public string ResourceIdentifier { get; set; } // Currently always an issue ID
     public DateTime UpdatedAt { get; set; }
 }
 
@@ -197,11 +201,11 @@ public sealed class IngestedEmbeddingRecord
 [Index(nameof(IssueId))]
 public sealed class TriagedIssueRecord
 {
-    public long Id { get; set; }
+    public long Id { get; set; } // Auto
     public DateTime UpdatedAt { get; set; }
     public string Body { get; set; }
     public int TriageReportIssueNumber { get; set; }
 
-    public long IssueId { get; set; }
+    public string IssueId { get; set; }
     public IssueInfo Issue { get; set; }
 }

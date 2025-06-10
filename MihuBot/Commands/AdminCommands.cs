@@ -2,21 +2,24 @@
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils;
+using Octokit;
 
 namespace MihuBot.Commands;
 
 public sealed class AdminCommands : CommandBase
 {
     public override string Command => "dropingestedembeddings";
-    public override string[] Aliases => ["clearingestedembeddingsupdatedat", "ingestnewrepo"];
+    public override string[] Aliases => ["clearingestedembeddingsupdatedat", "clearbodyedithistorytable", "deleteissueandembeddings", "ingestnewrepo", "ingestnewreposcan"];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly GitHubDataService _gitHubDataService;
+    private readonly GitHubSearchService _gitHubSearchService;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
+        _gitHubSearchService = gitHubSearchService;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -41,9 +44,30 @@ public sealed class AdminCommands : CommandBase
             await ctx.ReplyAsync($"Updated {updates} ingested embeddings.");
         }
 
-        if (ctx.Command == "ingestnewrepo")
+        if (ctx.Command == "clearbodyedithistorytable")
         {
-            if (ctx.Arguments.Length != 1 ||
+            await using GitHubDbContext db = _db.CreateDbContext();
+            int updates = await db.BodyEditHistory.ExecuteDeleteAsync();
+            await ctx.ReplyAsync($"Deleted {updates} body edit history entries.");
+        }
+
+        if (ctx.Command == "deleteissueandembeddings")
+        {
+            if (ctx.Arguments.Length != 1)
+            {
+                await ctx.ReplyAsync("Usage: `deleteissueandembeddings <issueId>`");
+                return;
+            }
+
+            string message = await _gitHubSearchService.DeleteIssueAndEmbeddingsAsync(ctx.Arguments[0]);
+            await ctx.ReplyAsync(message);
+        }
+
+        if (ctx.Command is "ingestnewrepo" or "ingestnewreposcan")
+        {
+            bool scanOnly = ctx.Command == "ingestnewreposcan";
+
+            if (ctx.Arguments.Length is 0 or > 4 ||
                 ctx.Arguments[0].Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) is not { Length: 2 } parts)
             {
                 await ctx.ReplyAsync("Usage: `ingestnewrepo owner/name`");
@@ -53,25 +77,62 @@ public sealed class AdminCommands : CommandBase
             string repoOwner = parts[0];
             string repoName = parts[1];
 
+            int initialIssueNumber = ctx.Arguments.Length >= 2
+                ? int.Parse(ctx.Arguments[1])
+                : -1;
+
+            int targetApiRate = ctx.Arguments.Length >= 3
+                ? int.Parse(ctx.Arguments[2])
+                : 4000;
+
+            string alternativeClientKey = ctx.Arguments.Length >= 4
+                ? ctx.Arguments[3]
+                : null;
+
+            GitHubClient alternativeClient = alternativeClientKey is null ? null : new GitHubClient(new ProductHeaderValue("MihuBot"))
+            {
+                Credentials = new Credentials(alternativeClientKey)
+            };
+
             RestUserMessage message = await ctx.Channel.SendMessageAsync($"Ingesting new repository: {repoOwner}/{repoName}...");
 
-            using var debouncer = new Debouncer<string>(TimeSpan.FromSeconds(5), async (log, ct) =>
+            using var debouncer = new Debouncer<string>(TimeSpan.FromSeconds(30), async (log, ct) =>
             {
                 await message.ModifyAsync(msg => msg.Content = log);
             });
 
-            await foreach (string log in _gitHubDataService.IngestNewRepositoryAsync(repoOwner, repoName, ctx.CancellationToken))
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            int previousDbUpdates = 0;
+            int newDbUpdates = 0;
+            int rescans = 0;
+
+            do
             {
-                debouncer.Update(log);
+                rescans++;
+                stopwatch.Restart();
+                previousDbUpdates = newDbUpdates;
+
+                await foreach ((string log, _, int dbUpdates) in _gitHubDataService.IngestNewRepositoryAsync(repoOwner, repoName, initialIssueNumber, targetApiRate, alternativeClient, ctx.CancellationToken))
+                {
+                    newDbUpdates = dbUpdates;
+                    debouncer.Update(log);
+                }
             }
+            while (!scanOnly && stopwatch.Elapsed.TotalHours > 3 && (newDbUpdates - previousDbUpdates) > 5_000 && rescans <= 2);
 
-            debouncer.Update($"Ingestion of {repoOwner}/{repoName} complete. Performing initial rescan ...");
+            if (!scanOnly)
+            {
+                debouncer.Update($"Ingestion of {repoOwner}/{repoName} complete. Performing initial rescan after delay...");
 
-            await _gitHubDataService.UpdateRepositoryDataAsync(repoOwner, repoName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+                await Task.Delay(5_000, ctx.CancellationToken);
+
+                await _gitHubDataService.UpdateRepositoryDataAsync(repoOwner, repoName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1), targetApiRate, alternativeClient);
+            }
 
             debouncer.Update("All done");
 
-            await Task.Delay(10_000);
+            await Task.Delay(20_000, ctx.CancellationToken);
         }
     }
 }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace MihuBot.Migrations.GitHubDb
 {
     /// <inheritdoc />
-    public partial class InitialGitHubDataService : Migration
+    public partial class Initial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -17,7 +17,7 @@ namespace MihuBot.Migrations.GitHubDb
                 {
                     Id = table.Column<long>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    ResourceIdentifier = table.Column<long>(type: "INTEGER", nullable: false),
+                    ResourceIdentifier = table.Column<string>(type: "TEXT", nullable: true),
                     IsComment = table.Column<bool>(type: "INTEGER", nullable: false),
                     PreviousBody = table.Column<string>(type: "TEXT", nullable: true),
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
@@ -25,6 +25,19 @@ namespace MihuBot.Migrations.GitHubDb
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_body_edit_history", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "ingested_embedding_history",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
+                    ResourceIdentifier = table.Column<string>(type: "TEXT", nullable: true),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ingested_embedding_history", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -87,8 +100,8 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "issues",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    GitHubIdentifier = table.Column<long>(type: "INTEGER", nullable: false),
                     NodeIdentifier = table.Column<string>(type: "TEXT", nullable: true),
                     HtmlUrl = table.Column<string>(type: "TEXT", nullable: true),
                     Number = table.Column<int>(type: "INTEGER", nullable: false),
@@ -132,8 +145,8 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "labels",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    GitHubIdentifier = table.Column<long>(type: "INTEGER", nullable: false),
                     NodeIdentifier = table.Column<string>(type: "TEXT", nullable: true),
                     Url = table.Column<string>(type: "TEXT", nullable: true),
                     Name = table.Column<string>(type: "TEXT", nullable: true),
@@ -156,8 +169,8 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "comments",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    GitHubIdentifier = table.Column<long>(type: "INTEGER", nullable: false),
                     NodeIdentifier = table.Column<string>(type: "TEXT", nullable: true),
                     HtmlUrl = table.Column<string>(type: "TEXT", nullable: true),
                     Body = table.Column<string>(type: "TEXT", nullable: true),
@@ -165,7 +178,7 @@ namespace MihuBot.Migrations.GitHubDb
                     UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
                     AuthorAssociation = table.Column<int>(type: "INTEGER", nullable: false),
                     IsPrReviewComment = table.Column<bool>(type: "INTEGER", nullable: false),
-                    IssueId = table.Column<long>(type: "INTEGER", nullable: false),
+                    IssueId = table.Column<string>(type: "TEXT", nullable: true),
                     UserId = table.Column<long>(type: "INTEGER", nullable: false),
                     Plus1 = table.Column<int>(type: "INTEGER", nullable: false),
                     Minus1 = table.Column<int>(type: "INTEGER", nullable: false),
@@ -183,8 +196,7 @@ namespace MihuBot.Migrations.GitHubDb
                         name: "FK_comments_issues_IssueId",
                         column: x => x.IssueId,
                         principalTable: "issues",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_comments_users_UserId",
                         column: x => x.UserId,
@@ -197,9 +209,21 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "pullrequests",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    IssueId = table.Column<long>(type: "INTEGER", nullable: false)
+                    Id = table.Column<string>(type: "TEXT", nullable: false),
+                    GitHubIdentifier = table.Column<long>(type: "INTEGER", nullable: false),
+                    NodeIdentifier = table.Column<string>(type: "TEXT", nullable: true),
+                    MergedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    Draft = table.Column<bool>(type: "INTEGER", nullable: false),
+                    Mergeable = table.Column<bool>(type: "INTEGER", nullable: true),
+                    MergeableState = table.Column<int>(type: "INTEGER", nullable: true),
+                    MergeCommitSha = table.Column<string>(type: "TEXT", nullable: true),
+                    Commits = table.Column<int>(type: "INTEGER", nullable: false),
+                    Additions = table.Column<int>(type: "INTEGER", nullable: false),
+                    Deletions = table.Column<int>(type: "INTEGER", nullable: false),
+                    ChangedFiles = table.Column<int>(type: "INTEGER", nullable: false),
+                    MaintainerCanModify = table.Column<bool>(type: "INTEGER", nullable: true),
+                    IssueId = table.Column<string>(type: "TEXT", nullable: true),
+                    MergedById = table.Column<long>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -208,16 +232,36 @@ namespace MihuBot.Migrations.GitHubDb
                         name: "FK_pullrequests_issues_IssueId",
                         column: x => x.IssueId,
                         principalTable: "issues",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "triaged_issues",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    Body = table.Column<string>(type: "TEXT", nullable: true),
+                    TriageReportIssueNumber = table.Column<int>(type: "INTEGER", nullable: false),
+                    IssueId = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_triaged_issues", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_triaged_issues_issues_IssueId",
+                        column: x => x.IssueId,
+                        principalTable: "issues",
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
                 name: "IssueInfoLabelInfo",
                 columns: table => new
                 {
-                    IssuesId = table.Column<long>(type: "INTEGER", nullable: false),
-                    LabelsId = table.Column<long>(type: "INTEGER", nullable: false)
+                    IssuesId = table.Column<string>(type: "TEXT", nullable: false),
+                    LabelsId = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -252,9 +296,19 @@ namespace MihuBot.Migrations.GitHubDb
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_ingested_embedding_history_ResourceIdentifier",
+                table: "ingested_embedding_history",
+                column: "ResourceIdentifier");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_IssueInfoLabelInfo_LabelsId",
                 table: "IssueInfoLabelInfo",
                 column: "LabelsId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_issues_CreatedAt",
+                table: "issues",
+                column: "CreatedAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_issues_Number",
@@ -265,6 +319,11 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "IX_issues_RepositoryId",
                 table: "issues",
                 column: "RepositoryId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_issues_UpdatedAt",
+                table: "issues",
+                column: "UpdatedAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_issues_UserId",
@@ -286,6 +345,11 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "IX_repositories_OwnerId",
                 table: "repositories",
                 column: "OwnerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_triaged_issues_IssueId",
+                table: "triaged_issues",
+                column: "IssueId");
         }
 
         /// <inheritdoc />
@@ -298,10 +362,16 @@ namespace MihuBot.Migrations.GitHubDb
                 name: "comments");
 
             migrationBuilder.DropTable(
+                name: "ingested_embedding_history");
+
+            migrationBuilder.DropTable(
                 name: "IssueInfoLabelInfo");
 
             migrationBuilder.DropTable(
                 name: "pullrequests");
+
+            migrationBuilder.DropTable(
+                name: "triaged_issues");
 
             migrationBuilder.DropTable(
                 name: "labels");

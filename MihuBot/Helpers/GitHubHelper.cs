@@ -111,8 +111,8 @@ public static partial class GitHubHelper
         var reaction = new NewReaction(reactionType);
 
         return await (comment.IsPrReviewComment
-            ? gitHub.Reaction.PullRequestReviewComment.Create(comment.RepoOwner(), comment.RepoName(), comment.Id, reaction)
-            : gitHub.Reaction.IssueComment.Create(comment.RepoOwner(), comment.RepoName(), comment.Id, reaction));
+            ? gitHub.Reaction.PullRequestReviewComment.Create(comment.RepoOwner(), comment.RepoName(), comment.GitHubIdentifier, reaction)
+            : gitHub.Reaction.IssueComment.Create(comment.RepoOwner(), comment.RepoName(), comment.GitHubIdentifier, reaction));
     }
 
     public static string RepoOwner(this IssueInfo issue) => issue.Repository.Owner.Login;

@@ -1,4 +1,5 @@
 ﻿@page "/search"
+@using Microsoft.AspNetCore.WebUtilities
 @using MihuBot.DB.GitHub
 @using MihuBot.RuntimeUtils
 @using Octokit
@@ -6,6 +7,7 @@
 @rendermode InteractiveServer
 @inject GitHubDataService GitHubData
 @inject GitHubSearchService Search
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <PageTitle>GitHub Search</PageTitle>
@@ -58,15 +60,25 @@
                 <div class="input-group">
                     <input id="searchQuery" type="text" @bind-value="SearchQuery" @bind-value:event="oninput" placeholder="Search query">
                     <div class="btn-group" role="group">
-                        <button type="button" @onclick="() => DisableRelevanceClassification = !DisableRelevanceClassification" class="btn btn-primary ml-1">@(DisableRelevanceClassification ? "Filter unrelated results" : "I want faster searches")</button>
+                        <button type="button" @onclick="() => DoRelevanceClassification = !DoRelevanceClassification" class="btn btn-primary ml-1">@(DoRelevanceClassification ? "I want faster searches" : "Filter unrelated results")</button>
                         <button type="button" @onclick="() => IncludeOpenIssueOnly = !IncludeOpenIssueOnly" class="btn btn-primary ml-1">@(IncludeOpenIssueOnly ? "Show all" : "Hide closed issues")</button>
+                    </div>
+                    <div class="input-group-append ml-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@(RepoFilter ?? "Filter repos")</button>
+                        <div class="dropdown-menu">
+                            <a class="dropdown-item" @onclick="() => RepoFilter = null">All</a>
+                            @foreach (string repo in GitHubData.WatchedRepos)
+                            {
+                                <a class="dropdown-item" @onclick="() => RepoFilter = repo">@repo</a>
+                            }
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="statistics-container">
-            <p>@(GitHubData.IssueCount / 1_000)k issues, @(GitHubData.CommentCount / 1_000)k comments, @(GitHubData.SearchVectorCount / 1_000)k vectors</p>
+            <p>@GetStatsNumberString(GitHubData.IssueCount) issues, @GetStatsNumberString(GitHubData.CommentCount) comments, @GetStatsNumberString(GitHubData.SearchVectorCount) vectors</p>
         </div>
     </div>
 
@@ -114,6 +126,21 @@
 
 @code
 {
+    static string GetStatsNumberString(int number)
+    {
+        if (number < 5_000)
+        {
+            return number.ToString();
+        }
+
+        if (number < 1_000_000)
+        {
+            return $"{number / 1000}k";
+        }
+
+        return $"{number / 1_000_000d:N1}M";
+    }
+
     static string PickCssTextColor(string backgroundColor)
     {
         // https://stackoverflow.com/a/36888120/6845657
@@ -138,7 +165,7 @@
 
     private (IssueInfo Issue, double Score)[] _searchResults = [];
     private string _errorMessage;
-    private Debouncer<(string Query, bool DisableRelevanceClassification, bool IncludeOpenIssueOnly)> _debouncer;
+    private Debouncer<(string Query, string RepoFilter, bool DoRelevanceClassification, bool IncludeOpenIssueOnly)> _debouncer;
     private bool _isLoading;
 
     private bool IncludeOpenIssueOnly
@@ -151,7 +178,7 @@
         }
     }
 
-    private bool DisableRelevanceClassification
+    private bool DoRelevanceClassification
     {
         get => field;
         set
@@ -171,20 +198,61 @@
         }
     }
 
+    private string RepoFilter
+    {
+        get => field;
+        set
+        {
+            field = value;
+            RefreshSearchResults();
+        }
+    }
+
     private void RefreshSearchResults()
     {
-        _debouncer.Update((SearchQuery.Trim(), DisableRelevanceClassification, IncludeOpenIssueOnly));
+        _debouncer.Update((SearchQuery.Trim(), RepoFilter, DoRelevanceClassification, IncludeOpenIssueOnly));
     }
 
     protected override void OnInitialized()
     {
-        _debouncer = new Debouncer<(string, bool, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
+        _debouncer = new Debouncer<(string, string, bool, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
         _debouncer.CancelPendingActions = true;
     }
 
-    private async Task SearchAsync((string SearchQuery, bool DisableRelevanceClassification, bool IncludeOpenIssueOnly) state, CancellationToken cancellationToken)
+    protected override void OnAfterRender(bool firstRender)
     {
-        (string searchQuery, bool disableRelevanceClassification, bool includeOpenIssueOnly) = state;
+        if (firstRender)
+        {
+            if (Uri.TryCreate(Navigation.Uri, UriKind.Absolute, out Uri uri))
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+
+                if (query.TryGetValue("openOnly", out var openOnlyStr) && openOnlyStr == "1")
+                {
+                    IncludeOpenIssueOnly = true;
+                }
+
+                if (query.TryGetValue("secondPass", out var doSecondPassStr) && openOnlyStr == "1")
+                {
+                    DoRelevanceClassification = true;
+                }
+
+                if (query.TryGetValue("repo", out var repo) && GitHubData.WatchedRepos.Contains(repo))
+                {
+                    RepoFilter = repo;
+                }
+
+                if (query.TryGetValue("q", out var searchQuery))
+                {
+                    SearchQuery = searchQuery;
+                }
+            }
+        }
+    }
+
+    private async Task SearchAsync((string SearchQuery, string RepoFilter, bool DoRelevanceClassification, bool IncludeOpenIssueOnly) state, CancellationToken cancellationToken)
+    {
+        (string searchQuery, string repoFilter, bool doRelevanceClassification, bool includeOpenIssueOnly) = state;
 
         try
         {
@@ -203,14 +271,16 @@
                     _isLoading = true;
 
                     var filters = new GitHubSearchService.IssueSearchFilters(IncludeOpen: true, IncludeClosed: !includeOpenIssueOnly, IncludeIssues: true, IncludePullRequests: true);
+                    filters.Repository = repoFilter;
+
                     var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, includeAllIssueComments: false, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
                     (IssueSearchResult[] Results, double Score)[] resultsByIssue = GitHubSearchService.GroupResultsByIssue(await searchTask);
 
-                    if (!disableRelevanceClassification)
+                    if (doRelevanceClassification)
                     {
-                        resultsByIssue = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: "", preferSpeed: true, resultsByIssue, cancellationToken);
+                        resultsByIssue = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: repoFilter, preferSpeed: true, resultsByIssue, cancellationToken);
                     }
 
                     _searchResults = resultsByIssue
@@ -218,25 +288,37 @@
                         .ToArray();
                 }
 
+                var newUrl = Navigation.GetUriWithQueryParameters(new Dictionary<string, object>
+                {
+                    { "q", searchQuery },
+                    { "repo", repoFilter },
+                    { "secondPass", doRelevanceClassification ? "1" : null },
+                    { "openOnly", includeOpenIssueOnly ? "1" : null },
+                });
+
+                Navigation.NavigateTo(newUrl, replace: true);
+
                 _errorMessage = null;
-                _isLoading = false;
             }
+
+            _isLoading = false;
         }
         catch (Exception ex)
         {
-            if (cancellationToken.IsCancellationRequested)
+            if (!cancellationToken.IsCancellationRequested)
             {
-                return;
+                _isLoading = false;
+                _errorMessage = ex.Message;
             }
-
-            _errorMessage = ex.Message;
         }
-
-        try
+        finally
         {
-            await InvokeAsync(StateHasChanged);
+            try
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
         }
-        catch { }
     }
 
     public void Dispose() => _debouncer?.Dispose();

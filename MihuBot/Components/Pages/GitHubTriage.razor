@@ -189,6 +189,7 @@
                 else
                 {
                     issue = new IssueInfo();
+                    issue.RepositoryId = (await GitHubClient.Repository.Get("dotnet", "runtime").WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
                     GitHubDataService.PopulateBasicIssueInfo(issue, newIssue);
                     issue.User = new UserInfo
                     {

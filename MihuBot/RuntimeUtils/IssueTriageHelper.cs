@@ -291,7 +291,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             await Parallel.ForEachAsync(searchTerms, async (term, _) =>
             {
                 IssueSearchResult[] localResults = (await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken))
-                    .Where(r => r.Score > 0.25)
+                    .Where(r => r.Score >= 0.20)
                     .Where(r => r.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(r.Issue, r.Comment))
                     .ToArray();
 

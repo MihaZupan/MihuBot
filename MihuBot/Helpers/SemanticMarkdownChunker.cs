@@ -12,7 +12,7 @@ namespace MihuBot.Helpers;
 
 public static class SemanticMarkdownChunker
 {
-    public static IEnumerable<string> GetSections(Tokenizer tokenizer, int smallSectionTokenThreshold, IssueInfo issue, CommentInfo? comment, string markdown)
+    public static IEnumerable<string> GetSections(Tokenizer tokenizer, int smallSectionTokenThreshold, IssueInfo issue, CommentInfo? comment, string markdown, string titleInfo)
     {
         if (string.IsNullOrWhiteSpace(markdown))
         {
@@ -41,7 +41,7 @@ public static class SemanticMarkdownChunker
                 continue;
             }
 
-            if (tokens < 10 || trimmed.Contains(issue.Title, StringComparison.Ordinal))
+            if (tokens < 10 || trimmed.Contains(titleInfo, StringComparison.Ordinal))
             {
                 // Avoid giving small comments too much context to stop "+1" from being considered as relevant just due to the title.
                 yield return trimmed;
@@ -52,7 +52,7 @@ public static class SemanticMarkdownChunker
                     ? $"{(issue.PullRequest is null ? "Issue" : "Pull request")} author: {issue.User.Login}"
                     : $"Comment author: {comment.User.Login}";
 
-                yield return $"# {issue.Title} (#{issue.Number})\n{author}\n\n{trimmed}";
+                yield return $"{titleInfo}\n{author}\n\n{trimmed}";
             }
         }
     }

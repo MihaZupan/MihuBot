@@ -308,7 +308,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 if (comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
                     comment.User.Type == AccountType.User &&
                     !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                    _processedMentions.TryAdd(comment.Id.ToString()) &&
+                    _processedMentions.TryAdd(comment.Id) &&
                     TryExtractMihuBotArguments(comment.Body, out string arguments))
                 {
                     Logger.DebugLog($"Processing mention from {comment.User.Login} in {comment.HtmlUrl}: '{comment.Body}'");
