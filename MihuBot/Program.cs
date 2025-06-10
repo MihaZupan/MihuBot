@@ -36,8 +36,8 @@ builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(10));
 
 Console.WriteLine("Starting ...");
 
-Console.WriteLine("TEMP: Waiting before starting ...");
-while (Console.ReadLine() != "start") { }
+//Console.WriteLine("TEMP: Waiting before starting ...");
+//while (Console.ReadLine() != "start") { }
 
 Directory.CreateDirectory(Constants.StateDirectory);
 
