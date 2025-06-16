@@ -140,7 +140,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
                 triagedIssue.UpdatedAt = DateTime.UtcNow;
 
-                if (issue.CreatedAt >= new DateTime(2025, 06, 16, 18, 00, 00, DateTimeKind.Utc) &&
+                if (issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc) &&
                     issue.State == ItemState.Open &&
                     issue.PullRequest is null &&
                     !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&
