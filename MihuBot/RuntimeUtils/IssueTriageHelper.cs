@@ -70,16 +70,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         issues = query(issues);
 
+        issues = AddIssueInfoIncludes(issues);
+
         return await issues
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public static IQueryable<IssueInfo> AddIssueInfoIncludes(IQueryable<IssueInfo> query)
+    {
+        return query
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
             .Include(i => i.Repository)
                 .ThenInclude(r => r.Owner)
             .Include(i => i.Comments)
-                .ThenInclude(c => c.User)
-            .AsSplitQuery()
-            .FirstOrDefaultAsync(cancellationToken);
+                .ThenInclude(c => c.User);
     }
 
     private sealed class Context

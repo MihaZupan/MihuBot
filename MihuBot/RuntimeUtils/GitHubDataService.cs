@@ -38,6 +38,7 @@ public sealed class GitHubDataService : IHostedService
     private readonly CancellationTokenSource _updateCts = new();
     private readonly ConcurrentDictionary<(string Owner, string Name), long> _repositoryIds = [];
     private readonly CooldownTracker _rateLimit = new(TimeSpan.FromHours(1) / 4000, cooldownTolerance: 50, adminOverride: false);
+    private readonly ConcurrentDictionary<string, long> _repoNameToId = new();
     private Task _updatesTask;
 
     public int IssueCount { get; private set; }
@@ -229,7 +230,36 @@ public sealed class GitHubDataService : IHostedService
         info.Rocket = issue.Reactions.Rocket;
     }
 
-    public async Task<RepositoryInfo> TryGetRepositoryInfo(string repoName)
+    public async Task<long> TryGetKnownRepositoryIdAsync(string repoName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(repoName))
+        {
+            return -1;
+        }
+
+        if (_repoNameToId.TryGetValue(repoName, out long id))
+        {
+            return id;
+        }
+
+        await using GitHubDbContext db = _db.CreateDbContext();
+
+        id = await db.Repositories
+            .AsNoTracking()
+            .Where(r => r.FullName == repoName)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (id == 0)
+        {
+            return -1;
+        }
+
+        _repoNameToId[repoName] = id;
+        return id;
+    }
+
+    public async Task<RepositoryInfo> TryGetRepositoryInfoAsync(string repoName)
     {
         await using GitHubDbContext dbContext = _db.CreateDbContext();
 

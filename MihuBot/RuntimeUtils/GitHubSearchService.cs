@@ -1,5 +1,4 @@
 ﻿using System.ClientModel;
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -29,7 +28,7 @@ public sealed class GitHubSearchService : IHostedService
     private readonly QdrantClient _qdrantClient;
     private readonly VectorStore _vectorStore;
     private readonly HybridCache _cache;
-    private readonly ConcurrentDictionary<string, long> _repoNameToId = new();
+    private readonly GitHubDataService _dataService;
     private readonly CancellationTokenSource _updateCts = new();
     private Task _updatesTask;
 
@@ -40,7 +39,7 @@ public sealed class GitHubSearchService : IHostedService
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-nano";
     private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
-    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache)
+    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService)
     {
         _db = db;
         _logger = logger;
@@ -49,6 +48,7 @@ public sealed class GitHubSearchService : IHostedService
         _qdrantClient = qdrantClient;
         _configuration = configuration;
         _cache = cache;
+        _dataService = dataService;
         _embeddingGenerator = openAi.GetEmbeddingGenerator(EmbeddingModel);
         _embeddingGenerator2 = openAi.GetEmbeddingGenerator(EmbeddingModel, secondary: true);
         Tokenizer = TiktokenTokenizer.CreateForModel(EmbeddingModel);
@@ -144,24 +144,12 @@ public sealed class GitHubSearchService : IHostedService
 
         topVectors = Math.Min(topVectors, maxResults * 10);
 
-        long repositoryFilter = 0;
+        long repositoryFilter = await _dataService.TryGetKnownRepositoryIdAsync(filters.Repository, cancellationToken);
 
-        if (!string.IsNullOrEmpty(filters.Repository) &&
-            !_repoNameToId.TryGetValue(filters.Repository, out repositoryFilter))
+        if (repositoryFilter <= 0 && !string.IsNullOrEmpty(filters.Repository))
         {
-            repositoryFilter = await db.Repositories
-                .AsNoTracking()
-                .Where(r => r.FullName == filters.Repository)
-                .Select(r => r.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (repositoryFilter == 0)
-            {
-                _logger.DebugLog($"Repository '{filters.Repository}' not found, skipping search.");
-                return [];
-            }
-
-            _repoNameToId[filters.Repository] = repositoryFilter;
+            _logger.DebugLog($"Repository '{filters.Repository}' not found, skipping search.");
+            return [];
         }
 
         _logger.DebugLog($"Starting search for '{query}'");

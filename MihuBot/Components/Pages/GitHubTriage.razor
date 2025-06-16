@@ -209,7 +209,7 @@
 
                 issue = new IssueInfo();
                 issue.RepositoryId = (await GitHubClient.Repository.Get(repoOwner, repoNameOnly).WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
-                issue.Repository = await GitHubDataService.TryGetRepositoryInfo(repoName);
+                issue.Repository = await GitHubDataService.TryGetRepositoryInfoAsync(repoName);
                 GitHubDataService.PopulateBasicIssueInfo(issue, newIssue);
                 issue.User = new UserInfo
                 {

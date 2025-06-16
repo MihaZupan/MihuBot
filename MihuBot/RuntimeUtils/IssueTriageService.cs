@@ -1,16 +1,23 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
-using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper TriageHelper, Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, IConfigurationService Configuration) : IHostedService
+public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper TriageHelper, GitHubDataService GitHubData, Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, IConfigurationService Configuration) : IHostedService
 {
     private readonly CancellationTokenSource _updateCts = new();
     private Task _updatesTask;
+
+    private sealed record RepoConfig(string RepoName, Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> Query);
+
+    private static readonly RepoConfig[] s_repoConfigs =
+    [
+        new("dotnet/runtime",   q => q.Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))),
+        new("dotnet/aspire",    q => q.Where(i => i.Labels.Any(l => l.Name == "area-dashboard"))),
+    ];
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -83,54 +90,78 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
     private async Task TriageIssuesAsync(CancellationToken cancellationToken)
     {
-        using GitHubDbContext db = GitHubDb.CreateDbContext();
-
-        string[] issueIds = await db.Issues
-            .AsNoTracking()
-            .Where(issue =>
-                !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
-                db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
-            .OrderBy(i => i.UpdatedAt)
-            .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
-            .FromDotnetRuntime()
-            .Select(i => i.Id)
-            .Take(50)
-            .ToArrayAsync(cancellationToken);
-
-        int triaged = 0;
-
-        foreach (string issueId in issueIds)
+        foreach (RepoConfig repoConfig in s_repoConfigs)
         {
-            IssueInfo issue = await TriageHelper.GetIssueAsync(issues => issues.Where(i => i.Id == issueId), cancellationToken);
-            TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issueId, cancellationToken);
+            using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-            if (triagedIssue is null)
+            long repoId = await GitHubData.TryGetKnownRepositoryIdAsync(repoConfig.RepoName, cancellationToken);
+
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repoId, repoConfig.RepoName);
+
+            IQueryable<IssueInfo> query = db.Issues
+                .AsNoTracking()
+                .OrderByDescending(i => i.UpdatedAt)
+                .Where(issue =>
+                    !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
+                    db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
+                .Take(1000)
+                .Where(i => i.RepositoryId == repoId);
+
+            query = repoConfig.Query(query);
+
+            query = query.Take(100);
+
+            query = IssueTriageHelper.AddIssueInfoIncludes(query);
+
+            Stopwatch queryTimer = Stopwatch.StartNew();
+
+            IssueInfo[] issues = await query
+                .AsSplitQuery()
+                .ToArrayAsync(cancellationToken);
+
+            queryTimer.Stop();
+
+            if (queryTimer.ElapsedMilliseconds > 25)
             {
-                triagedIssue = new TriagedIssueRecord { IssueId = issueId };
-                db.TriagedIssues.Add(triagedIssue);
+                Logger.DebugLog($"[{nameof(IssueTriageService)}] Query for {repoConfig.RepoName} took {queryTimer.ElapsedMilliseconds:F2} ms, got {issues.Length} issues.");
             }
 
-            triagedIssue.UpdatedAt = DateTime.UtcNow;
+            int triaged = 0;
 
-            if (issue.CreatedAt >= new DateTime(2025, 06, 10, 20, 00, 00, DateTimeKind.Utc) &&
-                issue.State == ItemState.Open &&
-                issue.PullRequest is null &&
-                !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
+            foreach (IssueInfo issue in issues)
             {
-                triagedIssue.Body = issue.Body;
+                TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issue.Id, cancellationToken);
 
-                await TriageIssueAsync(issue, triagedIssue, cancellationToken);
+                if (triagedIssue is null)
+                {
+                    triagedIssue = new TriagedIssueRecord { IssueId = issue.Id };
+                    db.TriagedIssues.Add(triagedIssue);
+                }
 
-                triaged++;
+                triagedIssue.UpdatedAt = DateTime.UtcNow;
+
+                if (issue.CreatedAt >= new DateTime(2025, 06, 16, 18, 00, 00, DateTimeKind.Utc) &&
+                    issue.State == ItemState.Open &&
+                    issue.PullRequest is null &&
+                    !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
+                {
+                    triagedIssue.Body = issue.Body;
+
+                    await TriageIssueAsync(issue, triagedIssue, cancellationToken);
+
+                    triaged++;
+
+                    await db.SaveChangesAsync(CancellationToken.None);
+                }
             }
 
             await db.SaveChangesAsync(CancellationToken.None);
-        }
 
-        if (triaged > 0)
-        {
-            Logger.DebugLog($"[{nameof(IssueTriageService)}]: {issueIds.Length} issues triaged.");
+            if (triaged > 0)
+            {
+                Logger.DebugLog($"[{nameof(IssueTriageService)}]: {triaged} issues triaged for {repoConfig.RepoName}.");
+            }
         }
     }
 
@@ -154,7 +185,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
         if (triagedIssue.TriageReportIssueNumber == 0)
         {
-            string title = $"Triage for {issue.RepoOwner()}/{issue.RepoName()}#{issue.Number} by {issue.User.Login} - {issue.Title.TruncateWithDotDotDot(100)}";
+            string title = $"Triage for {issue.Repository.FullName}#{issue.Number} by {issue.User.Login} - {issue.Title.TruncateWithDotDotDot(100)}";
 
             Issue newIssue = await GitHub.Issue.Create(JobBase.IssueRepositoryOwner, JobBase.IssueRepositoryName, new NewIssue(title)
             {
