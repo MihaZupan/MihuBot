@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
@@ -8,6 +9,14 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper TriageHelper, GitHubDataService GitHubData, Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, IConfigurationService Configuration) : IHostedService
 {
+    private static readonly SearchValues<string> s_issueBodiesToSkip = SearchValues.Create(
+    [
+        "<!-- Known issue validation start -->",
+        "<!-- BEGIN: Github workflow runs test report -->",
+        "Fill the error message using [step by step known issues guidance]",
+
+    ], StringComparison.OrdinalIgnoreCase);
+
     private readonly CancellationTokenSource _updateCts = new();
     private Task _updatesTask;
 
@@ -104,7 +113,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 .Where(issue =>
                     !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
                     db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
-                .Take(1000)
+                .Take(2000)
                 .Where(i => i.RepositoryId == repoId);
 
             query = repoConfig.Query(query);
@@ -143,7 +152,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 if (issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc) &&
                     issue.State == ItemState.Open &&
                     issue.PullRequest is null &&
-                    !issue.Body.Contains("<!-- Known issue validation start -->", StringComparison.OrdinalIgnoreCase) &&
+                    !issue.Body.ContainsAny(s_issueBodiesToSkip) &&
                     !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
                 {
                     triagedIssue.Body = issue.Body;
