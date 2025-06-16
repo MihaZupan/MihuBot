@@ -20,12 +20,17 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
     private readonly CancellationTokenSource _updateCts = new();
     private Task _updatesTask;
 
-    private sealed record RepoConfig(string RepoName, Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> Query);
+    private sealed record RepoConfig(string RepoName, Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> Filter, string FilterDescription);
 
     private static readonly RepoConfig[] s_repoConfigs =
     [
-        new("dotnet/runtime",   q => q.Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))),
-        new("dotnet/aspire",    q => q.Where(i => i.Labels.Any(l => l.Name == "area-dashboard"))),
+        new("dotnet/runtime",
+            q => q.Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name))),
+            "All networking issues"),
+
+        new("dotnet/aspire",
+            q => q.Where(i => i.Labels.Any(l => l.Name == "area-dashboard")),
+            "[`area-dashboard`](https://github.com/dotnet/aspire/issues?q=state%3Aopen%20label%3A%22area-dashboard%22) issues"),
     ];
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -113,10 +118,10 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 .Where(issue =>
                     !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
                     db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
-                .Take(2000)
+                .Take(1000)
                 .Where(i => i.RepositoryId == repoId);
 
-            query = repoConfig.Query(query);
+            query = repoConfig.Filter(query);
 
             query = query.Take(100);
 
@@ -157,7 +162,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 {
                     triagedIssue.Body = issue.Body;
 
-                    await TriageIssueAsync(issue, triagedIssue, cancellationToken);
+                    await TriageIssueAsync(issue, triagedIssue, repoConfig, cancellationToken);
 
                     triaged++;
 
@@ -174,16 +179,22 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
         }
     }
 
-    private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, CancellationToken cancellationToken)
+    private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, RepoConfig config, CancellationToken cancellationToken)
     {
         ConcurrentQueue<string> toolLogs = [];
 
         string html = await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, cancellationToken)
             .LastOrDefaultAsync(cancellationToken) ?? "";
 
+        string commit = Helpers.Helpers.GetCommitId();
+        string version = commit.Length >= 10 ? $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/tree/{commit})" : "unknown";
+
         string newIssueBody =
             $"""
             Triage for {issue.HtmlUrl}.
+            Repo filter: {config.FilterDescription}.
+            MihuBot version: {version}.
+            Ping [MihaZupan](https://github.com/MihaZupan) for any issues.
 
             ```
             {string.Join('\n', toolLogs)}
