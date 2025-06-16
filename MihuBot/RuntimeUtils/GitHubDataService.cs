@@ -18,13 +18,18 @@ public sealed class GitHubDataService : IHostedService
 
     private readonly (string Owner, string Name, TimeSpan IssueUpdateFrequency, TimeSpan CommentUpdateFrequency)[] _watchedRepos =
     [
-        ("dotnet", "runtime", TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15)),
-        ("dotnet", "yarp", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60)),
-        ("dotnet", "aspnetcore", TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(60)),
-        ("dotnet", "extensions", TimeSpan.FromMinutes(10), TimeSpan.FromSeconds(2 * 60))
+        ("dotnet", "runtime",           TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15)),
+        ("dotnet", "yarp",              TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1)),
+        ("dotnet", "aspnetcore",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "extensions",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "aspire",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "sdk",               TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "roslyn",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "BenchmarkDotNet",   TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
+        ("dotnet", "interactive",       TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
     ];
 
-    public string[] WatchedRepos => field ??= [.. _watchedRepos.Select(r => $"{r.Owner}/{r.Name}")];
+    public string[] WatchedRepos => field ??= [.. _watchedRepos.Select(r => $"{r.Owner}/{r.Name}").Order()];
 
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -222,6 +227,19 @@ public sealed class GitHubDataService : IHostedService
         info.Heart = issue.Reactions.Heart;
         info.Hooray = issue.Reactions.Hooray;
         info.Rocket = issue.Reactions.Rocket;
+    }
+
+    public async Task<RepositoryInfo> TryGetRepositoryInfo(string repoName)
+    {
+        await using GitHubDbContext dbContext = _db.CreateDbContext();
+
+        return await dbContext.Repositories
+            .AsNoTracking()
+            .Where(r => r.FullName == repoName)
+            .Include(r => r.Owner)
+            .Include(r => r.Labels)
+            .AsSplitQuery()
+            .SingleOrDefaultAsync();
     }
 
     private static class ResourceTypes

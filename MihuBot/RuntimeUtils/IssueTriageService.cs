@@ -144,7 +144,6 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
         string newIssueBody =
             $"""
             Triage for {issue.HtmlUrl}.
-            Last updated: {DateTime.UtcNow.ToISODateTime()}
 
             ```
             {string.Join('\n', toolLogs)}

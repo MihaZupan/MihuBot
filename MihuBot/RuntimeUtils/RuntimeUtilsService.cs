@@ -268,10 +268,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 lastScan = DateTime.UtcNow;
 
+#pragma warning disable CA1847 // Use char literal for a single character lookup -- EF doesn't support that
                 var comments = await db.Comments
                     .AsNoTracking()
                     .Where(c => c.UpdatedAt >= lastScan - TimeSpan.FromMinutes(5))
                     .OrderByDescending(c => c.UpdatedAt)
+                    .Where(c => c.Body.Contains("@"))
                     .Include(c => c.Issue)
                         .ThenInclude(i => i.Repository)
                             .ThenInclude(r => r.Owner)
@@ -281,6 +283,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     .Take(25)
                     .AsSplitQuery()
                     .ToListAsync();
+#pragma warning restore CA1847
 
                 foreach (CommentInfo comment in comments)
                 {

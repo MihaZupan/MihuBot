@@ -14,7 +14,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
-using Microsoft.SemanticKernel.Connectors.Qdrant;
 using MihuBot;
 using MihuBot.Audio;
 using MihuBot.Components;

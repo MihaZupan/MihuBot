@@ -50,12 +50,13 @@ public static partial class GitHubHelper
     }
 
     public static bool TryParseIssueOrPRNumber(string input, out int prNumber) =>
-        TryParseIssueOrPRNumber(input, dotnetRuntimeOnly: false, out prNumber);
+        TryParseIssueOrPRNumber(input, out _, out prNumber);
 
-    public static bool TryParseIssueOrPRNumber(string input, bool dotnetRuntimeOnly, out int prNumber)
+    public static bool TryParseIssueOrPRNumber(string input, out string repoName, out int prNumber)
     {
         if (string.IsNullOrWhiteSpace(input))
         {
+            repoName = null;
             prNumber = 0;
             return false;
         }
@@ -64,16 +65,26 @@ public static partial class GitHubHelper
 
         if (int.TryParse(parts[0].AsSpan().Trim('#'), out prNumber) && prNumber > 0)
         {
+            repoName = null;
             return true;
         }
 
-        return Uri.TryCreate(parts[0], UriKind.Absolute, out var uri) &&
+        // https://github.com/dotnet/runtime/issues/111492
+        // "/", "dotnet/", "runtime/", "issues/", "111492"
+        if (Uri.TryCreate(parts[0], UriKind.Absolute, out Uri uri) &&
             (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
             uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            (uri.AbsolutePath.Contains("/pull/", StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath.Contains("/issues/", StringComparison.OrdinalIgnoreCase)) &&
-            (!dotnetRuntimeOnly || uri.AbsolutePath.Contains("/dotnet/runtime/", StringComparison.OrdinalIgnoreCase)) &&
-            int.TryParse(uri.AbsolutePath.Split('/').Last(), out prNumber) &&
-            prNumber > 0;
+            uri.Segments is { Length: 5 } segments &&
+            (segments[3].Equals("pull/", StringComparison.OrdinalIgnoreCase) || segments[3].Equals("issues/", StringComparison.OrdinalIgnoreCase)) &&
+            int.TryParse(segments[4], out prNumber) &&
+            prNumber > 0)
+        {
+            repoName = $"{segments[1]}{segments[2].TrimEnd('/')}";
+            return true;
+        }
+
+        repoName = null;
+        return false;
     }
 
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+)/([A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)([\?#/].*)?$")]

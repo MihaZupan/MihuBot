@@ -4,10 +4,8 @@ using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
-using Octokit;
-using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
 using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
-using MihuBot.DB;
+using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -49,18 +47,18 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         return await context.GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: false, cancellationToken);
     }
 
-    public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
+    public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, requesterLogin);
 
-        return await context.SearchDotnetRuntimeAsyncCore(searchTerms, extraSearchContext, filters, cancellationToken);
+        return await context.SearchDotnetGitHubAsync(searchTerms, extraSearchContext, filters, cancellationToken);
     }
 
-    public async Task<IssueInfo> GetIssueAsync(int issueNumber, CancellationToken cancellationToken)
+    public async Task<IssueInfo> GetIssueAsync(string repoName, int issueNumber, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
 
-        return await GetIssueAsync(issues => issues.Where(i => i.Number == issueNumber), cancellationToken);
+        return await GetIssueAsync(issues => issues.Where(i => i.Number == issueNumber && i.Repository.FullName == repoName), cancellationToken);
     }
 
     public async Task<IssueInfo> GetIssueAsync(Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> query, CancellationToken cancellationToken)
@@ -73,7 +71,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         issues = query(issues);
 
         return await issues
-            .FromDotnetRuntime()
             .Include(i => i.User)
             .Include(i => i.PullRequest)
             .Include(i => i.Labels)
@@ -89,7 +86,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
     {
         private const string SystemPrompt =
             """
-            You are an assistant helping the .NET team triage new GitHub issues in the https://github.com/dotnet/runtime repository.
+            You are an assistant helping the .NET team triage new GitHub issues in the {{REPO_URL}} repository.
             You are provided with information about a new issue and you need to find related issues or comments among the existing GitHub data.
 
             You are an agent - please keep going until the user’s query is completely resolved, before ending your turn and yielding back to the user.
@@ -101,7 +98,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             Be thorough with your searches and always consider the full discussion on related issues. You should perform as many searches as needed{{MAX_SEARCH_COUNT}}.
             Tools use semantic searching to find issues and comments that may be relevant to the issue you are triaging. You can search for multiple terms at the same time.
 
-            When evaulating an issue, always use tools to ask for the FULL history of comments on that issue.
+            When evaulating an issue, always use tools to ask for the full history of comments on that issue.
             Even if you've seen previous comments from an issue, you haven't seen all of them unless you've called the full history for that specific issue.
             Use your tools to gather the relevant information from comments: do NOT guess or make up conclusions for a given issue.
             Pay close attention to comments when summarizing the issue as questions may have already been answered.
@@ -132,14 +129,19 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             Logger.DebugLog($"Starting triage for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
 
-            OnToolLog($"{Issue.Title} by {Issue.User.Login}");
+            OnToolLog($"{Issue.Repository.FullName}#{Issue.Number}: {Issue.Title} by {Issue.User.Login}");
 
             var options = new ChatOptions
             {
                 Tools =
                 [
-                    AIFunctionFactory.Create(SearchDotnetRuntimeAsync),
-                    AIFunctionFactory.Create(GetCommentHistoryAsync),
+                    AIFunctionFactory.Create(SearchCurrentRepoAsync,
+                        $"search_{Issue.RepoOwner()}_{Issue.RepoName()}",
+                        $"Perform a set of semantic searches over issues and comments in the {Issue.Repository.FullName} GitHub repository. Every term represents an independent search."),
+
+                    AIFunctionFactory.Create(GetCommentHistoryAsync,
+                        "get_github_comment_history",
+                        $"Get the full history of comments on a specific issue or pull request from the {Issue.Repository.FullName} GitHub repository."),
                 ],
                 ToolMode = ChatToolMode.RequireAny
             };
@@ -150,6 +152,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             string systemPrompt = SystemPrompt
+                .Replace("{{REPO_URL}}", Issue.Repository.HtmlUrl, StringComparison.Ordinal)
                 .Replace("{{MAX_SEARCH_COUNT}}", UsingLargeContextWindow ? "" : " (max of 5)", StringComparison.Ordinal);
 
             List<ChatMessage> messages = [new ChatMessage(ChatRole.System, systemPrompt)];
@@ -189,7 +192,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
         }
 
-        private static string ConvertMarkdownToHtml(string markdown, bool partial)
+        private string ConvertMarkdownToHtml(string markdown, bool partial)
         {
             MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
 
@@ -198,14 +201,13 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 MarkdownHelper.FixUpPartialDocument(document);
             }
 
-            MarkdownHelper.ReplaceGitHubIssueReferencesWithLinks(document, "dotnet/runtime");
+            MarkdownHelper.ReplaceGitHubIssueReferencesWithLinks(document, Issue.Repository.FullName);
 
             MarkdownHelper.ReplaceGitHubUserMentionsWithLinks(document);
 
             return document.ToHtmlAdvanced();
         }
 
-        [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
         private async Task<ShortIssueInfo> GetCommentHistoryAsync(
             [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
             CancellationToken cancellationToken)
@@ -215,7 +217,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         public async Task<ShortIssueInfo> GetCommentHistoryAsyncCore(int issueOrPRNumber, bool removeCommentsWithoutContext, CancellationToken cancellationToken)
         {
-            IssueInfo issue = await Parent.GetIssueAsync(issueOrPRNumber, cancellationToken);
+            IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, issueOrPRNumber, cancellationToken);
 
             if (issue is null)
             {
@@ -241,26 +243,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body, issue, c)).ToArray());
         }
 
-        [Description(
-            "Perform a set of semantic searches over issues and comments in the dotnet/runtime GitHub repository." +
-            " Every term represents an independent search.")]
-        private async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsync(
+        private async Task<ShortIssueInfo[]> SearchCurrentRepoAsync(
             [Description("The set of terms to search for.")] string[] searchTerms,
-            [Description("Whether to include open issues/PRs.")] bool includeOpen,
-            [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed,
-            [Description("Whether to include issues.")] bool includeIssues,
-            [Description("Whether to include pull requests.")] bool includePullRequests,
-            CancellationToken cancellationToken)
+            [Description("Whether to include open issues/PRs.")] bool includeOpen = true,
+            [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed = true,
+            [Description("Whether to include issues.")] bool includeIssues = true,
+            [Description("Whether to include pull requests.")] bool includePullRequests = true,
+            CancellationToken cancellationToken = default)
         {
             var filters = new IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests)
             {
-                Repository = "dotnet/runtime"
+                Repository = Issue.Repository.FullName,
             };
 
-            return await SearchDotnetRuntimeAsyncCore(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
+            return await SearchDotnetGitHubAsync(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
         }
 
-        public async Task<ShortIssueInfo[]> SearchDotnetRuntimeAsyncCore(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
+        public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(searchTerms);
 
@@ -335,8 +334,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                     trimmedTerm = term.Substring("issue ".Length);
                 }
 
-                if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, dotnetRuntimeOnly: true, out int issueNumber) &&
-                    await Parent.GetIssueAsync(issueNumber, cancellationToken) is { } singleIssue)
+                if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, out string repoName, out int issueNumber) &&
+                    await Parent.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken) is { } singleIssue)
                 {
                     issueReferences++;
 

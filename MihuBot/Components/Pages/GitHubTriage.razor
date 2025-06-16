@@ -7,6 +7,7 @@
 @inject IssueTriageHelper TriageHelper
 @inject GitHubClient GitHubClient
 @inject RuntimeUtilsService RuntimeUtils
+@inject GitHubDataService GitHubDataService
 @inject Logger Logger
 @implements IDisposable
 
@@ -166,7 +167,7 @@
                 return;
             }
 
-            if (!GitHubHelper.TryParseIssueOrPRNumber(triageIssueUrl, dotnetRuntimeOnly: true, out int issueNumber))
+            if (!GitHubHelper.TryParseIssueOrPRNumber(triageIssueUrl, out string repoName, out int issueNumber))
             {
                 _errorMessage = "Invalid issue/PR URL. Use the number or the full link.";
                 return;
@@ -174,30 +175,48 @@
 
             LogToolLine($"Starting triage for issue #{issueNumber} with model {model.Name} ...");
 
-            IssueInfo issue = await TriageHelper.GetIssueAsync(issueNumber, cancellationToken);
+            if (GitHubDataService.WatchedRepos.FirstOrDefault(r => r.Equals(repoName, StringComparison.OrdinalIgnoreCase)) is { } normalizedRepoName)
+            {
+                repoName = normalizedRepoName;
+            }
+
+            IssueInfo issue = await TriageHelper.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken);
 
             if (issue is null)
             {
                 Logger.DebugLog($"Triage: Issue #{issueNumber} not found in the database. Fetching from GitHub ...");
 
-                Issue newIssue = await GitHubClient.Issue.Get("dotnet", "runtime", issueNumber).WaitAsyncAndSupressNotObserved(cancellationToken);
-                if (newIssue is null)
+                if (repoName is not null && !GitHubDataService.WatchedRepos.Any(r => r.Equals(repoName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _errorMessage = $"Repository '{repoName}' is not being tracked by MihuBot.";
+                    return;
+                }
+
+                repoName ??= "dotnet/runtime";
+                string repoOwner = repoName.Split('/')[0];
+                string repoNameOnly = repoName.Split('/')[1];
+
+                Issue newIssue;
+                try
+                {
+                    newIssue = await GitHubClient.Issue.Get(repoOwner, repoNameOnly, issueNumber).WaitAsyncAndSupressNotObserved(cancellationToken);
+                }
+                catch (NotFoundException)
                 {
                     _errorMessage = $"Issue #{issueNumber} not found.";
                     return;
                 }
-                else
+
+                issue = new IssueInfo();
+                issue.RepositoryId = (await GitHubClient.Repository.Get(repoOwner, repoNameOnly).WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
+                issue.Repository = await GitHubDataService.TryGetRepositoryInfo(repoName);
+                GitHubDataService.PopulateBasicIssueInfo(issue, newIssue);
+                issue.User = new UserInfo
                 {
-                    issue = new IssueInfo();
-                    issue.RepositoryId = (await GitHubClient.Repository.Get("dotnet", "runtime").WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
-                    GitHubDataService.PopulateBasicIssueInfo(issue, newIssue);
-                    issue.User = new UserInfo
-                    {
-                        Id = newIssue.User.Id,
-                        Login = newIssue.User.Login,
-                    };
-                    issue.Comments = [];
-                }
+                    Id = newIssue.User.Id,
+                    Login = newIssue.User.Login,
+                };
+                issue.Comments = [];
             }
 
             Task stateChangedTask = Task.CompletedTask;
