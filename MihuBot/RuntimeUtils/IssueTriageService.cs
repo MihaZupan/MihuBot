@@ -154,10 +154,12 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
 
                 triagedIssue.UpdatedAt = DateTime.UtcNow;
 
-                if (issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc) &&
+                bool isNewIssue = triagedIssue.TriageReportIssueNumber == 0;
+
+                if ((!isNewIssue || issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc)) &&
                     issue.State == ItemState.Open &&
                     issue.PullRequest is null &&
-                    (triagedIssue.TriageReportIssueNumber == 0 || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
+                    (isNewIssue || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
                     !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
                 {
                     triagedIssue.Body = issue.Body;
