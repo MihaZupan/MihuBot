@@ -240,7 +240,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<IssueTriageHelper>();
 
-    services.AddHostedService<IssueTriageService>();
+    services.AddSingleton<IssueTriageService>();
+    services.AddHostedService(s => s.GetRequiredService<IssueTriageService>());
 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
