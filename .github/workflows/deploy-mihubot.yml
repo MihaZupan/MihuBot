@@ -36,6 +36,12 @@ jobs:
     - name: Upload to VM
       run: "curl -X POST -H \"X-Run-Number: ${{ github.run_number }}\" -H \"X-Update-Token: ${{ secrets.UPDATE_TOKEN }}\" --data-binary @artifacts.tar.gz \"https://mihubot.xyz/Management/Deployed\""
 
+    - name: Pause
+      run: sleep 60
+
+    - name: Test deployment
+      run: "wget https://mihubot.xyz/"
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       if: failure()
