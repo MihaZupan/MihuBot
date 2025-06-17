@@ -9,7 +9,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper TriageHelper, GitHubDataService GitHubData, Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, IConfigurationService Configuration) : IHostedService
 {
-    private static readonly SearchValues<string> s_issueBodiesToSkip = SearchValues.Create(
+    private static readonly SearchValues<string> s_issueBodiesToSkipOnUpdate = SearchValues.Create(
     [
         "<!-- Known issue validation start -->",
         "<!-- BEGIN: Github workflow runs test report -->",
@@ -157,7 +157,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 if (issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc) &&
                     issue.State == ItemState.Open &&
                     issue.PullRequest is null &&
-                    !issue.Body.ContainsAny(s_issueBodiesToSkip) &&
+                    (triagedIssue.TriageReportIssueNumber == 0 || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
                     !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
                 {
                     triagedIssue.Body = issue.Body;
