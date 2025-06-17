@@ -87,14 +87,18 @@ public sealed class GitHubSearchService : IHostedService
         public string SubIdentifier { get; } = subIdentifier;
     }
 
-    private async Task<RawSearchResult[]> SearchAsyncCore(string query, int topVectors, long repositoryFilter, CancellationToken cancellationToken)
+    private async Task<(RawSearchResult[] Results, TimeSpan EmbeddingTime)> SearchAsyncCore(string query, int topVectors, long repositoryFilter, CancellationToken cancellationToken)
     {
         query = query.Trim();
 
+        TimeSpan embeddingTime = TimeSpan.Zero;
+
         // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.
-        return await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{repositoryFilter}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
+        RawSearchResult[] results = await _cache.GetOrCreateAsync($"/embeddingsearch/{topVectors}/{repositoryFilter}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
         {
+            Stopwatch embeddingStopwatch = Stopwatch.StartNew();
             ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: CancellationToken.None);
+            embeddingTime = embeddingStopwatch.Elapsed;
 
             VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(SearchCollectionName);
 
@@ -116,6 +120,8 @@ public sealed class GitHubSearchService : IHostedService
 
             return results.ToArray();
         }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
+
+        return (results, embeddingTime);
     }
 
     public async Task<IssueSearchResult[]> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, bool includeAllIssueComments, CancellationToken cancellationToken)
@@ -156,7 +162,7 @@ public sealed class GitHubSearchService : IHostedService
 
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        RawSearchResult[] results = await SearchAsyncCore(query, topVectors, repositoryFilter, cancellationToken);
+        (RawSearchResult[] results, TimeSpan embeddingGenTime) = await SearchAsyncCore(query, topVectors, repositoryFilter, cancellationToken);
 
         TimeSpan embeddingSearchTime = stopwatch.Elapsed;
         stopwatch.Restart();
@@ -225,7 +231,7 @@ public sealed class GitHubSearchService : IHostedService
         TimeSpan databaseQueryTime = stopwatch.Elapsed;
 
         _logger.DebugLog($"Search for '{query}' returned {issues.Count} unique issues, {comments.Count} comments." +
-            $" Search={embeddingSearchTime.TotalMilliseconds:F2} Database={databaseQueryTime.TotalMilliseconds:F2}");
+            $" Embedding={embeddingGenTime.TotalMilliseconds:F2} Search={(embeddingSearchTime - embeddingGenTime).TotalMilliseconds:F2} Database={databaseQueryTime.TotalMilliseconds:F2}");
 
         Dictionary<string, IssueInfo> issuesById = issues.ToDictionary(i => i.Id, i => i);
         Dictionary<string, CommentInfo> commentsById = comments.ToDictionary(c => c.Id, c => c);
