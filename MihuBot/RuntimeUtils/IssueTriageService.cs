@@ -106,7 +106,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
     {
         foreach (RepoConfig repoConfig in s_repoConfigs)
         {
-            using GitHubDbContext db = GitHubDb.CreateDbContext();
+            await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
             long repoId = await GitHubData.TryGetKnownRepositoryIdAsync(repoConfig.RepoName, cancellationToken);
 
@@ -162,7 +162,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
                 {
                     triagedIssue.Body = issue.Body;
 
-                    await TriageIssueAsync(issue, triagedIssue, repoConfig, cancellationToken);
+                    await TriageIssueAsync(issue, triagedIssue, repoConfig.FilterDescription, cancellationToken);
 
                     triaged++;
 
@@ -179,7 +179,28 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
         }
     }
 
-    private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, RepoConfig config, CancellationToken cancellationToken)
+    public async Task<Uri> ManualTriageAsync(IssueInfo issue, CancellationToken cancellationToken)
+    {
+        await using GitHubDbContext db = GitHubDb.CreateDbContext();
+
+        TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issue.Id, cancellationToken);
+
+        if (triagedIssue is null)
+        {
+            triagedIssue = new TriagedIssueRecord { IssueId = issue.Id };
+            db.TriagedIssues.Add(triagedIssue);
+        }
+
+        triagedIssue.Body = issue.Body;
+
+        await TriageIssueAsync(issue, triagedIssue, "Manual trigger", cancellationToken);
+
+        await db.SaveChangesAsync(CancellationToken.None);
+
+        return new Uri($"https://github.com/MihuBot/runtime-utils/issues/{triagedIssue.TriageReportIssueNumber}");
+    }
+
+    private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, string repoFilterDescription, CancellationToken cancellationToken)
     {
         ConcurrentQueue<string> toolLogs = [];
 
@@ -192,7 +213,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
         string newIssueBody =
             $"""
             Triage for {issue.HtmlUrl}.
-            Repo filter: {config.FilterDescription}.
+            Repo filter: {repoFilterDescription}.
             MihuBot version: {version}.
             Ping [MihaZupan](https://github.com/MihaZupan) for any issues.
 

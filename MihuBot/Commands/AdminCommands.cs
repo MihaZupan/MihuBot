@@ -9,17 +9,21 @@ namespace MihuBot.Commands;
 public sealed class AdminCommands : CommandBase
 {
     public override string Command => "dropingestedembeddings";
-    public override string[] Aliases => ["clearingestedembeddingsupdatedat", "clearbodyedithistorytable", "deleteissueandembeddings", "ingestnewrepo", "ingestnewreposcan"];
+    public override string[] Aliases => ["clearingestedembeddingsupdatedat", "clearbodyedithistorytable", "deleteissueandembeddings", "ingestnewrepo", "ingestnewreposcan", "forcetriage"];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly GitHubDataService _gitHubDataService;
     private readonly GitHubSearchService _gitHubSearchService;
+    private readonly IssueTriageService _triageService;
+    private readonly IssueTriageHelper _triageHelper;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
         _gitHubSearchService = gitHubSearchService;
+        _triageService = triageService;
+        _triageHelper = triageHelper;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -133,6 +137,26 @@ public sealed class AdminCommands : CommandBase
             debouncer.Update("All done");
 
             await Task.Delay(20_000, ctx.CancellationToken);
+        }
+
+        if (ctx.Command == "forcetriage")
+        {
+            if (ctx.Arguments.Length != 1 || !GitHubHelper.TryParseIssueOrPRNumber(ctx.Arguments[0], out string repoName, out int issueNumber))
+            {
+                await ctx.ReplyAsync("Invalid issue/PR URL. Use the number or the full link.");
+                return;
+            }
+
+            IssueInfo issue = await _triageHelper.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, ctx.CancellationToken);
+
+            if (issue is null)
+            {
+                await ctx.ReplyAsync("Issue not found in database.");
+                return;
+            }
+
+            Uri issueUrl = await _triageService.ManualTriageAsync(issue, ctx.CancellationToken);
+            await ctx.ReplyAsync($"Triage completed. See the issue at <{issueUrl.AbsoluteUri}>.");
         }
     }
 }
