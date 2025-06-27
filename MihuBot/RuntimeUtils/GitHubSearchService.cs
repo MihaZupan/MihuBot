@@ -1,4 +1,5 @@
-﻿using System.ClientModel;
+﻿using System.Buffers;
+using System.ClientModel;
 using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -17,6 +18,9 @@ public sealed class GitHubSearchService : IHostedService
     private const string EmbeddingModel = "text-embedding-3-small";
     private const int EmbeddingDimensions = 1536;
     private const int SmallSectionTokenThreshold = 200;
+
+    private static readonly SearchValues<char> s_fullTextContainsQueryChars = SearchValues.Create(
+        Enumerable.Range(32, 127 - 32).Select(c => (char)c).Where(c => c is not ('"' or '\'' or '\\')).ToArray());
 
     public Tokenizer Tokenizer { get; }
 
@@ -144,9 +148,11 @@ public sealed class GitHubSearchService : IHostedService
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        query = query.Replace("\"", "", StringComparison.Ordinal);
-        query = query.Replace("'", "", StringComparison.Ordinal);
-        query = query.Replace("\\", "", StringComparison.Ordinal);
+        if (query.ContainsAnyExcept(s_fullTextContainsQueryChars))
+        {
+            query = string.Concat(query.Where(s_fullTextContainsQueryChars.Contains));
+        }
+
         query = $"\"{query}\"";
 
         // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.

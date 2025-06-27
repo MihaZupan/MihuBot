@@ -225,10 +225,10 @@ public static partial class MarkdownHelper
                 literal.InsertBefore(new LiteralInline(new StringSlice(content, 0, match.Index - 1)));
 
                 var link = new LinkInline { Url = $"https://github.com/{userLogin}" };
-                link.AppendChild(new LiteralInline(match.Value));
+                link.AppendChild(new LiteralInline($"@{userLogin}"));
                 literal.InsertBefore(link);
 
-                var newLiteral = new LiteralInline(new StringSlice(content, match.Index + match.Length, content.Length - 1));
+                var newLiteral = new LiteralInline(new StringSlice(content, match.Index + userLogin.Length + 1, content.Length - 1));
                 literal.ReplaceBy(newLiteral);
                 literal = newLiteral;
             }
@@ -238,6 +238,6 @@ public static partial class MarkdownHelper
     [GeneratedRegex(@"#(\d{3,8})(?:[^\d]|$)")]
     private static partial Regex IssueNumberRegex();
 
-    [GeneratedRegex(@"@([a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38})")]
+    [GeneratedRegex(@"@([a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38})(?:[^a-zA-Z\d]|$)")]
     private static partial Regex GitHubUserMentionRegex();
 }
