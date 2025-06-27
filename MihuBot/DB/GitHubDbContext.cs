@@ -16,6 +16,7 @@ public sealed class GitHubDbContext : DbContext
     public DbSet<LabelInfo> Labels { get; set; }
     public DbSet<BodyEditHistoryEntry> BodyEditHistory { get; set; }
     public DbSet<IngestedEmbeddingRecord> IngestedEmbeddings { get; set; }
+    public DbSet<IngestedFullTextSearchRecord> IngestedFullTextSearchRecords { get; set; }
     public DbSet<TriagedIssueRecord> TriagedIssues { get; set; }
 }
 
@@ -208,4 +209,13 @@ public sealed class TriagedIssueRecord
 
     public string IssueId { get; set; }
     public IssueInfo Issue { get; set; }
+}
+
+[Table("ingested_fts_record_history")]
+[Index(nameof(ResourceIdentifier))]
+public sealed class IngestedFullTextSearchRecord
+{
+    public Guid Id { get; set; }
+    public string ResourceIdentifier { get; set; } // Currently always an issue ID
+    public DateTime UpdatedAt { get; set; }
 }

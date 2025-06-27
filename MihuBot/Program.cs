@@ -113,7 +113,7 @@ catch (Exception ex)
 
 static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection services)
 {
-    services.AddDatabases();
+    services.AddDatabases(builder.Configuration);
 
     services.AddMemoryCache(options =>
     {
@@ -395,11 +395,7 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.UseCors();
 
-    if (!OperatingSystem.IsWindows())
-    {
-        app.UseWhen(context => !(context.Request.Path.HasValue && context.Request.Path.Value.Contains("/api/", StringComparison.OrdinalIgnoreCase)),
-            app => app.UseHttpsRedirection());
-    }
+    app.UseHttpsRedirection();
 
     app.UseStaticFiles(new StaticFileOptions
     {
@@ -415,8 +411,6 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
     app.UseRouting();
 
     app.UseAntiforgery();
-
-    app.UseCors();
 
     app.UseAuthentication();
     app.UseAuthorization();

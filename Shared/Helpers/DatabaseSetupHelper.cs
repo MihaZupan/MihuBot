@@ -20,6 +20,32 @@ public static class DatabaseSetupHelper
         });
     }
 
+    public static async Task MigrateSqlServerAsync<TDbContext>(IHost host)
+        where TDbContext : DbContext
+    {
+        using IServiceScope scope = host.Services.CreateScope();
+
+        Console.WriteLine($"Applying {typeof(TDbContext).Name} migrations ...");
+
+        IDbContextFactory<TDbContext> factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TDbContext>>();
+        await using TDbContext db = factory.CreateDbContext();
+
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                await db.Database.MigrateAsync();
+            }
+            catch (Exception ex) when (attempt < 3)
+            {
+                Console.WriteLine($"Migration attempt {attempt} failed: {ex.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(15 * attempt));
+            }
+        }
+
+        Console.WriteLine($"Migrated {typeof(TDbContext).Name}");
+    }
+
     public static async Task MigrateAsync<TDbContext>(IHost host, string databasePath)
         where TDbContext : DbContext
     {

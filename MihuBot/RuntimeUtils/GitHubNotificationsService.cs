@@ -35,9 +35,12 @@ public sealed partial class GitHubNotificationsService
         Configuration = configurationService;
         _db = db;
 
-        using (ExecutionContext.SuppressFlow())
+        if (!OperatingSystem.IsWindows())
         {
-            _ = Task.Run(MonitorNetworkingIssuesWithoutNclMentionAsync);
+            using (ExecutionContext.SuppressFlow())
+            {
+                _ = Task.Run(MonitorNetworkingIssuesWithoutNclMentionAsync);
+            }
         }
     }
 

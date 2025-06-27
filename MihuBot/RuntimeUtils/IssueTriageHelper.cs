@@ -4,6 +4,7 @@ using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
+using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings;
 using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
 using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
 
@@ -285,6 +286,10 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 return [];
             }
 
+            filters.PostFilter = result =>
+                result.Score >= 0.20 &&
+                (result.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(result.Issue, result.Comment));
+
             Stopwatch stopwatch = Stopwatch.StartNew();
 
             List<(IssueSearchResult[] Results, double Score)> searchResults = new();
@@ -296,16 +301,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             await Parallel.ForEachAsync(searchTerms, async (term, _) =>
             {
-                IssueSearchResult[] localResults = (await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken))
-                    .Where(r => r.Score >= 0.20)
-                    .Where(r => r.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(r.Issue, r.Comment))
-                    .ToArray();
-
-                (IssueSearchResult[] Results, double Score)[] resultsByIssueId = GitHubSearchService.GroupResultsByIssue(localResults);
+                ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken);
 
                 try
                 {
-                    resultsByIssueId = await Search.FilterOutUnrelatedResults(term, extraSearchContext, preferSpeed: false, resultsByIssueId, cancellationToken);
+                    results = await Search.FilterOutUnrelatedResults(term, extraSearchContext, preferSpeed: false, results, timings, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -314,7 +314,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
                 lock (searchResults)
                 {
-                    searchResults.AddRange(resultsByIssueId);
+                    searchResults.AddRange(results);
                 }
             });
 

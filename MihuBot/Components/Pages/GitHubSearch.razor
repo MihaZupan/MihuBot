@@ -3,14 +3,16 @@
 @using MihuBot.DB.GitHub
 @using MihuBot.RuntimeUtils
 @using Octokit
+@using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings
 @using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult
 @rendermode InteractiveServer
 @inject GitHubDataService GitHubData
 @inject GitHubSearchService Search
 @inject NavigationManager Navigation
+@inject IConfigurationService Configuration
 @implements IDisposable
 
-<PageTitle>GitHub Search</PageTitle>
+<title>@(string.IsNullOrWhiteSpace(SearchQuery) ? "" : $"{SearchQuery.Trim()} - ")GitHub Search</title>
 
 <style>
     .search-toolbar {
@@ -85,6 +87,13 @@
     <div class="loading-progress-container">
         <div class="loading-progress-bar" id="loadingProgressBar" style="width: @(_isLoading ? "100" : "0")%"></div>
     </div>
+
+    @if (_showTimings && _timings is not null)
+    {
+        <div class="alert alert-info">
+            @_timings
+        </div>
+    }
 
     @if (_errorMessage is not null)
     {
@@ -167,6 +176,8 @@
     private string _errorMessage;
     private Debouncer<(string Query, string RepoFilter, bool DoRelevanceClassification, bool IncludeOpenIssueOnly)> _debouncer;
     private bool _isLoading;
+    private SearchTimings _timings;
+    private bool _showTimings;
 
     private bool IncludeOpenIssueOnly
     {
@@ -217,6 +228,8 @@
     {
         _debouncer = new Debouncer<(string, string, bool, bool)>(TimeSpan.FromMilliseconds(25), SearchAsync);
         _debouncer.CancelPendingActions = true;
+
+        _showTimings = Configuration.GetOrDefault(null, "GitHubSearch.ShowTimings", true);
     }
 
     protected override void OnAfterRender(bool firstRender)
@@ -276,16 +289,18 @@
                     var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, includeAllIssueComments: false, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
-                    (IssueSearchResult[] Results, double Score)[] resultsByIssue = GitHubSearchService.GroupResultsByIssue(await searchTask);
+                    ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await searchTask;
 
                     if (doRelevanceClassification)
                     {
-                        resultsByIssue = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: repoFilter, preferSpeed: true, resultsByIssue, cancellationToken);
+                        results = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: repoFilter, preferSpeed: true, results, timings, cancellationToken);
                     }
 
-                    _searchResults = resultsByIssue
+                    _searchResults = results
                         .Select(r => (r.Results[0].Issue, r.Score))
                         .ToArray();
+
+                    _timings = timings;
                 }
 
                 var newUrl = Navigation.GetUriWithQueryParameters(new Dictionary<string, object>

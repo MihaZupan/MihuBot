@@ -1,6 +1,8 @@
 ﻿using Discord.Rest;
 using Microsoft.EntityFrameworkCore;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.DB.GitHubFts;
 using MihuBot.RuntimeUtils;
 using Octokit;
 
@@ -9,21 +11,36 @@ namespace MihuBot.Commands;
 public sealed class AdminCommands : CommandBase
 {
     public override string Command => "dropingestedembeddings";
-    public override string[] Aliases => ["clearingestedembeddingsupdatedat", "clearbodyedithistorytable", "deleteissueandembeddings", "ingestnewrepo", "ingestnewreposcan", "forcetriage"];
+    public override string[] Aliases =>
+    [
+        "clearingestedembeddingsupdatedat",
+        "clearbodyedithistorytable",
+        "deleteissueandembeddings",
+        "ingestnewrepo",
+        "ingestnewreposcan",
+        "forcetriage",
+        "dumpdbcounts",
+    ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
+    private readonly IDbContextFactory<GitHubFtsDbContext> _dbFts;
+    private readonly IDbContextFactory<MihuBotDbContext> _dbMihuBot;
+    private readonly IDbContextFactory<LogsDbContext> _dbLogs;
     private readonly GitHubDataService _gitHubDataService;
     private readonly GitHubSearchService _gitHubSearchService;
     private readonly IssueTriageService _triageService;
     private readonly IssueTriageHelper _triageHelper;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
         _gitHubSearchService = gitHubSearchService;
         _triageService = triageService;
         _triageHelper = triageHelper;
+        _dbFts = dbFts;
+        _dbMihuBot = dbMihuBot;
+        _dbLogs = dbLogs;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -157,6 +174,37 @@ public sealed class AdminCommands : CommandBase
 
             Uri issueUrl = await _triageService.ManualTriageAsync(issue, ctx.CancellationToken);
             await ctx.ReplyAsync($"Triage completed. See the issue at <{issueUrl.AbsoluteUri}>.");
+        }
+
+        if (ctx.Command == "dumpdbcounts")
+        {
+            await using GitHubDbContext db = _db.CreateDbContext();
+            await using GitHubFtsDbContext dbFts = _dbFts.CreateDbContext();
+            await using MihuBotDbContext dbMihuBot = _dbMihuBot.CreateDbContext();
+            await using LogsDbContext dbLogs = _dbLogs.CreateDbContext();
+
+            string response =
+                $"""
+                Issues: {await db.Issues.CountAsync()}
+                Repositories: {await db.Repositories.CountAsync()}
+                PullRequests: {await db.PullRequests.CountAsync()}
+                Comments: {await db.Comments.CountAsync()}
+                Users: {await db.Users.CountAsync()}
+                Labels: {await db.Labels.CountAsync()}
+                BodyEditHistory: {await db.BodyEditHistory.CountAsync()}
+                IngestedEmbeddings: {await db.IngestedEmbeddings.CountAsync()}
+                IngestedFullTextSearchRecords: {await db.IngestedFullTextSearchRecords.CountAsync()}
+                TriagedIssues: {await db.TriagedIssues.CountAsync()}
+                TextEntries: {await dbFts.TextEntries.CountAsync()}
+                Logs: {await dbLogs.Logs.CountAsync()}
+                Reminders: {await dbMihuBot.Reminders.CountAsync()}
+                CompletedJobs: {await dbMihuBot.CompletedJobs.CountAsync()}
+                UrlShortenerEntries: {await dbMihuBot.UrlShortenerEntries.CountAsync()}
+                UserLocations: {await dbMihuBot.UserLocation.CountAsync()}
+                CoreRootEntries: {await dbMihuBot.CoreRoot.CountAsync()}
+                """;
+
+            await ctx.ReplyAsync($"Database counts:\n{response}");
         }
     }
 }
