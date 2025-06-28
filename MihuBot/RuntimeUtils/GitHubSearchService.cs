@@ -520,7 +520,7 @@ public sealed class GitHubSearchService : IHostedService
 
             Task.Run(async () =>
             {
-                using var timer = new PeriodicTimer(TimeSpan.FromMinutes(15));
+                using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
                 while (await timer.WaitForNextTickAsync())
                 {
                     try
