@@ -1,0 +1,29 @@
+﻿@page "/admin"
+@using MihuBot.RuntimeUtils
+@attribute [Authorize("Admin")]
+@inject IConfigurationService Configuration
+@inject ServiceConfiguration Services
+@rendermode InteractiveServer
+
+@foreach ((string name, Func<bool> getValue, Action<bool> setValue) in _pauseSwitches)
+{
+    <button type="button" @onclick="() => setValue(!getValue())" class="btn btn-primary ml-1">@(getValue() ? "Resume" : "Pause") @name</button>
+}
+
+@code
+{
+    private (string Name, Func<bool> GetValue, Action<bool> SetValue)[] _pauseSwitches;
+
+    protected override void OnInitialized()
+    {
+        _pauseSwitches =
+        [
+            ("GitHub polling",              () => Services.PauseGitHubPolling,                  val => Services.PauseGitHubPolling = val),
+            ("embedding ingestion",         () => Services.PauseEmbeddingIngestion,             val => Services.PauseEmbeddingIngestion = val),
+            ("FTS ingestion",               () => Services.PauseFtsIngestion,                   val => Services.PauseFtsIngestion = val),
+            ("auto triage",                 () => Services.PauseAutoTriage,                     val => Services.PauseAutoTriage = val),
+            ("NCL notification polling",    () => Services.PauseGitHubNCLNotificationPolling,   val => Services.PauseGitHubNCLNotificationPolling = val),
+            ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),
+        ];
+    }
+}

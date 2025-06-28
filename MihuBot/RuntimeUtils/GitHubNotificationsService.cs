@@ -21,18 +21,19 @@ public sealed partial class GitHubNotificationsService
     private readonly SynchronizedLocalJsonStore<Dictionary<string, UserRecord>> _users = new("GitHubNotificationUsers.json",
         init: (_, d) => new Dictionary<string, UserRecord>(d, StringComparer.OrdinalIgnoreCase));
 
-    private readonly Logger Logger;
     public readonly GitHubClient Github;
-    private readonly HttpClient Http;
-    private readonly IConfigurationService Configuration;
+
+    private readonly Logger _logger;
+    private readonly HttpClient _http;
+    private readonly ServiceConfiguration _serviceConfiguration;
     private readonly IDbContextFactory<GitHubDbContext> _db;
 
-    public GitHubNotificationsService(Logger logger, GitHubClient github, HttpClient http, IConfigurationService configurationService, IDbContextFactory<GitHubDbContext> db)
+    public GitHubNotificationsService(Logger logger, GitHubClient github, HttpClient http, IDbContextFactory<GitHubDbContext> db, ServiceConfiguration serviceConfiguration)
     {
-        Logger = logger;
+        _logger = logger;
         Github = github;
-        Http = http;
-        Configuration = configurationService;
+        _http = http;
+        _serviceConfiguration = serviceConfiguration;
         _db = db;
 
         if (!OperatingSystem.IsWindows())
@@ -50,7 +51,7 @@ public sealed partial class GitHubNotificationsService
 
         try
         {
-            if (Configuration.GetOrDefault(null, "RuntimeUtils.NclNotifications.Disable", false))
+            if (_serviceConfiguration.PauseGitHubNCLNotificationPolling)
             {
                 return enabledAny;
             }
@@ -76,7 +77,7 @@ public sealed partial class GitHubNotificationsService
 
                 if (user.Disabled)
                 {
-                    Logger.DebugLog($"Skipping notifications on {comment.HtmlUrl} for {user.Name} due to previous errors.");
+                    _logger.DebugLog($"Skipping notifications on {comment.HtmlUrl} for {user.Name} due to previous errors.");
                     continue;
                 }
 
@@ -88,18 +89,18 @@ public sealed partial class GitHubNotificationsService
                     var connection = new Octokit.GraphQL.Connection(
                         new Octokit.GraphQL.ProductHeaderValue("MihuBot"),
                         new InMemoryCredentialStore(user.Token),
-                        Http);
+                        _http);
 
                     await connection.EnableIssueNotifiactionsAsync(comment.Issue.NodeIdentifier);
 
                     _processedMentions.TryAdd(duplicationKey);
 
-                    Logger.DebugLog($"Enabled notifications on {comment.Issue.HtmlUrl} for {user.Name}");
+                    _logger.DebugLog($"Enabled notifications on {comment.Issue.HtmlUrl} for {user.Name}");
                 }
                 catch (Exception ex)
                 {
                     failed = true;
-                    await Logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name}: {ex}");
+                    await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name}: {ex}");
                 }
                 finally
                 {
@@ -124,7 +125,7 @@ public sealed partial class GitHubNotificationsService
         }
         catch (Exception ex)
         {
-            await Logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl}: {ex}");
+            await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl}: {ex}");
         }
 
         return enabledAny;
@@ -166,7 +167,7 @@ public sealed partial class GitHubNotificationsService
 
     public async Task UpdatePATAsync(string name, string token)
     {
-        Logger.DebugLog($"Updating PAT for {name}");
+        _logger.DebugLog($"Updating PAT for {name}");
 
         var users = await _users.EnterAsync();
         try
@@ -193,7 +194,7 @@ public sealed partial class GitHubNotificationsService
             {
                 try
                 {
-                    if (Configuration.GetOrDefault(null, $"{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}.Pause", false))
+                    if (_serviceConfiguration.PauseGitHubNCLMentionPolling)
                     {
                         continue;
                     }
@@ -234,7 +235,7 @@ public sealed partial class GitHubNotificationsService
                         }
                         catch (Exception ex)
                         {
-                            Logger.DebugLog($"Failed to get issue {issue.HtmlUrl}: {ex}");
+                            _logger.DebugLog($"Failed to get issue {issue.HtmlUrl}: {ex}");
                             continue;
                         }
 
@@ -243,7 +244,7 @@ public sealed partial class GitHubNotificationsService
                             continue;
                         }
 
-                        Logger.DebugLog($"[{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}]: No NCL mention in {issue.HtmlUrl}");
+                        _logger.DebugLog($"[{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}]: No NCL mention in {issue.HtmlUrl}");
 
                         await Github.Issue.Comment.Create(issue.RepositoryId, issue.Number, "cc: @dotnet/ncl");
                     }
@@ -255,13 +256,13 @@ public sealed partial class GitHubNotificationsService
                     consecutiveFailureCount++;
 
                     string errorMessage = $"{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}: ({consecutiveFailureCount}): {ex}";
-                    Logger.DebugLog(errorMessage);
+                    _logger.DebugLog(errorMessage);
 
                     await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount);
 
                     if (consecutiveFailureCount == 2)
                     {
-                        await Logger.DebugAsync(errorMessage);
+                        await _logger.DebugAsync(errorMessage);
                     }
                 }
             }

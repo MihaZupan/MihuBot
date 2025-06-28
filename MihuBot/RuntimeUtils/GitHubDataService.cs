@@ -34,7 +34,7 @@ public sealed class GitHubDataService : IHostedService
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly Logger _logger;
-    private readonly IConfigurationService _configuration;
+    private readonly ServiceConfiguration _serviceConfiguration;
     private readonly CancellationTokenSource _updateCts = new();
     private readonly ConcurrentDictionary<(string Owner, string Name), long> _repositoryIds = [];
     private readonly CooldownTracker _rateLimit = new(TimeSpan.FromHours(1) / 4000, cooldownTolerance: 50, adminOverride: false);
@@ -45,12 +45,12 @@ public sealed class GitHubDataService : IHostedService
     public int CommentCount { get; private set; }
     public int SearchVectorCount { get; private set; }
 
-    public GitHubDataService(GitHubClient gitHub, IDbContextFactory<GitHubDbContext> db, Logger logger, IConfigurationService configuration)
+    public GitHubDataService(GitHubClient gitHub, IDbContextFactory<GitHubDbContext> db, Logger logger, ServiceConfiguration serviceConfiguration)
     {
         _github = gitHub;
         _db = db;
         _logger = logger;
-        _configuration = configuration;
+        _serviceConfiguration = serviceConfiguration;
     }
 
     private async Task RefreshStatsAsync()
@@ -101,7 +101,7 @@ public sealed class GitHubDataService : IHostedService
             {
                 try
                 {
-                    if (_configuration.GetOrDefault(null, $"{nameof(GitHubDataService)}.PauseIngestion", false))
+                    if (_serviceConfiguration.PauseGitHubPolling)
                     {
                         continue;
                     }

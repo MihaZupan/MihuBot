@@ -207,6 +207,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<IConfigurationService, ConfigurationService>();
 
+    services.AddSingleton<ServiceConfiguration>();
+
     services.AddSingleton<Logger>();
 
     services.AddSingleton<IPermissionsService, PermissionsService>();

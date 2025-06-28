@@ -28,6 +28,7 @@ public sealed class GitHubSearchService : IHostedService
     private readonly IDbContextFactory<GitHubFtsDbContext> _dbFts;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
+    private readonly ServiceConfiguration _serviceConfiguration;
     private readonly OpenAIService _openAI;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator2;
@@ -45,7 +46,7 @@ public sealed class GitHubSearchService : IHostedService
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-mini";
     private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
-    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService)
+    public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
         _db = db;
         _dbFts = dbFts;
@@ -54,6 +55,7 @@ public sealed class GitHubSearchService : IHostedService
         _vectorStore = vectorStore;
         _qdrantClient = qdrantClient;
         _configuration = configuration;
+        _serviceConfiguration = serviceConfiguration;
         _cache = cache;
         _dataService = dataService;
         _embeddingGenerator = openAi.GetEmbeddingGenerator(EmbeddingModel);
@@ -516,7 +518,7 @@ public sealed class GitHubSearchService : IHostedService
 
             _updatesTask = Task.WhenAll(
                 Task.Run(async () => await RunUpdateLoopAsync(nameof(GitHubSearchService), UpdateIngestedEmbeddingsAsync, cancellationToken), CancellationToken.None),
-                Task.Run(async () => await RunUpdateLoopAsync($"{nameof(GitHubSearchService)} FTS", async ct => (await UpdateIngestedFtsRecordsAsync(ct), 0), cancellationToken), CancellationToken.None));
+                Task.Run(async () => await RunUpdateLoopAsync($"{nameof(GitHubSearchService)}.FTS", async ct => (await UpdateIngestedFtsRecordsAsync(ct), 0), cancellationToken), CancellationToken.None));
 
             Task.Run(async () =>
             {
@@ -561,7 +563,7 @@ public sealed class GitHubSearchService : IHostedService
             {
                 try
                 {
-                    if (_configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.PauseIngestion", false))
+                    if (name.Contains("FTS", StringComparison.Ordinal) ? _serviceConfiguration.PauseFtsIngestion : _serviceConfiguration.PauseEmbeddingIngestion)
                     {
                         continue;
                     }

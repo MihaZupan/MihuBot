@@ -37,6 +37,9 @@ public static class DbServiceCollectionExtensions
         await DatabaseSetupHelper.MigrateAsync<MihuBotDbContext>(host, GetDatabasePath<MihuBotDbContext>());
         await DatabaseSetupHelper.MigrateAsync<GitHubDbContext>(host, GetDatabasePath<GitHubDbContext>());
 
-        await DatabaseSetupHelper.MigrateSqlServerAsync<GitHubFtsDbContext>(host);
+        if (OperatingSystem.IsLinux())
+        {
+            await DatabaseSetupHelper.MigrateSqlServerAsync<GitHubFtsDbContext>(host);
+        }
     }
 }

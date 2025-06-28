@@ -7,7 +7,14 @@ using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper TriageHelper, GitHubDataService GitHubData, Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, IConfigurationService Configuration) : IHostedService
+public sealed class IssueTriageService(
+    GitHubClient GitHub,
+    IssueTriageHelper TriageHelper,
+    GitHubDataService GitHubData,
+    Logger Logger,
+    IDbContextFactory<GitHubDbContext> GitHubDb,
+    ServiceConfiguration ServiceConfiguration)
+    : IHostedService
 {
     private static readonly SearchValues<string> s_issueBodiesToSkipOnUpdate = SearchValues.Create(
     [
@@ -70,7 +77,7 @@ public sealed class IssueTriageService(GitHubClient GitHub, IssueTriageHelper Tr
             {
                 try
                 {
-                    if (Configuration.GetOrDefault(null, $"{nameof(IssueTriageService)}.Pause", false))
+                    if (ServiceConfiguration.PauseAutoTriage)
                     {
                         continue;
                     }
