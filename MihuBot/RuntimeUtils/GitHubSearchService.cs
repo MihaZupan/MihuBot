@@ -148,6 +148,12 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<RawSearchResult[]> FullTextSearchAsync(string query, int count, long repositoryFilter, SearchTimings timings, CancellationToken cancellationToken)
     {
+        if (_serviceConfiguration.DisableFullTextSearch)
+        {
+            _logger.DebugLog($"Full-text search is disabled, skipping search for '{query}'");
+            return [];
+        }
+
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         if (query.ContainsAnyExcept(s_fullTextContainsQueryChars))

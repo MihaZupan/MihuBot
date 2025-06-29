@@ -22,6 +22,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseFtsIngestion), value);
     }
 
+    public bool DisableFullTextSearch
+    {
+        get => Get(nameof(DisableFullTextSearch));
+        set => Set(nameof(DisableFullTextSearch), value);
+    }
+
     public bool PauseAutoTriage
     {
         get => Get(nameof(PauseAutoTriage));

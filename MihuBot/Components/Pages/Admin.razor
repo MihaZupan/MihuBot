@@ -24,6 +24,7 @@
             ("auto triage",                 () => Services.PauseAutoTriage,                     val => Services.PauseAutoTriage = val),
             ("NCL notification polling",    () => Services.PauseGitHubNCLNotificationPolling,   val => Services.PauseGitHubNCLNotificationPolling = val),
             ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),
+            ("full text search",            () => Services.DisableFullTextSearch,               val => Services.DisableFullTextSearch = val),
         ];
     }
 }
