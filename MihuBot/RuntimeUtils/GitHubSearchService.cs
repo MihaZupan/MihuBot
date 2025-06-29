@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.ClientModel;
 using System.ComponentModel;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.VectorData;
@@ -45,6 +46,9 @@ public sealed class GitHubSearchService : IHostedService
     private string ClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.ClassifierModel", out string name) ? name : "gpt-4.1";
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-mini";
     private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
+
+    private double VectorSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 1;
+    private double FullTextSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 0.9;
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
@@ -134,7 +138,7 @@ public sealed class GitHubSearchService : IHostedService
             {
                 if (item.Score.HasValue && item.Score > 0.15)
                 {
-                    results.Add(new RawSearchResult(item.Score.Value, item.Record.RepositoryId, item.Record.IssueId, item.Record.SubIdentifier));
+                    results.Add(new RawSearchResult(VectorSearchScoreMultiplier * item.Score.Value, item.Record.RepositoryId, item.Record.IssueId, item.Record.SubIdentifier));
                 }
             }
 
@@ -156,12 +160,14 @@ public sealed class GitHubSearchService : IHostedService
 
         Stopwatch stopwatch = Stopwatch.StartNew();
 
+        query = query.Replace('\t', ' ');
+
         if (query.ContainsAnyExcept(s_fullTextContainsQueryChars))
         {
             query = string.Concat(query.Where(s_fullTextContainsQueryChars.Contains));
         }
 
-        query = $"\"{query}\"";
+        query = query.Trim();
 
         // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.
         return await _cache.GetOrCreateAsync($"/fulltextsearch/{count}/{repositoryFilter}/{query.GetUtf8Sha384HashBase64Url()}", async _ =>
@@ -175,12 +181,21 @@ public sealed class GitHubSearchService : IHostedService
                 dbQuery = dbQuery.Where(e => e.RepositoryId == repositoryFilter);
             }
 
-            TextEntry[] textEntries = await dbQuery
-                .Where(e => EF.Functions.Contains(e.Text, query))
+            var textResults = await dbQuery
+                .Where(e => e.TextVector.Matches(EF.Functions.PhraseToTsQuery("english", query)))
+                .Select(e => new
+                {
+                    e.RepositoryId,
+                    e.IssueId,
+                    e.SubIdentifier,
+                    Rank = e.TextVector.Rank(EF.Functions.PhraseToTsQuery("english", query))
+                })
+                .OrderByDescending(e => e.Rank)
+                .Where(e => e.Rank > 0.60)
                 .Take(count)
                 .ToArrayAsync(CancellationToken.None);
 
-            RawSearchResult[] results = [.. textEntries.Select(e => new RawSearchResult(0.9, e.RepositoryId, e.IssueId, e.SubIdentifier))];
+            RawSearchResult[] results = [.. textResults.Select(e => new RawSearchResult(FullTextSearchScoreMultiplier * e.Rank, e.RepositoryId, e.IssueId, e.SubIdentifier))];
 
             timings.FullTextSearch = stopwatch.Elapsed;
 
@@ -561,7 +576,7 @@ public sealed class GitHubSearchService : IHostedService
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
             cancellationToken = linkedCts.Token;
 
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
 
             int consecutiveFailureCount = 0;
 
@@ -826,7 +841,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<int> UpdateIngestedFtsRecordsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 100;
+        const int BatchSize = 1_000;
 
         await using GitHubDbContext db = _db.CreateDbContext();
 

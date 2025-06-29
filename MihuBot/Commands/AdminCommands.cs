@@ -13,6 +13,7 @@ public sealed class AdminCommands : CommandBase
     public override string Command => "dropingestedembeddings";
     public override string[] Aliases =>
     [
+        "dropingestedftsrecords",
         "clearingestedembeddingsupdatedat",
         "clearbodyedithistorytable",
         "deleteissueandembeddings",
@@ -55,6 +56,13 @@ public sealed class AdminCommands : CommandBase
             await using GitHubDbContext db = _db.CreateDbContext();
             int updates = await db.IngestedEmbeddings.ExecuteDeleteAsync();
             await ctx.ReplyAsync($"Deleted {updates} ingested embeddings.");
+        }
+
+        if (ctx.Command == "dropingestedftsrecords")
+        {
+            await using GitHubDbContext db = _db.CreateDbContext();
+            int updates = await db.IngestedFullTextSearchRecords.ExecuteDeleteAsync();
+            await ctx.ReplyAsync($"Deleted {updates} ingested FTS records.");
         }
 
         if (ctx.Command == "clearingestedembeddingsupdatedat")
@@ -183,28 +191,51 @@ public sealed class AdminCommands : CommandBase
             await using MihuBotDbContext dbMihuBot = _dbMihuBot.CreateDbContext();
             await using LogsDbContext dbLogs = _dbLogs.CreateDbContext();
 
-            string response =
-                $"""
-                Issues: {await db.Issues.CountAsync()}
-                Repositories: {await db.Repositories.CountAsync()}
-                PullRequests: {await db.PullRequests.CountAsync()}
-                Comments: {await db.Comments.CountAsync()}
-                Users: {await db.Users.CountAsync()}
-                Labels: {await db.Labels.CountAsync()}
-                BodyEditHistory: {await db.BodyEditHistory.CountAsync()}
-                IngestedEmbeddings: {await db.IngestedEmbeddings.CountAsync()}
-                IngestedFullTextSearchRecords: {await db.IngestedFullTextSearchRecords.CountAsync()}
-                TriagedIssues: {await db.TriagedIssues.CountAsync()}
-                TextEntries: {await dbFts.TextEntries.CountAsync()}
-                Logs: {await dbLogs.Logs.CountAsync()}
-                Reminders: {await dbMihuBot.Reminders.CountAsync()}
-                CompletedJobs: {await dbMihuBot.CompletedJobs.CountAsync()}
-                UrlShortenerEntries: {await dbMihuBot.UrlShortenerEntries.CountAsync()}
-                UserLocations: {await dbMihuBot.UserLocation.CountAsync()}
-                CoreRootEntries: {await dbMihuBot.CoreRoot.CountAsync()}
-                """;
+            (string Name, Func<Task<int>> CountCallback)[] tables =
+            [
+                ("Issues", () => db.Issues.CountAsync()),
+                ("Repositories", () => db.Repositories.CountAsync()),
+                ("PullRequests", () => db.PullRequests.CountAsync()),
+                ("Comments", () => db.Comments.CountAsync()),
+                ("Users", () => db.Users.CountAsync()),
+                ("Labels", () => db.Labels.CountAsync()),
+                ("BodyEditHistory", () => db.BodyEditHistory.CountAsync()),
+                ("IngestedEmbeddings", () => db.IngestedEmbeddings.CountAsync()),
+                ("IngestedFullTextSearchRecords", () => db.IngestedFullTextSearchRecords.CountAsync()),
+                ("TriagedIssues", () => db.TriagedIssues.CountAsync()),
+                ("TextEntries", () => dbFts.TextEntries.CountAsync()),
+                ("Logs", () => dbLogs.Logs.CountAsync()),
+                ("Reminders", () => dbMihuBot.Reminders.CountAsync()),
+                ("CompletedJobs", () => dbMihuBot.CompletedJobs.CountAsync()),
+                ("UrlShortenerEntries", () => dbMihuBot.UrlShortenerEntries.CountAsync()),
+                ("UserLocations", () => dbMihuBot.UserLocation.CountAsync()),
+                ("CoreRootEntries", () => dbMihuBot.CoreRoot.CountAsync())
+            ];
 
-            await ctx.ReplyAsync($"Database counts:\n{response}");
+            if (ctx.Arguments.Length > 0)
+            {
+                tables = [.. tables.Where(t => ctx.Arguments.Any(a => t.Name.Contains(a, StringComparison.OrdinalIgnoreCase)))];
+
+                if (tables.Length == 0)
+                {
+                    await ctx.ReplyAsync("No tables matched the provided arguments.");
+                    return;
+                }
+            }
+
+            List<(string Name, int Count)> counts = [];
+
+            await Parallel.ForEachAsync(tables, async (t, _) =>
+            {
+                int count = await t.CountCallback();
+
+                lock (counts)
+                {
+                    counts.Add((t.Name, count));
+                }
+            });
+
+            await ctx.ReplyAsync($"**Database counts:**\n{string.Join('\n', counts.OrderBy(c => c.Name).Select(c => $"{c.Name}: {c.Count}"))}");
         }
     }
 }

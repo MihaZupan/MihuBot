@@ -1,12 +1,14 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using NpgsqlTypes;
 
 #nullable disable
+#pragma warning disable CA1861 // Avoid constant arrays as arguments
 
 namespace MihuBot.Migrations.GitHubFtsDb
 {
     /// <inheritdoc />
-    public partial class GitHubFtsSql : Migration
+    public partial class AddGitHubFts : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,12 +17,14 @@ namespace MihuBot.Migrations.GitHubFtsDb
                 name: "text_entries",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
                     RepositoryId = table.Column<long>(type: "bigint", nullable: false),
-                    IssueId = table.Column<string>(type: "nvarchar(450)", nullable: true),
-                    SubIdentifier = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Text = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                    IssueId = table.Column<string>(type: "text", nullable: true),
+                    SubIdentifier = table.Column<string>(type: "text", nullable: true),
+                    Text = table.Column<string>(type: "text", nullable: true),
+                    TextVector = table.Column<NpgsqlTsVector>(type: "tsvector", nullable: true)
+                        .Annotation("Npgsql:TsVectorConfig", "english")
+                        .Annotation("Npgsql:TsVectorProperties", new[] { "Text" })
                 },
                 constraints: table =>
                 {
@@ -37,12 +41,11 @@ namespace MihuBot.Migrations.GitHubFtsDb
                 table: "text_entries",
                 column: "RepositoryId");
 
-            migrationBuilder.Sql(
-                """
-                CREATE FULLTEXT CATALOG FTCText AS DEFAULT;
-                CREATE FULLTEXT INDEX ON dbo.text_entries(Text) KEY INDEX PK_text_entries ON FTCText WITH STOPLIST = OFF, CHANGE_TRACKING AUTO;
-                """,
-                true);
+            migrationBuilder.CreateIndex(
+                name: "IX_text_entries_TextVector",
+                table: "text_entries",
+                column: "TextVector")
+                .Annotation("Npgsql:IndexMethod", "GIN");
         }
 
         /// <inheritdoc />
@@ -50,13 +53,6 @@ namespace MihuBot.Migrations.GitHubFtsDb
         {
             migrationBuilder.DropTable(
                 name: "text_entries");
-
-            migrationBuilder.Sql(
-                """
-                DROP FULLTEXT INDEX on dbo.text_entries;
-                DROP FULLTEXT CATALOG FTCText;
-                """,
-                true);
         }
     }
 }

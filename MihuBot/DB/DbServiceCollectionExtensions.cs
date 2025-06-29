@@ -22,7 +22,7 @@ public static class DbServiceCollectionExtensions
 
         services.AddPooledDbContextFactory<GitHubFtsDbContext>(options =>
         {
-            options.UseSqlServer(configuration["GitHubFts-SqlServer:ConnectionString"]);
+            options.UseNpgsql(configuration["GitHubFts-PostgreSQL:ConnectionString"]);
 
             if (!OperatingSystem.IsLinux())
             {
@@ -39,7 +39,7 @@ public static class DbServiceCollectionExtensions
 
         if (OperatingSystem.IsLinux())
         {
-            await DatabaseSetupHelper.MigrateSqlServerAsync<GitHubFtsDbContext>(host);
+            await DatabaseSetupHelper.MigrateRemoteServerAsync<GitHubFtsDbContext>(host);
         }
     }
 }

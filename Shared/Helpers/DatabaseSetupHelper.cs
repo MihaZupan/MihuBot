@@ -20,7 +20,7 @@ public static class DatabaseSetupHelper
         });
     }
 
-    public static async Task MigrateSqlServerAsync<TDbContext>(IHost host)
+    public static async Task MigrateRemoteServerAsync<TDbContext>(IHost host)
         where TDbContext : DbContext
     {
         using IServiceScope scope = host.Services.CreateScope();
@@ -35,6 +35,7 @@ public static class DatabaseSetupHelper
             try
             {
                 await db.Database.MigrateAsync();
+                return;
             }
             catch (Exception ex) when (attempt < 3)
             {
