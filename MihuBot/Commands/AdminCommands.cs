@@ -21,6 +21,7 @@ public sealed class AdminCommands : CommandBase
         "ingestnewreposcan",
         "forcetriage",
         "dumpdbcounts",
+        "clearhybridcache-search",
     ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -31,8 +32,9 @@ public sealed class AdminCommands : CommandBase
     private readonly GitHubSearchService _gitHubSearchService;
     private readonly IssueTriageService _triageService;
     private readonly IssueTriageHelper _triageHelper;
+    private readonly HybridCache _cache;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
@@ -42,6 +44,7 @@ public sealed class AdminCommands : CommandBase
         _dbFts = dbFts;
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
+        _cache = cache;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -236,6 +239,12 @@ public sealed class AdminCommands : CommandBase
             });
 
             await ctx.ReplyAsync($"**Database counts:**\n{string.Join('\n', counts.OrderBy(c => c.Name).Select(c => $"{c.Name}: {c.Count}"))}");
+        }
+
+        if (ctx.Command == "clearhybridcache-search")
+        {
+            await _cache.RemoveByTagAsync(nameof(GitHubSearchService));
+            await ctx.ReplyAsync("Hybrid cache cleared.");
         }
     }
 }

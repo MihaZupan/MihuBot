@@ -22,6 +22,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseFtsIngestion), value);
     }
 
+    public bool DisableVectorSearch
+    {
+        get => Get(nameof(DisableVectorSearch));
+        set => Set(nameof(DisableVectorSearch), value);
+    }
+
     public bool DisableFullTextSearch
     {
         get => Get(nameof(DisableFullTextSearch));

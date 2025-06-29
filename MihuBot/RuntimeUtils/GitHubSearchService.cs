@@ -116,6 +116,12 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<RawSearchResult[]> VectorSearchAsync(string query, int topVectors, long repositoryFilter, SearchTimings timings, CancellationToken cancellationToken)
     {
+        if (_serviceConfiguration.DisableVectorSearch)
+        {
+            _logger.DebugLog($"Vector search is disabled, skipping search for '{query}'");
+            return [];
+        }
+
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         // Intentionally ignoring the cancellation token on the cache query so that we still get the results in the background.
@@ -143,7 +149,7 @@ public sealed class GitHubSearchService : IHostedService
             }
 
             return results.ToArray();
-        }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
+        }, tags: [nameof(GitHubSearchService)], cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
 
         timings.VectorSearch = stopwatch.Elapsed - timings.EmbeddingGeneration;
 
@@ -200,7 +206,7 @@ public sealed class GitHubSearchService : IHostedService
             timings.FullTextSearch = stopwatch.Elapsed;
 
             return results;
-        }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
+        }, tags: [nameof(GitHubSearchService)], cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
     }
 
     public async Task<((IssueSearchResult[] Results, double Score)[], SearchTimings Timings)> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, bool includeAllIssueComments, CancellationToken cancellationToken)
@@ -446,7 +452,7 @@ public sealed class GitHubSearchService : IHostedService
                 return relevances.Result
                     .Where(s => s.Score > 0.05)
                     .ToArray();
-            }, cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
+            }, tags: [nameof(GitHubSearchService)], cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
         }
 
         string GeneratePrompt(int issueCount, int bodyContext, int maxComments)
