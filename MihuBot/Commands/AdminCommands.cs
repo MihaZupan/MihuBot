@@ -228,15 +228,10 @@ public sealed class AdminCommands : CommandBase
 
             List<(string Name, int Count)> counts = [];
 
-            await Parallel.ForEachAsync(tables, async (t, _) =>
+            foreach ((string name, Func<Task<int>> countCallback) in tables)
             {
-                int count = await t.CountCallback();
-
-                lock (counts)
-                {
-                    counts.Add((t.Name, count));
-                }
-            });
+                counts.Add((name, await countCallback()));
+            }
 
             await ctx.ReplyAsync($"**Database counts:**\n{string.Join('\n', counts.OrderBy(c => c.Name).Select(c => $"{c.Name}: {c.Count}"))}");
         }
