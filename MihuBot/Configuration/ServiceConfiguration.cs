@@ -4,6 +4,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
 {
     private readonly IConfigurationService _configuration = configuration;
 
+    public bool LoggerTrace
+    {
+        get => Get(nameof(LoggerTrace));
+        set => Set(nameof(LoggerTrace), value);
+    }
+
     public bool PauseGitHubPolling
     {
         get => Get(nameof(PauseGitHubPolling));

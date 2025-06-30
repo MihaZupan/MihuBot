@@ -27,6 +27,7 @@ public sealed partial class Logger
 
     private readonly IDbContextFactory<LogsDbContext> _dbContextFactory;
     private readonly IConfigurationService _configurationService;
+    private readonly ServiceConfiguration _serviceConfiguration;
     private readonly Channel<LogDbEntry> LogChannel;
 
     private readonly Channel<(string FileName, string FilePath, SocketUserMessage Message)> MediaFileArchivingChannel;
@@ -44,12 +45,13 @@ public sealed partial class Logger
         { ".wav",   (".mp3",    "-b:a 192k") },
     };
 
-    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration, IConfigurationService configurationService, IDbContextFactory<LogsDbContext> dbContextFactory)
+    public Logger(HttpClient httpClient, LoggerOptions options, IConfiguration configuration, IConfigurationService configurationService, ServiceConfiguration serviceConfiguration, IDbContextFactory<LogsDbContext> dbContextFactory)
     {
         _http = httpClient;
         Options = options;
         _dbContextFactory = dbContextFactory;
         _configurationService = configurationService;
+        _serviceConfiguration = serviceConfiguration;
 
         if (ProgramState.AzureEnabled)
         {
@@ -423,7 +425,7 @@ public sealed partial class Logger
 
     public void TraceLog(string debugMessage)
     {
-        if (_configurationService.GetOrDefault(null, "Logger.Trace", false))
+        if (_serviceConfiguration.LoggerTrace)
         {
             DebugLog(debugMessage);
         }

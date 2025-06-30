@@ -204,6 +204,8 @@ public sealed partial class GitHubNotificationsService
                     DateTime start = DateTime.UtcNow - TimeSpan.FromDays(7);
                     DateTime end = DateTime.UtcNow - TimeSpan.FromMinutes(10);
 
+                    Stopwatch queryStopwatch = Stopwatch.StartNew();
+
                     IssueInfo[] networkingIssues = await db.Issues
                         .AsNoTracking()
                         .Where(i => i.CreatedAt >= start && i.CreatedAt <= end)
@@ -215,6 +217,8 @@ public sealed partial class GitHubNotificationsService
                         .Take(1000)
                         .AsSplitQuery()
                         .ToArrayAsync();
+
+                    ServiceInfo.LastGitHubNCLMentionsQueryTime = queryStopwatch.Elapsed;
 
                     foreach (IssueInfo issue in networkingIssues)
                     {

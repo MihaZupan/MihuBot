@@ -697,6 +697,7 @@ public sealed class GitHubSearchService : IHostedService
             return (0, 0);
         }
 
+        ServiceInfo.LastUpdateIngestedEmbeddingsQueryTime = outdatedQueryStopwatch.Elapsed;
         _logger.TraceLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
 
         int updatesPerformed = 0;
@@ -708,6 +709,8 @@ public sealed class GitHubSearchService : IHostedService
             Interlocked.Add(ref updatesPerformed, dbUpdates);
             Interlocked.Add(ref tokensConumed, tokens);
         });
+
+        ServiceInfo.LastUpdateIngestedEmbeddingsTime = outdatedQueryStopwatch.Elapsed;
 
         return (updatesPerformed, tokensConumed);
     }
@@ -884,6 +887,7 @@ public sealed class GitHubSearchService : IHostedService
             return 0;
         }
 
+        ServiceInfo.LastUpdateIngestedFullTextSearchQueryTime = outdatedQueryStopwatch.Elapsed;
         _logger.TraceLog($"{nameof(GitHubSearchService)} FTS: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
 
         int updatesPerformed = 0;
@@ -893,6 +897,8 @@ public sealed class GitHubSearchService : IHostedService
             int dbUpdates = await UpdateFtsRecordsForIssueAsync(issueId, cancellationToken);
             Interlocked.Add(ref updatesPerformed, dbUpdates);
         });
+
+        ServiceInfo.LastUpdateIngestedFullTextSearchTime = outdatedQueryStopwatch.Elapsed;
 
         return updatesPerformed;
     }

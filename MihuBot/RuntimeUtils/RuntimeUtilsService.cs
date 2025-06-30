@@ -268,6 +268,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 lastScan = DateTime.UtcNow;
 
+                Stopwatch queryStopwatch = Stopwatch.StartNew();
+
 #pragma warning disable CA1847 // Use char literal for a single character lookup -- EF doesn't support that
                 var comments = await db.Comments
                     .AsNoTracking()
@@ -284,6 +286,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     .AsSplitQuery()
                     .ToListAsync();
 #pragma warning restore CA1847
+
+                ServiceInfo.LastGitHubCommentMentionsQueryTime = queryStopwatch.Elapsed;
 
                 foreach (CommentInfo comment in comments)
                 {

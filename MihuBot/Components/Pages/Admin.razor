@@ -1,8 +1,10 @@
 ﻿@page "/admin"
 @using MihuBot.RuntimeUtils
+@using System.Reflection
 @attribute [Authorize("Admin")]
 @inject IConfigurationService Configuration
 @inject ServiceConfiguration Services
+@implements IAsyncDisposable
 @rendermode InteractiveServer
 
 @foreach ((string name, Func<bool> getValue, Action<bool> setValue) in _pauseSwitches)
@@ -10,9 +12,36 @@
     <button type="button" @onclick="() => setValue(!getValue())" class="btn btn-primary ml-1">@(getValue() ? "Resume" : "Pause") @name</button>
 }
 
+<br />
+<br />
+
+<button type="button" @onclick="() => Services.LoggerTrace = !Services.LoggerTrace" class="btn btn-primary ml-1">@(Services.LoggerTrace ? "Disable trace logging" : "Enable trace logging")</button>
+
+<br />
+<br />
+
+<table class="table table-dark">
+    <thead>
+        <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Time</th>
+        </tr>
+    </thead>
+    @foreach (var field in _serviceInfoTimeSpanFields
+        .OrderBy(r => r.Name))
+    {
+        <tr>
+            <td scope="row">@field.Name</td>
+            <td>@((int)((TimeSpan)field.GetValue(null)).TotalMilliseconds) ms</td>
+        </tr>
+    }
+</table>
+
 @code
 {
     private (string Name, Func<bool> GetValue, Action<bool> SetValue)[] _pauseSwitches;
+    private FieldInfo[] _serviceInfoTimeSpanFields;
+    private Timer _timer;
 
     protected override void OnInitialized()
     {
@@ -26,6 +55,28 @@
             ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),
             ("vector search",               () => Services.DisableVectorSearch,                 val => Services.DisableVectorSearch = val),
             ("full text search",            () => Services.DisableFullTextSearch,               val => Services.DisableFullTextSearch = val),
-        ];
+    ];
+
+        _serviceInfoTimeSpanFields = typeof(ServiceInfo)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.FieldType == typeof(TimeSpan))
+            .ToArray();
+
+        _timer = new Timer(async _ =>
+        {
+            try
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+            catch { }
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_timer is not null)
+        {
+            await _timer.DisposeAsync();
+        }
     }
 }
