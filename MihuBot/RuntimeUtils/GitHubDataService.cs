@@ -544,9 +544,13 @@ public sealed class GitHubDataService : IHostedService
 
             Log($"Count={dates.Count} Min={min} Max={max} Start={_startTime}", verbose: true);
 
-            if (// Recent update. Next request will fetch everything anyway.
-                dates.Count < s_apiOptions.PageSize.Value / 2 ||
-                // This wasn't a recent change.
+            // Recent update. Next request will fetch everything anyway.
+            if (dates.Count < s_apiOptions.PageSize.Value / 2)
+            {
+                return _startTime;
+            }
+
+            if (// This wasn't a recent change.
                 _startTime - max > TimeSpan.FromDays(1) ||
                 // All updates are within a few seconds of each other.
                 max - min < DataPollingOffset)
