@@ -50,7 +50,10 @@ public sealed class GitHubSearchService : IHostedService
     private double VectorSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 1;
     private double FullTextSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 0.9;
 
-    private double IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.IngestionPeriod", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double ms) ? ms : 5_000;
+    private int IngestionBatchSize => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionBatchSize)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int size) ? size : 1_000;
+    private int IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 5_000;
+    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 1_000;
+    private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 60_000;
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
@@ -607,9 +610,9 @@ public sealed class GitHubSearchService : IHostedService
                     {
                         _logger.TraceLog($"{name}: Performed {updates} DB updates, consumed {tokens} tokens");
 
-                        if (updates < 1_000)
+                        if (updates < IngestionLowUpdatesThreshold)
                         {
-                            await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+                            await Task.Delay(TimeSpan.FromMilliseconds(IngestionLowUpdatesSleepMs), cancellationToken);
                         }
                     }
 
@@ -646,8 +649,6 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 1_000;
-
         await using GitHubDbContext db = _db.CreateDbContext();
 
         VectorStoreCollection<Guid, SemanticSearchRecord> vectorCollection = _vectorStore.GetCollection<Guid, SemanticSearchRecord>(UpdateCollectionName);
@@ -689,12 +690,12 @@ public sealed class GitHubSearchService : IHostedService
 
         List<string> updatedIssues = await issuesQuery
             .Select(i => i.Id)
-            .Take(BatchSize)
+            .Take(IngestionBatchSize)
             .ToListAsync(cancellationToken);
 
         List<string> updatedComments = await commentsQuery
             .Select(i => i.IssueId)
-            .Take(BatchSize)
+            .Take(IngestionBatchSize)
             .ToListAsync(cancellationToken);
 
         HashSet<string> updatedIssueIds = [.. updatedIssues, .. updatedComments];
@@ -857,8 +858,6 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<int> UpdateIngestedFtsRecordsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 1_000;
-
         await using GitHubDbContext db = _db.CreateDbContext();
 
         Stopwatch outdatedQueryStopwatch = Stopwatch.StartNew();
@@ -879,12 +878,12 @@ public sealed class GitHubSearchService : IHostedService
 
         List<string> updatedIssues = await issuesQuery
             .Select(i => i.Id)
-            .Take(BatchSize)
+            .Take(IngestionBatchSize)
             .ToListAsync(cancellationToken);
 
         List<string> updatedComments = await commentsQuery
             .Select(i => i.IssueId)
-            .Take(BatchSize)
+            .Take(IngestionBatchSize)
             .ToListAsync(cancellationToken);
 
         HashSet<string> updatedIssueIds = [.. updatedIssues, .. updatedComments];
