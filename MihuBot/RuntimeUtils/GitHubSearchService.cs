@@ -715,13 +715,13 @@ public sealed class GitHubSearchService : IHostedService
 
         HashSet<string> updatedIssueIds = [.. updatedIssues, .. updatedComments];
 
+        ServiceInfo.LastUpdateIngestedEmbeddingsQueryTime = outdatedQueryStopwatch.Elapsed;
+        _logger.TraceLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
+
         if (updatedIssueIds.Count == 0)
         {
             return (0, 0);
         }
-
-        ServiceInfo.LastUpdateIngestedEmbeddingsQueryTime = outdatedQueryStopwatch.Elapsed;
-        _logger.TraceLog($"{nameof(GitHubSearchService)}: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
 
         int updatesPerformed = 0;
         int tokensConumed = 0;
@@ -913,13 +913,13 @@ public sealed class GitHubSearchService : IHostedService
 
         HashSet<string> updatedIssueIds = [.. updatedIssues, .. updatedComments];
 
+        ServiceInfo.LastUpdateIngestedFullTextSearchQueryTime = outdatedQueryStopwatch.Elapsed;
+        _logger.TraceLog($"{nameof(GitHubSearchService)} FTS: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
+
         if (updatedIssueIds.Count == 0)
         {
             return 0;
         }
-
-        ServiceInfo.LastUpdateIngestedFullTextSearchQueryTime = outdatedQueryStopwatch.Elapsed;
-        _logger.TraceLog($"{nameof(GitHubSearchService)} FTS: Found {updatedIssueIds.Count} issues to update in {outdatedQueryStopwatch.ElapsedMilliseconds:F2} ms");
 
         int updatesPerformed = 0;
 
