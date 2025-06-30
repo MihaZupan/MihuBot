@@ -610,16 +610,16 @@ public sealed class GitHubSearchService : IHostedService
                     if (updates > 0)
                     {
                         _logger.TraceLog($"{name}: Performed {updates} DB updates, consumed {tokens} tokens");
+                    }
 
-                        if (updates < IngestionLowUpdatesThreshold)
-                        {
-                            await Task.Delay(TimeSpan.FromMilliseconds(IngestionLowUpdatesSleepMs), cancellationToken);
-                            afterLowUpdateThreshold = true;
-                        }
-                        else
-                        {
-                            afterLowUpdateThreshold = false;
-                        }
+                    if (updates < IngestionLowUpdatesThreshold)
+                    {
+                        await Task.Delay(TimeSpan.FromMilliseconds(IngestionLowUpdatesSleepMs), cancellationToken);
+                        afterLowUpdateThreshold = true;
+                    }
+                    else
+                    {
+                        afterLowUpdateThreshold = false;
                     }
 
                     if (tokens > 1_000)
@@ -720,6 +720,7 @@ public sealed class GitHubSearchService : IHostedService
 
         if (updatedIssueIds.Count == 0)
         {
+            ServiceInfo.LastUpdateIngestedEmbeddingsTime = outdatedQueryStopwatch.Elapsed;
             return (0, 0);
         }
 
@@ -918,6 +919,7 @@ public sealed class GitHubSearchService : IHostedService
 
         if (updatedIssueIds.Count == 0)
         {
+            ServiceInfo.LastUpdateIngestedFullTextSearchTime = outdatedQueryStopwatch.Elapsed;
             return 0;
         }
 
