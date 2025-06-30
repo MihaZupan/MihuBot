@@ -50,6 +50,8 @@ public sealed class GitHubSearchService : IHostedService
     private double VectorSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 1;
     private double FullTextSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 0.9;
 
+    private double IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.IngestionPeriod", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double ms) ? ms : 5_000;
+
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
         _db = db;
@@ -582,7 +584,7 @@ public sealed class GitHubSearchService : IHostedService
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
             cancellationToken = linkedCts.Token;
 
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(IngestionPeriodMs));
 
             int consecutiveFailureCount = 0;
 
@@ -590,6 +592,11 @@ public sealed class GitHubSearchService : IHostedService
             {
                 try
                 {
+                    if (timer.Period.TotalMilliseconds != IngestionPeriodMs)
+                    {
+                        timer.Period = TimeSpan.FromMilliseconds(IngestionPeriodMs);
+                    }
+
                     if (name.Contains("FTS", StringComparison.Ordinal) ? _serviceConfiguration.PauseFtsIngestion : _serviceConfiguration.PauseEmbeddingIngestion)
                     {
                         continue;
@@ -600,9 +607,9 @@ public sealed class GitHubSearchService : IHostedService
                     {
                         _logger.TraceLog($"{name}: Performed {updates} DB updates, consumed {tokens} tokens");
 
-                        if (updates < 20)
+                        if (updates < 1_000)
                         {
-                            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                            await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
                         }
                     }
 
@@ -639,7 +646,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
     {
-        const int BatchSize = 100;
+        const int BatchSize = 1_000;
 
         await using GitHubDbContext db = _db.CreateDbContext();
 
