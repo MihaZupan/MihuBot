@@ -52,8 +52,8 @@ public sealed class GitHubSearchService : IHostedService
 
     private int IngestionBatchSize => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionBatchSize)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int size) ? size : 1_000;
     private int IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 5_000;
-    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 1_000;
-    private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 60_000;
+    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 100;
+    private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 30_000;
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
@@ -550,7 +550,7 @@ public sealed class GitHubSearchService : IHostedService
 
             _updatesTask = Task.WhenAll(
                 Task.Run(async () => await RunUpdateLoopAsync(nameof(GitHubSearchService), UpdateIngestedEmbeddingsAsync, cancellationToken), CancellationToken.None),
-                Task.Run(async () => await RunUpdateLoopAsync($"{nameof(GitHubSearchService)}.FTS", async ct => (await UpdateIngestedFtsRecordsAsync(ct), 0), cancellationToken), CancellationToken.None));
+                Task.Run(async () => await RunUpdateLoopAsync($"{nameof(GitHubSearchService)}.FTS", async (b, ct) => (await UpdateIngestedFtsRecordsAsync(b, ct), 0), cancellationToken), CancellationToken.None));
 
             Task.Run(async () =>
             {
@@ -580,7 +580,7 @@ public sealed class GitHubSearchService : IHostedService
         }
     }
 
-    private async Task RunUpdateLoopAsync(string name, Func<CancellationToken, Task<(int Updates, int Tokens)>> doUpdates, CancellationToken cancellationToken)
+    private async Task RunUpdateLoopAsync(string name, Func<bool, CancellationToken, Task<(int Updates, int Tokens)>> doUpdates, CancellationToken cancellationToken)
     {
         try
         {
@@ -590,6 +590,7 @@ public sealed class GitHubSearchService : IHostedService
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(IngestionPeriodMs));
 
             int consecutiveFailureCount = 0;
+            bool afterLowUpdateThreshold = false;
 
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
@@ -605,7 +606,7 @@ public sealed class GitHubSearchService : IHostedService
                         continue;
                     }
 
-                    (int updates, int tokens) = await doUpdates(cancellationToken);
+                    (int updates, int tokens) = await doUpdates(afterLowUpdateThreshold, cancellationToken);
                     if (updates > 0)
                     {
                         _logger.TraceLog($"{name}: Performed {updates} DB updates, consumed {tokens} tokens");
@@ -613,6 +614,11 @@ public sealed class GitHubSearchService : IHostedService
                         if (updates < IngestionLowUpdatesThreshold)
                         {
                             await Task.Delay(TimeSpan.FromMilliseconds(IngestionLowUpdatesSleepMs), cancellationToken);
+                            afterLowUpdateThreshold = true;
+                        }
+                        else
+                        {
+                            afterLowUpdateThreshold = false;
                         }
                     }
 
@@ -647,7 +653,7 @@ public sealed class GitHubSearchService : IHostedService
         }
     }
 
-    private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(CancellationToken cancellationToken)
+    private async Task<(int DbUpdates, int Tokens)> UpdateIngestedEmbeddingsAsync(bool afterLowUpdateThreshold, CancellationToken cancellationToken)
     {
         await using GitHubDbContext db = _db.CreateDbContext();
 
@@ -674,15 +680,24 @@ public sealed class GitHubSearchService : IHostedService
 
         Stopwatch outdatedQueryStopwatch = Stopwatch.StartNew();
 
-        IQueryable<IssueInfo> issuesQuery = db.Issues
-            .AsNoTracking()
+        IQueryable<IssueInfo> issuesQuery = db.Issues.AsNoTracking();
+        IQueryable<CommentInfo> commentsQuery = db.Comments.AsNoTracking();
+
+        if (afterLowUpdateThreshold && !Rng.Chance(100))
+        {
+            DateTime lastUpdate = DateTime.UtcNow - TimeSpan.FromDays(1);
+
+            issuesQuery = issuesQuery.Where(i => i.UpdatedAt >= lastUpdate);
+            commentsQuery = commentsQuery.Where(c => c.UpdatedAt >= lastUpdate);
+        }
+
+        issuesQuery = issuesQuery
             .Where(issue =>
                 !db.IngestedEmbeddings.Any(entry => entry.ResourceIdentifier == issue.Id) ||
                 db.IngestedEmbeddings.First(entry => entry.ResourceIdentifier == issue.Id).UpdatedAt < issue.UpdatedAt)
             .OrderBy(i => i.UpdatedAt);
 
-        IQueryable<CommentInfo> commentsQuery = db.Comments
-            .AsNoTracking()
+        commentsQuery = commentsQuery
             .Where(comment =>
                 !db.IngestedEmbeddings.Any(entry => entry.ResourceIdentifier == comment.IssueId) ||
                 db.IngestedEmbeddings.First(entry => entry.ResourceIdentifier == comment.IssueId).UpdatedAt < comment.UpdatedAt)
@@ -856,20 +871,30 @@ public sealed class GitHubSearchService : IHostedService
         }
     }
 
-    private async Task<int> UpdateIngestedFtsRecordsAsync(CancellationToken cancellationToken)
+    private async Task<int> UpdateIngestedFtsRecordsAsync(bool afterLowUpdateThreshold, CancellationToken cancellationToken)
     {
         await using GitHubDbContext db = _db.CreateDbContext();
 
         Stopwatch outdatedQueryStopwatch = Stopwatch.StartNew();
 
-        IQueryable<IssueInfo> issuesQuery = db.Issues
-            .AsNoTracking()
+        IQueryable<IssueInfo> issuesQuery = db.Issues.AsNoTracking();
+        IQueryable<CommentInfo> commentsQuery = db.Comments.AsNoTracking();
+
+        if (afterLowUpdateThreshold && !Rng.Chance(100))
+        {
+            DateTime lastUpdate = DateTime.UtcNow - TimeSpan.FromDays(1);
+
+            issuesQuery = issuesQuery.Where(i => i.UpdatedAt >= lastUpdate);
+            commentsQuery = commentsQuery.Where(c => c.UpdatedAt >= lastUpdate);
+        }
+
+        issuesQuery = issuesQuery
             .Where(issue =>
                 !db.IngestedFullTextSearchRecords.Any(entry => entry.ResourceIdentifier == issue.Id) ||
                 db.IngestedFullTextSearchRecords.First(entry => entry.ResourceIdentifier == issue.Id).UpdatedAt < issue.UpdatedAt)
             .OrderBy(i => i.UpdatedAt);
 
-        IQueryable<CommentInfo> commentsQuery = db.Comments
+        commentsQuery = commentsQuery
             .AsNoTracking()
             .Where(comment =>
                 !db.IngestedFullTextSearchRecords.Any(entry => entry.ResourceIdentifier == comment.IssueId) ||
