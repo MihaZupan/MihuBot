@@ -683,7 +683,7 @@ public sealed class GitHubSearchService : IHostedService
         IQueryable<IssueInfo> issuesQuery = db.Issues.AsNoTracking();
         IQueryable<CommentInfo> commentsQuery = db.Comments.AsNoTracking();
 
-        if (afterLowUpdateThreshold && !Rng.Chance(100))
+        if (afterLowUpdateThreshold && !Rng.Chance(500))
         {
             DateTime lastUpdate = DateTime.UtcNow - TimeSpan.FromDays(1);
 
@@ -881,7 +881,7 @@ public sealed class GitHubSearchService : IHostedService
         IQueryable<IssueInfo> issuesQuery = db.Issues.AsNoTracking();
         IQueryable<CommentInfo> commentsQuery = db.Comments.AsNoTracking();
 
-        if (afterLowUpdateThreshold && !Rng.Chance(100))
+        if (afterLowUpdateThreshold && !Rng.Chance(500))
         {
             DateTime lastUpdate = DateTime.UtcNow - TimeSpan.FromDays(1);
 

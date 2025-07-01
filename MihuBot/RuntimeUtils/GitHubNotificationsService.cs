@@ -194,7 +194,7 @@ public sealed partial class GitHubNotificationsService
             {
                 try
                 {
-                    if (_serviceConfiguration.PauseGitHubNCLMentionPolling)
+                    if (_serviceConfiguration.PauseGitHubNCLMentionPolling || _serviceConfiguration.PauseGitHubPolling)
                     {
                         continue;
                     }
@@ -233,17 +233,38 @@ public sealed partial class GitHubNotificationsService
                         }
 
                         IReadOnlyList<IssueComment> updatedComments;
+                        IReadOnlyList<IssueEvent> events;
                         try
                         {
                             updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
+                            events = await Github.Issue.Events.GetAllForIssue(issue.RepositoryId, issue.Number);
                         }
                         catch (Exception ex)
                         {
-                            _logger.DebugLog($"Failed to get issue {issue.HtmlUrl}: {ex}");
+                            _logger.DebugLog($"Failed to get updated issue info for <{issue.HtmlUrl}>: {ex}");
                             continue;
                         }
 
                         if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            continue;
+                        }
+
+                        bool nclLabelIsRecent = false;
+
+                        foreach (IssueEvent e in events)
+                        {
+                            if (e.Event.Value == EventInfoState.Labeled &&
+                                e.Label?.Name is { } labelName &&
+                                Constants.NetworkingLabels.Contains(labelName) &&
+                                (DateTime.UtcNow - e.CreatedAt).TotalMinutes < 5)
+                            {
+                                nclLabelIsRecent = true;
+                                break;
+                            }
+                        }
+
+                        if (nclLabelIsRecent)
                         {
                             continue;
                         }
