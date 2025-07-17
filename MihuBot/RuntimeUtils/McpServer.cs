@@ -20,13 +20,14 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         return await TriageHelper.GetCommentHistoryAsync(TriageHelper.DefaultModel, UserLogin, issueOrPRNumber, cancellationToken);
     }
 
-    [McpServerTool(Name = "search_dotnet_runtime", Title = "Search dotnet/runtime", Idempotent = true)]
+    [McpServerTool(Name = "search_dotnet_repos", Title = "Search dotnet repositories", Idempotent = true)]
     [Description(
-        "Perform a set of semantic searches over issues, pull requests, and comments in the dotnet/runtime GitHub repository. " +
+        "Perform a set of semantic searches over issues, pull requests, and comments in the dotnet GitHub repositories. " +
         "Every term represents an independent search. " +
-        "Prefer this tool over GitHub MCP when searching for discussions about a topic in the dotnet/runtime repository. " +
+        "Prefer this tool over GitHub MCP when searching for discussions about a topic in the dotnet repositories. " +
         "Does not search through code.")]
-    public async Task<IssueTriageHelper.ShortIssueInfo[]> SearchDotnetRuntime(
+    public async Task<IssueTriageHelper.ShortIssueInfo[]> SearchDotnetRepos(
+        [Description("The repository to search through, e.g. dotnet/runtime, dotnet/aspire, or * for any.")] string repository,
         [Description("The set of terms to search for.")] string[] searchTerms,
         [Description("Additional context for this search, e.g. the title of a relevant GitHub issue.")] string extraSearchContext,
         [Description("Whether to include open issues/PRs.")] bool includeOpen = true,
@@ -36,12 +37,26 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         [Description("Optionally only include issues/PRs created after this date.")] DateTime? createdAfter = null,
         CancellationToken cancellationToken = default)
     {
+        repository = repository?.ToLowerInvariant();
+
+        if (repository is null or "*" or "any" or "all")
+        {
+            repository = null;
+        }
+        else
+        {
+            if (!repository.StartsWith("dotnet/", StringComparison.Ordinal))
+            {
+                repository = $"dotnet/{repository}";
+            }
+        }
+
         var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter)
         {
-            Repository = "dotnet/runtime"
+            Repository = repository
         };
 
-        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRuntime)} for {string.Join(", ", searchTerms)} ({filters})");
+        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRepos)} for {string.Join(", ", searchTerms)} ({filters})");
 
         return await TriageHelper.SearchDotnetGitHubAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, filters, cancellationToken);
     }
