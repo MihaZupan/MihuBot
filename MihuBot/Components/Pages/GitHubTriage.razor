@@ -60,6 +60,9 @@
                                     }
                                 </div>
                             </div>
+                            <div class="btn-group" role="group">
+                                <button type="button" @onclick="() => UseCommentsOnCurrentIssue = !UseCommentsOnCurrentIssue" class="btn btn-primary ml-1">@(UseCommentsOnCurrentIssue ? "Ignore comments on triaged issue" : "Include comments on triaged issue")</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -127,9 +130,19 @@
         }
     }
 
+    private bool UseCommentsOnCurrentIssue
+    {
+        get => field;
+        set
+        {
+            field = value;
+            UpdateTriageOperation();
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        _debouncer = new Debouncer<(string, IssueTriageHelper.ModelInfo)>(TimeSpan.FromMilliseconds(100), DoTriageAsync);
+        _debouncer = new Debouncer<(string, IssueTriageHelper.ModelInfo, bool)>(TimeSpan.FromMilliseconds(100), DoTriageAsync);
         _debouncer.CancelPendingActions = true;
 
         if (_authenticationState is not null)
@@ -138,11 +151,11 @@
         }
     }
 
-    private Debouncer<(string TriageIssueUrl, IssueTriageHelper.ModelInfo Model)> _debouncer;
+    private Debouncer<(string TriageIssueUrl, IssueTriageHelper.ModelInfo Model, bool UseCommentsOnCurrentIssue)> _debouncer;
 
     private void UpdateTriageOperation()
     {
-        _debouncer.Update((TriageIssueUrl.Trim(), Model));
+        _debouncer.Update((TriageIssueUrl.Trim(), Model, UseCommentsOnCurrentIssue));
     }
 
     private void LogToolLine(string message)
@@ -151,9 +164,9 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private async Task DoTriageAsync((string TriageIssueUrl, IssueTriageHelper.ModelInfo Model) state, CancellationToken cancellationToken)
+    private async Task DoTriageAsync((string TriageIssueUrl, IssueTriageHelper.ModelInfo Model, bool UseCommentsOnCurrentIssue) state, CancellationToken cancellationToken)
     {
-        (string triageIssueUrl, IssueTriageHelper.ModelInfo model) = state;
+        (string triageIssueUrl, IssueTriageHelper.ModelInfo model, bool UseCommentsOnCurrentIssue) = state;
 
         try
         {
@@ -221,7 +234,7 @@
 
             Task stateChangedTask = Task.CompletedTask;
 
-            await foreach (string html in TriageHelper.TriageIssueAsync(model, _githubUserLogin, issue, LogToolLine, cancellationToken))
+            await foreach (string html in TriageHelper.TriageIssueAsync(model, _githubUserLogin, issue, LogToolLine, skipCommentsOnCurrentIssue: !UseCommentsOnCurrentIssue, cancellationToken))
             {
                 _htmlResponse = html;
 

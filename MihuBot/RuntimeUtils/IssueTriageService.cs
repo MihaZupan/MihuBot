@@ -213,7 +213,7 @@ public sealed class IssueTriageService(
     {
         ConcurrentQueue<string> toolLogs = [];
 
-        string html = await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, cancellationToken)
+        string html = await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, skipCommentsOnCurrentIssue: false, cancellationToken)
             .LastOrDefaultAsync(cancellationToken) ?? "";
 
         string commit = Helpers.Helpers.GetCommitId();

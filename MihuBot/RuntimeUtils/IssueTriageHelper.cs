@@ -32,11 +32,12 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         GitHubUserLogin = gitHubUserLogin
     };
 
-    public IAsyncEnumerable<string> TriageIssueAsync(ModelInfo model, string gitHubUserLogin, IssueInfo issue, Action<string> onToolLog, CancellationToken cancellationToken)
+    public IAsyncEnumerable<string> TriageIssueAsync(ModelInfo model, string gitHubUserLogin, IssueInfo issue, Action<string> onToolLog, bool skipCommentsOnCurrentIssue, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, gitHubUserLogin);
         context.Issue = issue;
         context.OnToolLog = onToolLog;
+        context.SkipCommentsOnCurrentIssue = skipCommentsOnCurrentIssue;
 
         return context.TriageAsync(cancellationToken);
     }
@@ -132,6 +133,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public string GitHubUserLogin { get; set; }
         public bool UsingLargeContextWindow => Model.ContextSize >= 500_000;
         public Action<string> OnToolLog { get; set; } = _ => { };
+        public bool SkipCommentsOnCurrentIssue { get; set; }
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -303,6 +305,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             {
                 ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken);
 
+                if (SkipCommentsOnCurrentIssue)
+                {
+                    results = results
+                        .Select(r =>
+                        {
+                            if (r.Results[0].Issue.Id == Issue.Id)
+                            {
+                                // Skip comments on the current issue.
+                                return (Results: r.Results.Where(c => c.Comment is null).ToArray(), r.Score);
+                            }
+
+                            return r;
+                        })
+                        .Where(r => r.Results.Length > 0)
+                        .ToArray();
+                }
+
                 try
                 {
                     results = await Search.FilterOutUnrelatedResults(term, extraSearchContext, preferSpeed: false, results, timings, cancellationToken);
@@ -328,7 +347,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             List<ShortIssueInfo> results = [];
 
-            int issueReferences = 0;
             int searchIssues = combinedResults.Length;
             int searchComments = 0;
 
@@ -344,8 +362,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, out string repoName, out int issueNumber) &&
                     await Parent.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken) is { } singleIssue)
                 {
-                    issueReferences++;
-
                     results.Add(CreateIssueInfo(1, singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, []));
                 }
             }
