@@ -116,6 +116,10 @@ public sealed partial class Logger
             if (text.Contains("Error: Interop methods are already registered for renderer", StringComparison.Ordinal))
                 return;
 
+            if (text.Contains("at Npgsql.Internal.NpgsqlConnector.ConnectAsync", StringComparison.Ordinal) ||
+                text.Contains("at Npgsql.Internal.NpgsqlConnector.ReadMessageLong", StringComparison.Ordinal))
+                return;
+
             _ = DebugAsync($"UnobservedTaskException: {text}", truncateToFile: true);
             e.SetObserved();
         };
