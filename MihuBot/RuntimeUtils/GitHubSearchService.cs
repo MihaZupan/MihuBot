@@ -624,7 +624,7 @@ public sealed class GitHubSearchService : IHostedService
 
                     if (tokens > 1_000)
                     {
-                        const int TokenLimitPerMinute = 950_000;
+                        const int TokenLimitPerMinute = 750_000;
                         await Task.Delay(TimeSpan.FromMinutes((double)tokens / TokenLimitPerMinute), cancellationToken);
                     }
 
@@ -839,7 +839,7 @@ public sealed class GitHubSearchService : IHostedService
             int tokens = keyedSections.Sum(section => Tokenizer.CountTokens(section.Text));
 
             List<Embedding<float>> embeddings = [];
-            foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(1000))
+            foreach (string[] chunk in keyedSections.Select(section => section.Text).Chunk(500))
             {
                 embeddings.AddRange(await _embeddingGenerator2.GenerateAsync(chunk, cancellationToken: cancellationToken));
             }
