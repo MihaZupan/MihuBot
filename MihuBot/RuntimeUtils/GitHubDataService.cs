@@ -25,6 +25,7 @@ public sealed class GitHubDataService : IHostedService
         ("dotnet", "aspire",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
         ("dotnet", "sdk",               TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
         ("dotnet", "roslyn",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "efcore",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
         ("dotnet", "BenchmarkDotNet",   TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
         ("dotnet", "interactive",       TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
     ];
