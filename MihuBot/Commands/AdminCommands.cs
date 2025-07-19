@@ -202,7 +202,7 @@ public sealed class AdminCommands : CommandBase
                 else
                 {
                     await ctx.ReplyAsync($"{toolLogsString}Duplicate issues for {issue.Repository.FullName}#{issueNumber} - {issue.Title}:\n" +
-                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}]({r.Issue.HtmlUrl})\n  - {r.Summary}")));
+                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}")));
                 }
             }
             else

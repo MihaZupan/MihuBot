@@ -61,9 +61,10 @@ public static partial class GitHubHelper
             return false;
         }
 
-        string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
+            .Trim('#', '<', '>');
 
-        if (int.TryParse(parts[0].AsSpan().Trim('#'), out prNumber) && prNumber > 0)
+        if (int.TryParse(input, out prNumber) && prNumber > 0)
         {
             repoName = null;
             return true;
@@ -71,7 +72,7 @@ public static partial class GitHubHelper
 
         // https://github.com/dotnet/runtime/issues/111492
         // "/", "dotnet/", "runtime/", "issues/", "111492"
-        if (Uri.TryCreate(parts[0], UriKind.Absolute, out Uri uri) &&
+        if (Uri.TryCreate(input, UriKind.Absolute, out Uri uri) &&
             (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
             uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
             uri.Segments is { Length: 5 } segments &&
