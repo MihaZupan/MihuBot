@@ -24,7 +24,19 @@ public static class SemanticMarkdownChunker
             yield break;
         }
 
-        foreach (string sectionText in GetMarkdownSections(tokenizer, smallSectionTokenThreshold, markdown))
+        string[] sectionTexts;
+
+        try
+        {
+            sectionTexts = GetMarkdownSections(tokenizer, smallSectionTokenThreshold, markdown).ToArray();
+        }
+        catch
+        {
+            // Can happen if some object offsets aren't properly set.
+            sectionTexts = [.. SplitTextBlock(tokenizer, smallSectionTokenThreshold, markdown)];
+        }
+
+        foreach (string sectionText in sectionTexts)
         {
             string trimmed = sectionText.Trim();
 
@@ -90,18 +102,7 @@ public static class SemanticMarkdownChunker
         {
             foreach (Block[] headingSection in SplitByHeadings(semanticSection))
             {
-                string[] sectionTexts;
-                try
-                {
-                    sectionTexts = GetSubSections(headingSection).ToArray();
-                }
-                catch
-                {
-                    // Can happen if some object offsets aren't properly set.
-                    sectionTexts = [.. SplitTextBlock(tokenizer, smallSectionTokenThreshold, SliceBlocks(headingSection).ToString())];
-                }
-
-                foreach (string sectionText in sectionTexts)
+                foreach (string sectionText in GetSubSections(headingSection))
                 {
                     yield return sectionText;
                 }
@@ -181,6 +182,7 @@ public static class SemanticMarkdownChunker
             {
                 // This might happen if some block's span wasn't updated properly in Markdig.
 
+                span.Start = blocks.Min(b => b.Span.Start);
                 span.End = blocks.Max(b => b.Span.End);
             }
 
