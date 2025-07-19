@@ -1,12 +1,13 @@
 ﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
-using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings;
 using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
 using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
+using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -32,14 +33,29 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         GitHubUserLogin = gitHubUserLogin
     };
 
-    public IAsyncEnumerable<string> TriageIssueAsync(ModelInfo model, string gitHubUserLogin, IssueInfo issue, Action<string> onToolLog, bool skipCommentsOnCurrentIssue, CancellationToken cancellationToken)
+    private Context CreateContext(TriageOptions options)
     {
-        Context context = CreateContext(model, gitHubUserLogin);
-        context.Issue = issue;
-        context.OnToolLog = onToolLog;
-        context.SkipCommentsOnCurrentIssue = skipCommentsOnCurrentIssue;
+        Context context = CreateContext(options.Model, options.GitHubUserLogin);
+        context.Issue = options.Issue;
+        context.OnToolLog = options.OnToolLog;
+        context.SkipCommentsOnCurrentIssue = options.SkipCommentsOnCurrentIssue;
+        return context;
+    }
+
+    public record TriageOptions(ModelInfo Model, string GitHubUserLogin, IssueInfo Issue, Action<string> OnToolLog, bool SkipCommentsOnCurrentIssue);
+
+    public IAsyncEnumerable<string> TriageIssueAsync(TriageOptions options, CancellationToken cancellationToken)
+    {
+        Context context = CreateContext(options);
 
         return context.TriageAsync(cancellationToken);
+    }
+
+    public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(TriageOptions options, CancellationToken cancellationToken)
+    {
+        Context context = CreateContext(options);
+
+        return await context.DetectDuplicateIssuesAsync(cancellationToken);
     }
 
     public async Task<ShortIssueInfo> GetCommentHistoryAsync(ModelInfo model, string requesterLogin, int issueOrPRNumber, CancellationToken cancellationToken)
@@ -93,7 +109,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
     private sealed class Context
     {
-        private const string SystemPrompt =
+        private const string SystemPromptTemplate =
             """
             You are an assistant helping the .NET team triage new GitHub issues in the {{REPO_URL}} repository.
             You are provided with information about a new issue and you need to find related issues or comments among the existing GitHub data.
@@ -112,11 +128,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             Use your tools to gather the relevant information from comments: do NOT guess or make up conclusions for a given issue.
             Pay close attention to comments when summarizing the issue as questions may have already been answered.
 
+            {{TASK_PROMPT}}
+
+            Reply in GitHub markdown format, not wrapped in any HTML blocks.
+            """;
+
+        private const string TriagePrompt =
+            """
             Reply with a list of related issues and include a short summary of the discussions/conclusions for each one.
             Assume that the user is familiar with the repository and its processes, but not necessarily with the specific issue or discussion.
             When referencing an older issue, reference when it was opened. E.g. "Issue #123 (July 2019) - Title".
+            """;
 
-            Reply in GitHub markdown format, not wrapped in any HTML blocks.
+        private const string DuplicateDetectionPrompt =
+            """
+            Find which issues (if any) are likely duplicates of the new issue.
+            Specify the approximate certainty score from 0 to 1, where 1 means the issue is very likely a duplicate.
+            Return the set of issue numbers with their relevance scores. Include a short summary for why you believe the issue is a duplicate.
             """;
 
         private static readonly HashSet<string> s_networkingTeam = new(
@@ -143,29 +171,9 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"{Issue.Repository.FullName}#{Issue.Number}: {Issue.Title} by {Issue.User.Login}");
 
-            var options = new ChatOptions
-            {
-                Tools =
-                [
-                    AIFunctionFactory.Create(SearchCurrentRepoAsync,
-                        $"search_{Issue.RepoOwner()}_{Issue.RepoName()}",
-                        $"Perform a set of semantic searches over issues and comments in the {Issue.Repository.FullName} GitHub repository. Every term represents an independent search."),
+            ChatOptions options = GetTriageOptions();
 
-                    AIFunctionFactory.Create(GetCommentHistoryAsync,
-                        "get_github_comment_history",
-                        $"Get the full history of comments on a specific issue or pull request from the {Issue.Repository.FullName} GitHub repository."),
-                ],
-                ToolMode = ChatToolMode.RequireAny
-            };
-
-            if (Model.SupportsTemperature)
-            {
-                options.Temperature = 0;
-            }
-
-            string systemPrompt = SystemPrompt
-                .Replace("{{REPO_URL}}", Issue.Repository.HtmlUrl, StringComparison.Ordinal)
-                .Replace("{{MAX_SEARCH_COUNT}}", UsingLargeContextWindow ? "" : " (max of 5)", StringComparison.Ordinal);
+            string systemPrompt = GetSystemPrompt(TriagePrompt);
 
             List<ChatMessage> messages = [new ChatMessage(ChatRole.System, systemPrompt)];
 
@@ -181,10 +189,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 {Issue.Body}
                 """));
 
-            using IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
-            using var toolClient = new FunctionInvokingChatClient(chatClient);
-            toolClient.AllowConcurrentInvocation = true;
-            toolClient.MaximumIterationsPerRequest = 20;
+            using FunctionInvokingChatClient toolClient = GetToolClient();
 
             string markdownResponse = "";
 
@@ -215,6 +220,94 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             Logger.DebugLog($"Triage: Finished triaging issue #{Issue.Number} with model {Model.Name}:\n{markdownResponse}");
 
             yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
+        }
+
+        private sealed record DuplicateIssue(int IssueNumber, double Certainty, string Summary);
+
+        public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken)
+        {
+            Logger.DebugLog($"Starting duplicate detection for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
+
+            ChatOptions options = GetTriageOptions();
+
+            using FunctionInvokingChatClient toolClient = GetToolClient();
+
+            string prompt =
+                $"""
+                {GetSystemPrompt(DuplicateDetectionPrompt)}
+
+                Please help me find potential duplicates for issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}'.
+
+                Here is the issue:
+                {Issue.Body}
+                """;
+
+            ChatResponse<DuplicateIssue[]> chatResponse = await toolClient.GetResponseAsync<DuplicateIssue[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken);
+
+            if (_searchToolException is not null)
+            {
+                throw new Exception($"Search tool failed to return results: {_searchToolException}");
+            }
+
+            List<(IssueInfo Issue, double Certainty, string Summary)> results = [];
+
+            foreach (DuplicateIssue duplicate in chatResponse.Result.OrderByDescending(r => r.Certainty))
+            {
+                IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, duplicate.IssueNumber, cancellationToken);
+
+                if (issue is not null)
+                {
+                    results.Add((issue, duplicate.Certainty, duplicate.Summary));
+                }
+            }
+
+            Logger.DebugLog($"Finished duplicate detection on issue #{Issue.Number} with model {Model.Name}:\n{JsonSerializer.Serialize(results)}");
+
+            return [.. results];
+        }
+
+        private string GetSystemPrompt(string taskPrompt)
+        {
+            return SystemPromptTemplate
+                .Replace("{{REPO_URL}}", Issue.Repository.HtmlUrl, StringComparison.Ordinal)
+                .Replace("{{MAX_SEARCH_COUNT}}", UsingLargeContextWindow ? "" : " (max of 5)", StringComparison.Ordinal)
+                .Replace("{{TASK_PROMPT}}", taskPrompt, StringComparison.Ordinal);
+        }
+
+        private ChatOptions GetTriageOptions()
+        {
+            var options = new ChatOptions
+            {
+                Tools =
+                [
+                    AIFunctionFactory.Create(SearchCurrentRepoAsync,
+                        $"search_{Issue.RepoOwner()}_{Issue.RepoName()}",
+                        $"Perform a set of semantic searches over issues and comments in the {Issue.Repository.FullName} GitHub repository. Every term represents an independent search."),
+
+                    AIFunctionFactory.Create(GetCommentHistoryAsync,
+                        "get_github_comment_history",
+                        $"Get the full history of comments on a specific issue or pull request from the {Issue.Repository.FullName} GitHub repository."),
+                ],
+                ToolMode = ChatToolMode.RequireAny
+            };
+
+            if (Model.SupportsTemperature)
+            {
+                options.Temperature = 0;
+            }
+
+            return options;
+        }
+
+        private FunctionInvokingChatClient GetToolClient()
+        {
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+
+            return new FunctionInvokingChatClient(chatClient)
+            {
+                AllowConcurrentInvocation = true,
+                MaximumIterationsPerRequest = 20,
+            };
         }
 
         private string ConvertMarkdownToHtml(string markdown, bool partial)

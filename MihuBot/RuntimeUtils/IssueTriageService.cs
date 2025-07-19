@@ -213,8 +213,9 @@ public sealed class IssueTriageService(
     {
         ConcurrentQueue<string> toolLogs = [];
 
-        string html = await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, skipCommentsOnCurrentIssue: false, cancellationToken)
-            .LastOrDefaultAsync(cancellationToken) ?? "";
+        var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: false);
+
+        string html = await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken) ?? "";
 
         string commit = Helpers.Helpers.GetCommitId();
         string version = commit.Length >= 10 ? $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/tree/{commit})" : "unknown";

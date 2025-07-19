@@ -234,7 +234,9 @@
 
             Task stateChangedTask = Task.CompletedTask;
 
-            await foreach (string html in TriageHelper.TriageIssueAsync(model, _githubUserLogin, issue, LogToolLine, skipCommentsOnCurrentIssue: !UseCommentsOnCurrentIssue, cancellationToken))
+            var options = new IssueTriageHelper.TriageOptions(model, _githubUserLogin, issue, LogToolLine, SkipCommentsOnCurrentIssue: !UseCommentsOnCurrentIssue);
+
+            await foreach (string html in TriageHelper.TriageIssueAsync(options, cancellationToken))
             {
                 _htmlResponse = html;
 

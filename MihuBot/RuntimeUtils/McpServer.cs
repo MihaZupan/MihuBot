@@ -79,6 +79,8 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
             return $"Unable to find issue #{issueOrPRNumber}.";
         }
 
-        return await TriageHelper.TriageIssueAsync(TriageHelper.DefaultModel, UserLogin, issue, _ => { }, skipCommentsOnCurrentIssue: false, cancellationToken).LastOrDefaultAsync(cancellationToken);
+        var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, UserLogin, issue, _ => { }, SkipCommentsOnCurrentIssue: false);
+
+        return await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken);
     }
 }

@@ -1,4 +1,5 @@
-﻿using Discord.Rest;
+﻿using System.Collections.Concurrent;
+using Discord.Rest;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
@@ -22,6 +23,7 @@ public sealed class AdminCommands : CommandBase
         "forcetriage",
         "dumpdbcounts",
         "clearhybridcache-search",
+        "duplicates",
     ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -167,7 +169,7 @@ public sealed class AdminCommands : CommandBase
             await Task.Delay(20_000, ctx.CancellationToken);
         }
 
-        if (ctx.Command == "forcetriage")
+        if (ctx.Command is "forcetriage" or "duplicates")
         {
             if (ctx.Arguments.Length != 1 || !GitHubHelper.TryParseIssueOrPRNumber(ctx.Arguments[0], out string repoName, out int issueNumber))
             {
@@ -183,8 +185,31 @@ public sealed class AdminCommands : CommandBase
                 return;
             }
 
-            Uri issueUrl = await _triageService.ManualTriageAsync(issue, ctx.CancellationToken);
-            await ctx.ReplyAsync($"Triage completed. See the issue at <{issueUrl.AbsoluteUri}>.");
+            if (ctx.Command == "duplicates")
+            {
+                ConcurrentQueue<string> toolLogs = [];
+
+                var options = new IssueTriageHelper.TriageOptions(_triageHelper.DefaultModel, "MihaZupan", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: true);
+
+                (IssueInfo Issue, double Certainty, string Summary)[] results = await _triageHelper.DetectDuplicateIssuesAsync(options, ctx.CancellationToken);
+
+                string toolLogsString = $"```\n{string.Join('\n', toolLogs)}\n```\n\n";
+
+                if (results.Length == 0)
+                {
+                    await ctx.ReplyAsync($"{toolLogsString}No duplicate issues found.");
+                }
+                else
+                {
+                    await ctx.ReplyAsync($"{toolLogsString}Duplicate issues for {issue.Repository.FullName}#{issueNumber} - {issue.Title}:\n" +
+                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}]({r.Issue.HtmlUrl})\n  - {r.Summary}")));
+                }
+            }
+            else
+            {
+                Uri issueUrl = await _triageService.ManualTriageAsync(issue, ctx.CancellationToken);
+                await ctx.ReplyAsync($"Triage completed. See the issue at <{issueUrl.AbsoluteUri}>.");
+            }
         }
 
         if (ctx.Command == "dumpdbcounts")
