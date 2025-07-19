@@ -43,12 +43,9 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         {
             repository = null;
         }
-        else
+        else if (!repository.StartsWith("dotnet/", StringComparison.Ordinal))
         {
-            if (!repository.StartsWith("dotnet/", StringComparison.Ordinal))
-            {
-                repository = $"dotnet/{repository}";
-            }
+            repository = $"dotnet/{repository}";
         }
 
         var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter)

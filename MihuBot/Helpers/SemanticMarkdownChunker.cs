@@ -90,7 +90,18 @@ public static class SemanticMarkdownChunker
         {
             foreach (Block[] headingSection in SplitByHeadings(semanticSection))
             {
-                foreach (string sectionText in GetSubSections(headingSection))
+                string[] sectionTexts;
+                try
+                {
+                    sectionTexts = GetSubSections(headingSection).ToArray();
+                }
+                catch
+                {
+                    // Can happen if some object offsets aren't properly set.
+                    sectionTexts = [.. SplitTextBlock(tokenizer, smallSectionTokenThreshold, SliceBlocks(headingSection).ToString())];
+                }
+
+                foreach (string sectionText in sectionTexts)
                 {
                     yield return sectionText;
                 }

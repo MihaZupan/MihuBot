@@ -52,7 +52,7 @@ public sealed class GitHubSearchService : IHostedService
 
     private int IngestionBatchSize => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionBatchSize)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int size) ? size : 1_000;
     private int IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 5_000;
-    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 100;
+    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : (IngestionBatchSize / 4);
     private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 30_000;
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
@@ -1020,6 +1020,7 @@ public sealed class GitHubSearchService : IHostedService
         ];
 
         List<(string SubIdentifier, string Text, Guid Key)> keyedSections = sections
+            .Select(section => (section.SubIdentifier, Text: section.Text.Replace("\0", "", StringComparison.Ordinal)))
             .Select(section => (section.SubIdentifier, section.Text, GetGuidFromSectionHash(issue.Id, section)))
             .ToList();
 
