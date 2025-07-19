@@ -201,8 +201,17 @@ public sealed class AdminCommands : CommandBase
                 }
                 else
                 {
-                    await ctx.ReplyAsync($"{toolLogsString}Duplicate issues for {issue.Repository.FullName}#{issueNumber} - {issue.Title}:\n" +
-                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}")));
+                    string reply = $"{toolLogsString}Duplicate issues for {issue.Repository.FullName}#{issueNumber} - {issue.Title}:\n" +
+                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}"));
+
+                    if (reply.Length <= 1800)
+                    {
+                        await ctx.ReplyAsync(reply);
+                    }
+                    else
+                    {
+                        await ctx.Channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply);
+                    }
                 }
             }
             else
