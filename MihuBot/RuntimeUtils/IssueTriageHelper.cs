@@ -135,6 +135,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public Action<string> OnToolLog { get; set; } = _ => { };
         public bool SkipCommentsOnCurrentIssue { get; set; }
 
+        private Exception _searchToolException;
+
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
             Logger.DebugLog($"Starting triage for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
@@ -167,10 +169,13 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             List<ChatMessage> messages = [new ChatMessage(ChatRole.System, systemPrompt)];
 
+            string existingCommentsMention = SkipCommentsOnCurrentIssue
+                ? string.Empty
+                : $"\nExisting comments: {Issue.Comments.Count(c => !c.User.Login.EndsWith("[bot]", StringComparison.Ordinal))}";
+
             messages.Add(new ChatMessage(ChatRole.User,
                 $"""
-                Please help me triage issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}'.
-                Existing comments: {Issue.Comments.Count(c => !c.User.Login.EndsWith("[bot]", StringComparison.Ordinal))}
+                Please help me triage issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}'.{existingCommentsMention}
 
                 Here is the issue:
                 {Issue.Body}
@@ -185,6 +190,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             await foreach (ChatResponseUpdate update in toolClient.GetStreamingResponseAsync(messages, options, cancellationToken))
             {
+                if (_searchToolException is not null)
+                {
+                    break;
+                }
+
                 string updateText = update.Text;
 
                 if (string.IsNullOrEmpty(updateText))
@@ -195,6 +205,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 markdownResponse += updateText;
 
                 yield return ConvertMarkdownToHtml(markdownResponse, partial: true);
+            }
+
+            if (_searchToolException is not null)
+            {
+                throw new Exception($"Search tool failed to return results: {_searchToolException}");
             }
 
             Logger.DebugLog($"Triage: Finished triaging issue #{Issue.Number} with model {Model.Name}:\n{markdownResponse}");
@@ -266,7 +281,15 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 Repository = Issue.Repository.FullName,
             };
 
-            return await SearchDotnetGitHubAsync(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
+            try
+            {
+                return await SearchDotnetGitHubAsync(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _searchToolException = ex;
+                throw;
+            }
         }
 
         public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
