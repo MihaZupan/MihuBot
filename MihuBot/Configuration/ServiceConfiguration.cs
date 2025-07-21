@@ -58,6 +58,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseGitHubNCLMentionPolling), value);
     }
 
+    public bool PauseAutoDuplicateDetection
+    {
+        get => Get(nameof(PauseAutoDuplicateDetection));
+        set => Set(nameof(PauseAutoDuplicateDetection), value);
+    }
+
     private bool Get(string name) => _configuration.GetOrDefault(null, name, false);
 
     private void Set(string name, bool value) => _configuration.Set(null, name, value.ToString());

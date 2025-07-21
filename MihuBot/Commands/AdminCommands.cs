@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using Discord.Rest;
 using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.DB.GitHubFts;
@@ -35,8 +36,12 @@ public sealed class AdminCommands : CommandBase
     private readonly IssueTriageService _triageService;
     private readonly IssueTriageHelper _triageHelper;
     private readonly HybridCache _cache;
+    private readonly ServiceConfiguration _serviceConfiguration;
+    private readonly Logger _logger;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache)
+    private readonly FileBackedHashSet _processedIssuesForDuplicateDetection = new("ProcessedIssuessForDuplicateDetection.txt");
+
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, ServiceConfiguration serviceConfiguration, Logger logger)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
@@ -47,6 +52,8 @@ public sealed class AdminCommands : CommandBase
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
         _cache = cache;
+        _serviceConfiguration = serviceConfiguration;
+        _logger = logger;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -187,31 +194,19 @@ public sealed class AdminCommands : CommandBase
 
             if (ctx.Command == "duplicates")
             {
-                ConcurrentQueue<string> toolLogs = [];
+                (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, ctx.CancellationToken);
 
-                var options = new IssueTriageHelper.TriageOptions(_triageHelper.DefaultModel, "MihaZupan", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: true);
+                string reply = duplicates.Length == 0
+                    ? "No duplicates found."
+                    : FormatDuplicatesSummary(issue, duplicates);
 
-                (IssueInfo Issue, double Certainty, string Summary)[] results = await _triageHelper.DetectDuplicateIssuesAsync(options, ctx.CancellationToken);
-
-                string toolLogsString = $"```\n{string.Join('\n', toolLogs)}\n```\n\n";
-
-                if (results.Length == 0)
+                if (reply.Length <= 1800)
                 {
-                    await ctx.ReplyAsync($"{toolLogsString}No duplicate issues found.");
+                    await ctx.ReplyAsync(reply);
                 }
                 else
                 {
-                    string reply = $"{toolLogsString}Duplicate issues for {issue.Repository.FullName}#{issueNumber} - {issue.Title}:\n" +
-                        string.Join('\n', results.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}"));
-
-                    if (reply.Length <= 1800)
-                    {
-                        await ctx.ReplyAsync(reply);
-                    }
-                    else
-                    {
-                        await ctx.Channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply);
-                    }
+                    await ctx.Channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply);
                 }
             }
             else
@@ -275,5 +270,114 @@ public sealed class AdminCommands : CommandBase
             await _cache.RemoveByTagAsync(nameof(GitHubSearchService));
             await ctx.ReplyAsync("Hybrid cache cleared.");
         }
+    }
+
+    public override Task InitAsync()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+                var sempahore = new SemaphoreSlim(2, 2);
+
+                while (await timer.WaitForNextTickAsync())
+                {
+                    try
+                    {
+                        if (_serviceConfiguration.PauseAutoDuplicateDetection)
+                        {
+                            continue;
+                        }
+
+                        await using GitHubDbContext db = _db.CreateDbContext();
+
+                        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(5));
+
+                        IQueryable<IssueInfo> query = db.Issues
+                            .AsNoTracking()
+                            .Where(i => i.CreatedAt >= startDate)
+                            .OrderByDescending(i => i.CreatedAt);
+
+                        query = IssueTriageHelper.AddIssueInfoIncludes(query);
+
+                        IssueInfo[] issues = await query
+                            .Take(100)
+                            .AsSplitQuery()
+                            .ToArrayAsync();
+
+                        foreach (IssueInfo issue in issues)
+                        {
+                            if (issue.PullRequest is not null)
+                            {
+                                continue;
+                            }
+
+                            if (!_processedIssuesForDuplicateDetection.TryAdd(issue.Id))
+                            {
+                                continue;
+                            }
+
+                            _ = Task.Run(async () =>
+                            {
+                                await sempahore.WaitAsync();
+                                try
+                                {
+                                    (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+
+                                    if (duplicates.Length > 0)
+                                    {
+                                        SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(1396832159888703498UL);
+
+                                        string reply = FormatDuplicatesSummary(issue, duplicates);
+
+                                        string mention = duplicates.Any(d => d.Certainty >= 0.95 && !issue.Body.Contains(d.Issue.Number.ToString()))
+                                            ? MentionUtils.MentionUser(KnownUsers.Miha)
+                                            : null;
+
+                                        if (reply.Length <= 1800)
+                                        {
+                                            await channel.SendMessageAsync($"{mention} {reply}".Trim());
+                                        }
+                                        else
+                                        {
+                                            await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply, mention);
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    await _logger.DebugAsync($"{nameof(AdminCommands)}: Error during duplicate detection for issue <{issue.HtmlUrl}>", ex);
+                                }
+                                finally
+                                {
+                                    sempahore.Release();
+                                }
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        await _logger.DebugAsync($"{nameof(AdminCommands)}: Error during periodic duplicate detection", ex);
+                    }
+                }
+            }
+            catch { }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
+    {
+        var options = new IssueTriageHelper.TriageOptions(_triageHelper.DefaultModel, "MihaZupan", issue, OnToolLog: i => { }, SkipCommentsOnCurrentIssue: true);
+
+        return await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken);
+    }
+
+    private static string FormatDuplicatesSummary(IssueInfo issue, (IssueInfo Issue, double Certainty, string Summary)[] duplicates)
+    {
+        return $"Duplicate issues for {issue.Repository.FullName}#{issue.Number} - {issue.Title}:\n" +
+            string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}"));
     }
 }

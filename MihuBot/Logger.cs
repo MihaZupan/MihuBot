@@ -462,6 +462,20 @@ public sealed partial class Logger
         catch { }
     }
 
+    public async Task DebugAsync(string debugMessage, Exception exception)
+    {
+        debugMessage =
+            $"""
+            {debugMessage}
+
+            ```
+            {exception}
+            ```
+            """;
+
+        await DebugAsync(debugMessage, truncateToFile: true);
+    }
+
     private Task ChannelUpdatedAsync(SocketChannel beforeChannel, SocketChannel afterChannel)
     {
         if (beforeChannel is SocketGuildChannel && afterChannel is SocketGuildChannel after)
