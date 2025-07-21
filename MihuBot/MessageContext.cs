@@ -99,13 +99,14 @@ public class MessageContext
         await ReplyAsync($"Please wait at least {seconds} more second{(seconds == 1 ? "" : "s")}", mention: true);
     }
 
-    internal async Task DebugAsync(string debugMessage) => await _logger.DebugAsync(debugMessage, Message);
+    internal async Task DebugAsync(string debugMessage) =>
+        await _logger.DebugAsync(debugMessage, Message);
 
-    internal Task DebugAsync(Exception ex, string extraDebugInfo = "") =>
-        DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo}: {ex} for -- {Content}");
+    internal async Task DebugAsync(Exception ex, string extraDebugInfo = "") =>
+        await _logger.DebugAsync($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo} for -- {Content}", ex, Message);
 
     internal void DebugLog(string debugMessage) => _logger.DebugLog(debugMessage, Message);
 
     internal void DebugLog(Exception ex, string extraDebugInfo = "") =>
-        DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo}: {ex} for -- {Content}");
+        DebugLog($"{Guild.Id}-{Channel.Id}-{Message.Id}-{AuthorId} ({Author.Username}) {extraDebugInfo}:\n\n```\n{ex}\n```\nfor -- {Content}");
 }

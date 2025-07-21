@@ -100,7 +100,7 @@ public sealed partial class GitHubNotificationsService
                 catch (Exception ex)
                 {
                     failed = true;
-                    await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name}: {ex}");
+                    await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name}", ex);
                 }
                 finally
                 {
@@ -125,7 +125,7 @@ public sealed partial class GitHubNotificationsService
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl}: {ex}");
+            await _logger.DebugAsync($"Failed to enable notifications on {comment.HtmlUrl}", ex);
         }
 
         return enabledAny;

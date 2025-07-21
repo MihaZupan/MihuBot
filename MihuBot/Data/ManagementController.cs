@@ -66,7 +66,7 @@ public class ManagementController : ControllerBase
         {
             try
             {
-                await _logger.DebugAsync($"Failed to deploy an update for {runNumber}: {ex}");
+                await _logger.DebugAsync($"Failed to deploy an update for {runNumber}", ex);
             }
             catch { }
         }

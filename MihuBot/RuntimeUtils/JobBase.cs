@@ -589,7 +589,7 @@ public abstract class JobBase
                 }
                 catch (Exception ex)
                 {
-                    await Logger.DebugAsync($"Failed to post comment for message '{_firstErrorMessage}': {ex}");
+                    await Logger.DebugAsync($"Failed to post comment for message '{_firstErrorMessage}'", ex);
                 }
             });
         }
@@ -1097,7 +1097,7 @@ public abstract class JobBase
                 }
                 catch (Exception ex)
                 {
-                    await Logger.DebugAsync($"Failed to delete resource {info}: {ex}");
+                    await Logger.DebugAsync($"Failed to delete resource {info}", ex);
                 }
             }, CancellationToken.None);
         }

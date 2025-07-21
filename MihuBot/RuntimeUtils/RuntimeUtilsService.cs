@@ -243,7 +243,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 }
                 catch (Exception ex)
                 {
-                    await Logger.DebugAsync($"{ex}");
+                    await Logger.DebugAsync(nameof(StartCoreRootGenerationJobsAsync), ex);
                 }
             }
         }
@@ -367,7 +367,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync($"Failure while processing comment {comment.HtmlUrl}: {ex}");
+                await Logger.DebugAsync($"Failure while processing comment {comment.HtmlUrl}", ex);
             }
         }
 

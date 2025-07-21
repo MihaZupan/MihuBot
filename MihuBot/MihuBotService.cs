@@ -285,7 +285,7 @@ public class MihuBotService : IHostedService
             }
             catch (Exception ex)
             {
-                await _logger.DebugAsync($"Failure while cancelling running command: {ex}");
+                await _logger.DebugAsync("Failure while cancelling running command", ex);
             }
         });
     }

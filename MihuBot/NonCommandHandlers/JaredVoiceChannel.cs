@@ -48,7 +48,7 @@ public sealed class JaredVoiceChannel : NonCommandHandler
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"{ex}");
+            await _logger.DebugAsync(nameof(HandleUserVoiceStateUpdatedAsync), ex);
         }
     }
 }

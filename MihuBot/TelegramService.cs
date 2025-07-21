@@ -53,7 +53,7 @@ public sealed class TelegramService
             }
             catch (Exception ex)
             {
-                await _logger.DebugAsync($"Failed to setup telegram bot webhook: {ex}");
+                await _logger.DebugAsync("Failed to setup telegram bot webhook", ex);
             }
         }
     }
@@ -94,7 +94,7 @@ public sealed class TelegramService
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"Failed to send message to telegram: {ex}");
+            await _logger.DebugAsync("Failed to send message to telegram", ex);
         }
     }
 
@@ -125,7 +125,7 @@ public sealed class TelegramService
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"Failed to handle telegram update: {ex}");
+            await _logger.DebugAsync("Failed to handle telegram update", ex);
         }
     }
 

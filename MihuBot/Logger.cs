@@ -149,7 +149,7 @@ public sealed partial class Logger
                 }
                 catch (Exception ex)
                 {
-                    await DebugAsync($"Failed to delete old logs: {ex}");
+                    await DebugAsync("Failed to delete old logs", ex);
                 }
             }
         });
@@ -462,7 +462,7 @@ public sealed partial class Logger
         catch { }
     }
 
-    public async Task DebugAsync(string debugMessage, Exception exception)
+    public async Task DebugAsync(string debugMessage, Exception exception, SocketUserMessage message = null)
     {
         debugMessage =
             $"""
@@ -473,7 +473,7 @@ public sealed partial class Logger
             ```
             """;
 
-        await DebugAsync(debugMessage, truncateToFile: true);
+        await DebugAsync(debugMessage, message, truncateToFile: true);
     }
 
     private Task ChannelUpdatedAsync(SocketChannel beforeChannel, SocketChannel afterChannel)

@@ -70,7 +70,7 @@ public sealed class SecretSanta : NonCommandHandler
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"{ex}", message as SocketUserMessage);
+            await _logger.DebugAsync(nameof(HandleMessageAsync), ex, message as SocketUserMessage);
         }
     }
 }

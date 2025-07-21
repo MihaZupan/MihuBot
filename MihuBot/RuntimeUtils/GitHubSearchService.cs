@@ -634,7 +634,7 @@ public sealed class GitHubSearchService : IHostedService
                 {
                     consecutiveFailureCount++;
 
-                    string errorMessage = $"{name}: Update failed ({consecutiveFailureCount}): {ex}";
+                    string errorMessage = $"{name}: Update failed ({consecutiveFailureCount}):\n\n```\n{ex}\n```";
                     _logger.DebugLog(errorMessage);
 
                     await Task.Delay(TimeSpan.FromMinutes(3) * consecutiveFailureCount, cancellationToken);

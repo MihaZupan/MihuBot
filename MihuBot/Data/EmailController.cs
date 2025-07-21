@@ -55,7 +55,7 @@ public class EmailController : ControllerBase
         }
         catch (Exception ex)
         {
-            await _logger.DebugAsync($"Failed to send email to channel: '{ex}'");
+            await _logger.DebugAsync($"Failed to send email to channel", ex);
         }
 
         return Ok();
