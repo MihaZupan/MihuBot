@@ -143,7 +143,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         private const string DuplicateDetectionPrompt =
             """
             Find which issues (if any) are likely duplicates of the new issue.
-            Specify the approximate certainty score from 0 to 1, where 1 means the issue is very likely a duplicate.
+            Specify the approximate certainty score from 0 to 1, where 1 means the issue is almost certainly a duplicate.
             Return the set of issue numbers with their relevance scores. Include a short summary for why you believe the issue is a duplicate.
             The summary should be a single paragraph, in GitHub markdown format.
             """;

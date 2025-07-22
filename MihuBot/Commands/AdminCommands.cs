@@ -38,10 +38,11 @@ public sealed class AdminCommands : CommandBase
     private readonly HybridCache _cache;
     private readonly ServiceConfiguration _serviceConfiguration;
     private readonly Logger _logger;
+    private readonly IConfigurationService _configuration;
 
     private readonly FileBackedHashSet _processedIssuesForDuplicateDetection = new("ProcessedIssuessForDuplicateDetection.txt");
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, ServiceConfiguration serviceConfiguration, Logger logger)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IssueTriageService triageService, IssueTriageHelper triageHelper, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration)
     {
         _db = db;
         _gitHubDataService = gitHubDataService;
@@ -54,6 +55,7 @@ public sealed class AdminCommands : CommandBase
         _cache = cache;
         _serviceConfiguration = serviceConfiguration;
         _logger = logger;
+        _configuration = configuration;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -329,20 +331,14 @@ public sealed class AdminCommands : CommandBase
                                     {
                                         SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(1396832159888703498UL);
 
-                                        string reply = FormatDuplicatesSummary(issue, duplicates);
+                                        string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
 
-                                        string mention = duplicates.Any(d => d.Certainty >= 0.95 && !issue.Body.Contains(d.Issue.Number.ToString()))
-                                            ? MentionUtils.MentionUser(KnownUsers.Miha)
-                                            : null;
+                                        if (duplicates.Any(d => d.Certainty >= 0.95 && !issue.Body.Contains(d.Issue.Number.ToString())))
+                                        {
+                                            reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
+                                        }
 
-                                        if (reply.Length <= 1800)
-                                        {
-                                            await channel.SendMessageAsync($"{mention} {reply}".Trim());
-                                        }
-                                        else
-                                        {
-                                            await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply, mention);
-                                        }
+                                        await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", FormatDuplicatesSummary(issue, duplicates), reply);
                                     }
                                 }
                                 catch (Exception ex)
@@ -370,14 +366,21 @@ public sealed class AdminCommands : CommandBase
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
     {
-        var options = new IssueTriageHelper.TriageOptions(_triageHelper.DefaultModel, "MihaZupan", issue, OnToolLog: i => { }, SkipCommentsOnCurrentIssue: true);
+        IssueTriageHelper.ModelInfo model = _triageHelper.DefaultModel;
+
+        if (_configuration.TryGet(null, "Duplicates.Model", out string modelName))
+        {
+            model = _triageHelper.AvailableModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
+        }
+
+        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: i => { }, SkipCommentsOnCurrentIssue: true);
 
         return await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken);
     }
 
-    private static string FormatDuplicatesSummary(IssueInfo issue, (IssueInfo Issue, double Certainty, string Summary)[] duplicates)
+    private static string FormatDuplicatesSummary(IssueInfo issue, (IssueInfo Issue, double Certainty, string Summary)[] duplicates, bool includeSummary = true)
     {
-        return $"Duplicate issues for {issue.Repository.FullName}#{issue.Number} - {issue.Title}:\n" +
-            string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>)\n  - {r.Summary}"));
+        return $"Duplicate issues for [{issue.Repository.FullName}#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}:\n" +
+            string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>){(includeSummary ? $"\n  - {r.Summary}" : null)}"));
     }
 }
