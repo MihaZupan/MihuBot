@@ -396,64 +396,57 @@ public abstract class JobBase
 
     private async Task ParsePRListAsync(string arguments, string argument, CancellationToken cancellationToken)
     {
-        if (TryParseList(arguments, argument) is not int[] prs || prs.Length == 0)
+        argument = $"-{argument} ";
+
+        int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+        if (offset < 0) return;
+
+        arguments = arguments.Substring(offset + argument.Length);
+
+        int length = arguments.IndexOf(' ');
+        if (length >= 0)
         {
-            return;
+            arguments = arguments.Substring(0, length);
         }
 
-        Log($"Found {argument} PRs: {string.Join(", ", prs)}");
+        List<(string Repo, string Branch)> branches = [];
 
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(prs.Length, 100);
-
-        List<(string Repo, string Branch)> prInfos = new();
-
-        foreach (int pr in prs)
+        foreach (string arg in arguments.ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(arg => arg.Trim('#', '<', '>')))
         {
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(branches.Count, 100);
+
             cancellationToken.ThrowIfCancellationRequested();
 
-            try
+            if (GitHubHelper.TryParseIssueOrPRNumber(arg, out int prNumber) && prNumber is > 0 and < 1_000_000_000)
             {
-                PullRequest prInfo = await Github.PullRequest.Get(RepoOwner, RepoName, pr);
-                string repo = prInfo.Head.Repository.FullName;
-                string branch = prInfo.Head.Ref;
+                try
+                {
+                    PullRequest prInfo = await Github.PullRequest.Get(RepoOwner, RepoName, prNumber);
+                    string repo = prInfo.Head.Repository.FullName;
+                    string branch = prInfo.Head.Ref;
 
-                Log($"PR {pr}: {repo}/{branch}");
-                prInfos.Add((repo, branch));
+                    Log($"PR {prNumber}: {repo}/{branch}");
+                    branches.Add((repo, branch));
+                }
+                catch
+                {
+                    Log($"Failed to get PR info for {prNumber}");
+                    throw;
+                }
             }
-            catch
+
+            if (await GitHubHelper.TryParseGithubRepoAndBranch(Github, arg) is { } repoBranch)
             {
-                Log($"Failed to get PR info for {pr}");
-                throw;
+                Log($"Branch: {repoBranch.Repository}/{repoBranch.Branch.Name}");
+                branches.Add((repoBranch.Repository, repoBranch.Branch.Name));
             }
         }
 
-        string prInfoStr = string.Join(',', prInfos.Select(pr => $"{pr.Repo};{pr.Branch}"));
+        string prInfoStr = string.Join(',', branches.Select(pr => $"{pr.Repo};{pr.Branch}"));
         Log($"Adding {argument}: {prInfoStr}");
         Metadata.Add(argument, prInfoStr);
-
-        static int[] TryParseList(ReadOnlySpan<char> arguments, string argument)
-        {
-            argument = $"-{argument} ";
-
-            int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
-            if (offset < 0) return null;
-
-            arguments = arguments.Slice(offset + argument.Length);
-
-            int length = arguments.IndexOf(' ');
-            if (length >= 0)
-            {
-                arguments = arguments.Slice(0, length);
-            }
-
-            return arguments.ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(number => number.TrimStart('#'))
-                .Select(number => GitHubHelper.TryParseIssueOrPRNumber(number, out int prNumber) ? prNumber.ToString() : number)
-                .Where(number => uint.TryParse(number, out uint value) && value is > 0 and < 1_000_000_000)
-                .Select(int.Parse)
-                .ToArray();
-        }
     }
 
     public string GetElapsedTime(bool includeSeconds = true) => Stopwatch.Elapsed.ToElapsedTime(includeSeconds);
