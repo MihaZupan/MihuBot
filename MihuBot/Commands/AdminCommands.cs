@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using Discord.Rest;
+﻿using Discord.Rest;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
@@ -333,12 +332,34 @@ public sealed class AdminCommands : CommandBase
 
                                         string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
 
-                                        if (duplicates.Any(d => d.Certainty >= 0.95 && !issue.Body.Contains(d.Issue.Number.ToString())))
+                                        if (duplicates.Any(d => IsLikelyUsefulToReport(d.Issue, d.Certainty)))
                                         {
                                             reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
                                         }
 
                                         await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", FormatDuplicatesSummary(issue, duplicates), reply);
+                                    }
+
+                                    bool IsLikelyUsefulToReport(IssueInfo duplicate, double certainty)
+                                    {
+                                        if (certainty < 0.95)
+                                        {
+                                            return false;
+                                        }
+
+                                        if (string.IsNullOrWhiteSpace(duplicate.Body))
+                                        {
+                                            // Similar just by title.
+                                            return true;
+                                        }
+
+                                        if (issue.Body.Contains(duplicate.Number.ToString()))
+                                        {
+                                            // Likely already mentioned as related.
+                                            return false;
+                                        }
+
+                                        return true;
                                     }
                                 }
                                 catch (Exception ex)
