@@ -77,7 +77,7 @@ public sealed partial class RegexDiffJob : JobBase
 
         if (!string.IsNullOrEmpty(_jitAnalyzeSummary) || !string.IsNullOrEmpty(_jitDiffRegressions) || !string.IsNullOrEmpty(_jitDiffImprovements))
         {
-            resultsMarkdown +=
+            resultsMarkdown =
                 $"""
                 {resultsMarkdown}
 
