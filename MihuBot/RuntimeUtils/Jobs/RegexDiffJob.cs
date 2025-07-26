@@ -75,48 +75,68 @@ public sealed partial class RegexDiffJob : JobBase
                 """;
         }
 
-        if (!string.IsNullOrEmpty(_jitAnalyzeSummary))
+        if (!string.IsNullOrEmpty(_jitAnalyzeSummary) || !string.IsNullOrEmpty(_jitDiffRegressions) || !string.IsNullOrEmpty(_jitDiffImprovements))
         {
-            string summary = _jitAnalyzeSummary
-                .ReplaceLineEndings("\n");
+            resultsMarkdown +=
+                $"""
+                {resultsMarkdown}
 
-            int offset = summary.IndexOf("\n\n\n", StringComparison.Ordinal);
-            if (offset >= 0)
+                <details>
+                <summary>JIT assembly changes</summary>
+
+                """;
+
+            if (!string.IsNullOrEmpty(_jitAnalyzeSummary))
             {
-                summary = summary.Substring(0, offset);
-                offset = summary.IndexOf("Total bytes of base", StringComparison.Ordinal);
+                string summary = _jitAnalyzeSummary
+                    .ReplaceLineEndings("\n");
+
+                int offset = summary.IndexOf("\n\n\n", StringComparison.Ordinal);
                 if (offset >= 0)
                 {
-                    summary = summary.Substring(offset);
-                    summary = summary.Trim();
+                    summary = summary.Substring(0, offset);
+                    offset = summary.IndexOf("Total bytes of base", StringComparison.Ordinal);
+                    if (offset >= 0)
+                    {
+                        summary = summary.Substring(offset);
+                        summary = summary.Trim();
 
-                    resultsMarkdown =
-                        $"""
-                        {resultsMarkdown}
+                        resultsMarkdown =
+                            $"""
+                            {resultsMarkdown}
 
-                        ```
-                        {summary}
-                        ```
-                        """;
+                            ```
+                            {summary}
+                            ```
+                            """;
+                    }
                 }
             }
-        }
 
-        if (!string.IsNullOrEmpty(_jitDiffRegressions))
-        {
+            if (!string.IsNullOrEmpty(_jitDiffRegressions))
+            {
+                resultsMarkdown =
+                    $"""
+                    {resultsMarkdown}
+                    For a list of JIT diff regressions, see [Regressions.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)})
+                    """;
+            }
+
+            if (!string.IsNullOrEmpty(_jitDiffImprovements))
+            {
+                resultsMarkdown =
+                    $"""
+                    {resultsMarkdown}
+                    For a list of JIT diff improvements, see [Improvements.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)})
+                    """;
+            }
+
             resultsMarkdown =
                 $"""
                 {resultsMarkdown}
-                For a list of JIT diff regressions, see [Regressions.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffRegressions, regressions: true)})
-                """;
-        }
 
-        if (!string.IsNullOrEmpty(_jitDiffImprovements))
-        {
-            resultsMarkdown =
-                $"""
-                {resultsMarkdown}
-                For a list of JIT diff improvements, see [Improvements.md]({await JitDiffJob.PostLargeDiffGistAsync(this, _jitDiffImprovements, regressions: false)})
+                </details>
+
                 """;
         }
 
