@@ -113,7 +113,7 @@ public sealed partial class Logger
             if (text.Contains("Octokit.Connection.HandleErrors", StringComparison.Ordinal))
                 return;
 
-            if (text.Contains("Error: Interop methods are already registered for renderer", StringComparison.Ordinal))
+            if (text.Contains("Interop methods are already registered for renderer", StringComparison.Ordinal))
                 return;
 
             if (text.Contains("at Npgsql.Internal.NpgsqlConnector.ConnectAsync", StringComparison.Ordinal) ||
