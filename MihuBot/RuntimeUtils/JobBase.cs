@@ -394,9 +394,9 @@ public abstract class JobBase
 
     protected abstract Task RunJobAsyncCore(CancellationToken jobTimeout);
 
-    private async Task ParsePRListAsync(string arguments, string argument, CancellationToken cancellationToken)
+    private async Task ParsePRListAsync(string arguments, string argumentName, CancellationToken cancellationToken)
     {
-        argument = $"-{argument} ";
+        string argument = $"-{argumentName} ";
 
         int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
         if (offset < 0) return;
@@ -445,8 +445,8 @@ public abstract class JobBase
         }
 
         string prInfoStr = string.Join(',', branches.Select(pr => $"{pr.Repo};{pr.Branch}"));
-        Log($"Adding {argument}: {prInfoStr}");
-        Metadata.Add(argument, prInfoStr);
+        Log($"Adding {argumentName}: {prInfoStr}");
+        Metadata.Add(argumentName, prInfoStr);
     }
 
     public string GetElapsedTime(bool includeSeconds = true) => Stopwatch.Elapsed.ToElapsedTime(includeSeconds);
