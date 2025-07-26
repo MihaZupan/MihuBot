@@ -337,6 +337,8 @@ public sealed class AdminCommands : CommandBase
                                             reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
                                         }
 
+                                        reply = reply.TruncateWithDotDotDot(1800);
+
                                         await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", FormatDuplicatesSummary(issue, duplicates), reply);
                                     }
 
