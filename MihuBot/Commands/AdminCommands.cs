@@ -349,6 +349,12 @@ public sealed class AdminCommands : CommandBase
                                             return false;
                                         }
 
+                                        if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataService.GhostUserId)
+                                        {
+                                            // Same author? They're likely aware of the other issue.
+                                            return false;
+                                        }
+
                                         if (string.IsNullOrWhiteSpace(duplicate.Body))
                                         {
                                             // Similar just by title.
