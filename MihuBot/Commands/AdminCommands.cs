@@ -355,7 +355,7 @@ public sealed class AdminCommands : CommandBase
                                             return false;
                                         }
 
-                                        if (string.IsNullOrWhiteSpace(duplicate.Body))
+                                        if (string.IsNullOrWhiteSpace(issue.Body))
                                         {
                                             // Similar just by title.
                                             return true;
