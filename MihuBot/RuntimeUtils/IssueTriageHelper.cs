@@ -146,6 +146,9 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             Specify the approximate certainty score from 0 to 1, where 1 means the issue is almost certainly a duplicate.
             Return the set of issue numbers with their relevance scores. Include a short summary for why you believe the issue is a duplicate.
             The summary should be a single paragraph, in GitHub markdown format.
+
+            You are specifically only looking for issues that are very likely duplicates of the new issue, not just related ones.
+            If an issue is related, but not a duplicate, do not include it in the results.
             """;
 
         private static readonly HashSet<string> s_networkingTeam = new(
