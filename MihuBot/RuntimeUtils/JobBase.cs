@@ -250,6 +250,7 @@ public abstract class JobBase
                         $"""
                         Job is in progress - see {ProgressDashboardUrl}
                         {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+                        Using arguments: ````{CustomArguments}````
 
                         {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
                         """
