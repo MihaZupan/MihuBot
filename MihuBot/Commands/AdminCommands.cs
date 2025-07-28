@@ -309,7 +309,7 @@ public sealed class AdminCommands : CommandBase
 
                         foreach (IssueInfo issue in issues)
                         {
-                            if (issue.PullRequest is not null)
+                            if (issue.PullRequest is not null || !issue.User.IsLikelyARealUser())
                             {
                                 continue;
                             }

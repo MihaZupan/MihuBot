@@ -208,7 +208,7 @@ public static class SemanticMarkdownChunker
         markdown = markdown.ReplaceLineEndings("\n");
         markdown = markdown.Trim();
 
-        if (author.Login.EndsWith("[bot]", StringComparison.Ordinal) || author.Id == GitHubDataService.CopilotUserId)
+        if (!author.IsLikelyARealUser())
         {
             return true;
         }

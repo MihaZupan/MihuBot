@@ -1,6 +1,7 @@
-﻿using MihuBot.DB.GitHub;
+﻿using System.Text.RegularExpressions;
+using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils;
 using Octokit;
-using System.Text.RegularExpressions;
 
 namespace MihuBot.Helpers;
 
@@ -134,6 +135,29 @@ public static partial class GitHubHelper
     public static string RepoOwner(this CommentInfo comment) => comment.Issue.RepoOwner();
 
     public static string RepoName(this CommentInfo comment) => comment.Issue.RepoName();
+
+    public static bool IsLikelyARealUser(this UserInfo user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+
+        if (user.Type != AccountType.User)
+        {
+            return false;
+        }
+
+        if (user.Id == GitHubDataService.CopilotUserId)
+        {
+            return false;
+        }
+
+        if (user.Login.Contains("[bot]", StringComparison.OrdinalIgnoreCase) ||
+            user.Login.EndsWith("Bot", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
 }
 
 public record BranchReference(string Repository, Branch Branch);

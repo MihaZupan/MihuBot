@@ -180,7 +180,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             string existingCommentsMention = SkipCommentsOnCurrentIssue
                 ? string.Empty
-                : $"\nExisting comments: {Issue.Comments.Count(c => !c.User.Login.EndsWith("[bot]", StringComparison.Ordinal))}";
+                : $"\nExisting comments: {Issue.Comments.Count(c => c.User.IsLikelyARealUser())}";
 
             messages.Add(new ChatMessage(ChatRole.User,
                 $"""
