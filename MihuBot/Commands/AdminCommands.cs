@@ -355,13 +355,25 @@ public sealed class AdminCommands : CommandBase
                                             return false;
                                         }
 
+                                        if (string.IsNullOrEmpty(issue.Title))
+                                        {
+                                            // Shouldn't really happen?
+                                            return false;
+                                        }
+
+                                        if (issue.Title.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
+                                        {
+                                            // Likely already mentioned as related.
+                                            return false;
+                                        }
+
                                         if (string.IsNullOrWhiteSpace(issue.Body))
                                         {
                                             // Similar just by title.
                                             return true;
                                         }
 
-                                        if (issue.Body.Contains(duplicate.Number.ToString()))
+                                        if (issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
                                         {
                                             // Likely already mentioned as related.
                                             return false;
