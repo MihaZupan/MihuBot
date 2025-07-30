@@ -5,7 +5,7 @@ namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class FuzzLibrariesJob : JobBase
 {
-    public override string JobTitlePrefix => "Fuzzing";
+    public override string JobTitlePrefix => $"Fuzzing {Architecture}";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
