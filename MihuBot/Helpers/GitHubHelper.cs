@@ -150,8 +150,10 @@ public static partial class GitHubHelper
             return false;
         }
 
-        if (user.Login.Contains("[bot]", StringComparison.OrdinalIgnoreCase) ||
-            user.Login.EndsWith("Bot", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(user.Login) ||
+            user.Login.Contains("[bot]", StringComparison.OrdinalIgnoreCase) ||
+            user.Login.EndsWith("Bot", StringComparison.Ordinal) ||
+            user.Login.EndsWith("-bot", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
