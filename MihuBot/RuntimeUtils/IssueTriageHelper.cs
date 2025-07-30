@@ -226,7 +226,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
         }
 
-        private sealed record DuplicateIssue(int IssueNumber, double Certainty, string Summary);
+        private sealed record DuplicateIssue(int IssueNumber, double? Certainty, string Summary);
 
         public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken)
         {
@@ -259,9 +259,9 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             {
                 IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, duplicate.IssueNumber, cancellationToken);
 
-                if (issue is not null)
+                if (issue is not null && duplicate.Certainty.HasValue)
                 {
-                    results.Add((issue, duplicate.Certainty, duplicate.Summary));
+                    results.Add((issue, duplicate.Certainty.Value, duplicate.Summary));
                 }
             }
 
