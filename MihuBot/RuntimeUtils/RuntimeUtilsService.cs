@@ -198,6 +198,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             {
                 _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
                 _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
+                _ = Task.Run(WatchForNegativeMihuBotCommentSentimentAsync, CancellationToken.None);
             }
         }
 
@@ -508,6 +509,59 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 }
 
                 return false;
+            }
+        }
+    }
+
+    private async Task WatchForNegativeMihuBotCommentSentimentAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(2));
+
+        User currentUser = null;
+        Dictionary<string, int> seenComments = [];
+
+        while (await timer.WaitForNextTickAsync())
+        {
+            if (_shuttingDown ||
+                ConfigurationService.GetOrDefault(null, $"{nameof(WatchForNegativeMihuBotCommentSentimentAsync)}.Pause", false))
+            {
+                continue;
+            }
+
+            try
+            {
+                currentUser ??= await Github.User.Current();
+
+                await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
+
+                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(7));
+
+                CommentInfo[] comments = await db.Comments
+                    .AsNoTracking()
+                    .Where(c => c.CreatedAt >= startDate)
+                    .Where(c => c.UserId == currentUser.Id)
+                    .Where(c => c.Minus1 > 0 || c.Confused > 0 || c.Laugh > 0)
+                    .OrderByDescending(i => i.CreatedAt)
+                    .Take(1_000)
+                    .ToArrayAsync();
+
+                foreach (CommentInfo comment in comments)
+                {
+                    int newCount = comment.Minus1 + comment.Confused + comment.Laugh;
+
+                    if (!seenComments.TryGetValue(comment.Id, out int previousCount) ||
+                        previousCount < newCount)
+                    {
+                        seenComments[comment.Id] = newCount;
+
+                        await Logger.DebugAsync($"Negative sentiment of {newCount} for <{comment.HtmlUrl}>");
+                    }
+                }
+
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync(nameof(WatchForNegativeMihuBotCommentSentimentAsync), ex);
             }
         }
     }
