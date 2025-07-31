@@ -84,14 +84,14 @@ public static class DiscordHelpers
         return $"https://discord.com/channels/{guildId}/{channelId}/{messageId}";
     }
 
-    public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content, string messageText = null)
+    public static async Task<RestUserMessage> SendTextFileAsync(this SocketTextChannel channel, string name, string content, string messageText = null, MessageComponent components = null)
     {
         byte[] bytes = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(content.Length));
         try
         {
             int length = Encoding.UTF8.GetBytes(content, bytes);
             var ms = new MemoryStream(bytes, 0, length);
-            return await channel.SendFileAsync(ms, name, messageText);
+            return await channel.SendFileAsync(ms, name, messageText, components: components);
         }
         finally
         {
