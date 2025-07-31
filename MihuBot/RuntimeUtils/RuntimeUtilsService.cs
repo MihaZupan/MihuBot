@@ -534,14 +534,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
 
-                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(7));
+                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(1));
 
                 CommentInfo[] comments = await db.Comments
                     .AsNoTracking()
-                    .Where(c => c.CreatedAt >= startDate)
+                    .Where(c => c.UpdatedAt >= startDate)
                     .Where(c => c.UserId == currentUser.Id)
                     .Where(c => c.Minus1 > 0 || c.Confused > 0 || c.Laugh > 0)
-                    .OrderByDescending(i => i.CreatedAt)
+                    .OrderByDescending(i => i.UpdatedAt)
                     .Take(1_000)
                     .ToArrayAsync();
 
