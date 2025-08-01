@@ -23,10 +23,11 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly ServiceConfiguration _serviceConfiguration;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
+    private readonly DiscordSocketClient _discord;
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
 
-    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github)
+    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord)
     {
         _db = db;
         _triageService = triageService;
@@ -35,6 +36,7 @@ public sealed class DuplicatesCommand : CommandBase
         _logger = logger;
         _configuration = configuration;
         _github = github;
+        _discord = discord;
     }
 
     public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
@@ -287,7 +289,11 @@ public sealed class DuplicatesCommand : CommandBase
     {
         try
         {
-            await _github.Issue.Comment.Create(issue.Repository.Id, issue.Number, comment);
+            IssueComment newComment = await _github.Issue.Comment.Create(issue.Repository.Id, issue.Number, comment);
+
+            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Posted comment <{newComment.HtmlUrl}>");
+
+            await _discord.GetTextChannel(1396843623898939462UL).TrySendMessageAsync($"<{newComment.HtmlUrl}>");
         }
         catch (Exception ex)
         {
