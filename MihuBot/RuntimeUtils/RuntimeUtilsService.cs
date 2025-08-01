@@ -515,7 +515,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private async Task WatchForNegativeMihuBotCommentSentimentAsync()
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(2));
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(4));
 
         User currentUser = null;
         Dictionary<string, int> seenComments = [];
@@ -534,28 +534,44 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
 
-                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(1));
+                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(2));
 
-                CommentInfo[] comments = await db.Comments
+                var comments = await db.Comments
                     .AsNoTracking()
                     .Where(c => c.UpdatedAt >= startDate)
                     .Where(c => c.UserId == currentUser.Id)
-                    .Where(c => c.Minus1 > 0 || c.Confused > 0 || c.Laugh > 0)
                     .OrderByDescending(i => i.UpdatedAt)
-                    .Take(1_000)
+                    .Take(100)
+                    .Select(c => new { c.Id, c.GitHubIdentifier, c.Issue.RepositoryId, c.HtmlUrl })
                     .ToArrayAsync();
 
-                foreach (CommentInfo comment in comments)
+                foreach (var comment in comments)
                 {
-                    int newCount = comment.Minus1 + comment.Confused + comment.Laugh;
-
-                    if (!seenComments.TryGetValue(comment.Id, out int previousCount) ||
-                        previousCount < newCount)
+                    try
                     {
-                        seenComments[comment.Id] = newCount;
+                        IssueComment updatedInfo = await Github.Issue.Comment.Get(comment.RepositoryId, comment.GitHubIdentifier);
 
-                        await Logger.DebugAsync($"Negative sentiment of {newCount} for <{comment.HtmlUrl}>");
+                        int newCount = updatedInfo.Reactions.Minus1 + updatedInfo.Reactions.Confused + updatedInfo.Reactions.Laugh;
+
+                        if (newCount == 0)
+                        {
+                            continue;
+                        }
+
+                        if (!seenComments.TryGetValue(comment.Id, out int previousCount) ||
+                            previousCount < newCount)
+                        {
+                            seenComments[comment.Id] = newCount;
+
+                            await Logger.DebugAsync($"Negative sentiment of {newCount} for <{updatedInfo.HtmlUrl}>");
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        await Logger.DebugAsync($"Failed to get updated info for <{comment.HtmlUrl}>", ex);
+                    }
+
+                    await Task.Delay(1_000);
                 }
 
             }
