@@ -14,7 +14,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class RegexSourceGenerator
 {
-    public sealed record Generator(string Name, string Commit, Type GeneratorType);
+    public sealed record Generator(string Name, string Commit, string Repo, Type GeneratorType);
 
     public static readonly RegexOptions[] ValidOptions =
     [
@@ -72,8 +72,9 @@ public sealed class RegexSourceGenerator
                     Assembly generatorAssembly = Assembly.LoadFile(path);
                     Type generatorType = generatorAssembly.GetTypes().Single(t => t.Name == "RegexGenerator");
                     string commit = Helpers.Helpers.GetCommitId(generatorAssembly);
+                    string repo = int.Parse(name.Split('.')[0]) < 10 ? "dotnet/runtime" : "dotnet/dotnet";
 
-                    generators.Add(new Generator(name, commit, generatorType));
+                    generators.Add(new Generator(name, commit, repo, generatorType));
                 }
                 catch (Exception ex) when (generators.Count == 0)
                 {

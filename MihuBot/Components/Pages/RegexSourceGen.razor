@@ -107,7 +107,7 @@
         @if (Generator.Commit is not null)
         {
             <div class="commit-container">
-                <p>Generator commit: <a href="https://github.com/dotnet/runtime/commit/@Generator.Commit">@Generator.Commit.Substring(0, 6)</a></p>
+                <p>Generator commit: <a href="https://github.com/@Generator.Repo/commit/@Generator.Commit">@Generator.Commit.Substring(0, 6)</a></p>
             </div>
         }
     </div>

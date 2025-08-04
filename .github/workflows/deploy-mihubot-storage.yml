@@ -18,8 +18,8 @@ jobs:
         sudo apt install -y wget && \
         wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
         sudo chmod +x ./dotnet-install.sh && \
-        #sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
-        sudo ./dotnet-install.sh --version 10.0.100-preview.7.25351.101 --install-dir /usr/lib/dotnet && \
+        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
+        #sudo ./dotnet-install.sh --version 10.0.100-preview.7.25351.101 --install-dir /usr/lib/dotnet && \
         dotnet --info
 
     - name: Dotnet restore
