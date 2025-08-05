@@ -215,6 +215,12 @@ public sealed class DuplicatesCommand : CommandBase
                                             return false;
                                         }
 
+                                        if (duplicate.CreatedAt >= issue.CreatedAt)
+                                        {
+                                            // Maybe processing old backlog?
+                                            return false;
+                                        }
+
                                         if (issue.Title.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
                                         {
                                             // Likely already mentioned as related.
