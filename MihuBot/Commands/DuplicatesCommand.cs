@@ -117,7 +117,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                         await using GitHubDbContext db = _db.CreateDbContext();
 
-                        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(5));
+                        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromHours(1));
 
                         IQueryable<IssueInfo> query = db.Issues
                             .AsNoTracking()
@@ -133,7 +133,9 @@ public sealed class DuplicatesCommand : CommandBase
 
                         foreach (IssueInfo issue in issues)
                         {
-                            if (issue.PullRequest is not null || !issue.User.IsLikelyARealUser())
+                            if (issue.PullRequest is not null ||
+                                !issue.User.IsLikelyARealUser() ||
+                                _configuration.GetOrDefault(null, $"{Command}.Pause.{issue.RepoName()}", false))
                             {
                                 continue;
                             }
