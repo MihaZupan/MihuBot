@@ -158,6 +158,7 @@ public sealed class DuplicatesCommand : CommandBase
                                         MessageComponent components = null;
 
                                         string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
+                                        string summary = FormatDuplicatesSummary(issue, duplicates);
 
                                         if (duplicates.Any(d => IsLikelyUsefulToReport(d.Issue, d.Certainty)))
                                         {
@@ -169,12 +170,23 @@ public sealed class DuplicatesCommand : CommandBase
                                                 {string.Join('\n', duplicates.Where(d => d.Certainty >= 0.9).Take(5).Select(d => $"- {d.Issue.HtmlUrl}"))}
                                                 """;
 
-                                            if (SkipManualVerificationBeforePosting)
+                                            var secondaryTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+
+                                            bool secondaryTestIsUseful = secondaryTest.Any(d => IsLikelyUsefulToReport(d.Issue, d.Certainty));
+
+                                            if (SkipManualVerificationBeforePosting && secondaryTestIsUseful)
                                             {
                                                 await PostGhCommentSummary(issue, ghComment);
                                             }
                                             else
                                             {
+                                                if (!secondaryTestIsUseful)
+                                                {
+                                                    ghComment = $"**Note:** Secondary test did not find any useful duplicates.\n\n{ghComment}";
+
+                                                    summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
+                                                }
+
                                                 string id = $"{Command}-{issue.Id}";
                                                 _duplicatesToPost.TryAdd(id, (issue, ghComment));
 
@@ -187,7 +199,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                                         reply = reply.TruncateWithDotDotDot(1800);
 
-                                        await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", FormatDuplicatesSummary(issue, duplicates), reply, components);
+                                        await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
                                     }
 
                                     bool IsLikelyUsefulToReport(IssueInfo duplicate, double certainty)
