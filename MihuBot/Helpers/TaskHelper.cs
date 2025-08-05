@@ -4,7 +4,7 @@ public static class TaskHelper
 {
     public static Task<T> WaitAsyncAndSupressNotObserved<T>(this Task<T> task, CancellationToken cancellationToken)
     {
-        if (task.IsCompleted || !cancellationToken.IsCancellationRequested)
+        if (task.IsCompleted || !cancellationToken.CanBeCanceled)
         {
             return task;
         }
@@ -16,7 +16,7 @@ public static class TaskHelper
 
     public static ValueTask<T> WaitAsyncAndSupressNotObserved<T>(this ValueTask<T> task, CancellationToken cancellationToken)
     {
-        if (task.IsCompleted || !cancellationToken.IsCancellationRequested)
+        if (task.IsCompleted || !cancellationToken.CanBeCanceled)
         {
             return task;
         }
