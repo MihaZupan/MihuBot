@@ -154,7 +154,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                                     if (duplicates.Length > 0)
                                     {
-                                        SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(1396832159888703498UL);
+                                        SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesList);
                                         MessageComponent components = null;
 
                                         string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
@@ -295,7 +295,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Posted comment <{newComment.HtmlUrl}>");
 
-            await _discord.GetTextChannel(1396843623898939462UL).TrySendMessageAsync($"<{newComment.HtmlUrl}>");
+            await _discord.GetTextChannel(Channels.DuplicatesPosted).TrySendMessageAsync($"<{newComment.HtmlUrl}>");
         }
         catch (Exception ex)
         {
