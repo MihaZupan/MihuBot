@@ -182,7 +182,7 @@ public sealed class DuplicatesCommand : CommandBase
                                             {
                                                 if (!secondaryTestIsUseful)
                                                 {
-                                                    ghComment = $"**Note:** Secondary test did not find any useful duplicates.\n\n{ghComment}";
+                                                    reply = $"**Note:** Secondary test did not find any useful duplicates.\n\n{reply}";
 
                                                     summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
                                                 }
