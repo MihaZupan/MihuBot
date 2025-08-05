@@ -568,7 +568,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     }
                     catch (Exception ex)
                     {
-                        await Logger.DebugAsync($"Failed to get updated info for <{comment.HtmlUrl}>", ex);
+                        // Could have been transferred/deleted
+                        if (ex is not NotFoundException)
+                        {
+                            await Logger.DebugAsync($"Failed to get updated info for <{comment.HtmlUrl}>", ex);
+                        }
                     }
 
                     await Task.Delay(1_000);
