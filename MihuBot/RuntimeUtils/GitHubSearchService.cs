@@ -452,7 +452,7 @@ public sealed class GitHubSearchService : IHostedService
                     }
                 }
 
-                _logger.DebugLog($"Relevance classification for '{searchQuery}' took {localStopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues");
+                _logger.DebugLog($"Relevance classification for '{searchQuery}' took {localStopwatch.ElapsedMilliseconds:F2} ms for {Math.Min(issueCount, results.Length)} issues ({classifierModel}, len={prompt.Length})");
 
                 return relevances.Result
                     .Where(s => s.Score > 0.05)

@@ -268,7 +268,7 @@ public sealed class DuplicatesCommand : CommandBase
             model = _triageHelper.AvailableModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
         }
 
-        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: i => { }, SkipCommentsOnCurrentIssue: true);
+        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"), SkipCommentsOnCurrentIssue: true);
 
         int attemptCount = 0;
         while (true)
