@@ -443,7 +443,12 @@ public sealed class GitHubSearchService : IHostedService
                     {
                         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-                        relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+                        var options = new ChatOptions
+                        {
+                            Temperature = 0.2f
+                        };
+
+                        relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
                         break;
                     }
                     catch (Exception ex) when (i < 3)

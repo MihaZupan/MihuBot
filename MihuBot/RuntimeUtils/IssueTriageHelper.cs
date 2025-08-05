@@ -297,7 +297,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             if (Model.SupportsTemperature)
             {
-                options.Temperature = 0;
+                options.Temperature = 0.2f;
             }
 
             return options;
