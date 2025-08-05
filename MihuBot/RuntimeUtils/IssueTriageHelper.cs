@@ -149,6 +149,12 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             You are specifically only looking for issues that are very likely duplicates of the new issue, not just related ones.
             If an issue is related, but not a duplicate, do not include it in the results.
+
+            For example if two issues both report a failure in the same test file, but for a different test, or with a different error message, that is not a duplicate.
+            If two issues report an error with the same API/method, but with different errors, that is not a duplicate.
+
+            If there is insufficient information to make a reliable determination, do not report the issue as a duplicate.
+            Focus on making an accurate decision. Mistakingly reporting an issue as a duplicate is worse than not reporting it at all.
             """;
 
         private static readonly HashSet<string> s_networkingTeam = new(
