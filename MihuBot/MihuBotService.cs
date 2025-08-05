@@ -63,7 +63,7 @@ public class MihuBotService : IHostedService
                 }
             }
 
-            if (reaction.Emote?.Name == Emotes.RedCross.Name)
+            if (reaction.Emote?.Name == Emotes.RedCross.Name && (Constants.Admins.Contains(reaction.UserId) || reaction.UserId == reaction.Message.GetValueOrDefault()?.Author?.Id))
             {
                 if (_runningCommands.TryRemove(reaction.MessageId, out CancellationTokenSource cts))
                 {
@@ -157,8 +157,7 @@ public class MihuBotService : IHostedService
 
                     if (task.IsCompleted)
                     {
-                        if (!task.IsCompletedSuccessfully)
-                            await task;
+                        await task;
                     }
                     else
                     {
