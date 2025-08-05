@@ -54,7 +54,7 @@ public sealed class DuplicatesCommand : CommandBase
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        if (ctx.IsFromAdmin)
+        if (!ctx.IsFromAdmin)
         {
             return;
         }
