@@ -15,6 +15,7 @@ public sealed class AdminCommands : CommandBase
     [
         "dropingestedftsrecords",
         "clearingestedembeddingsupdatedat",
+        "clearingestedembeddingswithcodeblocks",
         "clearbodyedithistorytable",
         "deleteissueandembeddings",
         "ingestnewrepo",
@@ -69,6 +70,32 @@ public sealed class AdminCommands : CommandBase
             int updates = await db.IngestedEmbeddings
                 .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2010, 1, 1)));
             await ctx.ReplyAsync($"Updated {updates} ingested embeddings.");
+        }
+
+        if (ctx.Command == "clearingestedembeddingswithcodeblocks")
+        {
+            await using GitHubDbContext db = _db.CreateDbContext();
+
+            var issueIds = await db.Issues.AsNoTracking()
+                .Where(i => i.Body.Contains("```"))
+                .Select(i => i.Id)
+                .ToListAsync(ctx.CancellationToken);
+
+            issueIds.AddRange(await db.Comments.AsNoTracking()
+                .Where(c => c.Body.Contains("```"))
+                .Select(c => c.IssueId)
+                .ToListAsync(ctx.CancellationToken));
+
+            int totalUpdates = 0;
+
+            foreach (string[] chunk in issueIds.Distinct().Chunk(100))
+            {
+                totalUpdates += await db.IngestedEmbeddings
+                    .Where(e => chunk.Any(c => c == e.ResourceIdentifier))
+                    .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2010, 1, 1)));
+            }
+
+            await ctx.ReplyAsync($"Updated {totalUpdates} ingested embeddings.");
         }
 
         if (ctx.Command == "clearbodyedithistorytable")

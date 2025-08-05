@@ -1,10 +1,10 @@
 ﻿using System.Buffers;
 using Markdig.Extensions.Tables;
+using Markdig.Helpers;
 using Markdig.Syntax;
 using Microsoft.ML.Tokenizers;
 using Microsoft.SemanticKernel.Text;
 using MihuBot.DB.GitHub;
-using MihuBot.RuntimeUtils;
 
 #nullable enable
 
@@ -24,11 +24,31 @@ public static class SemanticMarkdownChunker
             yield break;
         }
 
-        string[] sectionTexts;
+        MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
+
+        List<string> sectionTexts;
 
         try
         {
-            sectionTexts = GetMarkdownSections(tokenizer, smallSectionTokenThreshold, markdown).ToArray();
+            sectionTexts = [.. GetMarkdownSections(tokenizer, smallSectionTokenThreshold, document, markdown)];
+
+            // Ensure code blocks are included as sections.
+            foreach (FencedCodeBlock codeBlock in document.Descendants<FencedCodeBlock>())
+            {
+                StringLineGroup lines = codeBlock.Lines;
+
+                if (lines.Count == 0)
+                {
+                    continue;
+                }
+
+                sectionTexts.Add(lines.Lines[0].ToString());
+
+                if (lines.Count > 1)
+                {
+                    sectionTexts.AddRange(SplitTextBlock(tokenizer, smallSectionTokenThreshold, lines.ToString()));
+                }
+            }
         }
         catch
         {
@@ -69,7 +89,7 @@ public static class SemanticMarkdownChunker
         }
     }
 
-    private static IEnumerable<string> GetMarkdownSections(Tokenizer tokenizer, int smallSectionTokenThreshold, string markdown)
+    private static IEnumerable<string> GetMarkdownSections(Tokenizer tokenizer, int smallSectionTokenThreshold, MarkdownDocument document, string markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown))
         {
@@ -83,8 +103,6 @@ public static class SemanticMarkdownChunker
             yield return markdown;
             yield break;
         }
-
-        MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
 
         if (document.Count > 1)
         {
