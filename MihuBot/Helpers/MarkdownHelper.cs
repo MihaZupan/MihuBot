@@ -198,7 +198,7 @@ public static partial class MarkdownHelper
         }
     }
 
-    public static void ReplaceGitHubUserMentionsWithLinks(this MarkdownDocument document)
+    public static bool ContainsGitHubUserMentions(this MarkdownDocument document)
     {
         foreach (LiteralInline originalLiteral in document.Descendants<LiteralInline>())
         {
@@ -207,32 +207,22 @@ public static partial class MarkdownHelper
                 continue;
             }
 
-            LiteralInline literal = originalLiteral;
-
-            while (literal.Content.AsSpan().Contains('@'))
+            if (GitHubUserMentionRegex().IsMatch(originalLiteral.Content.AsSpan()))
             {
-                StringSlice slice = literal.Content;
-
-                string content = slice.ToString();
-
-                if (GitHubUserMentionRegex().Match(content) is not { Success: true } match)
-                {
-                    break;
-                }
-
-                string userLogin = match.Groups[1].Value;
-
-                literal.InsertBefore(new LiteralInline(new StringSlice(content, 0, match.Index - 1)));
-
-                var link = new LinkInline { Url = $"https://github.com/{userLogin}" };
-                link.AppendChild(new LiteralInline($"@{userLogin}"));
-                literal.InsertBefore(link);
-
-                var newLiteral = new LiteralInline(new StringSlice(content, match.Index + userLogin.Length + 1, content.Length - 1));
-                literal.ReplaceBy(newLiteral);
-                literal = newLiteral;
+                return true;
             }
         }
+
+        return false;
+    }
+
+    public static string ReplaceGitHubUserMentionsWithLinks(string markdownDocument)
+    {
+        return GitHubUserMentionRegex().Replace(markdownDocument, match =>
+        {
+            string login = match.Groups[1].Value;
+            return $"[{login}](https://github.com/{login})";
+        });
     }
 
     [GeneratedRegex(@"#(\d{3,8})(?:[^\d]|$)")]

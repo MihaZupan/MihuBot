@@ -322,6 +322,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private string ConvertMarkdownToHtml(string markdown, bool partial)
         {
+            markdown = MarkdownHelper.ReplaceGitHubUserMentionsWithLinks(markdown);
+
             MarkdownDocument document = MarkdownHelper.ParseAdvanced(markdown);
 
             if (partial)
@@ -331,7 +333,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             MarkdownHelper.ReplaceGitHubIssueReferencesWithLinks(document, Issue.Repository.FullName);
 
-            MarkdownHelper.ReplaceGitHubUserMentionsWithLinks(document);
+            if (MarkdownHelper.ContainsGitHubUserMentions(document))
+            {
+                Logger.DebugLog($"Found GitHub mention after processing.\n{markdown}");
+                throw new Exception("Still contains GH mentions");
+            }
 
             return document.ToHtmlAdvanced();
         }
