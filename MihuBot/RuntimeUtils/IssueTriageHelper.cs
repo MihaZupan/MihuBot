@@ -263,6 +263,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             foreach (DuplicateIssue duplicate in chatResponse.Result.OrderByDescending(r => r.Certainty))
             {
+                if (duplicate.IssueNumber <= 0 || duplicate.IssueNumber == Issue.Number)
+                {
+                    continue;
+                }
+
                 IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, duplicate.IssueNumber, cancellationToken);
 
                 if (issue is not null && duplicate.Certainty.HasValue)
