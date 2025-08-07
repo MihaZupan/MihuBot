@@ -8,8 +8,21 @@ using Microsoft.Extensions.AI;
 
 namespace MihuBot.Helpers;
 
+public sealed record ModelInfo(string Name, int ContextSize, bool SupportsTemperature);
+
 public sealed class OpenAIService
 {
+    public static readonly ModelInfo[] AllModels =
+    [
+        new("gpt-4.1", 1_000_000, true),
+        new("gpt-4.1-mini", 1_000_000, true),
+        new("gpt-4.1-nano", 1_000_000, true),
+        new("gpt-5", 400_000, false),
+        new("gpt-5-mini", 400_000, false),
+        new("gpt-5-nano", 400_000, false),
+        new("o4-mini", 200_000, false),
+    ];
+
     private readonly Logger _logger;
     private readonly AzureOpenAIClient _chat;
     private readonly AzureOpenAIClient _image;

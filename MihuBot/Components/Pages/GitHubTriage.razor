@@ -54,7 +54,7 @@
                             <div class="input-group-append ml-1">
                                 <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Model.Name</button>
                                 <div class="dropdown-menu">
-                                    @foreach (var model in TriageHelper.AvailableModels)
+                                    @foreach (var model in IssueTriageHelper.AvailableModels)
                                     {
                                         <a class="dropdown-item" @onclick="() => Model = model">@model.Name</a>
                                     }
@@ -120,7 +120,7 @@
         }
     }
 
-    private IssueTriageHelper.ModelInfo Model
+    private ModelInfo Model
     {
         get => field ??= TriageHelper.DefaultModel;
         set
@@ -142,7 +142,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _debouncer = new Debouncer<(string, IssueTriageHelper.ModelInfo, bool)>(TimeSpan.FromMilliseconds(100), DoTriageAsync);
+        _debouncer = new Debouncer<(string, ModelInfo, bool)>(TimeSpan.FromMilliseconds(100), DoTriageAsync);
         _debouncer.CancelPendingActions = true;
 
         if (_authenticationState is not null)
@@ -151,7 +151,7 @@
         }
     }
 
-    private Debouncer<(string TriageIssueUrl, IssueTriageHelper.ModelInfo Model, bool UseCommentsOnCurrentIssue)> _debouncer;
+    private Debouncer<(string TriageIssueUrl, ModelInfo Model, bool UseCommentsOnCurrentIssue)> _debouncer;
 
     private void UpdateTriageOperation()
     {
@@ -164,9 +164,9 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private async Task DoTriageAsync((string TriageIssueUrl, IssueTriageHelper.ModelInfo Model, bool UseCommentsOnCurrentIssue) state, CancellationToken cancellationToken)
+    private async Task DoTriageAsync((string TriageIssueUrl, ModelInfo Model, bool UseCommentsOnCurrentIssue) state, CancellationToken cancellationToken)
     {
-        (string triageIssueUrl, IssueTriageHelper.ModelInfo model, bool UseCommentsOnCurrentIssue) = state;
+        (string triageIssueUrl, ModelInfo model, bool UseCommentsOnCurrentIssue) = state;
 
         try
         {

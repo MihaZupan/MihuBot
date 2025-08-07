@@ -279,11 +279,11 @@ public sealed class DuplicatesCommand : CommandBase
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
     {
-        IssueTriageHelper.ModelInfo model = _triageHelper.DefaultModel;
+        ModelInfo model = _triageHelper.DefaultModel;
 
         if (_configuration.TryGet(null, "Duplicates.Model", out string modelName))
         {
-            model = _triageHelper.AvailableModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
+            model = OpenAIService.AllModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
         }
 
         var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"), SkipCommentsOnCurrentIssue: true);

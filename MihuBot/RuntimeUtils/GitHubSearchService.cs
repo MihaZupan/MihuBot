@@ -443,10 +443,12 @@ public sealed class GitHubSearchService : IHostedService
                     {
                         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-                        var options = new ChatOptions
+                        var options = new ChatOptions();
+
+                        if (OpenAIService.AllModels.FirstOrDefault(m => m.Name == classifierModel)?.SupportsTemperature == true)
                         {
-                            Temperature = 0.2f
-                        };
+                            options.Temperature = 0.2f;
+                        }
 
                         relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
                         break;

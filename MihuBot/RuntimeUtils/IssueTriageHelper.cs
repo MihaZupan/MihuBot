@@ -13,14 +13,12 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
-    public sealed record ModelInfo(string Name, int ContextSize, bool SupportsTemperature);
-
     public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body, string ExtraInfo);
 
     public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, string ExtraInfo, int TotalComments, ShortCommentInfo[] RelatedComments);
 
-    public ModelInfo[] AvailableModels { get; } = [new("gpt-4.1", 1_000_000, true), new("o4-mini", 200_000, false)];
-    public ModelInfo DefaultModel => AvailableModels[0];
+    public static ModelInfo[] AvailableModels { get; } = OpenAIService.AllModels;
+    public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-4.1");
 
     private Context CreateContext(ModelInfo model, string gitHubUserLogin) => new()
     {
@@ -169,7 +167,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public IssueInfo Issue { get; set; }
         public ModelInfo Model { get; set; }
         public string GitHubUserLogin { get; set; }
-        public bool UsingLargeContextWindow => Model.ContextSize >= 500_000;
+        public bool UsingLargeContextWindow => Model.ContextSize >= 400_000;
         public Action<string> OnToolLog { get; set; } = _ => { };
         public bool SkipCommentsOnCurrentIssue { get; set; }
 
