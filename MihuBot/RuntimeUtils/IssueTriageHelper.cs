@@ -356,7 +356,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, issueOrPRNumber, cancellationToken);
 
-            if (issue is null || (SkipCommentsOnCurrentIssue && issueOrPRNumber == Issue.Number))
+            if (issue is null)
             {
                 OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
                 return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", null, "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", 0, []);
@@ -366,6 +366,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 .OrderByDescending(c => c.CreatedAt)
                 .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c, removeCommentsWithoutContext))
                 .ToArray();
+
+            if (SkipCommentsOnCurrentIssue && issueOrPRNumber == Issue.Number)
+            {
+                comments = [];
+            }
 
             int maxComments = UsingLargeContextWindow ? 200 : 50;
 
