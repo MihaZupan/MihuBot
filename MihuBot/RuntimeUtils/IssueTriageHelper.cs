@@ -17,7 +17,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
     public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, string ExtraInfo, int TotalComments, ShortCommentInfo[] RelatedComments);
 
-    public static ModelInfo[] AvailableModels { get; } = OpenAIService.AllModels;
+    public ModelInfo[] AvailableModels => OpenAIService.AllModels;
     public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-4.1");
 
     private Context CreateContext(ModelInfo model, string gitHubUserLogin) => new()
@@ -356,7 +356,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, issueOrPRNumber, cancellationToken);
 
-            if (issue is null)
+            if (issue is null || (SkipCommentsOnCurrentIssue && issueOrPRNumber == Issue.Number))
             {
                 OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
                 return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", null, "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", 0, []);

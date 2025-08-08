@@ -101,6 +101,11 @@ public sealed class DuplicatesCommand : CommandBase
     {
         _ = Task.Run(async () =>
         {
+            if (OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
             try
             {
                 using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));

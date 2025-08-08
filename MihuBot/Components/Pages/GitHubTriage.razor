@@ -54,7 +54,7 @@
                             <div class="input-group-append ml-1">
                                 <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Model.Name</button>
                                 <div class="dropdown-menu">
-                                    @foreach (var model in IssueTriageHelper.AvailableModels)
+                                    @foreach (var model in TriageHelper.AvailableModels)
                                     {
                                         <a class="dropdown-item" @onclick="() => Model = model">@model.Name</a>
                                     }
@@ -155,7 +155,7 @@
 
     private void UpdateTriageOperation()
     {
-        _debouncer.Update((TriageIssueUrl.Trim(), Model, UseCommentsOnCurrentIssue));
+        _debouncer.Update((TriageIssueUrl?.Trim(), Model, UseCommentsOnCurrentIssue));
     }
 
     private void LogToolLine(string message)
