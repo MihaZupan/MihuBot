@@ -292,6 +292,12 @@ public sealed class DuplicatesCommand : CommandBase
             return false;
         }
 
+        if (issue.Body is not null && issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
+        {
+            // Likely already mentioned as related.
+            return false;
+        }
+
         if (issue.Comments.Any(c => c.Body is not null && c.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal)))
         {
             // Duplicate mentioned in a comment.
@@ -301,18 +307,6 @@ public sealed class DuplicatesCommand : CommandBase
         if (duplicate.Comments.Any(c => c.Body is not null && c.Body.Contains(issue.Number.ToString(), StringComparison.Ordinal)))
         {
             // Current issue mentioned in a comment on the duplicate issue.
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(issue.Body))
-        {
-            // Similar just by title.
-            return true;
-        }
-
-        if (issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
-        {
-            // Likely already mentioned as related.
             return false;
         }
 
