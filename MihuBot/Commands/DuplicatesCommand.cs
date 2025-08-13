@@ -24,6 +24,7 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
     private readonly DiscordSocketClient _discord;
+    private readonly SemaphoreSlim _sempahore = new(2, 2);
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
 
@@ -75,20 +76,7 @@ public sealed class DuplicatesCommand : CommandBase
 
         if (ctx.Command == "duplicates")
         {
-            (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, ctx.CancellationToken);
-
-            string reply = duplicates.Length == 0
-                ? "No duplicates found."
-                : FormatDuplicatesSummary(issue, duplicates);
-
-            if (reply.Length <= 1800)
-            {
-                await ctx.ReplyAsync(reply);
-            }
-            else
-            {
-                await ctx.Channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", reply);
-            }
+            await RunDuplicateDetectionAsync(issue, automated: false, message: ctx);
         }
         else
         {
@@ -109,7 +97,6 @@ public sealed class DuplicatesCommand : CommandBase
             try
             {
                 using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-                var sempahore = new SemaphoreSlim(2, 2);
 
                 while (await timer.WaitForNextTickAsync())
                 {
@@ -145,6 +132,12 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
+                            if (DateTime.UtcNow.Subtract(issue.CreatedAt).TotalMinutes < 3)
+                            {
+                                // Give it 3 minutes before processing in case the author references the duplicate in a comment.
+                                continue;
+                            }
+
                             if (!_processedIssuesForDuplicateDetection.TryAdd(issue.Id))
                             {
                                 continue;
@@ -152,121 +145,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                             _ = Task.Run(async () =>
                             {
-                                await sempahore.WaitAsync();
-                                try
-                                {
-                                    (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
-
-                                    if (duplicates.Length > 0)
-                                    {
-                                        SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesList);
-                                        MessageComponent components = null;
-
-                                        string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
-                                        string summary = FormatDuplicatesSummary(issue, duplicates);
-
-                                        if (duplicates.Any(d => IsLikelyUsefulToReport(d.Issue, d.Certainty)))
-                                        {
-                                            reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
-
-                                            string ghComment =
-                                                $"""
-                                                Possible related and/or duplicate issue{(duplicates.Length > 1 ? "s" : "")}:
-                                                {string.Join('\n', duplicates.Where(d => d.Certainty >= 0.9).Take(5).Select(d => $"- {d.Issue.HtmlUrl}"))}
-                                                """;
-
-                                            var secondaryTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
-
-                                            bool secondaryTestIsUseful = secondaryTest.Any(d => IsLikelyUsefulToReport(d.Issue, d.Certainty));
-
-                                            if (SkipManualVerificationBeforePosting && secondaryTestIsUseful)
-                                            {
-                                                await PostGhCommentSummary(issue, ghComment);
-                                            }
-                                            else
-                                            {
-                                                if (!secondaryTestIsUseful)
-                                                {
-                                                    reply = $"**Note:** Secondary test did not find any useful duplicates.\n\n{reply}";
-
-                                                    summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
-                                                }
-
-                                                string id = $"{Command}-{issue.Id}";
-                                                _duplicatesToPost.TryAdd(id, (issue, ghComment));
-
-                                                components = new ComponentBuilder()
-                                                    .WithButton("Post", id, ButtonStyle.Success)
-                                                    .WithButton("Cancel", $"{Command}-no", ButtonStyle.Danger)
-                                                    .Build();
-                                            }
-                                        }
-
-                                        reply = reply.TruncateWithDotDotDot(1800);
-
-                                        await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
-                                    }
-
-                                    bool IsLikelyUsefulToReport(IssueInfo duplicate, double certainty)
-                                    {
-                                        if (certainty < 0.95)
-                                        {
-                                            return false;
-                                        }
-
-                                        if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataService.GhostUserId)
-                                        {
-                                            // Same author? They're likely aware of the other issue.
-                                            return false;
-                                        }
-
-                                        if (string.IsNullOrEmpty(issue.Title))
-                                        {
-                                            // Shouldn't really happen?
-                                            return false;
-                                        }
-
-                                        if (duplicate.PullRequest is not null)
-                                        {
-                                            // Let's not report it if only PRs are duplicates.
-                                            return false;
-                                        }
-
-                                        if (duplicate.CreatedAt >= issue.CreatedAt)
-                                        {
-                                            // Maybe processing old backlog?
-                                            return false;
-                                        }
-
-                                        if (issue.Title.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
-                                        {
-                                            // Likely already mentioned as related.
-                                            return false;
-                                        }
-
-                                        if (string.IsNullOrWhiteSpace(issue.Body))
-                                        {
-                                            // Similar just by title.
-                                            return true;
-                                        }
-
-                                        if (issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
-                                        {
-                                            // Likely already mentioned as related.
-                                            return false;
-                                        }
-
-                                        return true;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    await _logger.DebugAsync($"{nameof(AdminCommands)}: Error during duplicate detection for issue <{issue.HtmlUrl}>", ex);
-                                }
-                                finally
-                                {
-                                    sempahore.Release();
-                                }
+                                await RunDuplicateDetectionAsync(issue, automated: true, message: null);
                             });
                         }
                     }
@@ -280,6 +159,164 @@ public sealed class DuplicatesCommand : CommandBase
         });
 
         return Task.CompletedTask;
+    }
+
+    private async Task RunDuplicateDetectionAsync(IssueInfo issue, bool automated, MessageContext message)
+    {
+        await _sempahore.WaitAsync();
+        try
+        {
+            (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+
+            if (duplicates.Length == 0)
+            {
+                _logger.DebugLog($"{nameof(DuplicatesCommand)}: No duplicates found for issue <{issue.HtmlUrl}>");
+
+                if (!automated)
+                {
+                    await message.ReplyAsync("No duplicates found.");
+                }
+
+                return;
+            }
+
+            SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesList);
+            MessageComponent components = null;
+
+            string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
+            string summary = FormatDuplicatesSummary(issue, duplicates);
+
+            if (duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty)))
+            {
+                reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
+
+                var secondaryTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+
+                bool secondaryTestIsUseful = secondaryTest.Any(d =>
+                    IsLikelyUsefulToReport(issue, d.Issue, d.Certainty) &&
+                    duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
+                    IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
+
+                var issuesToReport = duplicates;
+
+                if (secondaryTestIsUseful)
+                {
+                    issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
+                }
+
+                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.9).Take(5)];
+                bool plural = issuesToReport.Length > 1;
+
+                if (issuesToReport.Length == 0)
+                {
+                    throw new UnreachableException("No issues?");
+                }
+
+                string ghComment =
+                    $"""
+                    I'm a bot. Here {(plural ? "are" : "is a")} possible related and/or duplicate issue{(plural ? "s" : "")} (I may be wrong):
+                    {string.Join('\n', issuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
+                    """;
+
+                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && automated)
+                {
+                    await PostGhCommentSummary(issue, ghComment);
+                }
+                else
+                {
+                    if (!secondaryTestIsUseful)
+                    {
+                        reply = $"**Note:** Secondary test did not find any useful duplicates.\n\n{reply}";
+
+                        summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
+                    }
+
+                    string id = $"{Command}-{issue.Id}";
+                    _duplicatesToPost.TryAdd(id, (issue, ghComment));
+
+                    components = new ComponentBuilder()
+                        .WithButton("Post", id, ButtonStyle.Success)
+                        .WithButton("Cancel", $"{Command}-no", ButtonStyle.Danger)
+                        .Build();
+                }
+            }
+
+            reply = reply.TruncateWithDotDotDot(1800);
+
+            await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
+        }
+        catch (Exception ex)
+        {
+            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection for issue <{issue.HtmlUrl}>", ex);
+        }
+        finally
+        {
+            _sempahore.Release();
+        }
+    }
+
+    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty)
+    {
+        if (certainty < 0.95)
+        {
+            return false;
+        }
+
+        if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataService.GhostUserId)
+        {
+            // Same author? They're likely aware of the other issue.
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(issue.Title))
+        {
+            // Shouldn't really happen?
+            return false;
+        }
+
+        if (duplicate.PullRequest is not null)
+        {
+            // Let's not report it if only PRs are duplicates.
+            return false;
+        }
+
+        if (duplicate.CreatedAt >= issue.CreatedAt)
+        {
+            // Maybe processing old backlog?
+            return false;
+        }
+
+        if (issue.Title.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
+        {
+            // Likely already mentioned as related.
+            return false;
+        }
+
+        if (issue.Comments.Any(c => c.Body is not null && c.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal)))
+        {
+            // Duplicate mentioned in a comment.
+            return false;
+        }
+
+        if (duplicate.Comments.Any(c => c.Body is not null && c.Body.Contains(issue.Number.ToString(), StringComparison.Ordinal)))
+        {
+            // Current issue mentioned in a comment on the duplicate issue.
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(issue.Body))
+        {
+            // Similar just by title.
+            return true;
+        }
+
+        if (issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
+        {
+            // Likely already mentioned as related.
+            return false;
+        }
+
+        return true;
     }
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
