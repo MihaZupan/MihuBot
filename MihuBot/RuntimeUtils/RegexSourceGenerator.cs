@@ -51,7 +51,7 @@ public sealed class RegexSourceGenerator
 
             List<(string name, string path)> versions =
             [
-                ("10.0", Path.GetFullPath("System.Text.RegularExpressions.Generator.dll"))
+                ($"{Environment.Version.Major}.0", Path.GetFullPath("System.Text.RegularExpressions.Generator.dll"))
             ];
 
             string generatorsDirectory = Path.Combine(Constants.StateDirectory, "RegexSourceGenerators");
