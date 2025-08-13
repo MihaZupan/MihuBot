@@ -241,6 +241,10 @@ public abstract class JobBase
         }
         else
         {
+            string customArguments = !string.IsNullOrWhiteSpace(CustomArguments)
+                ? $"Using arguments: ````{CustomArguments}````"
+                : string.Empty;
+
             TrackingIssue = await Github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
@@ -250,7 +254,7 @@ public abstract class JobBase
                         $"""
                         Job is in progress - see {ProgressDashboardUrl}
                         {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-                        Using arguments: ````{CustomArguments}````
+                        {customArguments}
 
                         {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
                         """
