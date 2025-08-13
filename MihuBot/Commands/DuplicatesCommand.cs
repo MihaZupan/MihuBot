@@ -243,6 +243,11 @@ public sealed class DuplicatesCommand : CommandBase
 
             reply = reply.TruncateWithDotDotDot(1800);
 
+            if (!automated)
+            {
+                reply = $"**Manual** - {reply}";
+            }
+
             await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
         }
         catch (Exception ex)
