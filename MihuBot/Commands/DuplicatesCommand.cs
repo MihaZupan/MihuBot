@@ -114,6 +114,7 @@ public sealed class DuplicatesCommand : CommandBase
                         IQueryable<IssueInfo> query = db.Issues
                             .AsNoTracking()
                             .Where(i => i.CreatedAt >= startDate)
+                            .Where(i => i.State == ItemState.Open)
                             .OrderByDescending(i => i.CreatedAt);
 
                         query = IssueTriageHelper.AddIssueInfoIncludes(query);
