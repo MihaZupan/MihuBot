@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Markdig.Syntax;
@@ -13,7 +14,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
-    public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body, string ExtraInfo);
+    public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body);
 
     public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, string ExtraInfo, int TotalComments, ShortCommentInfo[] RelatedComments);
 
@@ -173,6 +174,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private Exception _searchToolException;
 
+        private int MaxResultsPerTerm => Search._configuration.TryGet(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 20;
+        private int MaxResultsPerTermLarge => Search._configuration.TryGet(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTermLarge)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 40;
+        private int SearchMaxTotalResults => Search._configuration.TryGet(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 40;
+        private int SearchMaxTotalResultsLarge => Search._configuration.TryGet(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResultsLarge)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : 60;
+
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
             Logger.DebugLog($"Starting triage for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
@@ -306,7 +312,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             if (Model.SupportsTemperature)
             {
-                options.Temperature = 0.2f;
+                options.Temperature = Search.DefaultTemperature;
             }
 
             return options;
@@ -382,7 +388,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
             return CreateIssueInfo(1, issue.CreatedAt, issue.User, issue.Body, issue,
-                comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body, issue, c)).ToArray());
+                comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body)).ToArray());
         }
 
         private async Task<ShortIssueInfo[]> SearchCurrentRepoAsync(
@@ -422,7 +428,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
 
-            if ((!filters.IncludeOpen && !filters.IncludeClosed) || (!filters.IncludeIssues && !filters.IncludePullRequests))
+            if (searchTerms.Length == 0 || (!filters.IncludeOpen && !filters.IncludeClosed) || (!filters.IncludeIssues && !filters.IncludePullRequests))
             {
                 OnToolLog("[Tool] Nothing to search for, returning empty results.");
                 return [];
@@ -436,10 +442,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             List<(IssueSearchResult[] Results, double Score)> searchResults = new();
 
-            int maxTotalResults = UsingLargeContextWindow
-                ? Math.Clamp(searchTerms.Length * 50, 75, 200)
-                : Math.Clamp(searchTerms.Length * 25, 25, 50);
-            int maxResultsPerTerm = searchTerms.Length > 1 ? (UsingLargeContextWindow ? 50 : 25) : maxTotalResults;
+            int maxResultsPerTerm = UsingLargeContextWindow ? MaxResultsPerTermLarge : MaxResultsPerTerm;
+            int maxTotalResults = Math.Min(searchTerms.Length * maxResultsPerTerm, UsingLargeContextWindow ? SearchMaxTotalResultsLarge : SearchMaxTotalResults);
 
             await Parallel.ForEachAsync(searchTerms, async (term, _) =>
             {
@@ -514,7 +518,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
                     ShortCommentInfo[] comments = results
                         .Where(r => r.Comment is not null)
-                        .Select(r => CreateCommentInfo(r.Comment.CreatedAt, r.Comment.User, r.Comment.Body, r.Issue, r.Comment))
+                        .Select(r => CreateCommentInfo(r.Comment.CreatedAt, r.Comment.User, r.Comment.Body))
                         .ToArray();
 
                     searchComments += comments.Length;
@@ -533,13 +537,13 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private ShortIssueInfo CreateIssueInfo(double score, DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
         {
-            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text, issue, comment: null);
+            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text);
 
             string extraInfo = score == 1 ? "" : $"Simmilarity score: {score:F2}";
-            if (!string.IsNullOrEmpty(info.ExtraInfo))
-            {
-                extraInfo = $"{extraInfo}\n{info.ExtraInfo}";
-            }
+            //if (!string.IsNullOrEmpty(info.ExtraInfo))
+            //{
+            //    extraInfo = $"{extraInfo}\n{info.ExtraInfo}";
+            //}
 
             string closedAt = issue.ClosedAt.HasValue ? issue.ClosedAt.Value.ToISODate() : null;
             bool? merged = issue.PullRequest?.MergedAt.HasValue;
@@ -547,7 +551,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, extraInfo, issue.Comments.Count, comments);
         }
 
-        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, CommentInfo comment)
+        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text)
         {
             string authorSuffix = s_networkingTeam.Contains(author.Login)
                 ? " (member of the .NET networking team)"
@@ -556,28 +560,27 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return new ShortCommentInfo(
                 createdAt.ToISODate(),
                 $"{author.Login}{authorSuffix}",
-                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, 2_000),
-                FormatReactions(issue, comment));
+                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, 2_000));
 
-            static string FormatReactions(IssueInfo issue, CommentInfo comment)
-            {
-                int positive =
-                    (comment?.Plus1 ?? issue.Plus1) +
-                    (comment?.Heart ?? issue.Heart) +
-                    (comment?.Hooray ?? issue.Hooray) +
-                    (comment?.Rocket ?? issue.Rocket);
+            //static string FormatReactions(IssueInfo issue, CommentInfo comment)
+            //{
+            //    int positive =
+            //        (comment?.Plus1 ?? issue.Plus1) +
+            //        (comment?.Heart ?? issue.Heart) +
+            //        (comment?.Hooray ?? issue.Hooray) +
+            //        (comment?.Rocket ?? issue.Rocket);
 
-                int negative =
-                    (comment?.Minus1 ?? issue.Minus1) +
-                    (comment?.Confused ?? issue.Confused);
+            //    int negative =
+            //        (comment?.Minus1 ?? issue.Minus1) +
+            //        (comment?.Confused ?? issue.Confused);
 
-                if (positive > 0 || negative > 0)
-                {
-                    return $"Community reacted with {positive} upvotes, {negative} downvotes";
-                }
+            //    if (positive > 0 || negative > 0)
+            //    {
+            //        return $"Community reacted with {positive} upvotes, {negative} downvotes";
+            //    }
 
-                return string.Empty;
-            }
+            //    return string.Empty;
+            //}
         }
     }
 }

@@ -28,7 +28,7 @@ public sealed class GitHubSearchService : IHostedService
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly IDbContextFactory<GitHubFtsDbContext> _dbFts;
     private readonly Logger _logger;
-    private readonly IConfigurationService _configuration;
+    internal readonly IConfigurationService _configuration;
     private readonly ServiceConfiguration _serviceConfiguration;
     private readonly OpenAIService _openAI;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
@@ -54,6 +54,8 @@ public sealed class GitHubSearchService : IHostedService
     private int IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 5_000;
     private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : (IngestionBatchSize / 4);
     private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 30_000;
+
+    internal float DefaultTemperature => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(DefaultTemperature)}", out string str) && float.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out float temp) ? temp : 0.2f;
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
@@ -447,7 +449,7 @@ public sealed class GitHubSearchService : IHostedService
 
                         if (OpenAIService.AllModels.FirstOrDefault(m => m.Name == classifierModel)?.SupportsTemperature == true)
                         {
-                            options.Temperature = 0.2f;
+                            options.Temperature = DefaultTemperature;
                         }
 
                         relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
