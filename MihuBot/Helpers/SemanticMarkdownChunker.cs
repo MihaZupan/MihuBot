@@ -98,10 +98,14 @@ public static class SemanticMarkdownChunker
 
         int documentTokens = tokenizer.CountTokens(markdown);
 
-        if (documentTokens < smallSectionTokenThreshold)
+        if (documentTokens < 8_000)
         {
             yield return markdown;
-            yield break;
+
+            if (documentTokens < smallSectionTokenThreshold)
+            {
+                yield break;
+            }
         }
 
         if (document.Count > 1)
