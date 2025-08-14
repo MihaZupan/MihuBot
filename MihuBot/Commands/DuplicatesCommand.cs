@@ -374,10 +374,22 @@ public sealed class DuplicatesCommand : CommandBase
 
     private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate)
     {
-        return MentionsIssue(issue.Title, duplicate)
-            || MentionsIssue(issue.Body, duplicate)
-            || issue.Comments.Any(c => MentionsIssue(c.Body, duplicate))
-            || duplicate.Comments.Any(c => MentionsIssue(c.Body, issue));
+        if (MentionsIssue(issue.Title, duplicate) || MentionsIssue(issue.Body, duplicate))
+        {
+            return true;
+        }
+
+        if (issue.Comments is not null && issue.Comments.Any(c => MentionsIssue(c.Body, duplicate)))
+        {
+            return true;
+        }
+
+        if (duplicate.Comments is not null && duplicate.Comments.Any(c => MentionsIssue(c.Body, issue)))
+        {
+            return true;
+        }
+
+        return false;
 
         static bool MentionsIssue(string text, IssueInfo issue)
         {
