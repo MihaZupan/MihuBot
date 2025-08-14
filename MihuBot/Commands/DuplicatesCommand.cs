@@ -27,6 +27,7 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly SemaphoreSlim _sempahore = new(2, 2);
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
+    private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
 
     public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord)
     {
@@ -219,7 +220,18 @@ public sealed class DuplicatesCommand : CommandBase
                     {string.Join('\n', issuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
                     """;
 
-                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && automated)
+                bool thirdTestIsUseful = true;
+                if (DoThirdVerificationCheck)
+                {
+                    var thirdTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+
+                    thirdTestIsUseful = thirdTest.Any(d =>
+                        IsLikelyUsefulToReport(issue, d.Issue, d.Certainty) &&
+                        duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
+                        IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
+                }
+
+                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated)
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
@@ -227,9 +239,14 @@ public sealed class DuplicatesCommand : CommandBase
                 {
                     if (!secondaryTestIsUseful)
                     {
-                        reply = $"**Note:** Secondary test did not find any useful duplicates.\n\n{reply}";
+                        reply = $"**Note:** Secondary test did not find overlapping useful duplicates.\n\n{reply}";
 
                         summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
+                    }
+
+                    if (!thirdTestIsUseful)
+                    {
+                        reply = $"**Note:** Third test did not find overlapping useful duplicates.\n\n{reply}";
                     }
 
                     string id = $"{Command}-{issue.Id}";
