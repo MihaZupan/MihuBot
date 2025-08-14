@@ -91,6 +91,8 @@ public static class SemanticMarkdownChunker
 
     private static IEnumerable<string> GetMarkdownSections(Tokenizer tokenizer, int smallSectionTokenThreshold, MarkdownDocument document, string markdown)
     {
+        const int MaxSectionTokens = 8_000;
+
         if (string.IsNullOrWhiteSpace(markdown))
         {
             yield break;
@@ -98,13 +100,20 @@ public static class SemanticMarkdownChunker
 
         int documentTokens = tokenizer.CountTokens(markdown);
 
-        if (documentTokens < 8_000)
+        if (documentTokens <= MaxSectionTokens)
         {
             yield return markdown;
 
             if (documentTokens < smallSectionTokenThreshold)
             {
                 yield break;
+            }
+        }
+        else
+        {
+            foreach (string text in SplitTextBlock(tokenizer, MaxSectionTokens, markdown))
+            {
+                yield return text;
             }
         }
 
