@@ -295,7 +295,7 @@ public sealed class DuplicatesCommand : CommandBase
                 cancellationToken: CancellationToken.None);
 
             var duplicates = searchResults.Results
-                .Where(r => r.Score >= 0.5)
+                .Where(r => r.Score >= 0.5 && r.Results[0].Issue.Id != issue.Id)
                 .Select(r => (r.Results[0].Issue, r.Score, string.Empty))
                 .ToArray();
 
@@ -315,7 +315,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
 
-            if (duplicates.Any(d => d.Score > 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1)))
+            if (duplicates.Any(d => d.Score >= 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1)))
             {
                 reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
             }
