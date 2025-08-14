@@ -205,7 +205,7 @@ public sealed class DuplicatesCommand : CommandBase
                     issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
                 }
 
-                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.9).Take(5)];
+                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.9 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
                 bool plural = issuesToReport.Length > 1;
 
                 if (issuesToReport.Length == 0)
@@ -292,31 +292,34 @@ public sealed class DuplicatesCommand : CommandBase
             return false;
         }
 
-        if (issue.Title.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
+        if (AreIssuesAlreadyLinked(issue, duplicate))
         {
-            // Likely already mentioned as related.
-            return false;
-        }
-
-        if (issue.Body is not null && issue.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal))
-        {
-            // Likely already mentioned as related.
-            return false;
-        }
-
-        if (issue.Comments.Any(c => c.Body is not null && c.Body.Contains(duplicate.Number.ToString(), StringComparison.Ordinal)))
-        {
-            // Duplicate mentioned in a comment.
-            return false;
-        }
-
-        if (duplicate.Comments.Any(c => c.Body is not null && c.Body.Contains(issue.Number.ToString(), StringComparison.Ordinal)))
-        {
-            // Current issue mentioned in a comment on the duplicate issue.
+            // Already linked in some way.
             return false;
         }
 
         return true;
+    }
+
+    private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate)
+    {
+        return MentionsIssue(issue.Title, duplicate)
+            || MentionsIssue(issue.Body, duplicate)
+            || issue.Comments.Any(c => MentionsIssue(c.Body, duplicate))
+            || duplicate.Comments.Any(c => MentionsIssue(c.Body, issue));
+
+        static bool MentionsIssue(string text, IssueInfo issue)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            return text.Contains($"#{issue.Number}", StringComparison.Ordinal)
+                || text.Contains($" {issue.Number} ", StringComparison.Ordinal)
+                || text.Contains($" {issue.Number}.", StringComparison.Ordinal)
+                || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
