@@ -216,7 +216,7 @@ public sealed class GitHubSearchService : IHostedService
         }, tags: [nameof(GitHubSearchService)], cancellationToken: CancellationToken.None).WaitAsyncAndSupressNotObserved(cancellationToken);
     }
 
-    public async Task<((IssueSearchResult[] Results, double Score)[], SearchTimings Timings)> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, bool includeAllIssueComments, CancellationToken cancellationToken)
+    public async Task<((IssueSearchResult[] Results, double Score)[] Results, SearchTimings Timings)> SearchIssuesAndCommentsAsync(string query, int maxResults, IssueSearchFilters filters, bool includeAllIssueComments, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxResults);

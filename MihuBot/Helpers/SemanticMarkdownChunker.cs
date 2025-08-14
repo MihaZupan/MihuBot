@@ -12,6 +12,8 @@ namespace MihuBot.Helpers;
 
 public static class SemanticMarkdownChunker
 {
+    public const int MaxSectionTokens = 4_000;
+
     public static IEnumerable<string> GetSections(Tokenizer tokenizer, int smallSectionTokenThreshold, IssueInfo issue, CommentInfo? comment, string markdown, string titleInfo)
     {
         if (string.IsNullOrWhiteSpace(markdown))
@@ -91,8 +93,6 @@ public static class SemanticMarkdownChunker
 
     private static IEnumerable<string> GetMarkdownSections(Tokenizer tokenizer, int smallSectionTokenThreshold, MarkdownDocument document, string markdown)
     {
-        const int MaxSectionTokens = 8_000;
-
         if (string.IsNullOrWhiteSpace(markdown))
         {
             yield break;

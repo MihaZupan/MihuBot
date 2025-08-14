@@ -20,6 +20,7 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly GitHubClient _github;
     private readonly IssueTriageService _triageService;
     private readonly IssueTriageHelper _triageHelper;
+    private readonly GitHubSearchService _search;
     private readonly ServiceConfiguration _serviceConfiguration;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
@@ -29,7 +30,7 @@ public sealed class DuplicatesCommand : CommandBase
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
 
-    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord)
+    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search)
     {
         _db = db;
         _triageService = triageService;
@@ -39,6 +40,7 @@ public sealed class DuplicatesCommand : CommandBase
         _configuration = configuration;
         _github = github;
         _discord = discord;
+        _search = search;
     }
 
     public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
@@ -78,6 +80,7 @@ public sealed class DuplicatesCommand : CommandBase
         if (ctx.Command == "duplicates")
         {
             await RunDuplicateDetectionAsync(issue, automated: false, message: ctx);
+            await RunDuplicateDetectionAsync_EmbeddingsOnly(issue, automated: false, message: ctx);
         }
         else
         {
@@ -148,6 +151,7 @@ public sealed class DuplicatesCommand : CommandBase
                             _ = Task.Run(async () =>
                             {
                                 await RunDuplicateDetectionAsync(issue, automated: true, message: null);
+                                await RunDuplicateDetectionAsync_EmbeddingsOnly(issue, automated: true, message: null);
                             });
                         }
                     }
@@ -249,7 +253,7 @@ public sealed class DuplicatesCommand : CommandBase
                         reply = $"**Note:** Third test did not find overlapping useful duplicates.\n\n{reply}";
                     }
 
-                    string id = $"{Command}-{issue.Id}";
+                    string id = $"{Command}-{Snowflake.Next()}";
                     _duplicatesToPost.TryAdd(id, (issue, ghComment));
 
                     components = new ComponentBuilder()
@@ -261,12 +265,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             reply = reply.TruncateWithDotDotDot(1800);
 
-            if (!automated)
-            {
-                reply = $"**Manual** - {reply}";
-            }
-
-            await channel.SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
+            await (message?.Channel ?? channel).SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
         }
         catch (Exception ex)
         {
@@ -275,6 +274,61 @@ public sealed class DuplicatesCommand : CommandBase
         finally
         {
             _sempahore.Release();
+        }
+    }
+
+    private async Task RunDuplicateDetectionAsync_EmbeddingsOnly(IssueInfo issue, bool automated, MessageContext message)
+    {
+        try
+        {
+            string titleInfo = $"{issue.Repository.FullName}#{issue.Number}: {issue.Title}";
+            string author = $"{(issue.PullRequest is null ? "Issue" : "Pull request")} author: {issue.User.Login}";
+            string description = $"{titleInfo}\n{author}\n\n{issue.Body?.Trim()}";
+
+            description = SemanticMarkdownChunker.TrimTextToTokens(_search.Tokenizer, description, SemanticMarkdownChunker.MaxSectionTokens);
+
+            var searchResults = await _search.SearchIssuesAndCommentsAsync(
+                description,
+                maxResults: 10,
+                new GitHubSearchService.IssueSearchFilters(true, true, true, true) { Repository = issue.Repository.FullName },
+                includeAllIssueComments: false,
+                cancellationToken: CancellationToken.None);
+
+            var duplicates = searchResults.Results
+                .Where(r => r.Score >= 0.5)
+                .Select(r => (r.Results[0].Issue, r.Score, string.Empty))
+                .ToArray();
+
+            if (duplicates.Length == 0)
+            {
+                _logger.DebugLog($"{nameof(DuplicatesCommand)}: No duplicates found for issue <{issue.HtmlUrl}> (embeddings only)");
+
+                if (!automated)
+                {
+                    await message.ReplyAsync("No duplicates found (embeddings only).");
+                }
+
+                return;
+            }
+
+            SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesEmbeddings);
+
+            string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
+
+            if (duplicates.Any(d => d.Score > 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1)))
+            {
+                reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
+            }
+
+            reply = reply.TruncateWithDotDotDot(1800);
+
+            reply = $"**Embeddings only**\n{reply}";
+
+            await (message?.Channel ?? channel).SendMessageAsync(reply);
+        }
+        catch (Exception ex)
+        {
+            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection for issue <{issue.HtmlUrl}> (embeddings only)", ex);
         }
     }
 
