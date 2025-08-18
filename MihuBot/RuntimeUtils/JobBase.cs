@@ -25,7 +25,8 @@ public abstract class JobBase
     public const string IssueRepositoryOwner = "MihuBot";
     public const string IssueRepositoryName = "runtime-utils";
     protected const int CommentLengthLimit = 65_000;
-    protected const int IdleTimeoutMs = 5 * 60 * 1000;
+
+    private readonly int IdleTimeoutMs;
 
     public readonly DateTime StartTime = DateTime.UtcNow;
     protected readonly RuntimeUtilsService Parent;
@@ -116,6 +117,8 @@ public abstract class JobBase
         Parent = parent;
         GitHubComment = comment;
         GithubCommenterLogin = githubCommenterLogin ?? comment?.User?.Login;
+
+        IdleTimeoutMs = Parent.ConfigurationService.GetOrDefault(null, $"{nameof(RuntimeUtilsService)}.{nameof(IdleTimeoutMs)}", 5 * 60 * 1000);
 
         Metadata.Add("JobId", JobId);
         Metadata.Add("ExternalId", ExternalId);

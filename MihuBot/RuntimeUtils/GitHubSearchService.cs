@@ -47,15 +47,15 @@ public sealed class GitHubSearchService : IHostedService
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : "gpt-4.1-mini";
     private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
-    private double VectorSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 1;
-    private double FullTextSearchScoreMultiplier => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", out string str) && double.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out double multiplier) ? multiplier : 0.9;
+    private double VectorSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", 1.0);
+    private double FullTextSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", 0.9);
 
-    private int IngestionBatchSize => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionBatchSize)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int size) ? size : 1_000;
-    private int IngestionPeriodMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 5_000;
-    private int IngestionLowUpdatesThreshold => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int val) ? val : (IngestionBatchSize / 4);
-    private int IngestionLowUpdatesSleepMs => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int ms) ? ms : 30_000;
+    private int IngestionBatchSize => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionBatchSize)}", 1_000);
+    private int IngestionPeriodMs => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionPeriodMs)}", 5_000);
+    private int IngestionLowUpdatesThreshold => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesThreshold)}", IngestionBatchSize / 4);
+    private int IngestionLowUpdatesSleepMs => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(IngestionLowUpdatesSleepMs)}", 30_000);
 
-    internal float DefaultTemperature => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.{nameof(DefaultTemperature)}", out string str) && float.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out float temp) ? temp : 0.2f;
+    internal float DefaultTemperature => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(DefaultTemperature)}", 0.2f);
 
     public GitHubSearchService(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<GitHubFtsDbContext> dbFts, Logger logger, OpenAIService openAi, VectorStore vectorStore, QdrantClient qdrantClient, IConfigurationService configuration, HybridCache cache, GitHubDataService dataService, ServiceConfiguration serviceConfiguration)
     {
