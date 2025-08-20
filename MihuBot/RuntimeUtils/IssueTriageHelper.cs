@@ -16,7 +16,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 {
     public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body);
 
-    public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, string ExtraInfo, int TotalComments, ShortCommentInfo[] RelatedComments);
+    public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, int TotalComments, ShortCommentInfo[] RelatedComments);
 
     public ModelInfo[] AvailableModels => OpenAIService.AllModels;
     public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-4.1");
@@ -178,6 +178,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         private int MaxResultsPerTermLarge => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTermLarge)}", 40);
         private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
         private int SearchMaxTotalResultsLarge => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResultsLarge)}", 60);
+        private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -367,7 +368,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             if (issue is null)
             {
                 OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
-                return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", null, "N/A", "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", 0, []);
+                return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", null, "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", 0, []);
             }
 
             CommentInfo[] comments = issue.Comments
@@ -389,7 +390,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
-            return CreateIssueInfo(1, issue.CreatedAt, issue.User, issue.Body, issue,
+            return CreateIssueInfo(issue.CreatedAt, issue.User, issue.Body, issue,
                 comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body)).ToArray());
         }
 
@@ -508,11 +509,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, out string repoName, out int issueNumber) &&
                     await Parent.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken) is { } singleIssue)
                 {
-                    results.Add(CreateIssueInfo(1, singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, []));
+                    results.Add(CreateIssueInfo(singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, []));
                 }
             }
 
+            float minCertainty = SearchMinCertainty;
+
             ShortIssueInfo[] gitHubIssueResults = combinedResults
+                .Where(r => r.Score >= minCertainty)
                 .Select(r =>
                 {
                     IssueSearchResult[] results = r.Results;
@@ -525,7 +529,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
                     searchComments += comments.Length;
 
-                    return CreateIssueInfo(r.Score, issue.CreatedAt, issue.User, issue.Body, issue, comments);
+                    return CreateIssueInfo(issue.CreatedAt, issue.User, issue.Body, issue, comments);
                 })
                 .Take(maxTotalResults)
                 .ToArray();
@@ -537,11 +541,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return [.. results];
         }
 
-        private ShortIssueInfo CreateIssueInfo(double score, DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
+        private ShortIssueInfo CreateIssueInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
         {
             ShortCommentInfo info = CreateCommentInfo(createdAt, author, text);
 
-            string extraInfo = score == 1 ? "" : $"Simmilarity score: {score:F2}";
+            //string extraInfo = score == 1 ? "" : $"Simmilarity score: {score:F2}";
             //if (!string.IsNullOrEmpty(info.ExtraInfo))
             //{
             //    extraInfo = $"{extraInfo}\n{info.ExtraInfo}";
@@ -550,7 +554,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             string closedAt = issue.ClosedAt.HasValue ? issue.ClosedAt.Value.ToISODate() : null;
             bool? merged = issue.PullRequest?.MergedAt.HasValue;
 
-            return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, extraInfo, issue.Comments.Count, comments);
+            return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, issue.Comments.Count, comments);
         }
 
         private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text)
