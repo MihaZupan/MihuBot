@@ -136,7 +136,7 @@ public sealed class LoggingChatClient : DelegatingChatClient
             return;
         }
 
-        Log($"Usage: {AsJson(usage)}", isUsage: true);
+        Log($"Usage: Input={usage.InputTokenCount} Output={usage.OutputTokenCount} Total={usage.TotalTokenCount}", isUsage: true);
     }
 
     private void Log(string message, Exception? ex = null, bool isUsage = false)
