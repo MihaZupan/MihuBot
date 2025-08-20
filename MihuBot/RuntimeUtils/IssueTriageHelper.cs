@@ -322,6 +322,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
 
+            chatClient = new Helpers.LoggingChatClient(chatClient, Logger, Search._configuration);
+
             return new FunctionInvokingChatClient(chatClient)
             {
                 AllowConcurrentInvocation = true,

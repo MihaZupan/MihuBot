@@ -324,7 +324,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             reply = $"**Embeddings only**\n{reply}";
 
-            await (message?.Channel ?? channel).SendMessageAsync(reply);
+            await (message?.Channel ?? channel).SendMessageAsync(reply, allowedMentions: AllowedMentions.None);
         }
         catch (Exception ex)
         {

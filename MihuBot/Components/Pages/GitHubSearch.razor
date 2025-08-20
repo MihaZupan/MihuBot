@@ -8,6 +8,7 @@
 @rendermode InteractiveServer
 @inject GitHubDataService GitHubData
 @inject GitHubSearchService Search
+@inject Logger Logger
 @inject NavigationManager Navigation
 @inject IConfigurationService Configuration
 @implements IDisposable
@@ -285,6 +286,8 @@
 
                     var filters = new GitHubSearchService.IssueSearchFilters(IncludeOpen: true, IncludeClosed: !includeOpenIssueOnly, IncludeIssues: true, IncludePullRequests: true);
                     filters.Repository = repoFilter;
+
+                    Logger.DebugLog($"Starting UI search for '{searchQuery}'");
 
                     var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, includeAllIssueComments: false, cancellationToken);
                     await InvokeAsync(StateHasChanged);
