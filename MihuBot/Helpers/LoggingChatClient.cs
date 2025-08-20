@@ -24,6 +24,7 @@ public sealed class LoggingChatClient : DelegatingChatClient
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
+        LogInvoked(nameof(GetResponseAsync));
         LogInvokedSensitive(nameof(GetResponseAsync), AsJson(messages), AsJson(options), AsJson(this.GetService<ChatClientMetadata>()));
 
         try
@@ -32,6 +33,7 @@ public sealed class LoggingChatClient : DelegatingChatClient
 
             LogUsage(response.Usage);
 
+            LogCompleted(nameof(GetResponseAsync));
             LogCompletedSensitive(nameof(GetResponseAsync), AsJson(response));
 
             return response;
@@ -51,6 +53,7 @@ public sealed class LoggingChatClient : DelegatingChatClient
     public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        LogInvoked(nameof(GetStreamingResponseAsync));
         LogInvokedSensitive(nameof(GetStreamingResponseAsync), AsJson(messages), AsJson(options), AsJson(this.GetService<ChatClientMetadata>()));
 
         IAsyncEnumerator<ChatResponseUpdate> e;
@@ -117,13 +120,15 @@ public sealed class LoggingChatClient : DelegatingChatClient
 
     private static string AsJson<T>(T value) => JsonSerializer.Serialize(value, AIJsonUtilities.DefaultOptions);
 
-    private void LogInvokedSensitive(string methodName, string messages, string chatOptions, string chatClientMetadata) => Log($"{methodName} invoked: {messages}. Options: {chatOptions}. Metadata: {chatClientMetadata}");
+    private void LogInvoked(string methodName) => Log($"{methodName} invoked");
+
+    private void LogInvokedSensitive(string methodName, string messages, string chatOptions, string chatClientMetadata) => Log($"{methodName} invoked: {messages}. Options: {chatOptions}. Metadata: {chatClientMetadata}", trace: true);
 
     private void LogCompleted(string methodName) => Log($"{methodName} completed");
 
-    private void LogCompletedSensitive(string methodName, string chatResponse) => Log($"{methodName} completed: {chatResponse}");
+    private void LogCompletedSensitive(string methodName, string chatResponse) => Log($"{methodName} completed: {chatResponse}", trace: true);
 
-    private void LogStreamingUpdateSensitive(string chatResponseUpdate) => Log($"GetStreamingResponseAsync received update: {chatResponseUpdate}");
+    private void LogStreamingUpdateSensitive(string chatResponseUpdate) => Log($"GetStreamingResponseAsync received update: {chatResponseUpdate}", trace: true);
 
     private void LogInvocationCanceled(string methodName) => Log($"{methodName} canceled");
 
@@ -139,13 +144,22 @@ public sealed class LoggingChatClient : DelegatingChatClient
         Log($"Usage: Input={usage.InputTokenCount} Output={usage.OutputTokenCount} Total={usage.TotalTokenCount}", isUsage: true);
     }
 
-    private void Log(string message, Exception? ex = null, bool isUsage = false)
+    private void Log(string message, Exception? ex = null, bool isUsage = false, bool trace = false)
     {
         if (!isUsage && LogUsageOnly)
         {
             return;
         }
 
-        _logger.DebugLog($"[{nameof(LoggingChatClient)}] {message}.{(ex is null ? "" : $" Ex: {ex}.")}");
+        message = $"[{nameof(LoggingChatClient)}] {message}.{(ex is null ? "" : $" Ex: {ex}.")}";
+
+        if (trace)
+        {
+            _logger.TraceLog(message);
+        }
+        else
+        {
+            _logger.DebugLog(message);
+        }
     }
 }
