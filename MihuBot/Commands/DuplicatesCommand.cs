@@ -148,6 +148,14 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
+                            Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
+
+                            if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
+                            {
+                                // Copilot assigned to issue.
+                                continue;
+                            }
+
                             _ = Task.Run(async () =>
                             {
                                 await RunDuplicateDetectionAsync(issue, automated: true, message: null);
