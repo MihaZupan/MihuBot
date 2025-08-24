@@ -20,12 +20,12 @@ public sealed class GitHubDataService : IHostedService
     [
         ("dotnet", "runtime",           TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(15)),
         ("dotnet", "yarp",              TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1)),
-        ("dotnet", "aspnetcore",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
-        ("dotnet", "extensions",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
-        ("dotnet", "aspire",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
-        ("dotnet", "sdk",               TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
-        ("dotnet", "roslyn",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
-        ("dotnet", "efcore",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2)),
+        ("dotnet", "aspnetcore",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
+        ("dotnet", "extensions",        TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
+        ("dotnet", "aspire",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
+        ("dotnet", "sdk",               TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
+        ("dotnet", "roslyn",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
+        ("dotnet", "efcore",            TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(1)),
         ("dotnet", "BenchmarkDotNet",   TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
         ("dotnet", "interactive",       TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)),
     ];
