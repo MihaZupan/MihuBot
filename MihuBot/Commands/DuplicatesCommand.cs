@@ -218,7 +218,7 @@ public sealed class DuplicatesCommand : CommandBase
                     issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
                 }
 
-                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.9 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
+                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.89 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
                 bool plural = issuesToReport.Length > 1;
 
                 if (issuesToReport.Length == 0)

@@ -517,13 +517,15 @@ public sealed class GitHubSearchService : IHostedService
                 sb.AppendLine($"Body: {body}");
             }
 
-            foreach (IssueSearchResult result in results
+            foreach (CommentInfo comment in results
                 .Where(r => r.Score >= 0.20 && r.Comment is not null)
                 .OrderByDescending(r => r.Score)
+                .Select(r => r.Comment)
                 .Take(maxComments)
-                .OrderBy(c => c.Comment.CreatedAt))
+                .OrderBy(c => c.CreatedAt))
             {
-                sb.AppendLine($"Comment by {result.Comment.User.Login}: {TrimBody(result.Comment.Body, bodyContext)}");
+                sb.AppendLine($"Comment by {comment.User.Login}: {TrimBody(comment.Body, bodyContext)}");
+                sb.AppendLine();
             }
 
             return sb.ToString();
