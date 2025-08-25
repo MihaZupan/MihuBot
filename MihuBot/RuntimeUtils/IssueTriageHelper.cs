@@ -181,6 +181,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
         private bool AdvertiseCommentsTool => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(AdvertiseCommentsTool)}", false);
+        private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 25);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -437,25 +438,15 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             int maxResultsPerTerm = UsingLargeContextWindow ? MaxResultsPerTermLarge : MaxResultsPerTerm;
             int maxTotalResults = Math.Min(searchTerms.Length * maxResultsPerTerm, UsingLargeContextWindow ? SearchMaxTotalResultsLarge : SearchMaxTotalResults);
 
+            bool skipCommentsOnCurrentIssue = SkipCommentsOnCurrentIssue;
+
             await Parallel.ForEachAsync(searchTerms, async (term, _) =>
             {
                 ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken);
 
-                if (SkipCommentsOnCurrentIssue)
+                if (skipCommentsOnCurrentIssue)
                 {
-                    results = results
-                        .Select(r =>
-                        {
-                            if (r.Results[0].Issue.Id == Issue.Id)
-                            {
-                                // Skip comments on the current issue.
-                                return (Results: r.Results.Where(c => c.Comment is null).ToArray(), r.Score);
-                            }
-
-                            return r;
-                        })
-                        .Where(r => r.Results.Length > 0)
-                        .ToArray();
+                    results = [.. results.Where(r => r.Results[0].Issue.Id != Issue.Id)];
                 }
 
                 try
@@ -511,17 +502,25 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             ShortIssueInfo[] gitHubIssueResults = combinedResults
                 .Where(r => r.Score >= minCertainty)
+                .Where(r => !skipCommentsOnCurrentIssue || r.Results[0].Issue.Id != Issue.Id)
                 .Select(r =>
                 {
                     IssueSearchResult[] results = r.Results;
                     IssueInfo issue = results[0].Issue;
 
-                    ShortCommentInfo[] comments = includeAllComments
-                        ? CreateCommentInfos(issue, issue.Number, removeCommentsWithoutContext: true)
-                        : results
+                    ShortCommentInfo[] comments;
+
+                    if (includeAllComments)
+                    {
+                        comments = CreateCommentInfos(issue, issue.Number, removeCommentsWithoutContext: true);
+                    }
+                    else
+                    {
+                        comments = results
                             .Where(r => r.Comment is not null)
                             .Select(r => CreateCommentInfo(r.Comment.CreatedAt, r.Comment.User, r.Comment.Body))
                             .ToArray();
+                    }
 
                     searchComments += comments.Length;
 
@@ -539,7 +538,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private ShortIssueInfo CreateIssueInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
         {
-            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text);
+            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text, isComment: false);
 
             //string extraInfo = score == 1 ? "" : $"Simmilarity score: {score:F2}";
             //if (!string.IsNullOrEmpty(info.ExtraInfo))
@@ -553,16 +552,23 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, comments);
         }
 
-        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text)
+        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, bool isComment = true)
         {
             string authorSuffix = s_networkingTeam.Contains(author.Login)
                 ? " (member of the .NET networking team)"
                 : string.Empty;
 
+            int maxLength = isComment ? 1_000 : 2_000;
+
+            if (UsingLargeContextWindow)
+            {
+                maxLength *= 2;
+            }
+
             return new ShortCommentInfo(
                 createdAt.ToISODate(),
                 $"{author.Login}{authorSuffix}",
-                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, UsingLargeContextWindow ? 4_000 : 2_000));
+                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, maxLength));
 
             //static string FormatReactions(IssueInfo issue, CommentInfo comment)
             //{
@@ -597,7 +603,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 comments = [];
             }
 
-            int maxComments = UsingLargeContextWindow ? 100 : 50;
+            int maxComments = MaxCommentsPerIssue;
 
             if (comments.Length > maxComments)
             {

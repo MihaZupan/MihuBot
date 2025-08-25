@@ -156,6 +156,8 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
+                            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Running duplicate detection for issue <{issue.HtmlUrl}>");
+
                             _ = Task.Run(async () =>
                             {
                                 await RunDuplicateDetectionAsync(issue, automated: true, message: null);
@@ -165,7 +167,7 @@ public sealed class DuplicatesCommand : CommandBase
                     }
                     catch (Exception ex)
                     {
-                        await _logger.DebugAsync($"{nameof(AdminCommands)}: Error during periodic duplicate detection", ex);
+                        await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection", ex);
                     }
                 }
             }
