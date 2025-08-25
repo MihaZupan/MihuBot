@@ -258,34 +258,33 @@
         {
             if (pattern.Length > 10_000)
             {
+                _rawGeneratedSource = "throw new StopItException();";
                 _errorMessage = "Stop it";
             }
             else if (SourceGenerator.LoadError is { } loadError)
             {
+                _rawGeneratedSource = null;
                 _errorMessage = loadError;
             }
             else
             {
-                string source = await SourceGenerator.GenerateSourceAsync(generator, pattern, options, cancellationToken);
-                source = HttpUtility.HtmlEncode(source);
-
-                _rawGeneratedSource = source;
-                _errorMessage = null;
-
-                await PostProcessSourceAsync();
+                (_rawGeneratedSource, _errorMessage) = await SourceGenerator.GenerateSourceAsync(generator, pattern, options, cancellationToken);
             }
         }
         catch (Exception ex)
         {
+            _rawGeneratedSource = null;
             _errorMessage = ex.Message;
         }
+
+        await PostProcessSourceAsync();
 
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task PostProcessSourceAsync()
     {
-        string source = _rawGeneratedSource;
+        string source = HttpUtility.HtmlEncode(_rawGeneratedSource ?? "");
 
         if (_hideComments)
         {

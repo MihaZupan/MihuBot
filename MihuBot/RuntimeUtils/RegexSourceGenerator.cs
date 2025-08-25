@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -129,24 +130,29 @@ public sealed class RegexSourceGenerator
         return gd.GetRunResult();
     }
 
-    private async Task<string> GenerateSourceText(Generator generator, string code, CancellationToken cancellationToken = default)
+    private async Task<CacheEntry> GenerateSourceText(Generator generator, string code, CancellationToken cancellationToken = default)
     {
         GeneratorDriverRunResult generatorResults = await RunGeneratorCore(generator, code, cancellationToken);
         string generatedSource = string.Concat(generatorResults.GeneratedTrees.Select(t => t.ToString()));
 
+        string? error = null;
+
         if (generatorResults.Diagnostics.Length != 0)
         {
-            throw new ArgumentException(string.Join(Environment.NewLine, generatorResults.Diagnostics) + Environment.NewLine + generatedSource);
+            error = string.Join(Environment.NewLine, generatorResults.Diagnostics);
         }
 
-        return generatedSource;
+        return new CacheEntry(generatedSource, error);
     }
 
-    public async Task<string> GenerateSourceAsync(Generator generator, string pattern, RegexOptions options, CancellationToken cancellationToken)
+    [ImmutableObject(true)]
+    private sealed record CacheEntry(string Source, string? Error);
+
+    public async Task<(string Source, string? Error)> GenerateSourceAsync(Generator generator, string pattern, RegexOptions options, CancellationToken cancellationToken)
     {
         long start = Stopwatch.GetTimestamp();
 
-        string source = await _cache.GetOrCreateAsync($"/regexsourcegen/{generator.Name}/{options}/{pattern.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
+        CacheEntry entry = await _cache.GetOrCreateAsync($"/regexsourcegen/{generator.Name}/{options}/{pattern.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
         {
             string optionsSource = "";
             if (options != RegexOptions.None)
@@ -161,7 +167,7 @@ public sealed class RegexSourceGenerator
                 partial class C
                 {
                     [GeneratedRegex({{SymbolDisplay.FormatLiteral(pattern, quote: true)}}{{optionsSource}})]
-                    public static partial Regex Valid();
+                    public static partial Regex YourRegex();
                 }
                 """,
                 cancellationToken);
@@ -170,6 +176,6 @@ public sealed class RegexSourceGenerator
         TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
         _logger.DebugLog($"[RegexSourceGenerator] Generated source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
 
-        return source;
+        return (entry.Source, entry.Error);
     }
 }
