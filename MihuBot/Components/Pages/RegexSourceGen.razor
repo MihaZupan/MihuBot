@@ -284,7 +284,7 @@
 
     private async Task PostProcessSourceAsync()
     {
-        string source = HttpUtility.HtmlEncode(_rawGeneratedSource ?? $"// {_errorMessage}");
+        string source = HttpUtility.HtmlEncode(!string.IsNullOrEmpty(_rawGeneratedSource) ? _rawGeneratedSource : $"// {_errorMessage}");
 
         if (_hideComments)
         {
