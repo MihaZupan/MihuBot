@@ -521,7 +521,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                     }
                     else
                     {
-                        comments = [.. relevantComments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body))];
+                        comments = [.. relevantComments.Select(CreateCommentInfo)];
                     }
 
                     searchComments += comments.Length;
@@ -554,7 +554,12 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, comments);
         }
 
-        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, bool isComment = true)
+        private ShortCommentInfo CreateCommentInfo(CommentInfo comment)
+        {
+            return CreateCommentInfo(comment.CreatedAt, comment.User, comment.Body, isComment: true);
+        }
+
+        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, bool isComment)
         {
             string authorSuffix = s_networkingTeam.Contains(author.Login)
                 ? " (member of the .NET networking team)"
@@ -622,7 +627,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
-            return [.. comments.Select(c => CreateCommentInfo(c.CreatedAt, c.User, c.Body))];
+            return [.. comments.Select(CreateCommentInfo)];
         }
     }
 }
