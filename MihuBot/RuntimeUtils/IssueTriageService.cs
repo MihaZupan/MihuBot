@@ -21,7 +21,6 @@ public sealed class IssueTriageService(
         "<!-- Known issue validation start -->",
         "<!-- BEGIN: Github workflow runs test report -->",
         "Fill the error message using [step by step known issues guidance]",
-
     ], StringComparison.OrdinalIgnoreCase);
 
     private readonly CancellationTokenSource _updateCts = new();
@@ -142,10 +141,7 @@ public sealed class IssueTriageService(
 
             queryTimer.Stop();
 
-            if (queryTimer.ElapsedMilliseconds > 25)
-            {
-                Logger.DebugLog($"[{nameof(IssueTriageService)}] Query for {repoConfig.RepoName} took {queryTimer.ElapsedMilliseconds:F2} ms, got {issues.Length} issues.");
-            }
+            Logger.TraceLog($"[{nameof(IssueTriageService)}] Query for {repoConfig.RepoName} took {queryTimer.ElapsedMilliseconds:F2} ms, got {issues.Length} issues.");
 
             int triaged = 0;
 
@@ -163,11 +159,12 @@ public sealed class IssueTriageService(
 
                 bool isNewIssue = triagedIssue.TriageReportIssueNumber == 0;
 
-                if ((!isNewIssue || issue.CreatedAt >= new DateTime(2025, 06, 10, 01, 00, 00, DateTimeKind.Utc)) &&
+                if (DateTime.UtcNow - issue.CreatedAt <= TimeSpan.FromDays(7) &&
                     issue.State == ItemState.Open &&
                     issue.PullRequest is null &&
                     (isNewIssue || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
-                    !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase))
+                    !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase) &&
+                    (isNewIssue || await db.BodyEditHistory.AsNoTracking().Where(e => e.ResourceIdentifier == issue.Id).CountAsync(cancellationToken) < 5))
                 {
                     triagedIssue.Body = issue.Body;
 
