@@ -148,14 +148,6 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
-                            Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
-
-                            if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
-                            {
-                                // Copilot assigned to issue.
-                                continue;
-                            }
-
                             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Running duplicate detection for issue <{issue.HtmlUrl}>");
 
                             _ = Task.Run(async () =>
@@ -245,7 +237,41 @@ public sealed class DuplicatesCommand : CommandBase
                         IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
                 }
 
-                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated)
+                bool autoPost = SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated;
+
+                if (autoPost)
+                {
+                    try
+                    {
+                        Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
+
+                        if (ghIssue.State == ItemState.Closed)
+                        {
+                            autoPost = false;
+                        }
+                        else if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
+                        {
+                            // Copilot assigned to issue.
+                            autoPost = false;
+                        }
+                        else
+                        {
+                            IReadOnlyList<IssueComment> ghComments = await _github.Issue.Comment.GetAllForIssue(issue.Repository.Id, issue.Number);
+
+                            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe.Issue))))
+                            {
+                                // Someone beat us to it.
+                                autoPost = false;
+                            }
+                        }
+                    }
+                    catch (NotFoundException)
+                    {
+                        autoPost = false;
+                    }
+                }
+
+                if (autoPost)
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
@@ -400,19 +426,19 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         return false;
+    }
 
-        static bool MentionsIssue(string text, IssueInfo issue)
+    private static bool MentionsIssue(string text, IssueInfo issue)
+    {
+        if (string.IsNullOrWhiteSpace(text))
         {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return false;
-            }
-
-            return text.Contains($"#{issue.Number}", StringComparison.Ordinal)
-                || text.Contains($" {issue.Number} ", StringComparison.Ordinal)
-                || text.Contains($" {issue.Number}.", StringComparison.Ordinal)
-                || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
+            return false;
         }
+
+        return text.Contains($"#{issue.Number}", StringComparison.Ordinal)
+            || text.Contains($" {issue.Number} ", StringComparison.Ordinal)
+            || text.Contains($" {issue.Number}.", StringComparison.Ordinal)
+            || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
