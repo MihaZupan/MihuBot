@@ -237,41 +237,7 @@ public sealed class DuplicatesCommand : CommandBase
                         IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
                 }
 
-                bool autoPost = SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated;
-
-                if (autoPost)
-                {
-                    try
-                    {
-                        Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
-
-                        if (ghIssue.State == ItemState.Closed)
-                        {
-                            autoPost = false;
-                        }
-                        else if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
-                        {
-                            // Copilot assigned to issue.
-                            autoPost = false;
-                        }
-                        else
-                        {
-                            IReadOnlyList<IssueComment> ghComments = await _github.Issue.Comment.GetAllForIssue(issue.Repository.Id, issue.Number);
-
-                            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe.Issue))))
-                            {
-                                // Someone beat us to it.
-                                autoPost = false;
-                            }
-                        }
-                    }
-                    catch (NotFoundException)
-                    {
-                        autoPost = false;
-                    }
-                }
-
-                if (autoPost)
+                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated && await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)]))
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
@@ -439,6 +405,65 @@ public sealed class DuplicatesCommand : CommandBase
             || text.Contains($" {issue.Number} ", StringComparison.Ordinal)
             || text.Contains($" {issue.Number}.", StringComparison.Ordinal)
             || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport)
+    {
+        try
+        {
+            Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
+
+            if (ghIssue.State == ItemState.Closed)
+            {
+                return false;
+            }
+
+            if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
+            {
+                // Copilot assigned to issue.
+                return false;
+            }
+
+            IReadOnlyList<IssueComment> ghComments = await _github.Issue.Comment.GetAllForIssue(issue.Repository.Id, issue.Number);
+
+            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe))))
+            {
+                // Someone beat us to it.
+                return false;
+            }
+
+            try
+            {
+                IReadOnlyList<Issue> subIssues = await _github.GetAllSubIssuesAsync(issue.RepositoryId, issue.Number, new ApiOptions { PageCount = 1, PageSize = 1 });
+
+                if (subIssues.Count > 0)
+                {
+                    // Related tasks seem to already be known.
+                    return false;
+                }
+
+                foreach (IssueInfo dupe in issuesToReport)
+                {
+                    subIssues = await _github.GetAllSubIssuesAsync(dupe.RepositoryId, dupe.Number);
+
+                    if (subIssues.Any(i => i.Id == issue.GitHubIdentifier))
+                    {
+                        // The new issue is already referenced as a sub-issue of the duplicate.
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not NotFoundException)
+            {
+                await _logger.DebugAsync($"Failed to fetch sub-issues for <{issue.HtmlUrl}>", ex);
+            }
+        }
+        catch (NotFoundException)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)

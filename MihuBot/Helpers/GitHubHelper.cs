@@ -160,6 +160,13 @@ public static partial class GitHubHelper
 
         return true;
     }
+
+    public static async Task<IReadOnlyList<Issue>> GetAllSubIssuesAsync(this GitHubClient client, long repositoryId, long issueNumber, ApiOptions options = null)
+    {
+        var connection = new ApiConnection(client.Connection);
+
+        return await connection.GetAll<Issue>(new Uri($"repositories/{repositoryId}/issues/{issueNumber}/sub_issues", UriKind.Relative), options ?? ApiOptions.None);
+    }
 }
 
 public record BranchReference(string Repository, Branch Branch);
