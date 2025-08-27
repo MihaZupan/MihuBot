@@ -1014,7 +1014,16 @@ public sealed class GitHubSearchService : IHostedService
             dbFts.TextEntries.AddRange(added);
         }
 
-        updates += await dbFts.SaveChangesAsync(CancellationToken.None);
+        try
+        {
+            updates += await dbFts.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (DbUpdateException ex)
+        {
+            // Somehow failed due to PK_text_entries constraint :shrug:
+            await _logger.DebugAsync($"FTS DB update failed", ex);
+        }
+
         updates += await db.SaveChangesAsync(CancellationToken.None);
 
         return updates;
