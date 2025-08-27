@@ -29,6 +29,7 @@ public sealed class DuplicatesCommand : CommandBase
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
+    private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.94d);
 
     public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search)
     {
@@ -190,20 +191,21 @@ public sealed class DuplicatesCommand : CommandBase
 
             SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesList);
             MessageComponent components = null;
+            double certaintyThreshold = CertaintyThreshold;
 
             string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
             string summary = FormatDuplicatesSummary(issue, duplicates);
 
-            if (duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty)))
+            if (duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold)))
             {
                 reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
 
                 var secondaryTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
 
                 bool secondaryTestIsUseful = secondaryTest.Any(d =>
-                    IsLikelyUsefulToReport(issue, d.Issue, d.Certainty) &&
+                    IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
                     duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-                    IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
+                    IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
 
                 var issuesToReport = duplicates;
 
@@ -232,9 +234,9 @@ public sealed class DuplicatesCommand : CommandBase
                     var thirdTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
 
                     thirdTestIsUseful = thirdTest.Any(d =>
-                        IsLikelyUsefulToReport(issue, d.Issue, d.Certainty) &&
+                        IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
                         duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-                        IsLikelyUsefulToReport(issue, other.Issue, other.Certainty));
+                        IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
                 }
 
                 if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated && await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)]))
@@ -316,8 +318,9 @@ public sealed class DuplicatesCommand : CommandBase
             SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesEmbeddings);
 
             string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
+            double certaintyThreshold = CertaintyThreshold;
 
-            if (duplicates.Any(d => d.Score >= 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1)))
+            if (duplicates.Any(d => d.Score >= 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1, certaintyThreshold)))
             {
                 reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
             }
@@ -334,9 +337,9 @@ public sealed class DuplicatesCommand : CommandBase
         }
     }
 
-    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty)
+    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold)
     {
-        if (certainty < 0.95)
+        if (certainty < certaintyThreshold)
         {
             return false;
         }
