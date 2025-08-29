@@ -98,6 +98,21 @@ public sealed class ChatGptComand : CommandBase
         bool isJared = command.Equals(JaredCommand, StringComparison.OrdinalIgnoreCase);
         bool isGrok = command.Equals(GrokCommand, StringComparison.OrdinalIgnoreCase);
 
+        Dictionary<ulong, ChatHistory> chatHistoryCollection =
+            isJared ? _jaredChatHistory :
+            isGrok ? _grokChatHistory :
+            _chatHistory;
+
+        if (prompt == "clearhistory" && context.IsFromAdmin)
+        {
+            lock (chatHistoryCollection)
+            {
+                chatHistoryCollection.Remove(channel.Id);
+            }
+
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(prompt))
         {
             if (isGrok)
@@ -156,13 +171,9 @@ public sealed class ChatGptComand : CommandBase
         var options = new ChatOptions
         {
             ConversationId = $"Discord_{channel.Id}_{author.Id}".GetUtf8Sha384HashBase64Url(),
-            MaxOutputTokens = maxTokens
+            MaxOutputTokens = _configurationService.GetOrDefault(channel.Guild.Id, "ChatGPT.SetMaxTokens", true) ? maxTokens : null
         };
 
-        Dictionary<ulong, ChatHistory> chatHistoryCollection =
-            isJared ? _jaredChatHistory :
-            isGrok ? _grokChatHistory :
-            _chatHistory;
         ChatHistory chatHistory;
 
         lock (chatHistoryCollection)

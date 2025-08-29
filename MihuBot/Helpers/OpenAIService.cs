@@ -61,8 +61,9 @@ public sealed class OpenAIService
     public IChatClient GetChat(ulong? context)
     {
         _configurationService.TryGet(context, "ChatGPT.Deployment", out string? deployment);
+        bool secondary = _configurationService.GetOrDefault(context, "ChatGPT.Secondary", false);
 
-        return GetChat(deployment);
+        return GetChat(deployment, secondary);
     }
 
     public IChatClient GetChat(string deployment, bool secondary = false)

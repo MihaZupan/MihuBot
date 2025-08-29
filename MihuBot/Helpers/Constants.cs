@@ -7,8 +7,6 @@ public static class Constants
     public static readonly FrozenSet<ulong> Admins = FrozenSet.Create(
     [
         KnownUsers.Miha,
-        KnownUsers.James,
-        KnownUsers.Jordan,
     ]);
 
     public const long MihuTelegramId = 168175103;
@@ -72,9 +70,9 @@ public static class KnownUsers
 
     // Admins
     public const ulong Miha         = 162569877087977480ul;
+
     public const ulong James        = 91680709588045824ul;
     public const ulong Jordan       = 236455327535464458ul;
-
     public const ulong Christian    = 397254656025427968ul;
     public const ulong PaulK        = 267771172962304000ul;
     public const ulong Sticky       = 162050931326713857ul;
