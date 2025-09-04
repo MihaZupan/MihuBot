@@ -147,11 +147,13 @@ public sealed class GitHubSearchService : IHostedService
                 IncludeVectors = false,
             };
 
+            double scoreMultiplier = VectorSearchScoreMultiplier;
+
             await foreach (VectorSearchResult<SemanticSearchRecord> item in vectorCollection.SearchAsync(queryEmbedding, topVectors, options, cancellationToken: CancellationToken.None))
             {
                 if (item.Score.HasValue && item.Score > 0.15)
                 {
-                    results.Add(new RawSearchResult(VectorSearchScoreMultiplier * item.Score.Value, item.Record.RepositoryId, item.Record.IssueId, item.Record.SubIdentifier));
+                    results.Add(new RawSearchResult(scoreMultiplier * item.Score.Value, item.Record.RepositoryId, item.Record.IssueId, item.Record.SubIdentifier));
                 }
             }
 
