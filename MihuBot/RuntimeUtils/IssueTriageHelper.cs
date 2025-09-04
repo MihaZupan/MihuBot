@@ -381,6 +381,8 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             ShortCommentInfo[] comments = CreateCommentInfos(issue, issueOrPRNumber, removeCommentsWithoutContext, includeAll: true);
 
+            OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
+
             return CreateIssueInfo(issue.CreatedAt, issue.User, issue.Body, issue, comments);
         }
 
@@ -625,7 +627,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                     .ToArray();
             }
 
-            OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
+            Logger.DebugLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
 
             return [.. comments.Select(CreateCommentInfo)];
         }
