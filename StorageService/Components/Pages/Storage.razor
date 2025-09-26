@@ -82,22 +82,27 @@
 
 @code
 {
-    private ContainerDbEntry[] _containers = [];
+	#pragma warning disable CS8618
 
-    [SupplyParameterFromForm]
-    private NewContainerModel NewContainer { get; set; } = new();
+	private ContainerDbEntry[] _containers = [];
 
-    private string? _newContainerSasKey;
-    private string? _newContainerError;
+	[SupplyParameterFromForm]
+	private NewContainerModel NewContainer { get; set; }
 
-    protected override async Task OnInitializedAsync()
-    {
-        _containers = await storage.GetAllContainersAsync();
-        StateHasChanged();
-    }
+	private string? _newContainerSasKey;
+	private string? _newContainerError;
 
-    private async Task CreateContainerAsync()
-    {
+	protected override async Task OnInitializedAsync()
+	{
+		NewContainer ??= new();
+		_containers = await storage.GetAllContainersAsync();
+		StateHasChanged();
+	}
+
+	private async Task CreateContainerAsync()
+	{
+		Debug.Assert(NewContainer is not null);
+
         (_newContainerError, _newContainerSasKey) = await storage.TryCreateContainerAsync(
             NewContainer.Owner, NewContainer.Name, NewContainer.IsPublic, TimeSpan.FromDays(NewContainer.RetentionPeriodDays));
 

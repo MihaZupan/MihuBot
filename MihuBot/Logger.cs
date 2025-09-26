@@ -103,6 +103,12 @@ public sealed partial class Logger
         Discord.GuildUnavailable += GuildUnavailableAsync;
         Discord.GuildMembersDownloaded += guild => { DebugLog($"Guild members downloaded for {guild.Name} ({guild.Id})"); return Task.CompletedTask; };
 
+        Discord.AuditLogCreated += (log, guild) =>
+        {
+            DebugLog($"Audit log: {log.CreatedAt} {log.Action} {log.Reason} {log.User?.Username} {JsonSerializer.Serialize(log.Data, JsonOptions)}", guild.Id, userId: log.User?.Id ?? 0);
+            return Task.CompletedTask;
+        };
+
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             string text = e.Exception.ToString();

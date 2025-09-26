@@ -84,7 +84,6 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
             _timerScheduled = false;
 
             value = _lastValue;
-            _lastValue = null;
             _lastRun = DateTime.UtcNow;
 
             _currentActionCts = new CancellationTokenSource();
@@ -114,6 +113,10 @@ public sealed class Debouncer<T> : IDisposable where T : IEquatable<T>
             if (_lastValue is not null && !EqualityComparer<T>.Default.Equals(value, (T)_lastValue))
             {
                 ScheduleOrRun();
+            }
+            else
+            {
+                _lastValue = null;
             }
         }
     }
