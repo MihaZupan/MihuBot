@@ -18,15 +18,15 @@ jobs:
         sudo apt install -y wget && \
         wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
         sudo chmod +x ./dotnet-install.sh && \
-        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir /usr/lib/dotnet && \
-        #sudo ./dotnet-install.sh --version 10.0.100-preview.7.25351.101 --install-dir /usr/lib/dotnet && \
-        dotnet --info
+        sudo ./dotnet-install.sh --channel 10.0 --quality daily --install-dir dotnet-latest && \
+        #sudo ./dotnet-install.sh --version 10.0.100-preview.7.25351.101 --install-dir dotnet-latest && \
+        dotnet-latest/dotnet --info
 
     - name: Dotnet restore
-      run: dotnet restore StorageService
+      run: dotnet-latest/dotnet restore StorageService
 
     - name: Dotnet publish
-      run: dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+      run: dotnet-latest/dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
 
     - name: Compress artifacts
       run: tar -cvzf artifacts.tar.gz artifacts
