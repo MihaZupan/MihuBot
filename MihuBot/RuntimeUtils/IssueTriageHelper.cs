@@ -286,7 +286,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             Logger.DebugLog($"Finished duplicate detection on issue #{Issue.Number} with model {Model.Name}:\n{JsonSerializer.Serialize(chatResponse.Result)}");
 
-            return [.. results];
+            return results
+                .GroupBy(r => r.Issue.Id)
+                .Select(g => g.MaxBy(i => i.Certainty))
+                .OrderByDescending(i => i.Certainty)
+                .ToArray();
         }
 
         private string GetSystemPrompt(string taskPrompt)
