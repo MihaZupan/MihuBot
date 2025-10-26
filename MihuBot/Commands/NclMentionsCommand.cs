@@ -162,8 +162,8 @@ public sealed class NclMentionsCommand : CommandBase
             Body = "@dotnet/ncl  --  SubscribeToRuntimeIssueAsync",
             Issue = new DB.GitHub.IssueInfo
             {
+                Id = issue.NodeId,
                 Number = issue.Number,
-                NodeIdentifier = issue.NodeId,
                 HtmlUrl = issue.HtmlUrl,
                 Repository = new DB.GitHub.RepositoryInfo
                 {

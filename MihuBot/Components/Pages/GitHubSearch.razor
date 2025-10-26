@@ -1,12 +1,11 @@
 ﻿@page "/search"
 @using Microsoft.AspNetCore.WebUtilities
 @using MihuBot.DB.GitHub
-@using MihuBot.RuntimeUtils
+@using MihuBot.RuntimeUtils.DataIngestion.GitHub
+@using MihuBot.RuntimeUtils.Search
 @using Octokit
-@using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings
-@using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult
 @rendermode InteractiveServer
-@inject GitHubDataService GitHubData
+@inject GitHubDataIngestionService DataIngestion
 @inject GitHubSearchService Search
 @inject Logger Logger
 @inject NavigationManager Navigation
@@ -70,9 +69,9 @@
                         <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@(RepoFilter ?? "Filter repos")</button>
                         <div class="dropdown-menu">
                             <a class="dropdown-item" @onclick="() => RepoFilter = null">All</a>
-                            @foreach (string repo in GitHubData.WatchedRepos)
+                            @foreach (RepositoryIngestionStats repo in DataIngestion.Stats.TrackedRepos)
                             {
-                                <a class="dropdown-item" @onclick="() => RepoFilter = repo">@repo</a>
+                                <a class="dropdown-item" @onclick="() => RepoFilter = repo.RepoName">@repo.RepoName</a>
                             }
                         </div>
                     </div>
@@ -81,7 +80,7 @@
         </div>
 
         <div class="statistics-container">
-            <p>@GetStatsNumberString(GitHubData.IssueCount) issues, @GetStatsNumberString(GitHubData.CommentCount) comments, @GetStatsNumberString(GitHubData.SearchVectorCount) vectors</p>
+            <p>@GetStatsNumberString(DataIngestion.Stats.IssueCount) issues, @GetStatsNumberString(DataIngestion.Stats.CommentCount) comments, @GetStatsNumberString(DataIngestion.Stats.SearchVectorCount) vectors</p>
         </div>
     </div>
 
@@ -164,7 +163,7 @@
         if (issue.PullRequest is { } pr)
         {
             return issue.State == ItemState.Open
-                ? pr.Draft ? "icon-pr-opened-draft" : "icon-pr-opened"
+                ? pr.IsDraft ? "icon-pr-opened-draft" : "icon-pr-opened"
                 : pr.MergedAt.HasValue ? "icon-pr-merged" : "icon-pr-closed";
         }
 
@@ -251,7 +250,7 @@
                     DoRelevanceClassification = true;
                 }
 
-                if (query.TryGetValue("repo", out var repo) && GitHubData.WatchedRepos.Contains(repo))
+                if (query.TryGetValue("repo", out var repo) && DataIngestion.Stats.TrackedRepos.Any(r => r.RepoName == repo))
                 {
                     RepoFilter = repo;
                 }
@@ -284,26 +283,49 @@
                 {
                     _isLoading = true;
 
-                    var filters = new GitHubSearchService.IssueSearchFilters(IncludeOpen: true, IncludeClosed: !includeOpenIssueOnly, IncludeIssues: true, IncludePullRequests: true);
-                    filters.Repository = repoFilter;
+                    var filters = new IssueSearchFilters
+                    {
+                        IncludeOpen = true,
+                        IncludeClosed = !includeOpenIssueOnly,
+                        IncludeIssues = true,
+                        IncludePullRequests = true,
+                        Repository = repoFilter,
+                    };
+
+                    var options = new IssueSearchResponseOptions
+                    {
+                        MaxResults = 100,
+                        PreferSpeed = true,
+                        IncludeIssueComments = false,
+                    };
 
                     Logger.DebugLog($"Starting UI search for '{searchQuery}'");
 
-                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, maxResults: 100, filters, includeAllIssueComments: false, cancellationToken);
+                    var searchTask = Search.SearchIssuesAndCommentsAsync(searchQuery, filters, options, cancellationToken);
                     await InvokeAsync(StateHasChanged);
 
-                    ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await searchTask;
+                    GitHubSearchResponse response = await searchTask;
 
                     if (doRelevanceClassification)
                     {
-                        results = await Search.FilterOutUnrelatedResults(searchQuery, extraSearchContext: repoFilter, preferSpeed: true, results, timings, cancellationToken);
+                        Stopwatch stopwatch = Stopwatch.StartNew();
+
+                        var searchContext = new IssueSearchBulkFilters().GetPostProcessingContext(searchQuery);
+
+                        var results = await Search.FilterOutUnrelatedResultsAsync(searchContext, response.Results, options.PreferSpeed, cancellationToken);
+
+                        response = response with
+                        {
+                            Timings = response.Timings with { Reclassification = stopwatch.Elapsed },
+                            Results = results
+                        };
                     }
 
-                    _searchResults = results
+                    _searchResults = response.Results
                         .Select(r => (r.Results[0].Issue, r.Score))
                         .ToArray();
 
-                    _timings = timings;
+                    _timings = response.Timings;
                 }
 
                 var newUrl = Navigation.GetUriWithQueryParameters(new Dictionary<string, object>

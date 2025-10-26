@@ -48,8 +48,7 @@
         _pauseSwitches =
         [
             ("GitHub polling",              () => Services.PauseGitHubPolling,                  val => Services.PauseGitHubPolling = val),
-            ("embedding ingestion",         () => Services.PauseEmbeddingIngestion,             val => Services.PauseEmbeddingIngestion = val),
-            ("FTS ingestion",               () => Services.PauseFtsIngestion,                   val => Services.PauseFtsIngestion = val),
+            ("semantic ingestion",          () => Services.PauseSemanticIngestion,              val => Services.PauseSemanticIngestion = val),
             ("auto triage",                 () => Services.PauseAutoTriage,                     val => Services.PauseAutoTriage = val),
             ("NCL notification polling",    () => Services.PauseGitHubNCLNotificationPolling,   val => Services.PauseGitHubNCLNotificationPolling = val),
             ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),

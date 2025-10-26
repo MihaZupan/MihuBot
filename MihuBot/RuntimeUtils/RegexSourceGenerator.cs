@@ -152,7 +152,7 @@ public sealed class RegexSourceGenerator
     {
         long start = Stopwatch.GetTimestamp();
 
-        CacheEntry entry = await _cache.GetOrCreateAsync($"/regexsourcegen/{generator.Name}/{options}/{pattern.GetUtf8Sha384HashBase64Url()}", async cancellationToken =>
+        CacheEntry entry = await _cache.GetOrCreateAsync($"/regexsourcegen/{generator.Name}/{options}/{pattern.GetUtf8Sha3_512HashBase64Url()}", async cancellationToken =>
         {
             string optionsSource = "";
             if (options != RegexOptions.None)

@@ -91,7 +91,7 @@ public sealed partial class GitHubNotificationsService
                         new InMemoryCredentialStore(user.Token),
                         _http);
 
-                    await connection.EnableIssueNotifiactionsAsync(comment.Issue.NodeIdentifier);
+                    await connection.EnableIssueNotifiactionsAsync(comment.Issue.Id);
 
                     _processedMentions.TryAdd(duplicationKey);
 
@@ -210,7 +210,7 @@ public sealed partial class GitHubNotificationsService
                         .AsNoTracking()
                         .Where(i => i.CreatedAt >= start && i.CreatedAt <= end)
                         .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
-                        .Where(i => i.PullRequest == null)
+                        .Where(i => i.IssueType == IssueType.Issue)
                         .FromDotnetRuntime()
                         .Include(i => i.Comments)
                         .OrderByDescending(i => i.CreatedAt)

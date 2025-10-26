@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
+using MihuBot.RuntimeUtils.Search;
 using Octokit;
 
 namespace MihuBot.Commands;
@@ -120,6 +122,7 @@ public sealed class DuplicatesCommand : CommandBase
                             .AsNoTracking()
                             .Where(i => i.CreatedAt >= startDate)
                             .Where(i => i.State == ItemState.Open)
+                            .Where(i => i.IssueType == IssueType.Issue)
                             .OrderByDescending(i => i.CreatedAt);
 
                         query = IssueTriageHelper.AddIssueInfoIncludes(query);
@@ -131,8 +134,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                         foreach (IssueInfo issue in issues)
                         {
-                            if (issue.PullRequest is not null ||
-                                !issue.User.IsLikelyARealUser() ||
+                            if (!issue.User.IsLikelyARealUser() ||
                                 _configuration.GetOrDefault(null, $"{Command}.Pause.{issue.RepoName()}", false))
                             {
                                 continue;
@@ -293,9 +295,8 @@ public sealed class DuplicatesCommand : CommandBase
 
             var searchResults = await _search.SearchIssuesAndCommentsAsync(
                 description,
-                maxResults: 10,
-                new GitHubSearchService.IssueSearchFilters(true, true, true, true) { Repository = issue.Repository.FullName },
-                includeAllIssueComments: false,
+                new IssueSearchFilters { Repository = issue.Repository.FullName },
+                new IssueSearchResponseOptions { MaxResults = 10, IncludeIssueComments = false },
                 cancellationToken: CancellationToken.None);
 
             var duplicates = searchResults.Results
@@ -344,7 +345,7 @@ public sealed class DuplicatesCommand : CommandBase
             return false;
         }
 
-        if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataService.GhostUserId)
+        if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataIngestionService.GhostUserId)
         {
             // Same author? They're likely aware of the other issue.
             return false;
@@ -421,7 +422,7 @@ public sealed class DuplicatesCommand : CommandBase
                 return false;
             }
 
-            if (ghIssue.Assignee?.Id == GitHubDataService.CopilotUserId)
+            if (ghIssue.Assignee?.Id == GitHubDataIngestionService.CopilotUserId)
             {
                 // Copilot assigned to issue.
                 return false;
@@ -449,7 +450,7 @@ public sealed class DuplicatesCommand : CommandBase
                 {
                     subIssues = await _github.GetAllSubIssuesAsync(dupe.RepositoryId, dupe.Number);
 
-                    if (subIssues.Any(i => i.Id == issue.GitHubIdentifier))
+                    if (subIssues.Any(i => i.NodeId == issue.Id))
                     {
                         // The new issue is already referenced as a sub-issue of the duplicate.
                         return false;

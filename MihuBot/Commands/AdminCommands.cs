@@ -1,43 +1,27 @@
-﻿using Discord.Rest;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
-using MihuBot.DB.GitHubFts;
-using MihuBot.RuntimeUtils;
-using Octokit;
+using MihuBot.RuntimeUtils.Search;
 
 namespace MihuBot.Commands;
 
 public sealed class AdminCommands : CommandBase
 {
-    public override string Command => "dropingestedembeddings";
+    public override string Command => "dumpdbcounts";
     public override string[] Aliases =>
     [
-        "dropingestedftsrecords",
-        "clearingestedembeddingsupdatedat",
-        "clearingestedembeddingswithcodeblocks",
         "clearbodyedithistorytable",
-        "deleteissueandembeddings",
-        "ingestnewrepo",
-        "ingestnewreposcan",
-        "dumpdbcounts",
         "clearhybridcache-search",
     ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
-    private readonly IDbContextFactory<GitHubFtsDbContext> _dbFts;
     private readonly IDbContextFactory<MihuBotDbContext> _dbMihuBot;
     private readonly IDbContextFactory<LogsDbContext> _dbLogs;
-    private readonly GitHubDataService _gitHubDataService;
-    private readonly GitHubSearchService _gitHubSearchService;
     private readonly HybridCache _cache;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, GitHubDataService gitHubDataService, GitHubSearchService gitHubSearchService, IDbContextFactory<GitHubFtsDbContext> dbFts, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache)
     {
         _db = db;
-        _gitHubDataService = gitHubDataService;
-        _gitHubSearchService = gitHubSearchService;
-        _dbFts = dbFts;
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
         _cache = cache;
@@ -50,54 +34,6 @@ public sealed class AdminCommands : CommandBase
             return;
         }
 
-        if (ctx.Command == "dropingestedembeddings")
-        {
-            await using GitHubDbContext db = _db.CreateDbContext();
-            int updates = await db.IngestedEmbeddings.ExecuteDeleteAsync();
-            await ctx.ReplyAsync($"Deleted {updates} ingested embeddings.");
-        }
-
-        if (ctx.Command == "dropingestedftsrecords")
-        {
-            await using GitHubDbContext db = _db.CreateDbContext();
-            int updates = await db.IngestedFullTextSearchRecords.ExecuteDeleteAsync();
-            await ctx.ReplyAsync($"Deleted {updates} ingested FTS records.");
-        }
-
-        if (ctx.Command == "clearingestedembeddingsupdatedat")
-        {
-            await using GitHubDbContext db = _db.CreateDbContext();
-            int updates = await db.IngestedEmbeddings
-                .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2010, 1, 1)));
-            await ctx.ReplyAsync($"Updated {updates} ingested embeddings.");
-        }
-
-        if (ctx.Command == "clearingestedembeddingswithcodeblocks")
-        {
-            await using GitHubDbContext db = _db.CreateDbContext();
-
-            var issueIds = await db.Issues.AsNoTracking()
-                .Where(i => i.Body.Contains("```"))
-                .Select(i => i.Id)
-                .ToListAsync(ctx.CancellationToken);
-
-            issueIds.AddRange(await db.Comments.AsNoTracking()
-                .Where(c => c.Body.Contains("```"))
-                .Select(c => c.IssueId)
-                .ToListAsync(ctx.CancellationToken));
-
-            int totalUpdates = 0;
-
-            foreach (string[] chunk in issueIds.Distinct().Chunk(100))
-            {
-                totalUpdates += await db.IngestedEmbeddings
-                    .Where(e => chunk.Any(c => c == e.ResourceIdentifier))
-                    .ExecuteUpdateAsync(e => e.SetProperty(e => e.UpdatedAt, new DateTime(2010, 1, 1)));
-            }
-
-            await ctx.ReplyAsync($"Updated {totalUpdates} ingested embeddings.");
-        }
-
         if (ctx.Command == "clearbodyedithistorytable")
         {
             await using GitHubDbContext db = _db.CreateDbContext();
@@ -105,94 +41,9 @@ public sealed class AdminCommands : CommandBase
             await ctx.ReplyAsync($"Deleted {updates} body edit history entries.");
         }
 
-        if (ctx.Command == "deleteissueandembeddings")
-        {
-            if (ctx.Arguments.Length != 1)
-            {
-                await ctx.ReplyAsync("Usage: `deleteissueandembeddings <issueId>`");
-                return;
-            }
-
-            string message = await _gitHubSearchService.DeleteIssueAndEmbeddingsAsync(ctx.Arguments[0]);
-            await ctx.ReplyAsync(message);
-        }
-
-        if (ctx.Command is "ingestnewrepo" or "ingestnewreposcan")
-        {
-            bool scanOnly = ctx.Command == "ingestnewreposcan";
-
-            if (ctx.Arguments.Length is 0 or > 4 ||
-                ctx.Arguments[0].Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) is not { Length: 2 } parts)
-            {
-                await ctx.ReplyAsync("Usage: `ingestnewrepo owner/name`");
-                return;
-            }
-
-            string repoOwner = parts[0];
-            string repoName = parts[1];
-
-            int initialIssueNumber = ctx.Arguments.Length >= 2
-                ? int.Parse(ctx.Arguments[1])
-                : -1;
-
-            int targetApiRate = ctx.Arguments.Length >= 3
-                ? int.Parse(ctx.Arguments[2])
-                : 4000;
-
-            string alternativeClientKey = ctx.Arguments.Length >= 4
-                ? ctx.Arguments[3]
-                : null;
-
-            GitHubClient alternativeClient = alternativeClientKey is null ? null : new GitHubClient(new ProductHeaderValue("MihuBot"))
-            {
-                Credentials = new Credentials(alternativeClientKey)
-            };
-
-            RestUserMessage message = await ctx.Channel.SendMessageAsync($"Ingesting new repository: {repoOwner}/{repoName}...");
-
-            using var debouncer = new Debouncer<string>(TimeSpan.FromSeconds(30), async (log, ct) =>
-            {
-                await message.ModifyAsync(msg => msg.Content = log);
-            });
-
-            Stopwatch stopwatch = Stopwatch.StartNew();
-
-            int previousDbUpdates = 0;
-            int newDbUpdates = 0;
-            int rescans = 0;
-
-            do
-            {
-                rescans++;
-                stopwatch.Restart();
-                previousDbUpdates = newDbUpdates;
-
-                await foreach ((string log, _, int dbUpdates) in _gitHubDataService.IngestNewRepositoryAsync(repoOwner, repoName, initialIssueNumber, targetApiRate, alternativeClient, ctx.CancellationToken))
-                {
-                    newDbUpdates = dbUpdates;
-                    debouncer.Update(log);
-                }
-            }
-            while (!scanOnly && stopwatch.Elapsed.TotalHours > 3 && (newDbUpdates - previousDbUpdates) > 5_000 && rescans <= 2);
-
-            if (!scanOnly)
-            {
-                debouncer.Update($"Ingestion of {repoOwner}/{repoName} complete. Performing initial rescan after delay...");
-
-                await Task.Delay(5_000, ctx.CancellationToken);
-
-                await _gitHubDataService.UpdateRepositoryDataAsync(repoOwner, repoName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1), targetApiRate, alternativeClient);
-            }
-
-            debouncer.Update("All done");
-
-            await Task.Delay(20_000, ctx.CancellationToken);
-        }
-
         if (ctx.Command == "dumpdbcounts")
         {
             await using GitHubDbContext db = _db.CreateDbContext();
-            await using GitHubFtsDbContext dbFts = _dbFts.CreateDbContext();
             await using MihuBotDbContext dbMihuBot = _dbMihuBot.CreateDbContext();
             await using LogsDbContext dbLogs = _dbLogs.CreateDbContext();
 
@@ -204,11 +55,12 @@ public sealed class AdminCommands : CommandBase
                 ("Comments", () => db.Comments.CountAsync()),
                 ("Users", () => db.Users.CountAsync()),
                 ("Labels", () => db.Labels.CountAsync()),
+                ("Milestones", () => db.Milestones.CountAsync()),
                 ("BodyEditHistory", () => db.BodyEditHistory.CountAsync()),
-                ("IngestedEmbeddings", () => db.IngestedEmbeddings.CountAsync()),
-                ("IngestedFullTextSearchRecords", () => db.IngestedFullTextSearchRecords.CountAsync()),
                 ("TriagedIssues", () => db.TriagedIssues.CountAsync()),
-                ("TextEntries", () => dbFts.TextEntries.CountAsync()),
+                ("SemanticIngestionBacklog", () => db.SemanticIngestionBacklog.CountAsync()),
+                ("IngestedEmbeddings", () => db.IngestedEmbeddings.CountAsync()),
+                ("TextEntries", () => db.TextEntries.CountAsync()),
                 ("Logs", () => dbLogs.Logs.CountAsync()),
                 ("Reminders", () => dbMihuBot.Reminders.CountAsync()),
                 ("CompletedJobs", () => dbMihuBot.CompletedJobs.CountAsync()),

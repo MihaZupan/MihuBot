@@ -1,0 +1,100 @@
+﻿@page "/data-ingestion"
+@using Microsoft.EntityFrameworkCore
+@using System.Text.RegularExpressions
+@using MihuBot.RuntimeUtils.DataIngestion.GitHub
+@rendermode InteractiveServer
+@inject GitHubDataIngestionService IngestionService
+@attribute [StreamRendering]
+
+<PageTitle>Data Ingestion</PageTitle>
+
+@if (IngestionService.Stats.TrackedRepos.Length == 0)
+{
+    <p><em>No repositories found.</em></p>
+}
+else
+{
+    <table class="table table-dark">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Number of issues/comments</th>
+                <th>Number of embedding/FTS records</th>
+                <th>Rescan in progress</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var repo in IngestionService.Stats.TrackedRepos)
+            {
+                <tr>
+                    <td>@repo.RepoName</td>
+                    <td>@repo.IssueCount / @repo.CommentCount</td>
+                    <td>@repo.SearchVectorCount / @repo.FullTextEntries</td>
+                    <td>@repo.RescanInProgress @(repo.InitialIngestion ? "(initial ingest)" : "")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+<AuthorizeView Policy="Admin">
+    <Authorized>
+        <form @onsubmit="OnboardAsync">
+            <div class="form-group">
+                <div class="form-group input-group mb-3">
+                    <input @bind="_newRepoUrl" type="text" class="form-control" placeholder="Repo URL" aria-label="Message" aria-describedby="basic-addon2">
+                    <div class="input-group-append">
+                        <button disabled="@_onboardingInProgress" @onclick="OnboardAsync" class="btn btn-outline-secondary" type="button">Onboard repo</button>
+                    </div>
+                </div>
+
+                @if (_errorMessage != null)
+                {
+                    <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
+                }
+            </div>
+        </form>
+    </Authorized>
+</AuthorizeView>
+
+@if (_onboardingInProgress)
+{
+    <div>Please wait ...</div>
+}
+
+@code {
+    #nullable enable
+    string? _newRepoUrl;
+    string? _errorMessage;
+    bool _onboardingInProgress;
+
+    async Task OnboardAsync()
+    {
+        if (_onboardingInProgress)
+        {
+            return;
+        }
+
+        try
+        {
+            _errorMessage = null;
+
+            if (!GitHubHelper.TryParseRepoOwnerAndName(_newRepoUrl, out string? repoOwner, out string? repoName, out _))
+            {
+                _errorMessage = "Invalid GitHub repo URL";
+                return;
+            }
+
+            _onboardingInProgress = true;
+            await IngestionService.OnboardNewRepositoryAsync(repoOwner, repoName, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.ToString();
+        }
+        finally
+        {
+            _onboardingInProgress = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

@@ -138,9 +138,9 @@ public sealed class FriendlyActionsCommands : CommandBase
             "spit" => $"spat on {target} and called them a wh ||friend||",
             "curbstomp" => $"curb stomped {target} {Emotes.EyesShaking}",
             "poke" => $"pokes {target} {Emotes.MonkaStab}",
-            "laugh" => $"{Emotes.PepePoint} {target}", // TODO {Emotes.DarlClown}
+            "laugh" => $"{Emotes.PepePoint} {target}",
             "hiton" => $"Come here often, {target}?",
-            "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}", // TODO {Emotes.DarlUwU}
+            "uwu" => $"Daaayum! Look at {target} lookin' all cute and shit. {Emotes.KermitUwU}",
             "beatup" => $"just beat up {target} {Emotes.EyesShaking}",
             "beatupandtakelunchmoney" => $"just beat up {target} and took their lunch money {Emotes.EyesShaking}",
             _ => null

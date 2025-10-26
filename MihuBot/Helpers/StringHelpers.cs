@@ -1,6 +1,10 @@
 ﻿using System.Buffers;
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Security.Cryptography;
+
+#nullable enable
 
 namespace MihuBot.Helpers;
 
@@ -40,7 +44,7 @@ public static class StringHelpers
 
     private static readonly SearchValues<char> s_quoteCharacters = SearchValues.Create("\"'‘’“”");
 
-    public static string[] TrySplitQuotedArgumentString(ReadOnlySpan<char> arguments, out string error)
+    public static string[]? TrySplitQuotedArgumentString(ReadOnlySpan<char> arguments, out string? error)
     {
         List<string> parts = new List<string>();
 
@@ -109,22 +113,33 @@ public static class StringHelpers
         return source.AsSpan(index + 1).Trim().ToString();
     }
 
-    public static string GetUtf8Sha384HashBase64Url(this string text)
+    public static string GetUtf8Sha3_512HashBase64Url(this string text)
     {
-        byte[] utf8 = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(text.Length));
-        int byteCount = Encoding.UTF8.GetBytes(text, utf8);
-
-        Span<byte> hash = stackalloc byte[SHA384.HashSizeInBytes];
-        SHA384.HashData(utf8.AsSpan(0, byteCount), hash);
-
-        ArrayPool<byte>.Shared.Return(utf8);
-
+        Span<byte> hash = stackalloc byte[SHA3_512.HashSizeInBytes];
+        ComputeHash(text, hash);
         return Base64Url.EncodeToString(hash);
     }
 
-    public static byte[] GetUtf8Sha384Hash(this string text)
+    public static Guid GetTruncatedContentHash(this string content)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes(text);
-        return SHA384.HashData(bytes);
+        Span<byte> hash = stackalloc byte[SHA3_512.HashSizeInBytes];
+        ComputeHash(content, hash);
+        return new Guid(hash[..16], bigEndian: false);
+    }
+
+    private static void ComputeHash(string content, Span<byte> hash)
+    {
+        byte[] utf8 = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(content.Length));
+        int byteCount = Encoding.UTF8.GetBytes(content, utf8);
+        SHA3_512.HashData(utf8.AsSpan(0, byteCount), hash);
+        ArrayPool<byte>.Shared.Return(utf8);
+    }
+
+    [return: NotNullIfNotNull(nameof(text))]
+    public static string? RemoveNullChars(this string? text) => text?.Replace("\0", "", StringComparison.Ordinal);
+
+    public static long ParseInt64(ReadOnlySpan<char> text)
+    {
+        return long.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
     }
 }

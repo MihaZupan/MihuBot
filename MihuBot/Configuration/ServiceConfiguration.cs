@@ -16,16 +16,10 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseGitHubPolling), value);
     }
 
-    public bool PauseEmbeddingIngestion
+    public bool PauseSemanticIngestion
     {
-        get => Get(nameof(PauseEmbeddingIngestion));
-        set => Set(nameof(PauseEmbeddingIngestion), value);
-    }
-
-    public bool PauseFtsIngestion
-    {
-        get => Get(nameof(PauseFtsIngestion));
-        set => Set(nameof(PauseFtsIngestion), value);
+        get => Get(nameof(PauseSemanticIngestion));
+        set => Set(nameof(PauseSemanticIngestion), value);
     }
 
     public bool DisableVectorSearch

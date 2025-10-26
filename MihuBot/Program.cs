@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
@@ -23,7 +24,8 @@ using MihuBot.Location;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
-using Octokit;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
+using MihuBot.RuntimeUtils.Search;
 using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
@@ -180,10 +182,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     };
     services.AddSingleton(httpClient);
 
-    services.AddSingleton(new GitHubClient(new ProductHeaderValue("MihuBot"))
-    {
-        Credentials = new Credentials(builder.Configuration["GitHub:Token"]),
-    });
+    builder.AddGitHubDataIngestion();
 
     var discord = new InitializedDiscordClient(
         new DiscordSocketConfig()
@@ -211,6 +210,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<Logger>();
 
+    services.TryAddEnumerable(
+        ServiceDescriptor.Singleton<ILoggerProvider, LoggerAdapterLoggerProvider>());
+
     services.AddSingleton<IPermissionsService, PermissionsService>();
 
     services.AddSingleton<OpenAIService>();
@@ -229,16 +231,12 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<RegexSourceGenerator>();
 
-    services.AddSingleton<GitHubDataService>();
-    services.AddHostedService(s => s.GetRequiredService<GitHubDataService>());
-
     services.AddSingleton<GitHubNotificationsService>();
 
     builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
     builder.Services.AddQdrantVectorStore();
 
     services.AddSingleton<GitHubSearchService>();
-    services.AddHostedService(s => s.GetRequiredService<GitHubSearchService>());
 
     services.AddSingleton<IssueTriageHelper>();
 

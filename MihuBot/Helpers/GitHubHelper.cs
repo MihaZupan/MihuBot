@@ -1,13 +1,18 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Buffers;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
 using MihuBot.DB.GitHub;
-using MihuBot.RuntimeUtils;
 using Octokit;
+
+#nullable enable
 
 namespace MihuBot.Helpers;
 
 public static partial class GitHubHelper
 {
-    public static async Task<BranchReference> TryParseGithubRepoAndBranch(GitHubClient github, string url)
+    private const int CopilotUserId = 198982749;
+
+    public static async Task<BranchReference?> TryParseGithubRepoAndBranch(GitHubClient github, string url)
     {
         Match match = RepoAndBranchRegex().Match(url);
         if (!match.Success)
@@ -48,45 +53,6 @@ public static partial class GitHubHelper
         }
 
         return null;
-    }
-
-    public static bool TryParseIssueOrPRNumber(string input, out int prNumber) =>
-        TryParseIssueOrPRNumber(input, out _, out prNumber);
-
-    public static bool TryParseIssueOrPRNumber(string input, out string repoName, out int prNumber)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            repoName = null;
-            prNumber = 0;
-            return false;
-        }
-
-        input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
-            .Trim('#', '<', '>');
-
-        if (int.TryParse(input, out prNumber) && prNumber > 0)
-        {
-            repoName = null;
-            return true;
-        }
-
-        // https://github.com/dotnet/runtime/issues/111492
-        // "/", "dotnet/", "runtime/", "issues/", "111492"
-        if (Uri.TryCreate(input, UriKind.Absolute, out Uri uri) &&
-            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
-            uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.Segments is { Length: 5 } segments &&
-            (segments[3].Equals("pull/", StringComparison.OrdinalIgnoreCase) || segments[3].Equals("issues/", StringComparison.OrdinalIgnoreCase)) &&
-            int.TryParse(segments[4], out prNumber) &&
-            prNumber > 0)
-        {
-            repoName = $"{segments[1]}{segments[2].TrimEnd('/')}";
-            return true;
-        }
-
-        repoName = null;
-        return false;
     }
 
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+)/([A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)([\?#/].*)?$")]
@@ -136,6 +102,89 @@ public static partial class GitHubHelper
 
     public static string RepoName(this CommentInfo comment) => comment.Issue.RepoName();
 
+    public static bool TryParseIssueOrPRNumber(string input, out int prNumber) =>
+        TryParseIssueOrPRNumber(input, out _, out prNumber);
+
+    public static bool TryParseIssueOrPRNumber(string? input, [NotNullWhen(true)] out string? org, [NotNullWhen(true)] out string? repoName, out int prNumber)
+    {
+        if (!TryParseIssueOrPRNumber(input, out string? fullRepoName, out prNumber) || fullRepoName is null)
+        {
+            org = null;
+            repoName = null;
+            return false;
+        }
+
+        string[] parts = fullRepoName.Split('/');
+        (org, repoName) = (parts[0], parts[1]);
+        return true;
+    }
+
+    public static bool TryParseIssueOrPRNumber(string? input, out string? repoName, out int prNumber)
+    {
+        if (TryParseRepoOwnerAndName(input, out string? repoOwner, out string? repo, out string[]? extra) &&
+            extra.Length == 2 &&
+            (extra[0].Equals("pull/", StringComparison.OrdinalIgnoreCase) || extra[0].Equals("issues/", StringComparison.OrdinalIgnoreCase)) &&
+            int.TryParse(extra[1], out prNumber) &&
+            prNumber > 0)
+        {
+            repoName = $"{repoOwner}/{repo}";
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            repoName = null;
+            prNumber = 0;
+            return false;
+        }
+
+        input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
+            .Trim('#', '<', '>');
+
+        if (int.TryParse(input, out prNumber) && prNumber > 0)
+        {
+            repoName = null;
+            return true;
+        }
+
+        repoName = null;
+        return false;
+    }
+
+    public static bool TryParseRepoOwnerAndName(string? input, [NotNullWhen(true)] out string? repoOwner, [NotNullWhen(true)] out string? repoName, [NotNullWhen(true)] out string[]? extra)
+    {
+        repoOwner = null;
+        repoName = null;
+        extra = null;
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
+            .Trim('#', '<', '>');
+
+        // https://github.com/dotnet/runtime/issues/111492
+        // "/", "dotnet/", "runtime/", "issues/", "111492"
+        if (Uri.TryCreate(input, UriKind.Absolute, out Uri? uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+            uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+            uri.Segments is { Length: > 2 } segments)
+        {
+            repoOwner = segments[1].TrimEnd('/');
+            repoName = segments[2].TrimEnd('/');
+            extra = segments.AsSpan(3).ToArray();
+            return true;
+        }
+
+        return false;
+    }
+
+    private static readonly SearchValues<string> s_botNameChunks = SearchValues.Create(
+        ["[bot]", "-service", "-agent", "copilot", "-pipeline", "-action", "-aspnet"],
+        StringComparison.OrdinalIgnoreCase);
+
     public static bool IsLikelyARealUser(this UserInfo user)
     {
         ArgumentNullException.ThrowIfNull(user);
@@ -145,15 +194,21 @@ public static partial class GitHubHelper
             return false;
         }
 
-        if (user.Id == GitHubDataService.CopilotUserId)
+        if (user.Id == CopilotUserId)
         {
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(user.Login) ||
-            user.Login.Contains("[bot]", StringComparison.OrdinalIgnoreCase) ||
+            user.Login.ContainsAny(s_botNameChunks) ||
             user.Login.EndsWith("Bot", StringComparison.Ordinal) ||
             user.Login.EndsWith("-bot", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(user.Bio) &&
+            user.Bio.StartsWith("Bot ", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -161,7 +216,7 @@ public static partial class GitHubHelper
         return true;
     }
 
-    public static async Task<IReadOnlyList<Issue>> GetAllSubIssuesAsync(this GitHubClient client, long repositoryId, long issueNumber, ApiOptions options = null)
+    public static async Task<IReadOnlyList<Issue>> GetAllSubIssuesAsync(this GitHubClient client, long repositoryId, long issueNumber, ApiOptions? options = null)
     {
         var connection = new ApiConnection(client.Connection);
 

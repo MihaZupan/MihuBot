@@ -3,6 +3,8 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
+using MihuBot.DB.Models;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils;
@@ -10,7 +12,7 @@ namespace MihuBot.RuntimeUtils;
 public sealed class IssueTriageService(
     GitHubClient GitHub,
     IssueTriageHelper TriageHelper,
-    GitHubDataService GitHubData,
+    GitHubDataIngestionService DataIngestion,
     Logger Logger,
     IDbContextFactory<GitHubDbContext> GitHubDb,
     ServiceConfiguration ServiceConfiguration)
@@ -114,7 +116,7 @@ public sealed class IssueTriageService(
         {
             await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-            long repoId = await GitHubData.TryGetKnownRepositoryIdAsync(repoConfig.RepoName, cancellationToken);
+            long repoId = await DataIngestion.TryGetKnownRepositoryIdAsync(repoConfig.RepoName, cancellationToken);
 
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repoId, repoConfig.RepoName);
 
@@ -161,7 +163,7 @@ public sealed class IssueTriageService(
 
                 if (DateTime.UtcNow - issue.CreatedAt <= TimeSpan.FromDays(7) &&
                     issue.State == ItemState.Open &&
-                    issue.PullRequest is null &&
+                    issue.IssueType == IssueType.Issue &&
                     (isNewIssue || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
                     !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase) &&
                     (isNewIssue || await db.BodyEditHistory.AsNoTracking().Where(e => e.ResourceIdentifier == issue.Id).CountAsync(cancellationToken) < 5))

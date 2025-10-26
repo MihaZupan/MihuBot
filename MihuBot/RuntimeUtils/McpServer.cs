@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils.Search;
 using ModelContextProtocol.Server;
 
 namespace MihuBot.RuntimeUtils;
@@ -48,8 +49,12 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
             repository = $"dotnet/{repository}";
         }
 
-        var filters = new GitHubSearchService.IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests, createdAfter)
+        var filters = new IssueSearchFilters
         {
+            IncludeOpen = includeOpen,
+            IncludeClosed = includeClosed,
+            IncludeIssues = includeIssues,
+            IncludePullRequests = includePullRequests,
             Repository = repository
         };
 

@@ -1,14 +1,12 @@
 ﻿using System.ComponentModel;
-using System.Globalization;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
-using IssueSearchFilters = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchFilters;
-using IssueSearchResult = MihuBot.RuntimeUtils.GitHubSearchService.IssueSearchResult;
-using SearchTimings = MihuBot.RuntimeUtils.GitHubSearchService.SearchTimings;
+using MihuBot.RuntimeUtils.Search;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -398,8 +396,12 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             [Description("Whether to include pull requests.")] bool includePullRequests = true,
             CancellationToken cancellationToken = default)
         {
-            var filters = new IssueSearchFilters(includeOpen, includeClosed, includeIssues, includePullRequests)
+            var filters = new IssueSearchFilters
             {
+                IncludeOpen = includeOpen,
+                IncludeClosed = includeClosed,
+                IncludeIssues = includeIssues,
+                IncludePullRequests = includePullRequests,
                 Repository = Issue.Repository.FullName,
             };
 
@@ -416,132 +418,37 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(searchTerms);
-
-            foreach (string term in searchTerms)
-            {
-                ArgumentException.ThrowIfNullOrWhiteSpace(term);
-            }
-
-            extraSearchContext ??= string.Empty;
-
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
 
-            if (searchTerms.Length == 0 || (!filters.IncludeOpen && !filters.IncludeClosed) || (!filters.IncludeIssues && !filters.IncludePullRequests))
-            {
-                OnToolLog("[Tool] Nothing to search for, returning empty results.");
-                return [];
-            }
-
-            filters.PostFilter = result =>
-                result.Score >= 0.20 &&
-                (result.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(result.Issue, result.Comment));
-
             Stopwatch stopwatch = Stopwatch.StartNew();
-
-            List<(IssueSearchResult[] Results, double Score)> searchResults = new();
 
             int maxResultsPerTerm = UsingLargeContextWindow ? MaxResultsPerTermLarge : MaxResultsPerTerm;
             int maxTotalResults = Math.Min(searchTerms.Length * maxResultsPerTerm, UsingLargeContextWindow ? SearchMaxTotalResultsLarge : SearchMaxTotalResults);
 
-            bool skipCommentsOnCurrentIssue = SkipCommentsOnCurrentIssue;
-
-            await Parallel.ForEachAsync(searchTerms, async (term, _) =>
+            var bulkFilters = new IssueSearchBulkFilters
             {
-                ((IssueSearchResult[] Results, double Score)[] results, SearchTimings timings) = await Search.SearchIssuesAndCommentsAsync(term, maxResultsPerTerm, filters, includeAllIssueComments: true, cancellationToken);
+                MaxResultsPerTerm = maxResultsPerTerm,
+                ExcludeIssues = SkipCommentsOnCurrentIssue ? [Issue] : null,
+                PostProcessIssues = true,
+                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} {extraSearchContext}"
+            };
 
-                if (skipCommentsOnCurrentIssue)
-                {
-                    results = [.. results.Where(r => r.Results[0].Issue.Id != Issue.Id)];
-                }
-
-                try
-                {
-                    results = await Search.FilterOutUnrelatedResults(term, extraSearchContext, preferSpeed: false, results, timings, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    Logger.DebugLog($"Triage: Error filtering unrelated results: {ex.Message}");
-                }
-
-                lock (searchResults)
-                {
-                    searchResults.AddRange(results);
-                }
-            });
-
-            var combinedResults = searchResults
-                .GroupBy(r => r.Results[0].Issue.Id)
-                .Select(g => (
-                    Score: GitHubSearchService.EstimateCombinedScores(g.Select(r => r.Score).ToArray()),
-                    Results: g.SelectMany(r => r.Results).DistinctBy(e => e.Comment?.Id).OrderBy(e => e.Comment?.CreatedAt ?? e.Issue.CreatedAt).ToArray()))
-                .OrderByDescending(g => g.Score)
-                .ToArray();
-
-            List<ShortIssueInfo> results = [];
-
-            int searchIssues = combinedResults.Length;
-            int searchComments = 0;
-
-            float minCertainty = SearchMinCertainty;
-            bool includeAllComments = SearchIncludeAllIssueComments;
-
-            foreach (string term in searchTerms)
+            var options = new IssueSearchResponseOptions
             {
-                string trimmedTerm = term;
+                IncludeIssueComments = SearchIncludeAllIssueComments,
+                MaxResults = maxTotalResults,
+                PreferSpeed = false,
+            };
 
-                if (trimmedTerm.StartsWith("issue ", StringComparison.OrdinalIgnoreCase))
-                {
-                    trimmedTerm = term.Substring("issue ".Length);
-                }
+            filters.MinScore = SearchMinCertainty;
 
-                if (GitHubHelper.TryParseIssueOrPRNumber(trimmedTerm, out string repoName, out int issueNumber) &&
-                    await Parent.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken) is { } singleIssue)
-                {
-                    ShortCommentInfo[] comments = includeAllComments
-                        ? CreateCommentInfos(singleIssue, singleIssue.Number, removeCommentsWithoutContext: true)
-                        : [];
+            GitHubSearchResponse results = await Search.SearchIssuesAndCommentsAsync(searchTerms, bulkFilters, filters, options, cancellationToken);
 
-                    results.Add(CreateIssueInfo(singleIssue.CreatedAt, singleIssue.User, singleIssue.Body, singleIssue, comments));
-                }
-            }
+            ShortIssueInfo[] issues = [.. results.Results.Select(i => CreateIssueInfo(i.Issue.CreatedAt, i.Issue.User, i.Issue.Body, i.Issue, [.. i.Comments.Select(CreateCommentInfo)]))];
 
-            ShortIssueInfo[] gitHubIssueResults = combinedResults
-                .Where(r => r.Score >= minCertainty)
-                .Where(r => !skipCommentsOnCurrentIssue || r.Results[0].Issue.Id != Issue.Id)
-                .Select(r =>
-                {
-                    IssueSearchResult[] results = r.Results;
-                    IssueInfo issue = results[0].Issue;
+            OnToolLog($"[Tool] Found {issues.Length} issues, {issues.Sum(i => i.Comments.Length)} comments ({(int)stopwatch.ElapsedMilliseconds} ms)");
 
-                    ShortCommentInfo[] comments = [];
-
-                    CommentInfo[] relevantComments = results
-                        .Where(r => r.Comment is not null)
-                        .Select(r => r.Comment)
-                        .ToArray();
-
-                    if (includeAllComments)
-                    {
-                        comments = CreateCommentInfos(issue, issue.Number, removeCommentsWithoutContext: true, mergeWith: relevantComments);
-                    }
-                    else
-                    {
-                        comments = [.. relevantComments.Select(CreateCommentInfo)];
-                    }
-
-                    searchComments += comments.Length;
-
-                    return CreateIssueInfo(issue.CreatedAt, issue.User, issue.Body, issue, comments);
-                })
-                .Take(maxTotalResults)
-                .ToArray();
-
-            results.AddRange(gitHubIssueResults);
-
-            OnToolLog($"[Tool] Found {searchIssues} issues, {searchComments} comments, {results.Count} returned results ({(int)stopwatch.ElapsedMilliseconds} ms)");
-
-            return [.. results];
+            return issues;
         }
 
         private ShortIssueInfo CreateIssueInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)

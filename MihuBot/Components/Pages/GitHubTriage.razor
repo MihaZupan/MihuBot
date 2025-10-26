@@ -1,13 +1,13 @@
 ﻿@page "/triage"
 @using MihuBot.DB.GitHub
 @using MihuBot.RuntimeUtils
+@using MihuBot.RuntimeUtils.DataIngestion.GitHub
 @using Octokit
 @using System.Collections.Concurrent
 @rendermode InteractiveServer
 @inject IssueTriageHelper TriageHelper
 @inject GitHubClient GitHubClient
-@inject RuntimeUtilsService RuntimeUtils
-@inject GitHubDataService GitHubDataService
+@inject GitHubDataIngestionService DataIngestion
 @inject Logger Logger
 @implements IDisposable
 
@@ -188,9 +188,9 @@
 
             LogToolLine($"Starting triage for issue #{issueNumber} with model {model.Name} ...");
 
-            if (GitHubDataService.WatchedRepos.FirstOrDefault(r => r.Equals(repoName, StringComparison.OrdinalIgnoreCase)) is { } normalizedRepoName)
+            if (DataIngestion.Stats.TrackedRepos.FirstOrDefault(r => r.RepoName.Equals(repoName, StringComparison.OrdinalIgnoreCase)) is { } normalizedRepo)
             {
-                repoName = normalizedRepoName;
+                repoName = normalizedRepo.RepoName;
             }
 
             IssueInfo issue = await TriageHelper.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken);
@@ -199,7 +199,7 @@
             {
                 Logger.DebugLog($"Triage: Issue #{issueNumber} not found in the database. Fetching from GitHub ...");
 
-                if (repoName is not null && !GitHubDataService.WatchedRepos.Any(r => r.Equals(repoName, StringComparison.OrdinalIgnoreCase)))
+                if (repoName is not null && !DataIngestion.Stats.TrackedRepos.Any(r => r.RepoName.Equals(repoName, StringComparison.OrdinalIgnoreCase)))
                 {
                     _errorMessage = $"Repository '{repoName}' is not being tracked by MihuBot.";
                     return;
@@ -222,8 +222,8 @@
 
                 issue = new IssueInfo();
                 issue.RepositoryId = (await GitHubClient.Repository.Get(repoOwner, repoNameOnly).WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
-                issue.Repository = await GitHubDataService.TryGetRepositoryInfoAsync(repoName);
-                GitHubDataService.PopulateBasicIssueInfo(issue, newIssue);
+                issue.Repository = await DataIngestion.TryGetRepositoryInfoAsync(repoName);
+                GitHubDataIngestionService.PopulateBasicIssueInfo(issue, newIssue);
                 issue.User = new UserInfo
                 {
                     Id = newIssue.User.Id,
