@@ -277,6 +277,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     .Where(c => c.UpdatedAt >= lastScan - TimeSpan.FromMinutes(5))
                     .OrderByDescending(c => c.UpdatedAt)
                     .Where(c => c.Body.Contains("@"))
+                    .Where(c => c.Issue.IssueType != IssueType.Discussion)
                     .Include(c => c.Issue)
                         .ThenInclude(i => i.Repository)
                             .ThenInclude(r => r.Owner)

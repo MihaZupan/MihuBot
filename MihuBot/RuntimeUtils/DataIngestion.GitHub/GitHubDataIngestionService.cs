@@ -29,7 +29,7 @@ public sealed record RepositoryIngestionStats(
             await db.Comments.AsNoTracking().Where(c => c.Issue.RepositoryId == repo.Id).CountAsync(cancellationToken),
             await db.IngestedEmbeddings.AsNoTracking().Where(s => s.RepositoryId == repo.Id).CountAsync(cancellationToken),
             await db.TextEntries.AsNoTracking().Where(t => t.RepositoryId == repo.Id).CountAsync(cancellationToken),
-            RescanInProgress: repo.IssueRescanCursor != null || repo.PullRequestRescanCursor != null,
+            RescanInProgress: repo.IssueRescanCursor != null || repo.PullRequestRescanCursor != null || repo.DiscussionRescanCursor != null,
             InitialIngestion: repo.InitialIngestionInProgress);
     }
 }
@@ -58,7 +58,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
     }
 
     // Update to the current time to force start rescans for all repos. Useful to re-ingest data after adding fields.
-    private static readonly DateTime ManualForceRescanCutoffTime = new(2025, 9, 24, 18, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime ManualForceRescanCutoffTime = new(2025, 10, 27, 7, 0, 0, DateTimeKind.Utc);
 
     private readonly ILogger<GitHubDataIngestionService> _logger;
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -377,9 +377,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
             _repoInfo = await GetOrUpdateRepositoryInfoAsync(cancellationToken);
             _repoInfo.InitialIngestionInProgress = true;
-            _repoInfo.IssueRescanCursor = string.Empty;
-            _repoInfo.PullRequestRescanCursor = string.Empty;
-            _repoInfo.DiscussionRescanCursor = string.Empty;
+            _repoInfo.UpdateRescanCursors(string.Empty);
         }
 
         public async Task UpdateRepositoryDataAsync(CancellationToken cancellationToken)
@@ -402,9 +400,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
             if (_repoInfo.LastForceRescanStartTime < ManualForceRescanCutoffTime)
             {
                 _repoInfo.LastForceRescanStartTime = DateTime.UtcNow;
-                _repoInfo.IssueRescanCursor = string.Empty;
-                _repoInfo.PullRequestRescanCursor = string.Empty;
-                _repoInfo.DiscussionRescanCursor = string.Empty;
+                _repoInfo.UpdateRescanCursors(string.Empty);
                 shouldRefreshStats = true;
             }
 
@@ -433,8 +429,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
                 if (_repoInfo.DiscussionRescanCursor is not null)
                 {
-                    // TODO
-                    _repoInfo.DiscussionRescanCursor = null;
+                    await ContinueDiscussionsRescanAsync(cancellationToken);
                 }
 
                 if (_repoInfo.IssueRescanCursor is null && _repoInfo.PullRequestRescanCursor is null && _repoInfo.DiscussionRescanCursor is null)
@@ -457,9 +452,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
             {
                 // Reschedule a full rescan
                 shouldRefreshStats = true;
-                _repoInfo.IssueRescanCursor = string.Empty;
-                _repoInfo.PullRequestRescanCursor = string.Empty;
-                _repoInfo.DiscussionRescanCursor = string.Empty;
+                _repoInfo.UpdateRescanCursors(string.Empty);
             }
 
             UpdatesPerformed += await DbContext.SaveChangesAsync(cancellationToken);
@@ -664,6 +657,25 @@ public sealed class GitHubDataIngestionService : BackgroundService
             await UpdateCommentInfosAsync([.. comments], cancellationToken);
 
             _repoInfo.PullRequestRescanCursor = pullRequests.PageInfo.HasNextPage ? pullRequests.PageInfo.EndCursor : null;
+        }
+
+        private async Task ContinueDiscussionsRescanAsync(CancellationToken cancellationToken)
+        {
+            Debug.Assert(_repoInfo is not null);
+            Debug.Assert(_repoInfo.DiscussionRescanCursor is not null);
+
+            var (discussions, calls, cost) = await GraphQLClient.GetDiscussionsAndComments(_repoInfo.Owner.Login, _repoInfo.Name, _repoInfo.DiscussionRescanCursor, cancellationToken);
+            await OnGraphQLCall(calls, cost, cancellationToken);
+
+            await UpdateIssueInfosAsync([.. discussions.Nodes.Select(disc => disc.AsIssue())], IssueType.Discussion, cancellationToken);
+
+            var comments = discussions.Nodes.SelectMany(disc =>
+                disc.Comments.Nodes.Select(c => (disc.Id, c.AsComment(), isPrReviewComment: false))
+                .Concat(disc.Comments.Nodes.SelectMany(c => c.Replies.Nodes.Select(r => (disc.Id, r, isPrReviewComment: false)))));
+
+            await UpdateCommentInfosAsync([.. comments], cancellationToken);
+
+            _repoInfo.DiscussionRescanCursor = discussions.PageInfo.HasNextPage ? discussions.PageInfo.EndCursor : null;
         }
 
         private static bool ShouldUpdateUserInfo(long currentUserId, long newUser)

@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
@@ -288,8 +289,7 @@ public sealed class DuplicatesCommand : CommandBase
         try
         {
             string titleInfo = $"{issue.Repository.FullName}#{issue.Number}: {issue.Title}";
-            string author = $"{(issue.PullRequest is null ? "Issue" : "Pull request")} author: {issue.User.Login}";
-            string description = $"{titleInfo}\n{author}\n\n{issue.Body?.Trim()}";
+            string description = $"{titleInfo}\n{issue.IssueType.ToDisplayString()} author: {issue.User.Login}\n\n{issue.Body?.Trim()}";
 
             description = SemanticMarkdownChunker.TrimTextToTokens(_search.Tokenizer, description, SemanticMarkdownChunker.MaxSectionTokens);
 

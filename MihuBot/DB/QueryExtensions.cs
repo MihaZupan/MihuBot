@@ -8,4 +8,15 @@ public static class QueryExtensions
     {
         return query.Where(i => i.Repository.FullName == "dotnet/runtime");
     }
+
+    public static string ToDisplayString(this IssueType issueType)
+    {
+        return issueType switch
+        {
+            IssueType.Issue => "Issue",
+            IssueType.PullRequest => "Pull Request",
+            IssueType.Discussion => "Discussion",
+            _ => throw new UnreachableException(),
+        };
+    }
 }

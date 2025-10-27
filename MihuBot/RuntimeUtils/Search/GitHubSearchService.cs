@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
 using Microsoft.ML.Tokenizers;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Qdrant.Client;
@@ -681,7 +682,7 @@ public sealed class GitHubSearchService
 
             StringBuilder sb = new();
 
-            sb.AppendLine($"{(issue.PullRequest is null ? "Issue" : "Pull request")} {position} in {issue.Repository.FullName} by {issue.User.Login}: {issue.Title}");
+            sb.AppendLine($"{issue.IssueType.ToDisplayString()} {position} in {issue.Repository.FullName} by {issue.User.Login}: {issue.Title}");
 
             string closedInfo =
                 !issue.ClosedAt.HasValue ? "still open" :

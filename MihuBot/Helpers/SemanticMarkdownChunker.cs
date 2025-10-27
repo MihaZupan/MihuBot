@@ -4,6 +4,7 @@ using Markdig.Helpers;
 using Markdig.Syntax;
 using Microsoft.ML.Tokenizers;
 using Microsoft.SemanticKernel.Text;
+using MihuBot.DB;
 using MihuBot.DB.GitHub;
 
 #nullable enable
@@ -83,7 +84,7 @@ public static class SemanticMarkdownChunker
             else
             {
                 string author = comment is null
-                    ? $"{(issue.PullRequest is null ? "Issue" : "Pull request")} author: {issue.User.Login}"
+                    ? $"{issue.IssueType.ToDisplayString()} author: {issue.User.Login}"
                     : $"Comment author: {comment.User.Login}";
 
                 yield return $"{titleInfo}\n{author}\n\n{trimmed}";

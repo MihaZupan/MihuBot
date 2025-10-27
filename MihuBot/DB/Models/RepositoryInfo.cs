@@ -37,4 +37,11 @@ public sealed class RepositoryInfo
     public DateTime LastIssuesUpdate { get; set; }
     public DateTime LastIssueCommentsUpdate { get; set; }
     public DateTime LastPullRequestReviewCommentsUpdate { get; set; }
+
+    public void UpdateRescanCursors(string value)
+    {
+        IssueRescanCursor = value;
+        PullRequestRescanCursor = value;
+        DiscussionRescanCursor = value;
+    }
 }

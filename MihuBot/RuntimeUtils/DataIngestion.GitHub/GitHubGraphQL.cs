@@ -1,4 +1,6 @@
-﻿namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
+﻿using Octokit;
+
+namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 #nullable enable
 
@@ -105,11 +107,67 @@ public static class GitHubGraphQL
         return (response.Repository.PullRequests, calls, totalCost);
     }
 
+    public static async Task<(ConnectionModel<DiscussionModel> Discussions, int Calls, int Cost)> GetDiscussionsAndComments(this GithubGraphQLClient client, string owner, string name, string discussionCursor, CancellationToken cancellationToken = default)
+    {
+        var response = await client.RunQueryAsync<RepositoryWithCostModel>(Queries.DiscussionsAndComments, new { Owner = owner, Name = name, DiscussionCursor = discussionCursor }, cancellationToken);
+
+        var discussions = response.Repository.Discussions.Nodes;
+        int totalCost = response.RateLimit.Cost;
+        int calls = 0;
+
+        for (int i = 0; i < discussions.Length; i++)
+        {
+            DiscussionModel discussion = discussions[i];
+
+            while (discussion.Comments.PageInfo.HasNextPage)
+            {
+                var moreComments = await client.RunQueryAsync<DiscussionCommentsNodeWithCostModel>(Queries.DiscussionTopLevelComments, new { NodeId = discussion.Id, CommentCursor = discussion.Comments.PageInfo.EndCursor }, cancellationToken);
+                totalCost += moreComments.RateLimit.Cost;
+                calls++;
+
+                discussion = discussion with
+                {
+                    Comments = new ConnectionModel<DiscussionCommentModel>(
+                        [.. discussion.Comments.Nodes, .. moreComments.Node.Comments.Nodes],
+                        moreComments.Node.Comments.PageInfo)
+                };
+            }
+
+            DiscussionCommentModel[] comments = discussion.Comments.Nodes;
+
+            for (int j = 0; j < comments.Length; j++)
+            {
+                DiscussionCommentModel comment = comments[j];
+
+                while (comment.Replies.PageInfo.HasNextPage)
+                {
+                    var moreComments = await client.RunQueryAsync<RepliesNodeWithCostModel>(Queries.MoreNodeComments, new { NodeId = comment.Id, CommentCursor = comment.Replies.PageInfo.EndCursor }, cancellationToken);
+                    totalCost += moreComments.RateLimit.Cost;
+                    calls++;
+
+                    comment = comment with
+                    {
+                        Replies = new ConnectionModel<CommentModel>(
+                            [.. comment.Replies.Nodes, .. moreComments.Node.Replies.Nodes],
+                            moreComments.Node.Replies.PageInfo)
+                    };
+                }
+
+                comments[j] = comment;
+            }
+
+            discussions[i] = discussion;
+        }
+
+        return (response.Repository.Discussions, calls, totalCost);
+    }
+
     private static class Queries
     {
         private const string BasePageSize = "25";
         private const string SecondaryPageSize = "50";
         private const string ReviewCommentsSize = "20";
+        private const string DiscussionCommentRepliesSize = "20";
         private const string AssigneesPerIssue = "20";
 
         private const string PageInfo =
@@ -117,6 +175,24 @@ public static class GitHubGraphQL
             pageInfo {
               hasNextPage
               endCursor
+            }
+            """;
+
+        private const string Assignees =
+            $$"""
+            assignees(first: {{AssigneesPerIssue}}) {
+              nodes {
+                login
+                id
+                databaseId
+              }
+            }
+            """;
+
+        private const string Milestone =
+            """
+            milestone {
+              id
             }
             """;
 
@@ -133,7 +209,7 @@ public static class GitHubGraphQL
             {{PageInfo}}
             """;
 
-        private static readonly string IssueOrPullRequestProperties =
+        private const string IssueOrPullRequestOrDiscussionProperties =
             $$"""
             id
             url
@@ -143,7 +219,6 @@ public static class GitHubGraphQL
             createdAt
             updatedAt
             closedAt
-            state
             locked
             activeLockReason
             author {
@@ -152,19 +227,6 @@ public static class GitHubGraphQL
             authorAssociation
             ... LabelsInfo
             ... ReactionsInfo
-            milestone {
-              id
-            }
-            comments(first: {{SecondaryPageSize}}) {
-              {{CommentProperties("databaseId")}}
-            }
-            assignees(first: {{AssigneesPerIssue}}) {
-              nodes {
-                login
-                id
-                databaseId
-              }
-            }
             """;
 
         public static readonly string MoreNodeComments =
@@ -190,6 +252,11 @@ public static class GitHubGraphQL
                 ... on PullRequestReview {
                   comments(first: {{SecondaryPageSize}}, after: $commentCursor) {
                     {{CommentProperties("fullDatabaseId")}}
+                  }
+                }
+                ... on DiscussionComment {
+                  replies(first: {{SecondaryPageSize}}, after: $commentCursor) {
+                    {{CommentProperties("databaseId")}}
                   }
                 }
               }
@@ -246,7 +313,13 @@ public static class GitHubGraphQL
               repository(owner: $owner, name: $name) {
                 issues(first: {{BasePageSize}}, after: $issueCursor, orderBy: { field: CREATED_AT, direction: ASC }) {
                   nodes {
-                    {{IssueOrPullRequestProperties}}
+                    {{IssueOrPullRequestOrDiscussionProperties}}
+                    comments(first: {{SecondaryPageSize}}) {
+                      {{CommentProperties("databaseId")}}
+                    }
+                    {{Assignees}}
+                    {{Milestone}}
+                    state
                   }
                   {{PageInfo}}
                 }
@@ -273,7 +346,13 @@ public static class GitHubGraphQL
                 pullRequests(first: {{BasePageSize}}, after: $pullRequestCursor, orderBy: { field: CREATED_AT, direction: ASC }) {
                   {{PageInfo}}
                   nodes {
-                    {{IssueOrPullRequestProperties}}
+                    {{IssueOrPullRequestOrDiscussionProperties}}
+                    comments(first: {{SecondaryPageSize}}) {
+                      {{CommentProperties("databaseId")}}
+                    }
+                    {{Assignees}}
+                    {{Milestone}}
+                    state
                     reviews(first: {{SecondaryPageSize}}) {
                       nodes {
                         url
@@ -301,6 +380,85 @@ public static class GitHubGraphQL
 
             {{Fragments.ActorIds}}
             {{Fragments.LabelsInfo}}
+            {{Fragments.CommentInfo}}
+            {{Fragments.ReactionsInfo}}
+            """;
+
+        public static readonly string DiscussionsAndComments =
+            $$"""
+            query DiscussionsAndComments(
+              $owner: String!,
+              $name: String!,
+              $discussionCursor: String!)
+            {
+              rateLimit {
+                cost
+              }
+              repository(owner: $owner, name: $name) {
+                discussions(first: {{BasePageSize}}, after: $discussionCursor, orderBy: { field: CREATED_AT, direction: ASC }) {
+                  {{PageInfo}}
+                  nodes {
+                    {{IssueOrPullRequestOrDiscussionProperties}}
+                    upvoteCount
+                    isAnswered
+                    comments(first: {{SecondaryPageSize}}) {
+                      {{CommentProperties("databaseId")}}
+                    }
+                    comments(first: {{SecondaryPageSize}}) {
+                      nodes {
+                        url
+                        ... CommentInfo
+                        ... ReactionsInfo
+                        isMinimized
+                        minimizedReason
+                        replies(first: {{DiscussionCommentRepliesSize}}) {
+                          {{CommentProperties("databaseId")}}
+                        }
+                        upvoteCount
+                      }
+                      {{PageInfo}}
+                    }
+                  }
+                }
+              }
+            }
+
+            {{Fragments.ActorIds}}
+            {{Fragments.LabelsInfo}}
+            {{Fragments.CommentInfo}}
+            {{Fragments.ReactionsInfo}}
+            """;
+
+        public static readonly string DiscussionTopLevelComments =
+            $$"""
+            query DiscussionTopLevelComments(
+              $nodeId: ID!,
+              $commentCursor: String!)
+            {
+              rateLimit {
+                cost
+              }
+              node (id: $nodeId) {
+                ... on Discussion {
+                  comments(first: {{SecondaryPageSize}}, after: $commentCursor) {
+                    nodes {
+                      url
+                      ... CommentInfo
+                      ... ReactionsInfo
+                      isMinimized
+                      minimizedReason
+                      replies(first: {{SecondaryPageSize}}) {
+                        {{CommentProperties("databaseId")}}
+                      }
+                      upvoteCount
+                    }
+                    {{PageInfo}}
+                  }
+                }
+              }
+            }
+
+            {{Fragments.ActorIds}}
             {{Fragments.CommentInfo}}
             {{Fragments.ReactionsInfo}}
             """;
@@ -376,15 +534,23 @@ public static class GitHubGraphQL
 
     private sealed record CommentsNodeWithCostModel(RateLimitModel RateLimit, CommentsNode Node);
 
+    private sealed record DiscussionCommentsNodeWithCostModel(RateLimitModel RateLimit, DiscussionCommentsNode Node);
+
+    private sealed record RepliesNodeWithCostModel(RateLimitModel RateLimit, RepliesNode Node);
+
     private sealed record ReviewsNodeWithCostModel(RateLimitModel RateLimit, ReviewsNode Node);
 
     private sealed record CommentsNode(ConnectionModel<CommentModel> Comments);
+
+    private sealed record DiscussionCommentsNode(ConnectionModel<DiscussionCommentModel> Comments);
+
+    private sealed record RepliesNode(ConnectionModel<CommentModel> Replies);
 
     private sealed record ReviewsNode(ConnectionModel<PullRequestReviewModel> Reviews);
 
     private sealed record RateLimitModel(int Cost);
 
-    private sealed record RepositoryModel(ConnectionModel<IssueModel> Issues, ConnectionModel<PullRequestModel> PullRequests);
+    private sealed record RepositoryModel(ConnectionModel<IssueModel> Issues, ConnectionModel<PullRequestModel> PullRequests, ConnectionModel<DiscussionModel> Discussions);
 
     public sealed record ConnectionModel<T>(T[] Nodes, PageInfo PageInfo);
 
@@ -501,6 +667,75 @@ public static class GitHubGraphQL
             Url,
             Body,
             FullDatabaseId,
+            CreatedAt,
+            UpdatedAt,
+            AuthorAssociation,
+            Author,
+            ReactionGroups,
+            IsMinimized,
+            MinimizedReason);
+    }
+
+    public sealed record DiscussionModel(
+        string Id,
+        string Url,
+        int Number,
+        string Title,
+        string Body,
+        DateTime CreatedAt,
+        DateTime UpdatedAt,
+        DateTime? ClosedAt,
+        bool Locked,
+        string ActiveLockReason,
+        string AuthorAssociation,
+        ActorIdsModel Author,
+        ReactionGroupModel[] ReactionGroups,
+        ConnectionModel<IdOnlyModel> Labels,
+        ConnectionModel<DiscussionCommentModel> Comments,
+        int UpvoteCount,
+        bool? IsAnswered)
+    {
+        public IssueModel AsIssue() => new(
+            Id,
+            Url,
+            Number,
+            Title,
+            Body,
+            ClosedAt.HasValue ? ItemState.Closed.ToString() : ItemState.Open.ToString(),
+            CreatedAt,
+            UpdatedAt,
+            ClosedAt,
+            Locked,
+            ActiveLockReason,
+            AuthorAssociation,
+            Author,
+            Milestone: null,
+            ReactionGroups,
+            Assignees: new ConnectionModel<ActorIdsModel>([], new PageInfo(HasNextPage: false, EndCursor: string.Empty)),
+            Labels,
+            Comments: new ConnectionModel<CommentModel>([.. Comments.Nodes.Select(c => c.AsComment())], Comments.PageInfo));
+    }
+
+    public sealed record DiscussionCommentModel(
+        string Id,
+        string Url,
+        string Body,
+        long DatabaseId,
+        DateTime CreatedAt,
+        DateTime UpdatedAt,
+        string AuthorAssociation,
+        ActorIdsModel Author,
+        ReactionGroupModel[] ReactionGroups,
+        bool IsMinimized,
+        string MinimizedReason,
+        ConnectionModel<CommentModel> Replies,
+        int UpvoteCount)
+    {
+        public CommentModel AsComment() => new(
+            Id,
+            Url,
+            Body,
+            DatabaseId,
             CreatedAt,
             UpdatedAt,
             AuthorAssociation,

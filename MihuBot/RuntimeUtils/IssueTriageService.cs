@@ -127,7 +127,8 @@ public sealed class IssueTriageService(
                     !db.TriagedIssues.Any(entry => entry.IssueId == issue.Id) ||
                     db.TriagedIssues.First(entry => entry.IssueId == issue.Id).UpdatedAt < issue.UpdatedAt)
                 .Take(1000)
-                .Where(i => i.RepositoryId == repoId);
+                .Where(i => i.RepositoryId == repoId)
+                .Where(i => i.IssueType == IssueType.Issue);
 
             query = repoConfig.Filter(query);
 
