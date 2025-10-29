@@ -18,6 +18,9 @@ public sealed class IssueTriageService(
     ServiceConfiguration ServiceConfiguration)
     : IHostedService
 {
+    private const string TriageRepositoryOwner = "MihuBot";
+    private const string TriageRepositoryName = "dotnet-triage";
+
     private static readonly SearchValues<string> s_issueBodiesToSkipOnUpdate = SearchValues.Create(
     [
         "<!-- Known issue validation start -->",
@@ -246,7 +249,7 @@ public sealed class IssueTriageService(
         {
             string title = $"[✨ Triage] {issue.Repository.FullName}#{issue.Number} by {issue.User.Login} - {issue.Title}".TruncateWithDotDotDot(120);
 
-            Issue newIssue = await GitHub.Issue.Create(JobBase.IssueRepositoryOwner, JobBase.IssueRepositoryName, new NewIssue(title)
+            Issue newIssue = await GitHub.Issue.Create(TriageRepositoryOwner, TriageRepositoryName, new NewIssue(title)
             {
                 Body = newIssueBody,
             });
@@ -255,10 +258,17 @@ public sealed class IssueTriageService(
         }
         else
         {
-            await GitHub.Issue.Update(JobBase.IssueRepositoryOwner, JobBase.IssueRepositoryName, triagedIssue.TriageReportIssueNumber, new IssueUpdate
+            try
             {
-                Body = newIssueBody,
-            });
+                await GitHub.Issue.Update(TriageRepositoryOwner, TriageRepositoryName, triagedIssue.TriageReportIssueNumber, new IssueUpdate
+                {
+                    Body = newIssueBody,
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Failed to update existing triage report for <{issue.HtmlUrl}>: {ex}");
+            }
         }
     }
 }
