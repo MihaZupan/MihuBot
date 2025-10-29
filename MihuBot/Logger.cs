@@ -842,11 +842,11 @@ public sealed partial class Logger
 
                 long availableMB = drive.AvailableFreeSpace / 1024 / 1024;
                 long totalMB = drive.TotalSize / 1024 / 1024;
-                double used = (double)availableMB / totalMB;
+                double availableShare = (double)availableMB / totalMB;
 
                 string spaceMessage = $"Space available: {availableMB} / {totalMB} MB";
 
-                if (used > 0.75) await DebugAsync(spaceMessage, message);
+                if (availableShare < 0.25) await DebugAsync(spaceMessage, message);
                 else DebugLog(spaceMessage, message);
             }
         }

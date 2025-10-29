@@ -1,4 +1,5 @@
-﻿using Octokit;
+﻿using System.Text.Json;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
@@ -160,6 +161,20 @@ public static class GitHubGraphQL
         }
 
         return (response.Repository.Discussions, calls, totalCost);
+    }
+
+    public static async Task<(UserModel[] Users, int Calls, int Cost)> GetUsers(this GithubGraphQLClient client, string[] logins, CancellationToken cancellationToken = default)
+    {
+        var response = await client.RunQueryAsync<JsonElement>(Queries.BulkUsers(logins), new { }, cancellationToken);
+
+        UserModel[] users = new UserModel[logins.Length];
+
+        for (int i = 0; i < users.Length; i++)
+        {
+            users[i] = response.GetProperty($"User{i}").Deserialize<UserModel>(JsonSerializerOptions.Web)!;
+        }
+
+        return (users, 1, response.GetProperty("rateLimit").Deserialize<RateLimitModel>(JsonSerializerOptions.Web)!.Cost);
     }
 
     private static class Queries
@@ -462,6 +477,21 @@ public static class GitHubGraphQL
             {{Fragments.CommentInfo}}
             {{Fragments.ReactionsInfo}}
             """;
+
+        public static string BulkUsers(string[] logins) =>
+            $$"""
+            query BulkUsers {
+              rateLimit {
+                cost
+              }
+              {{string.Join('\n', logins.Select((login, i) =>
+                $$"""
+                User{{i}}: user(login: "{{login}}") { ... UserInfo }
+                """))}}
+            }
+
+            {{Fragments.UserInfo}}
+            """;
     }
 
     private static class Fragments
@@ -528,6 +558,27 @@ public static class GitHubGraphQL
               }
             }
             """;
+
+        public const string UserInfo =
+            """
+            fragment UserInfo on User {
+              id
+              login
+              databaseId
+              name
+              url
+              company
+              location
+              bio
+              createdAt
+              followers {
+                totalCount
+              }
+              following {
+                totalCount
+              }
+            }
+            """;
     }
 
     private sealed record RepositoryWithCostModel(RateLimitModel RateLimit, RepositoryModel Repository);
@@ -556,15 +607,28 @@ public static class GitHubGraphQL
 
     public sealed record PageInfo(bool HasNextPage, string EndCursor);
 
-    public sealed record ReactionGroupModel(string Content, ReactorsModel Reactors);
+    public sealed record ReactionGroupModel(string Content, TotalCountModel Reactors);
 
-    public sealed record ReactorsModel(int TotalCount);
+    public sealed record TotalCountModel(int TotalCount);
 
     public sealed record IdOnlyModel(string Id);
 
     public sealed record ActorIdsModel(string Login, string Id, int? DatabaseId);
 
     public sealed record MilestoneModel(string Id);
+
+    public sealed record UserModel(
+        string Id,
+        string Login,
+        long DatabaseId,
+        string Name,
+        string Url,
+        string Company,
+        string Location,
+        string Bio,
+        DateTime CreatedAt,
+        TotalCountModel Followers,
+        TotalCountModel Following);
 
     public sealed record IssueModel(
         string Id,

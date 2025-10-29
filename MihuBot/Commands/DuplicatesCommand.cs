@@ -124,6 +124,7 @@ public sealed class DuplicatesCommand : CommandBase
                             .Where(i => i.CreatedAt >= startDate)
                             .Where(i => i.State == ItemState.Open)
                             .Where(i => i.IssueType == IssueType.Issue)
+                            .Where(i => !i.Repository.InitialIngestionInProgress)
                             .OrderByDescending(i => i.CreatedAt);
 
                         query = IssueTriageHelper.AddIssueInfoIncludes(query);
@@ -136,7 +137,7 @@ public sealed class DuplicatesCommand : CommandBase
                         foreach (IssueInfo issue in issues)
                         {
                             if (!issue.User.IsLikelyARealUser() ||
-                                _configuration.GetOrDefault(null, $"{Command}.Pause.{issue.RepoName()}", false))
+                                !_configuration.GetOrDefault(null, $"{Command}.Enabled.{issue.RepoName()}", false))
                             {
                                 continue;
                             }
@@ -144,6 +145,11 @@ public sealed class DuplicatesCommand : CommandBase
                             if (DateTime.UtcNow.Subtract(issue.CreatedAt).TotalMinutes < 3)
                             {
                                 // Give it 3 minutes before processing in case the author references the duplicate in a comment.
+                                continue;
+                            }
+
+                            if (string.IsNullOrWhiteSpace(issue.Body))
+                            {
                                 continue;
                             }
 
@@ -448,6 +454,11 @@ public sealed class DuplicatesCommand : CommandBase
 
                 foreach (IssueInfo dupe in issuesToReport)
                 {
+                    if (dupe.IssueType == IssueType.Discussion)
+                    {
+                        continue;
+                    }
+
                     subIssues = await _github.GetAllSubIssuesAsync(dupe.RepositoryId, dupe.Number);
 
                     if (subIssues.Any(i => i.NodeId == issue.Id))

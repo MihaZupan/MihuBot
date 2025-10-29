@@ -33,7 +33,7 @@ public static class DbServiceCollectionExtensions
         await DatabaseSetupHelper.MigrateAsync<LogsDbContext>(host, GetDatabasePath<LogsDbContext>());
         await DatabaseSetupHelper.MigrateAsync<MihuBotDbContext>(host, GetDatabasePath<MihuBotDbContext>());
 
-        //if (OperatingSystem.IsLinux()) // TODO
+        if (OperatingSystem.IsLinux())
         {
             await DatabaseSetupHelper.MigrateRemoteServerAsync<GitHubDbContext>(host);
         }

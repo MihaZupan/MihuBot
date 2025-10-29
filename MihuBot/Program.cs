@@ -17,7 +17,6 @@ using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
 using MihuBot;
 using MihuBot.Audio;
-using MihuBot.Components;
 using MihuBot.Configuration;
 using MihuBot.Data;
 using MihuBot.Location;

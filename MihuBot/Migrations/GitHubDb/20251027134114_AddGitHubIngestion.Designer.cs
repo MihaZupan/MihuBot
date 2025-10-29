@@ -13,8 +13,8 @@ using NpgsqlTypes;
 namespace MihuBot.Migrations.GitHubDb
 {
     [DbContext(typeof(GitHubDbContext))]
-    [Migration("20251027091733_AddDiscussions")]
-    partial class AddDiscussions
+    [Migration("20251027134114_AddGitHubIngestion")]
+    partial class AddGitHubIngestion
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

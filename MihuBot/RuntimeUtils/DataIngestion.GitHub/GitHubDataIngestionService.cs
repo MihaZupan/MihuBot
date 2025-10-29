@@ -1,10 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using Octokit;
-using System.Collections.Concurrent;
 
 #nullable enable
 
@@ -50,11 +50,19 @@ public sealed class GitHubDataIngestionService : BackgroundService
     private static readonly TimeSpan RepositoryInfoRefreshInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan DataPollingOffset = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RepositoryFullRescanInterval = TimeSpan.FromDays(7);
-    private static readonly TimeSpan IssueUpdateFrequency = TimeSpan.FromMinutes(1);
+
+    private static readonly HashSet<string> s_busyRepos = new(
+        ["dotnet/aspire", "dotnet/aspnetcore", "dotnet/roslyn", "dotnet/runtime"],
+        StringComparer.OrdinalIgnoreCase);
+
+    private static TimeSpan GetIssueUpdateFrequency(RepositoryInfo repo)
+    {
+        return s_busyRepos.Contains(repo.FullName) ? TimeSpan.FromMinutes(1) : TimeSpan.FromMinutes(2);
+    }
 
     private static TimeSpan GetCommentUpdateFrequency(RepositoryInfo repo)
     {
-        return repo.FullName == "dotnet/runtime" ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(1);
+        return repo.FullName == "dotnet/runtime" ? TimeSpan.FromSeconds(15) : TimeSpan.FromMinutes(2);
     }
 
     // Update to the current time to force start rescans for all repos. Useful to re-ingest data after adding fields.
@@ -183,11 +191,10 @@ public sealed class GitHubDataIngestionService : BackgroundService
                         lastStatsRefreshTime.Restart();
                     }
 
-                    // TODO
-                    //if (!OperatingSystem.IsLinux())
-                    //{
-                    //    continue;
-                    //}
+                    if (!OperatingSystem.IsLinux())
+                    {
+                        continue;
+                    }
 
                     if (_serviceConfiguration.PauseGitHubPolling)
                     {
@@ -509,7 +516,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
             Debug.Assert(_repoInfo is not null);
 
             DateTime startTime = DateTime.UtcNow;
-            if (startTime - _repoInfo.LastIssuesUpdate >= IssueUpdateFrequency)
+            if (startTime - _repoInfo.LastIssuesUpdate >= GetIssueUpdateFrequency(_repoInfo))
             {
                 IReadOnlyList<Issue> issues = await GitHub.Issue.GetAllForRepository(RepoId, new RepositoryIssueRequest
                 {
@@ -570,7 +577,11 @@ public sealed class GitHubDataIngestionService : BackgroundService
             }
 
             UpdatesPerformed += await DbContext.SaveChangesAsync(cancellationToken);
-            Logger.LogTrace("Finished updating repository. {ApiCallsPerformed} API calls, {UpdatesPerformed} DB updates.", ApiCallsPerformed, UpdatesPerformed);
+
+            if (ApiCallsPerformed > 0 || UpdatesPerformed > 0)
+            {
+                Logger.LogTrace("Finished updating {Repository}. {ApiCallsPerformed} API calls, {UpdatesPerformed} DB updates.", _repoInfo.FullName, ApiCallsPerformed, UpdatesPerformed);
+            }
         }
 
         private DateTime DeduceLastUpdateTime(List<DateTime> dates)
@@ -851,6 +862,13 @@ public sealed class GitHubDataIngestionService : BackgroundService
                 return;
             }
 
+            await UpdateUserAsyncCore(user, userId, userLogin, cancellationToken);
+        }
+
+        private async Task UpdateUserAsyncCore(User? user, long userId, string? userLogin, CancellationToken cancellationToken)
+        {
+            Debug.Assert(Parent._knownUsers.Contains(userId) || _updatedUsers.Contains(userId));
+
             UserInfo? info = await DbContext.Users.SingleOrDefaultAsync(u => u.Id == userId, CancellationToken.None);
 
             if (info is not null && DateTime.UtcNow - info.EntryUpdatedAt < UserInfoRefreshInterval)
@@ -901,7 +919,98 @@ public sealed class GitHubDataIngestionService : BackgroundService
             info.CreatedAt = user?.CreatedAt.UtcDateTime ?? default;
             info.EntryUpdatedAt = DateTime.UtcNow;
 
-            Logger.LogTrace("Updated user metadata {UserId}: {UserLogin} ({UserName})", userId, userLogin, user?.Name);
+            Logger.LogTrace("Updated user metadata {UserId}: {UserLogin} ({UserName})", info.Id, info.Login, info.Name);
+        }
+
+        private async Task UpdateUserInfosAsync<T>((T state, long userId, string userLogin)[] issues, Func<T, long> idGetter, Action<T, long> idSetter, CancellationToken cancellationToken)
+        {
+            List<(long userId, string userLogin)> needsUpdating = [];
+
+            foreach ((T state, long userId, string userLogin) in issues)
+            {
+                if (ShouldUpdateUserInfo(idGetter(state), userId))
+                {
+                    idSetter(state, userId);
+
+                    if (!Parent._knownUsers.Contains(userId) && _updatedUsers.Add(userId))
+                    {
+                        needsUpdating.Add((userId, userLogin));
+                    }
+                }
+            }
+
+            if (needsUpdating.Count == 0)
+            {
+                return;
+            }
+
+            long[] userIds = [.. needsUpdating.Select(nu => nu.userId)];
+
+            UserInfo[] existingInfos = await DbContext.Users
+                .Where(u => userIds.Contains(u.Id))
+                .AsSplitQuery()
+                .ToArrayAsync(cancellationToken);
+
+            needsUpdating = needsUpdating
+                .Where(user =>
+                {
+                    UserInfo? info = existingInfos.FirstOrDefault(info => info.Id == user.userId);
+                    return info is null || DateTime.UtcNow - info.EntryUpdatedAt >= UserInfoRefreshInterval;
+                })
+                .ToList();
+
+            if (needsUpdating.Count == 0)
+            {
+                return;
+            }
+
+            var (users, calls, cost) = await GraphQLClient.GetUsers([.. needsUpdating.Select(nu => nu.userLogin)], cancellationToken);
+            await OnGraphQLCall(calls, cost, cancellationToken);
+
+            List<(long userId, string userLogin)> notFoundUsers = [];
+
+            for (int i = 0; i < users.Length; i++)
+            {
+                long userId = needsUpdating[i].userId;
+                GitHubGraphQL.UserModel user = users[i];
+                UserInfo? info = existingInfos.FirstOrDefault(u => u.Id == userId);
+
+                if (user is null)
+                {
+                    notFoundUsers.Add((needsUpdating[i].userId, needsUpdating[i].userLogin));
+                    continue;
+                }
+
+                if (info is null)
+                {
+                    info = new UserInfo
+                    {
+                        Id = userId
+                    };
+                    DbContext.Users.Add(info);
+                }
+
+                info.Id = userId;
+                info.NodeIdentifier = user?.Id;
+                info.Login = user?.Login?.RemoveNullChars();
+                info.Name = user?.Name?.RemoveNullChars();
+                info.HtmlUrl = user?.Url;
+                info.Followers = user?.Followers?.TotalCount ?? 0;
+                info.Following = user?.Following?.TotalCount ?? 0;
+                info.Company = user?.Company?.RemoveNullChars();
+                info.Location = user?.Location?.RemoveNullChars();
+                info.Bio = user?.Bio?.RemoveNullChars();
+                info.Type = AccountType.User;
+                info.CreatedAt = user?.CreatedAt ?? default;
+                info.EntryUpdatedAt = DateTime.UtcNow;
+
+                Logger.LogTrace("Updated user metadata {UserId}: {UserLogin} ({UserName})", info.Id, info.Login, info.Name);
+            }
+
+            foreach ((long userId, string userLogin) in notFoundUsers)
+            {
+                await UpdateUserAsyncCore(null, userId, userLogin, cancellationToken);
+            }
         }
 
         public static void PopulateBasicIssueInfo(IssueInfo info, Issue issue)
@@ -1082,6 +1191,12 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
             IssueInfo[] infos = await GetOrCreateIssueInfosAsync([.. issues.Select(i => (i.Id, i.Labels.Nodes.Select(l => l.Id).ToArray(), i.Milestone?.Id))], cancellationToken);
 
+            await UpdateUserInfosAsync(
+                [.. infos.Select((issue, i) => (issue, issues[i].Author?.DatabaseId ?? GhostUserId, issues[i].Author?.Login ?? "ghost"))],
+                issue => issue.UserId,
+                (issue, userId) => issue.UserId = userId,
+                cancellationToken);
+
             for (int i = 0; i < infos.Length; i++)
             {
                 IssueInfo info = infos[i];
@@ -1090,15 +1205,6 @@ public sealed class GitHubDataIngestionService : BackgroundService
                 info.IssueType = issueType;
 
                 PopulateBasicIssueInfo(info, issue);
-
-                long authorDatabaseId = issue.Author?.DatabaseId ?? GhostUserId;
-                string authorLogin = issue.Author?.Login ?? "ghost";
-
-                if (ShouldUpdateUserInfo(info.UserId, authorDatabaseId))
-                {
-                    info.UserId = authorDatabaseId;
-                    await UpdateUserAsync(user: null, authorDatabaseId, authorLogin, cancellationToken);
-                }
 
                 await UpdateIssueAssigneesAsync(info, [.. issue.Assignees.Nodes.Select(a => ((User?)null, a.DatabaseId ?? GhostUserId, a.Login))], cancellationToken);
 
@@ -1413,6 +1519,12 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
             CommentInfo[] infos = await GetOrCreateCommentInfosAsync([.. comments.Select(c => (c.issueId, c.comment.Id, c.comment.Url, c.isPrReviewComment))], cancellationToken);
 
+            await UpdateUserInfosAsync(
+                [.. infos.Select((comment, i) => (comment, comments[i].comment.Author?.DatabaseId ?? GhostUserId, comments[i].comment.Author?.Login ?? "ghost"))],
+                comment => comment.UserId,
+                (comment, userId) => comment.UserId = userId,
+                cancellationToken);
+
             for (int i = 0; i < comments.Length; i++)
             {
                 GitHubGraphQL.CommentModel comment = comments[i].comment;
@@ -1428,15 +1540,6 @@ public sealed class GitHubDataIngestionService : BackgroundService
                 info.MinimizedReason = comment.MinimizedReason;
 
                 PopulateCommentReactions(info, ParseReactions(comment.ReactionGroups));
-
-                long authorDatabaseId = comment.Author?.DatabaseId ?? GhostUserId;
-                string authorLogin = comment.Author?.Login ?? "ghost";
-
-                if (ShouldUpdateUserInfo(info.UserId, authorDatabaseId))
-                {
-                    info.UserId = authorDatabaseId;
-                    await UpdateUserAsync(user: null, authorDatabaseId, authorLogin, cancellationToken);
-                }
 
                 info.LastObservedDuringFullRescanTime = DateTime.UtcNow;
 

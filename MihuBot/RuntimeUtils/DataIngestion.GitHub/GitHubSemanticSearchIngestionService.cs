@@ -7,8 +7,6 @@ using Microsoft.ML.Tokenizers;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using MihuBot.DB.Models;
-using MihuBot.RuntimeUtils.Search;
-using OpenAI;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
@@ -61,11 +59,10 @@ public sealed class GitHubSemanticSearchIngestionService : BackgroundService
 
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                // TODO
-                //if (!OperatingSystem.IsLinux())
-                //{
-                //    continue;
-                //}
+                if (!OperatingSystem.IsLinux())
+                {
+                    continue;
+                }
 
                 if (_serviceConfiguration.PauseSemanticIngestion)
                 {
