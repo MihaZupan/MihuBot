@@ -635,7 +635,7 @@ public sealed class GitHubSearchService
                         try
                         {
                             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                            cts.CancelAfter(TimeSpan.FromMinutes(1));
+                            cts.CancelAfter(TimeSpan.FromMinutes(2));
 
                             var options = new ChatOptions
                             {

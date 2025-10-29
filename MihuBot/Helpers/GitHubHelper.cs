@@ -102,8 +102,8 @@ public static partial class GitHubHelper
 
     public static string RepoName(this CommentInfo comment) => comment.Issue.RepoName();
 
-    public static bool TryParseIssueOrPRNumber(string input, out int prNumber) =>
-        TryParseIssueOrPRNumber(input, out _, out prNumber);
+    public static bool TryParseIssueOrPRNumber(string input, out int number) =>
+        TryParseIssueOrPRNumber(input, out _, out number);
 
     public static bool TryParseIssueOrPRNumber(string? input, [NotNullWhen(true)] out string? org, [NotNullWhen(true)] out string? repoName, out int prNumber)
     {
@@ -119,13 +119,13 @@ public static partial class GitHubHelper
         return true;
     }
 
-    public static bool TryParseIssueOrPRNumber(string? input, out string? repoName, out int prNumber)
+    public static bool TryParseIssueOrPRNumber(string? input, out string? repoName, out int number)
     {
         if (TryParseRepoOwnerAndName(input, out string? repoOwner, out string? repo, out string[]? extra) &&
             extra.Length == 2 &&
-            (extra[0].Equals("pull/", StringComparison.OrdinalIgnoreCase) || extra[0].Equals("issues/", StringComparison.OrdinalIgnoreCase)) &&
-            int.TryParse(extra[1], out prNumber) &&
-            prNumber > 0)
+            (extra[0].ToLowerInvariant() is "pull/" or "issues/" or "discussions/") &&
+            int.TryParse(extra[1], out number) &&
+            number > 0)
         {
             repoName = $"{repoOwner}/{repo}";
             return true;
@@ -134,14 +134,14 @@ public static partial class GitHubHelper
         if (string.IsNullOrWhiteSpace(input))
         {
             repoName = null;
-            prNumber = 0;
+            number = 0;
             return false;
         }
 
         input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
             .Trim('#', '<', '>');
 
-        if (int.TryParse(input, out prNumber) && prNumber > 0)
+        if (int.TryParse(input, out number) && number > 0)
         {
             repoName = null;
             return true;
