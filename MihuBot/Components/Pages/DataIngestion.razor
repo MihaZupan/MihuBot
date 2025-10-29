@@ -1,9 +1,11 @@
 ﻿@page "/data-ingestion"
 @using Microsoft.EntityFrameworkCore
 @using System.Text.RegularExpressions
+@using MihuBot.RuntimeUtils
 @using MihuBot.RuntimeUtils.DataIngestion.GitHub
 @rendermode InteractiveServer
 @inject GitHubDataIngestionService IngestionService
+@inject RuntimeUtilsService RuntimeUtils
 @attribute [StreamRendering]
 
 <PageTitle>Data Ingestion</PageTitle>
@@ -36,25 +38,25 @@ else
         </tbody>
     </table>
 }
-<AuthorizeView Policy="Admin">
-    <Authorized>
-        <form @onsubmit="OnboardAsync">
-            <div class="form-group">
-                <div class="form-group input-group mb-3">
-                    <input @bind="_newRepoUrl" type="text" class="form-control" placeholder="Repo URL" aria-label="Message" aria-describedby="basic-addon2">
-                    <div class="input-group-append">
-                        <button disabled="@_onboardingInProgress" @onclick="OnboardAsync" class="btn btn-outline-secondary" type="button">Onboard repo</button>
-                    </div>
-                </div>
 
-                @if (_errorMessage != null)
-                {
-                    <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
-                }
+@if (_hasPermissionsToOnboardRepos)
+{
+    <form @onsubmit="OnboardAsync">
+        <div class="form-group">
+            <div class="form-group input-group mb-3">
+                <input @bind="_newRepoUrl" type="text" class="form-control" placeholder="Repo URL" aria-label="Message" aria-describedby="basic-addon2">
+                <div class="input-group-append">
+                    <button disabled="@_onboardingInProgress" @onclick="OnboardAsync" class="btn btn-outline-secondary" type="button">Onboard repo</button>
+                </div>
             </div>
-        </form>
-    </Authorized>
-</AuthorizeView>
+
+            @if (_errorMessage != null)
+            {
+                <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
+            }
+        </div>
+    </form>
+}
 
 @if (_onboardingInProgress)
 {
@@ -63,9 +65,23 @@ else
 
 @code {
     #nullable enable
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? authenticationState { get; set; }
+    private bool _hasPermissionsToOnboardRepos;
+
     string? _newRepoUrl;
     string? _errorMessage;
     bool _onboardingInProgress;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (authenticationState is not null &&
+            (await authenticationState).User.TryGetGitHubLogin(out string githubUserLogin))
+        {
+            _hasPermissionsToOnboardRepos = githubUserLogin.ToLowerInvariant() is "mihazupan" or "egorbo";
+        }
+    }
 
     async Task OnboardAsync()
     {
