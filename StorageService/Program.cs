@@ -3,6 +3,7 @@ using LettuceEncrypt;
 using Microsoft.AspNetCore.Connections;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using StorageService.Components;
 using StorageService.Storage;
 using Yarp.ReverseProxy.Model;
 
