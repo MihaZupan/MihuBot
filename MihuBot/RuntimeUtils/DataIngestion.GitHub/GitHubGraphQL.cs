@@ -388,6 +388,9 @@ public static class GitHubGraphQL
                     deletions
                     changedFiles
                     maintainerCanModify
+                    mergedBy {
+                      ... ActorIds
+                    }
                   }
                 }
               }
@@ -671,6 +674,7 @@ public static class GitHubGraphQL
         ConnectionModel<CommentModel> Comments,
         ConnectionModel<PullRequestReviewModel> Reviews,
         DateTime? MergedAt,
+        ActorIdsModel? MergedBy,
         bool IsDraft,
         string Mergeable,
         int Additions,

@@ -1322,6 +1322,14 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
             PullRequestInfo[] infos = await GetOrCreatePullRequestInfosAsync([.. pullRequests.Select(pr => pr.Id)], cancellationToken);
 
+            await UpdateUserInfosAsync(
+                [.. infos
+                    .Select((pr, i) => (pr, DbId: pullRequests[i].MergedBy?.DatabaseId ?? 0, Login: pullRequests[i].MergedBy?.Login ?? ""))
+                    .Where(pr => pr.DbId != 0 && !string.IsNullOrEmpty(pr.Login))],
+                pr => pr.MergedById ?? 0,
+                (pr, userId) => pr.MergedById = userId,
+                cancellationToken);
+
             for (int i = 0; i < pullRequests.Length; i++)
             {
                 PullRequestInfo info = infos[i];
