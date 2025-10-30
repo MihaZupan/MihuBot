@@ -3,23 +3,12 @@ using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using ModelContextProtocol.Server;
 
-namespace MihuBot.RuntimeUtils;
+namespace MihuBot.RuntimeUtils.AI;
 
 [McpServerToolType]
 public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
 {
     private const string UserLogin = "MihuBot-McpServer";
-
-    [McpServerTool(Name = "get_github_comment_history", Title = "Get GitHub comment history", Idempotent = true)]
-    [Description("Get the full history of comments on a specific issue or pull request from the dotnet/runtime GitHub repository.")]
-    public async Task<IssueTriageHelper.ShortIssueInfo> GetCommentHistory(
-        [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
-        CancellationToken cancellationToken)
-    {
-        Logger.DebugLog($"[MCP]: {nameof(GetCommentHistory)} for {issueOrPRNumber}");
-
-        return await TriageHelper.GetCommentHistoryAsync(TriageHelper.DefaultModel, UserLogin, issueOrPRNumber, cancellationToken);
-    }
 
     [McpServerTool(Name = "search_dotnet_repos", Title = "Search dotnet repositories", Idempotent = true)]
     [Description(
@@ -44,7 +33,7 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         {
             repository = null;
         }
-        else if (!repository.StartsWith("dotnet/", StringComparison.Ordinal))
+        else if (!repository.Contains('/'))
         {
             repository = $"dotnet/{repository}";
         }

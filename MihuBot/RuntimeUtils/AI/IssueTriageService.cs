@@ -7,7 +7,7 @@ using MihuBot.DB.Models;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
 
-namespace MihuBot.RuntimeUtils;
+namespace MihuBot.RuntimeUtils.AI;
 
 public sealed class IssueTriageService(
     GitHubClient GitHub,

@@ -68,7 +68,7 @@ public sealed class OpenAIService
 
     public IChatClient GetChat(string deployment, bool secondary = false)
     {
-        deployment ??= "gpt-4o";
+        deployment ??= "gpt-4.1";
 
         AzureOpenAIClient client = secondary ? _secondaryChatClient : _chat;
         return client.GetChatClient(deployment).AsIChatClient();

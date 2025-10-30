@@ -24,6 +24,7 @@ using MihuBot.Location;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
 using MihuBot.RuntimeUtils;
+using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using Qdrant.Client;

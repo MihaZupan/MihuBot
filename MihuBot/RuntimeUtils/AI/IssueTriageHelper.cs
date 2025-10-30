@@ -7,7 +7,7 @@ using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Search;
 
-namespace MihuBot.RuntimeUtils;
+namespace MihuBot.RuntimeUtils.AI;
 
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
@@ -52,13 +52,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         Context context = CreateContext(options);
 
         return await context.DetectDuplicateIssuesAsync(cancellationToken);
-    }
-
-    public async Task<ShortIssueInfo> GetCommentHistoryAsync(ModelInfo model, string requesterLogin, int issueOrPRNumber, CancellationToken cancellationToken)
-    {
-        Context context = CreateContext(model, requesterLogin);
-
-        return await context.GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: false, cancellationToken);
     }
 
     public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
@@ -177,7 +170,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         private int SearchMaxTotalResultsLarge => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResultsLarge)}", 60);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
-        private bool AdvertiseCommentsTool => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(AdvertiseCommentsTool)}", false);
         private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 20);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
@@ -192,16 +184,13 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             List<ChatMessage> messages = [new ChatMessage(ChatRole.System, systemPrompt)];
 
-            string existingCommentsMention = SkipCommentsOnCurrentIssue
-                ? string.Empty
-                : $"\nExisting comments: {Issue.Comments.Count(c => c.User.IsLikelyARealUser())}";
-
             messages.Add(new ChatMessage(ChatRole.User,
                 $"""
-                Please help me triage issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}'.{existingCommentsMention}
+                Please help me triage the following issue:
 
-                Here is the issue:
-                {Issue.Body}
+                ```json
+                {(await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken)).AsJson()}
+                ```
                 """));
 
             using FunctionInvokingChatClient toolClient = GetToolClient();
@@ -307,13 +296,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                     $"Perform a set of semantic searches over issues and comments in the {Issue.Repository.FullName} GitHub repository. Every term represents an independent search."),
             ];
 
-            if (AdvertiseCommentsTool)
-            {
-                tools.Add(AIFunctionFactory.Create(GetCommentHistoryAsync,
-                    "get_github_comment_history",
-                    $"Get the full history of comments on a specific issue or pull request from the {Issue.Repository.FullName} GitHub repository."));
-            }
-
             var options = new ChatOptions
             {
                 Tools = tools,
@@ -361,30 +343,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             return document.ToHtmlAdvanced();
-        }
-
-        private async Task<ShortIssueInfo> GetCommentHistoryAsync(
-            [Description("The issue/PR number to get comments for.")] int issueOrPRNumber,
-            CancellationToken cancellationToken)
-        {
-            return await GetCommentHistoryAsyncCore(issueOrPRNumber, removeCommentsWithoutContext: true, cancellationToken);
-        }
-
-        public async Task<ShortIssueInfo> GetCommentHistoryAsyncCore(int issueOrPRNumber, bool removeCommentsWithoutContext, CancellationToken cancellationToken)
-        {
-            IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, issueOrPRNumber, cancellationToken);
-
-            if (issue is null)
-            {
-                OnToolLog($"[Tool] Issue #{issueOrPRNumber} not found.");
-                return new ShortIssueInfo("N/A", "N/A", "N/A", "N/A", null, "N/A", $"Issue #{issueOrPRNumber} does not appear to exist.", []);
-            }
-
-            ShortCommentInfo[] comments = CreateCommentInfos(issue, issueOrPRNumber, removeCommentsWithoutContext, includeAll: true);
-
-            OnToolLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
-
-            return CreateIssueInfo(issue.CreatedAt, issue.User, issue.Body, issue, comments);
         }
 
         private async Task<ShortIssueInfo[]> SearchCurrentRepoAsync(
@@ -488,58 +446,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 createdAt.ToISODate(),
                 $"{author.Login}{authorSuffix}",
                 SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, maxLength));
-
-            //static string FormatReactions(IssueInfo issue, CommentInfo comment)
-            //{
-            //    int positive =
-            //        (comment?.Plus1 ?? issue.Plus1) +
-            //        (comment?.Heart ?? issue.Heart) +
-            //        (comment?.Hooray ?? issue.Hooray) +
-            //        (comment?.Rocket ?? issue.Rocket);
-
-            //    int negative =
-            //        (comment?.Minus1 ?? issue.Minus1) +
-            //        (comment?.Confused ?? issue.Confused);
-
-            //    if (positive > 0 || negative > 0)
-            //    {
-            //        return $"Community reacted with {positive} upvotes, {negative} downvotes";
-            //    }
-
-            //    return string.Empty;
-            //}
-        }
-
-        private ShortCommentInfo[] CreateCommentInfos(IssueInfo issue, int issueOrPRNumber, bool removeCommentsWithoutContext, bool includeAll = false, CommentInfo[] mergeWith = null)
-        {
-            CommentInfo[] comments = issue.Comments
-                .OrderBy(c => c.CreatedAt)
-                .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c, removeCommentsWithoutContext))
-                .ToArray();
-
-            if (SkipCommentsOnCurrentIssue && issueOrPRNumber == Issue.Number)
-            {
-                comments = [];
-            }
-
-            int maxComments = includeAll ? int.MaxValue : MaxCommentsPerIssue;
-
-            if (comments.Length > maxComments)
-            {
-                comments = [.. comments.AsSpan(0, maxComments / 2), .. comments.AsSpan(comments.Length - (maxComments / 2))];
-            }
-
-            if (mergeWith is not null)
-            {
-                comments = comments.Concat(mergeWith)
-                    .DistinctBy(c => c.Id)
-                    .OrderBy(c => c.CreatedAt)
-                    .ToArray();
-            }
-
-            Logger.DebugLog($"[Tool] Obtained {comments.Length} comments for issue #{issue.Number}: {issue.Title}");
-
-            return [.. comments.Select(CreateCommentInfo)];
         }
     }
 }

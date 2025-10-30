@@ -222,16 +222,16 @@ public static class SemanticMarkdownChunker
         }
     }
 
-    public static bool IsUnlikelyToBeUseful(IssueInfo issue, CommentInfo comment, bool removeSectionsWithoutContext = true)
+    public static bool IsUnlikelyToBeUseful(IssueInfo issue, CommentInfo comment, bool removeSectionsWithoutContext = true, bool includeBotMessages = false)
     {
         string body = comment.Body;
 
         return string.IsNullOrWhiteSpace(body)
-            || IsLikelySpam(issue, comment, ref body)
+            || IsLikelySpam(issue, comment, ref body, includeBotMessages)
             || (removeSectionsWithoutContext && IsSectionWithoutContext(body));
     }
 
-    private static bool IsLikelySpam(IssueInfo issue, CommentInfo? comment, ref string markdown)
+    private static bool IsLikelySpam(IssueInfo issue, CommentInfo? comment, ref string markdown, bool includeBotMessages = false)
     {
         const string EmailReplyFooter = "You are receiving this because you are subscribed to this thread";
 
@@ -240,7 +240,7 @@ public static class SemanticMarkdownChunker
         markdown = markdown.ReplaceLineEndings("\n");
         markdown = markdown.Trim();
 
-        if (!author.IsLikelyARealUser())
+        if (!includeBotMessages && !author.IsLikelyARealUser())
         {
             return true;
         }

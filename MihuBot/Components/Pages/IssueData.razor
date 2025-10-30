@@ -1,0 +1,97 @@
+﻿@page "/issue-data"
+@using Microsoft.EntityFrameworkCore
+@using System.Text.RegularExpressions
+@using MihuBot.DB.GitHub
+@using MihuBot.RuntimeUtils.AI
+@rendermode InteractiveServer
+@inject IDbContextFactory<GitHubDbContext> DbFactory
+@attribute [StreamRendering]
+@implements IDisposable
+
+<PageTitle>Issue data</PageTitle>
+
+<form class="input-group" @onsubmit="RefreshSearchResults">
+    <input id="searchQuery"
+           type="text"
+           class="form-control search-input"
+           @bind-value="SearchQuery"
+           placeholder="Enter an issue URL." />
+    <button type="button"
+            class="btn btn-primary search-button"
+            @onclick="RefreshSearchResults">
+        <i class="bi bi-search"></i>
+    </button>
+</form>
+
+@if (_errorMessage != null)
+{
+    <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
+}
+
+<pre>
+    <code>
+        @_issueData
+    </code>
+</pre>
+
+@code {
+    #nullable enable
+    string? _issueData;
+    string? SearchQuery { get; set; }
+    string? _errorMessage;
+
+    private readonly CancellationTokenSource _cts = new();
+
+    public void Dispose() => _cts.Cancel();
+
+    async Task RefreshSearchResults()
+    {
+        try
+        {
+            _errorMessage = null;
+
+            if (!GitHubHelper.TryParseIssueOrPRNumber(SearchQuery, out string? repoName, out int number))
+            {
+                _errorMessage = "Invalid GitHub repo URL";
+                return;
+            }
+
+            await using GitHubDbContext db = await DbFactory.CreateDbContextAsync(_cts.Token);
+
+            var repo = await db.Repositories
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.FullName == repoName, _cts.Token);
+
+            if (repo == null)
+            {
+                _errorMessage = "Repository not found in the database.";
+                return;
+            }
+
+            var issue = await db.Issues
+                .AsNoTracking()
+                .Where(i => i.RepositoryId == repo.Id && i.Number == number)
+                .Include(i => i.User)
+                .Include(i => i.Milestone)
+                .Include(i => i.Labels)
+                .Include(i => i.Comments)
+                    .ThenInclude(c => c.User)
+                .Include(i => i.Assignees)
+                .Include(i => i.PullRequest)
+                .AsSplitQuery()
+                .FirstOrDefaultAsync(_cts.Token);
+
+            if (issue == null)
+            {
+                _errorMessage = "Issue/PR not found in the database.";
+                return;
+            }
+
+            _issueData = (await IssueInfoForPrompt.CreateAsync(issue, DbFactory, _cts.Token)).AsJson();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.ToString();
+        }
+    }
+}
