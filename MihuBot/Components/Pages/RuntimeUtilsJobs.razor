@@ -212,9 +212,9 @@ else
             {
                 _canCancelJob =
                     _githubUserLogin == _job.GithubCommenterLogin ||
-                    _githubUserLogin == "MihaZupan";
+                    runtimeUtils.CheckGitHubAdminPermissions(_githubUserLogin);
 
-                _canViewCredentials = _githubUserLogin == "MihaZupan";
+                _canViewCredentials = runtimeUtils.CheckGitHubAdminPermissions(_githubUserLogin);
             }
         }
     }

@@ -133,7 +133,7 @@ public abstract class JobBase
         Metadata.Add("PersistentStateSasUri", sasUri.AbsoluteUri);
 
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
-        SuppressTrackingIssue = githubCommenterLogin == "MihaZupan" && CustomArguments.Contains("-noTrackingIssue", StringComparison.OrdinalIgnoreCase);
+        SuppressTrackingIssue = IsFromAdmin && CustomArguments.Contains("-noTrackingIssue", StringComparison.OrdinalIgnoreCase);
 
         TestedPROrBranchLink = comment?.HtmlUrl;
 
@@ -177,6 +177,8 @@ public abstract class JobBase
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
 
+    public bool IsFromAdmin => Parent.CheckGitHubAdminPermissions(GithubCommenterLogin);
+
     protected bool ShouldMentionJobInitiator { get; set; }
 
     protected bool GetConfigFlag(string name, bool @default)
@@ -212,6 +214,11 @@ public abstract class JobBase
             Log("No Azure support. Aborting ...");
             NotifyJobCompletion();
             return;
+        }
+
+        if (CustomArguments.Contains("-noTimeLimit", StringComparison.OrdinalIgnoreCase))
+        {
+            MaxJobDuration = IsFromAdmin ? TimeSpan.FromDays(7) : MaxJobDuration * 2;
         }
 
         ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);

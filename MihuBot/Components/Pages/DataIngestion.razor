@@ -79,7 +79,7 @@ else
         if (authenticationState is not null &&
             (await authenticationState).User.TryGetGitHubLogin(out string githubUserLogin))
         {
-            _hasPermissionsToOnboardRepos = githubUserLogin.ToLowerInvariant() is "mihazupan" or "egorbo";
+            _hasPermissionsToOnboardRepos = RuntimeUtils.CheckGitHubAdminPermissions(githubUserLogin);
         }
     }
 

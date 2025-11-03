@@ -688,9 +688,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
     }
 
     public bool CheckGitHubUserPermissions(string userLogin) =>
-        ConfigurationService.TryGet(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", out string allowedString) &&
-        bool.TryParse(allowedString, out bool allowed) &&
-        allowed;
+        ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", false);
+
+    public bool CheckGitHubAdminPermissions(string userLogin) =>
+        ConfigurationService.GetOrDefault(null, $"RuntimeUtils.Admin.{userLogin}", false);
 
     public async Task<PullRequest> GetPullRequestAsync(int prNumber)
     {
