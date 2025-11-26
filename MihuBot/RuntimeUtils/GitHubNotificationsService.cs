@@ -141,7 +141,7 @@ public sealed partial class GitHubNotificationsService
 
             if (name.Equals("dotnet/ncl", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (string u in (ReadOnlySpan<string>)["MihaZupan", "CarnaViire", "karelz", "antonfirsov", "ManickaP", "wfurt", "rzikm", "liveans", "rokonec"])
+                foreach (string u in (ReadOnlySpan<string>)["MihaZupan", "CarnaViire", "karelz", "ManickaP", "wfurt", "rzikm", "liveans", "rokonec"])
                 {
                     if (TryGetUser(u, out UserRecord nclUser))
                     {
@@ -186,7 +186,9 @@ public sealed partial class GitHubNotificationsService
     {
         try
         {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
+            TimeSpan maxTimeFromLabelToMention = TimeSpan.FromMinutes(10);
+
+            using var timer = new PeriodicTimer(maxTimeFromLabelToMention / 4);
 
             int consecutiveFailureCount = 0;
 
@@ -201,14 +203,15 @@ public sealed partial class GitHubNotificationsService
 
                     await using GitHubDbContext db = _db.CreateDbContext();
 
-                    DateTime start = DateTime.UtcNow - TimeSpan.FromDays(7);
-                    DateTime end = DateTime.UtcNow - TimeSpan.FromMinutes(10);
+                    DateTime onlyRecentlyUpdated = DateTime.UtcNow - TimeSpan.FromDays(1);
+                    DateTime skipRecentlyCreated = DateTime.UtcNow - maxTimeFromLabelToMention;
 
                     Stopwatch queryStopwatch = Stopwatch.StartNew();
 
                     IssueInfo[] networkingIssues = await db.Issues
                         .AsNoTracking()
-                        .Where(i => i.CreatedAt >= start && i.CreatedAt <= end)
+                        .Where(i => i.UpdatedAt >= onlyRecentlyUpdated)
+                        .Where(i => i.CreatedAt <= skipRecentlyCreated)
                         .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
                         .Where(i => i.IssueType == IssueType.Issue)
                         .FromDotnetRuntime()
@@ -222,22 +225,49 @@ public sealed partial class GitHubNotificationsService
 
                     foreach (IssueInfo issue in networkingIssues)
                     {
+                        string dupeKey = $"NoNCLMention/{issue.HtmlUrl}";
+
+                        if (_processedMentions.Contains(dupeKey))
+                        {
+                            continue;
+                        }
+
                         if (issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
                         {
                             continue;
                         }
 
-                        if (!_processedMentions.TryAdd($"NoNCLMention/{issue.HtmlUrl}"))
-                        {
-                            continue;
-                        }
-
-                        IReadOnlyList<IssueComment> updatedComments;
-                        IReadOnlyList<IssueEvent> events;
                         try
                         {
-                            updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
-                            events = await Github.Issue.Events.GetAllForIssue(issue.RepositoryId, issue.Number);
+                            IReadOnlyList<IssueEvent> events = await Github.Issue.Events.GetAllForIssue(issue.RepositoryId, issue.Number);
+
+                            bool areaLabelIsRecent = false;
+
+                            foreach (IssueEvent e in events)
+                            {
+                                if (e.Event.Value == EventInfoState.Labeled &&
+                                    e.Label?.Name is { } labelName &&
+                                    Constants.NetworkingLabels.Contains(labelName) &&
+                                    (DateTime.UtcNow - e.CreatedAt) < maxTimeFromLabelToMention)
+                                {
+                                    areaLabelIsRecent = true;
+                                    break;
+                                }
+                            }
+
+                            if (areaLabelIsRecent)
+                            {
+                                // Give the default policy bot some time to comment.
+                                // We'll check later in case it hasn't.
+                                continue;
+                            }
+
+                            IReadOnlyList<IssueComment> updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
+
+                            if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                continue;
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -245,26 +275,7 @@ public sealed partial class GitHubNotificationsService
                             continue;
                         }
 
-                        if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            continue;
-                        }
-
-                        bool nclLabelIsRecent = false;
-
-                        foreach (IssueEvent e in events)
-                        {
-                            if (e.Event.Value == EventInfoState.Labeled &&
-                                e.Label?.Name is { } labelName &&
-                                Constants.NetworkingLabels.Contains(labelName) &&
-                                (DateTime.UtcNow - e.CreatedAt).TotalMinutes < 5)
-                            {
-                                nclLabelIsRecent = true;
-                                break;
-                            }
-                        }
-
-                        if (nclLabelIsRecent)
+                        if (!_processedMentions.TryAdd(dupeKey))
                         {
                             continue;
                         }
