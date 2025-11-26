@@ -134,6 +134,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HttpClient Http;
     public readonly IConfiguration Configuration;
     public readonly IConfigurationService ConfigurationService;
+    public readonly ServiceConfiguration ServiceConfiguration;
     public readonly HetznerClient Hetzner;
     public readonly BlobContainerClient ArtifactsBlobContainerClient;
     public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
@@ -146,7 +147,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private bool _shuttingDown;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration)
     {
         Logger = logger;
         Github = github;
@@ -154,6 +155,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Http = http;
         Configuration = configuration;
         ConfigurationService = configurationService;
+        ServiceConfiguration = serviceConfiguration;
         Hetzner = hetzner;
         UrlShortener = urlShortener;
         CoreRoot = coreRoot;
@@ -524,7 +526,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
         while (await timer.WaitForNextTickAsync())
         {
             if (_shuttingDown ||
-                ConfigurationService.GetOrDefault(null, $"{nameof(WatchForNegativeMihuBotCommentSentimentAsync)}.Pause", false))
+                ConfigurationService.GetOrDefault(null, $"{nameof(WatchForNegativeMihuBotCommentSentimentAsync)}.Pause", false) ||
+                ServiceConfiguration.PauseGitHubPolling)
             {
                 continue;
             }
