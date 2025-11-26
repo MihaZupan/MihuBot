@@ -247,6 +247,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 
+    services.AddSingleton<DetectUnlabeledNetworkingIssuesService>();
+    services.AddHostedService(s => s.GetRequiredService<DetectUnlabeledNetworkingIssuesService>());
+
     services.AddSingleton<McpServer>();
 
     services.AddSingleton(new MinecraftRCON(builder.Configuration["Minecraft:Host"], int.Parse(builder.Configuration["Minecraft:Port"] ?? "25575"), builder.Configuration["Minecraft:RconPassword"]));
