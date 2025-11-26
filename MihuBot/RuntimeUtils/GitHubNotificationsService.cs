@@ -203,17 +203,17 @@ public sealed partial class GitHubNotificationsService
 
                     await using GitHubDbContext db = _db.CreateDbContext();
 
-                    DateTime onlyRecentlyUpdated = DateTime.UtcNow - TimeSpan.FromDays(1);
+                    DateTime onlyCreatedInLastMonth = DateTime.UtcNow - TimeSpan.FromDays(30);
                     DateTime skipRecentlyCreated = DateTime.UtcNow - maxTimeFromLabelToMention;
 
                     Stopwatch queryStopwatch = Stopwatch.StartNew();
 
                     IssueInfo[] networkingIssues = await db.Issues
                         .AsNoTracking()
-                        .Where(i => i.UpdatedAt >= onlyRecentlyUpdated)
-                        .Where(i => i.CreatedAt <= skipRecentlyCreated)
+                        .Where(i => i.CreatedAt >= onlyCreatedInLastMonth && i.CreatedAt <= skipRecentlyCreated)
                         .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
                         .Where(i => i.IssueType == IssueType.Issue)
+                        .Where(i => i.State == ItemState.Open)
                         .FromDotnetRuntime()
                         .Include(i => i.Comments)
                         .OrderByDescending(i => i.CreatedAt)
@@ -232,7 +232,8 @@ public sealed partial class GitHubNotificationsService
                             continue;
                         }
 
-                        if (issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                        if (issue.Comments.Count >= 10 ||
+                            issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
                         {
                             continue;
                         }
