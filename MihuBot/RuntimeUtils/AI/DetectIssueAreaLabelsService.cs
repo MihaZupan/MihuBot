@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using Octokit;
 
 namespace MihuBot.RuntimeUtils.AI;
 
@@ -78,6 +79,7 @@ public sealed class DetectIssueAreaLabelsService(
             .Where(i => i.UpdatedAt >= onlyRecentlyUpdated)
             .Where(i => i.Labels.Any(l => l.Name == "needs-area-label"))
             .Where(i => i.IssueType == IssueType.Issue)
+            .Where(i => i.State == ItemState.Open)
             .FromDotnetRuntime()
             .Include(i => i.User)
             .Include(i => i.Comments)
