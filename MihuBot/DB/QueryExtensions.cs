@@ -9,6 +9,11 @@ public static class QueryExtensions
         return query.Where(i => i.Repository.FullName == "dotnet/runtime");
     }
 
+    public static IQueryable<RepositoryInfo> OnlyDotnetRuntime(this IQueryable<RepositoryInfo> query)
+    {
+        return query.Where(r => r.FullName == "dotnet/runtime");
+    }
+
     public static string ToDisplayString(this IssueType issueType)
     {
         return issueType switch

@@ -6,7 +6,7 @@ using MihuBot.DB.GitHub;
 
 namespace MihuBot.RuntimeUtils.AI;
 
-public sealed class DetectUnlabeledNetworkingIssuesService(
+public sealed class DetectIssueAreaLabelsService(
     Logger Logger,
     InitializedDiscordClient Discord,
     IDbContextFactory<GitHubDbContext> GitHubDb,
@@ -14,7 +14,7 @@ public sealed class DetectUnlabeledNetworkingIssuesService(
     OpenAIService OpenAI)
     : BackgroundService
 {
-    private readonly FileBackedHashSet _processedIssues = new("ProcessedUnlabeledIssuesCheckingForNetworkingContent.txt", StringComparer.OrdinalIgnoreCase);
+    private readonly FileBackedHashSet _processedIssues = new("ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -46,7 +46,7 @@ public sealed class DetectUnlabeledNetworkingIssuesService(
                 {
                     consecutiveFailureCount++;
 
-                    string errorMessage = $"{nameof(DetectUnlabeledNetworkingIssuesService)}: ({consecutiveFailureCount}): {ex}";
+                    string errorMessage = $"{nameof(DetectIssueAreaLabelsService)}: ({consecutiveFailureCount}): {ex}";
                     Logger.DebugLog(errorMessage);
 
                     await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount, stoppingToken);
@@ -88,6 +88,18 @@ public sealed class DetectUnlabeledNetworkingIssuesService(
             .AsSplitQuery()
             .ToArrayAsync(cancellationToken);
 
+        if (unlabeledIssues.Length == 0)
+        {
+            return;
+        }
+
+        RepositoryInfo repo = await db.Repositories
+            .AsNoTracking()
+            .OnlyDotnetRuntime()
+            .Include(r => r.Labels)
+            .AsSplitQuery()
+            .SingleAsync(cancellationToken);
+
         foreach (IssueInfo issue in unlabeledIssues)
         {
             if (issue.Labels.Any(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase)))
@@ -104,42 +116,52 @@ public sealed class DetectUnlabeledNetworkingIssuesService(
             {
                 string issueData = (await IssueInfoForPrompt.CreateAsync(issue, GitHubDb, cancellationToken)).AsJson();
 
-                ChatResponse<bool> result = await OpenAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<bool>(
+                ChatResponse<AreaLabelSuggestion[]> result = await OpenAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
                     $"""
                     You are an expert at classifying GitHub issues related to .NET into different categories based on their content.
-                    Your task is to determine whether the following GitHub issue is related to networking problems and should be classified under any of the following labels:
-                    {string.Join(", ", Constants.NetworkingLabels)}
+                    Your task is to determine which labels best match the new issue.
 
-                    Look for topics such as:
-                    - network connectivity issues,
-                    - HTTP/HTTPS problems,
-                    - DNS resolution failures,
-                    - socket programming errors,
-                    - firewall or proxy issues,
-                    - latency or performance problems related to networking,
-                    - any other issues that directly involve network communication or protocols.
+                    Choose from the following areas:
+                    {string.Join(", ", repo.Labels
+                        .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(l => l.Name)
+                        .Select(l => l.Name))}
 
-                    .NET types that ore often relevant include Uri, HttpClient, Socket, SslStream, Quic, HttpClientFactory, Kestrel, etc.
+                    Only return the labels which are likely relevant.
+                    Include the confidence level between 0 and 1 (where 1 is absolute certainty).
 
                     Here is the issue data:
                     ```json
                     {issueData}
                     ```
+                    """, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
-                    Respond with true if the issue is related to networking problems and should be labeled accordingly.
-                    """, cancellationToken: cancellationToken);
+                AreaLabelSuggestion[] suggestions = result.Result;
 
-                if (!result.Result)
+                if (suggestions is null)
                 {
                     continue;
                 }
 
-                await Discord.GetTextChannel(Channels.PrivateGeneral).TrySendMessageAsync($"Possible networking issue: <{issue.HtmlUrl}>");
+                suggestions = [.. suggestions
+                    .Where(s => s is not null && s.Confidence.HasValue && s.Confidence >= 0.5)
+                    .OrderByDescending(s => s.Confidence)
+                    .Take(5)];
+
+                if (suggestions.Length == 0)
+                {
+                    continue;
+                }
+
+                await Discord.GetTextChannel(Channels.PrivateGeneral).TrySendMessageAsync(
+                    $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}");
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync($"Failed to do networking content discovery for <{issue.HtmlUrl}>: {ex}");
+                await Logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }
     }
+
+    private sealed record AreaLabelSuggestion(string LabelName, double? Confidence);
 }

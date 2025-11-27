@@ -247,8 +247,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<RuntimeUtilsService>();
     services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
 
-    services.AddSingleton<DetectUnlabeledNetworkingIssuesService>();
-    services.AddHostedService(s => s.GetRequiredService<DetectUnlabeledNetworkingIssuesService>());
+    services.AddSingleton<DetectIssueAreaLabelsService>();
+    services.AddHostedService(s => s.GetRequiredService<DetectIssueAreaLabelsService>());
 
     services.AddSingleton<McpServer>();
 

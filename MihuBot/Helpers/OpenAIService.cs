@@ -71,7 +71,11 @@ public sealed class OpenAIService
         deployment ??= "gpt-4.1";
 
         AzureOpenAIClient client = secondary ? _secondaryChatClient : _chat;
-        return client.GetChatClient(deployment).AsIChatClient();
+        IChatClient chatClient = client.GetChatClient(deployment).AsIChatClient();
+
+        chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
+
+        return chatClient;
     }
 
     public ImageClient GetImage(ulong? context)
