@@ -1,8 +1,10 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils.Search;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils.AI;
@@ -12,7 +14,8 @@ public sealed class DetectIssueAreaLabelsService(
     InitializedDiscordClient Discord,
     IDbContextFactory<GitHubDbContext> GitHubDb,
     ServiceConfiguration ServiceConfiguration,
-    OpenAIService OpenAI)
+    OpenAIService OpenAI,
+    GitHubSearchService Search)
     : BackgroundService
 {
     private readonly FileBackedHashSet _processedIssues = new("ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase);
@@ -118,6 +121,27 @@ public sealed class DetectIssueAreaLabelsService(
             {
                 string issueData = (await IssueInfoForPrompt.CreateAsync(issue, GitHubDb, cancellationToken)).AsJson();
 
+                (IssueInfo Issue, double Score)[] similarIssues = await GetSimilarIssueAsync(issue);
+
+                var similarIssuesData = similarIssues
+                    .Select(si =>
+                    {
+                        string areaLabel = si.Issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name;
+                        if (areaLabel is null)
+                        {
+                            return null;
+                        }
+
+                        return new
+                        {
+                            Title = si.Issue.Title.TruncateWithDotDotDot(100),
+                            Body = si.Issue.Body.TruncateWithDotDotDot(1000),
+                            AreaLabel = areaLabel,
+                        };
+                    })
+                    .Where(d => d is not null)
+                    .ToArray();
+
                 ChatResponse<AreaLabelSuggestion[]> result = await OpenAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
                     $"""
                     You are an expert at classifying GitHub issues related to .NET into different categories based on their content.
@@ -135,6 +159,11 @@ public sealed class DetectIssueAreaLabelsService(
                     Here is the issue data:
                     ```json
                     {issueData}
+                    ```
+
+                    Here are some issues that may be similar to this one, and the labels they were assigned:
+                    ```json
+                    {JsonSerializer.Serialize(issueData)}
                     ```
                     """, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
@@ -163,6 +192,25 @@ public sealed class DetectIssueAreaLabelsService(
                 await Logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }
+    }
+
+    private async Task<(IssueInfo Issue, double Score)[]> GetSimilarIssueAsync(IssueInfo issue)
+    {
+        string titleInfo = $"{issue.Repository.FullName}#{issue.Number}: {issue.Title}";
+        string description = $"{titleInfo}\n{issue.IssueType.ToDisplayString()} author: {issue.User.Login}\n\n{issue.Body?.Trim()}";
+
+        description = SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, description, SemanticMarkdownChunker.MaxSectionTokens);
+
+        var searchResults = await Search.SearchIssuesAndCommentsAsync(
+            description,
+            new IssueSearchFilters { Repository = issue.Repository.FullName },
+            new IssueSearchResponseOptions { MaxResults = 10, IncludeIssueComments = false },
+            cancellationToken: CancellationToken.None);
+
+        return searchResults.Results
+            .Where(r => r.Score >= 0.3 && r.Results[0].Issue.Id != issue.Id)
+            .Select(r => (r.Results[0].Issue, r.Score))
+            .ToArray();
     }
 
     private sealed record AreaLabelSuggestion(string LabelName, double? Confidence);
