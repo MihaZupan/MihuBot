@@ -84,6 +84,7 @@ public sealed class DetectIssueAreaLabelsService(
             .Where(i => i.IssueType == IssueType.Issue)
             .Where(i => i.State == ItemState.Open)
             .FromDotnetRuntime()
+            .Include(i => i.Repository)
             .Include(i => i.User)
             .Include(i => i.Comments)
                 .ThenInclude(c => c.User)
