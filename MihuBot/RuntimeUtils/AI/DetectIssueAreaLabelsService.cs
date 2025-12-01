@@ -164,7 +164,7 @@ public sealed class DetectIssueAreaLabelsService(
 
                     Here are some issues that may be similar to this one, and the labels they were assigned:
                     ```json
-                    {JsonSerializer.Serialize(issueData)}
+                    {JsonSerializer.Serialize(similarIssuesData)}
                     ```
                     """, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
