@@ -137,20 +137,7 @@ public sealed partial class Logger
             {
                 try
                 {
-                    await using LogsDbContext context = _dbContextFactory.CreateDbContext();
-
-                    DateTime before = DateTime.UtcNow.Subtract(TimeSpan.FromDays(90));
-                    DateTime after = DateTime.UtcNow.Subtract(TimeSpan.FromDays(92));
-
-                    int rowsDeleted = await context.Logs
-                        .Where(log => log.Snowflake >= (long)SnowflakeUtils.ToSnowflake(after))
-                        .Where(log => log.Snowflake <= (long)SnowflakeUtils.ToSnowflake(before))
-                        .Where(log =>
-                            log.Type == EventType.DebugMessage ||
-                            log.Type == EventType.UserActiveClientsChanged ||
-                            log.Type == EventType.UserActivitiesChanged)
-                        .ExecuteDeleteAsync();
-
+                    int rowsDeleted = await DeleteDebugLogsAsync(90, 92);
                     DebugLog($"Deleted {rowsDeleted} older debug messages");
                 }
                 catch (Exception ex)
@@ -159,6 +146,22 @@ public sealed partial class Logger
                 }
             }
         });
+    }
+
+    public async Task<int> DeleteDebugLogsAsync(int minAgeDays, int maxAgeDays)
+    {
+        await using LogsDbContext context = _dbContextFactory.CreateDbContext();
+
+        long before = (long)SnowflakeUtils.ToSnowflake(DateTime.UtcNow.Subtract(TimeSpan.FromDays(minAgeDays)));
+        long after = (long)SnowflakeUtils.ToSnowflake(DateTime.UtcNow.Subtract(TimeSpan.FromDays(maxAgeDays)));
+
+        return await context.Logs
+            .Where(log => log.Snowflake >= after && log.Snowflake <= before)
+            .Where(log =>
+                log.Type == EventType.DebugMessage ||
+                log.Type == EventType.UserActiveClientsChanged ||
+                log.Type == EventType.UserActivitiesChanged)
+            .ExecuteDeleteAsync();
     }
 
     public async Task OnShutdownAsync()

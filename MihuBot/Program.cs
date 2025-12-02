@@ -77,6 +77,19 @@ try
         options.Limits.MaxResponseBufferSize *= 32;
         options.Limits.Http2.InitialStreamWindowSize *= 32;
         options.Limits.Http2.InitialConnectionWindowSize *= 32;
+
+        options.ConfigureEndpointDefaults(options =>
+        {
+            ILogger<Program> logger = options.ApplicationServices.GetRequiredService<ILogger<Program>>();
+
+            options.Use(next => context =>
+            {
+                logger.LogInformation("Connection {ConnectionId} from {RemoteIP} to {LocalPort}",
+                    context.ConnectionId, context.RemoteEndPoint, (context.LocalEndPoint as IPEndPoint)?.Port);
+
+                return next(context);
+            });
+        });
     });
 
     builder.WebHost.UseUrls("http://*:80", "https://*:443");
@@ -171,8 +184,6 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         logging.RequestHeaders.Add(HeaderNames.Referer);
         logging.RequestHeaders.Add(HeaderNames.Origin);
     });
-
-    services.AddSingleton<IPLoggerMiddleware>();
 
     var httpClient = new HttpClient(new HttpClientHandler()
     {
@@ -393,8 +404,6 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
         app.UseHsts();
     }
 
-    app.UseMiddleware<IPLoggerMiddleware>();
-
     app.UseHttpLogging();
 
     app.UseCors();
@@ -458,25 +467,6 @@ static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
 
         return next(context);
     };
-}
-
-file sealed class IPLoggerMiddleware : IMiddleware
-{
-    private readonly ILogger<IPLoggerMiddleware> _logger;
-
-    public IPLoggerMiddleware(ILogger<IPLoggerMiddleware> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
-
-    public Task InvokeAsync(HttpContext context, RequestDelegate next)
-    {
-        var connection = context.Connection;
-        _logger.LogInformation("Request on connection {ConnectionId} from {RemoteIP} to {LocalPort}",
-            connection.Id, connection.RemoteIpAddress, connection.LocalPort);
-
-        return next(context);
-    }
 }
 
 file sealed class YarpConfigFilter(IConfigurationService configuration) : IProxyConfigFilter

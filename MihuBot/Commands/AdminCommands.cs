@@ -12,19 +12,22 @@ public sealed class AdminCommands : CommandBase
     [
         "clearbodyedithistorytable",
         "clearhybridcache-search",
+        "deleteolddebuglogs",
     ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
     private readonly IDbContextFactory<MihuBotDbContext> _dbMihuBot;
     private readonly IDbContextFactory<LogsDbContext> _dbLogs;
     private readonly HybridCache _cache;
+    private readonly Logger _logger;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache)
+    public AdminCommands(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, Logger logger)
     {
         _db = db;
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
         _cache = cache;
+        _logger = logger;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -94,6 +97,12 @@ public sealed class AdminCommands : CommandBase
         {
             await _cache.RemoveByTagAsync(nameof(GitHubSearchService));
             await ctx.ReplyAsync("Hybrid cache cleared.");
+        }
+
+        if (ctx.Command == "deleteolddebuglogs")
+        {
+            int deleted = await _logger.DeleteDebugLogsAsync(int.Parse(ctx.Arguments[0]), int.Parse(ctx.Arguments[1]));
+            await ctx.ReplyAsync($"Deleted {deleted} old debug log entries.");
         }
     }
 }
