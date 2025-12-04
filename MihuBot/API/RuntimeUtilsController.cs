@@ -174,6 +174,6 @@ public sealed class RuntimeUtilsController : ControllerBase
             timeoutFeature.DisableTimeout();
         }
 
-        return new JsonResult(await _jobs.AnnounceRunnerAsync(jobType, runnerId, HttpContext.RequestAborted));
+        return new JsonResult(await _jobs.AnnounceRunnerAsync(runnerId, jobType, HttpContext.RequestAborted));
     }
 }
