@@ -122,6 +122,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         """;
 
     private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
+    private readonly List<(string RunnerId, string JobType, TaskCompletionSource<string> RunnerAnnounceTCS)> _availableRunners = [];
     private readonly FileBackedHashSet _processedMentions = new("ProcessedMentionComments.txt");
 
     private static readonly MarkdownPipeline s_precisePipeline = new MarkdownPipelineBuilder()
@@ -688,6 +689,61 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 .OrderByDescending(job => job.Stopwatch.Elapsed)
                 .ToArray();
         }
+    }
+
+    public async Task<string> AnnounceRunnerAsync(string runnerId, string jobType, CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        lock (_availableRunners)
+        {
+            _availableRunners.Add((runnerId, jobType, tcs));
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        using (cts.Token.Register(static s => ((TaskCompletionSource<string>)s).TrySetCanceled(), tcs))
+        {
+            try
+            {
+                return await tcs.Task;
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                lock (_availableRunners)
+                {
+                    _availableRunners.RemoveAll(static entry => entry.RunnerAnnounceTCS.Task.IsCompleted);
+                }
+            }
+        }
+    }
+
+    public string TrySignalAvailableRunner(JobBase job)
+    {
+        string jobType = job.GetType().Name;
+
+        TaskCompletionSource<string> tcs = null;
+        string runnerId = null;
+
+        lock (_availableRunners)
+        {
+            _availableRunners.RemoveAll(static entry => entry.RunnerAnnounceTCS.Task.IsCompleted);
+
+            int idx = _availableRunners.FindIndex(entry => entry.JobType == jobType);
+            if (idx >= 0)
+            {
+                tcs = _availableRunners[idx].RunnerAnnounceTCS;
+                runnerId = _availableRunners[idx].RunnerId;
+                _availableRunners.RemoveAt(idx);
+            }
+        }
+
+        return tcs?.TrySetResult(job.JobId) == true ? runnerId : null;
     }
 
     public bool CheckGitHubUserPermissions(string userLogin) =>

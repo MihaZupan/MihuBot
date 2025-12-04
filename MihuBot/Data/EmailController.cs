@@ -20,19 +20,13 @@ public class EmailController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Receive()
     {
-        if (!Request.Headers.TryGetValue("X-Email-Api-Key", out var apiKey))
-        {
-            _logger.DebugLog("No X-Email-Api-Key header received");
-            return Unauthorized();
-        }
-
-        if (!_configuration.TryGet(null, "Email-Api-Key", out string actualKey))
+        if (!_configuration.TryGet(null, "Email-Api-Key", out string apiKey))
         {
             _logger.DebugLog("No Email-Api-Key in config");
             return Unauthorized();
         }
 
-        if (!ManagementController.CheckToken(actualKey, apiKey))
+        if (!ManagementController.CheckToken(Request.Headers, "X-Email-Api-Key", apiKey))
         {
             _logger.DebugLog("Invalid X-Email-Api-Key received");
             return Unauthorized();

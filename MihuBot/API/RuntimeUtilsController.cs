@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Http.Timeouts;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using MihuBot.Data;
 using MihuBot.RuntimeUtils;
 
@@ -23,8 +25,8 @@ public sealed class RuntimeUtilsController : ControllerBase
         _githubAuthToken = jobs.Configuration["RuntimeUtils:GitHubAuthToken"];
     }
 
-    [HttpGet("Jobs/Progress/{jobId}")]
-    public async Task StreamProgress([FromRoute] string jobId)
+    [HttpGet("Jobs/Progress")]
+    public async Task StreamProgress([FromQuery] string jobId)
     {
         if (!_jobs.TryGetJob(jobId, publicId: true, out var job))
         {
@@ -37,8 +39,8 @@ public sealed class RuntimeUtilsController : ControllerBase
         await job.StreamLogsAsync(new StreamWriter(Response.Body), HttpContext.RequestAborted);
     }
 
-    [HttpPost("Jobs/Logs/{jobId}")]
-    public IActionResult UploadLogs([FromRoute] string jobId, [FromBody] string[] lines)
+    [HttpPost("Jobs/Logs")]
+    public IActionResult UploadLogs([FromQuery] string jobId, [FromBody] string[] lines)
     {
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
@@ -72,8 +74,8 @@ public sealed class RuntimeUtilsController : ControllerBase
         return Ok();
     }
 
-    [HttpPost("Jobs/SystemInfo/{jobId}")]
-    public IActionResult UpdateSystemInfo([FromRoute] string jobId, [FromBody] SystemHardwareInfo systemInfo, [FromQuery] string progressSummary)
+    [HttpPost("Jobs/SystemInfo")]
+    public IActionResult UpdateSystemInfo([FromQuery] string jobId, [FromBody] SystemHardwareInfo systemInfo, [FromQuery] string progressSummary)
     {
         if (systemInfo is null)
         {
@@ -100,15 +102,13 @@ public sealed class RuntimeUtilsController : ControllerBase
         return Ok();
     }
 
-    [HttpGet("Jobs/Metadata/{jobId}")]
-    public IActionResult GetMetadata([FromRoute] string jobId)
+    [HttpGet("Jobs/Metadata")]
+    public IActionResult GetMetadata([FromQuery] string jobId)
     {
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
             if (!_jobs.TryGetJob(jobId, publicId: true, out job) ||
-                !Request.Headers.TryGetValue("X-Runtime-Utils-Token", out var token) ||
-                token.Count != 1 ||
-                !ManagementController.CheckToken(_githubAuthToken, token.ToString()))
+                !ManagementController.CheckToken(Request.Headers, "X-Runtime-Utils-Token", _githubAuthToken))
             {
                 return NotFound();
             }
@@ -123,8 +123,8 @@ public sealed class RuntimeUtilsController : ControllerBase
         return new JsonResult(job.Metadata);
     }
 
-    [HttpGet("Jobs/Complete/{jobId}")]
-    public IActionResult CompleteJob([FromRoute] string jobId)
+    [HttpGet("Jobs/Complete")]
+    public IActionResult CompleteJob([FromQuery] string jobId)
     {
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
@@ -135,9 +135,9 @@ public sealed class RuntimeUtilsController : ControllerBase
         return Ok();
     }
 
-    [HttpPost("Jobs/Artifact/{jobId}/{fileName}")]
+    [HttpPost("Jobs/Artifact")]
     [RequestSizeLimit(1536 * 1024 * 1024)] // 1.5 GB
-    public async Task<IActionResult> UploadArtifact([FromRoute] string jobId, [FromRoute] string fileName)
+    public async Task<IActionResult> UploadArtifact([FromQuery] string jobId, [FromQuery] string fileName)
     {
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
@@ -151,5 +151,29 @@ public sealed class RuntimeUtilsController : ControllerBase
 
         await job.ArtifactReceivedAsync(fileName, Request.Body, HttpContext.RequestAborted);
         return Ok();
+    }
+
+    [HttpGet("Jobs/AnnounceRunner")]
+    public async Task<IActionResult> AnnounceJobRunner([FromQuery] string jobType, [FromQuery] string runnerId)
+    {
+        if (string.IsNullOrWhiteSpace(jobType) ||
+            string.IsNullOrWhiteSpace(runnerId) ||
+            !_jobs.ConfigurationService.TryGet(null, $"RuntimeUtils.RunnerAnnounceToken.{runnerId}", out string expectedToken) ||
+            !ManagementController.CheckToken(Request.Headers, "X-Runner-Announce-Token", expectedToken))
+        {
+            return NotFound();
+        }
+
+        if (HttpContext.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } dataRateFeature)
+        {
+            dataRateFeature.MinDataRate = null;
+        }
+
+        if (HttpContext.Features.Get<IHttpRequestTimeoutFeature>() is { } timeoutFeature)
+        {
+            timeoutFeature.DisableTimeout();
+        }
+
+        return new JsonResult(await _jobs.AnnounceRunnerAsync(jobType, runnerId, HttpContext.RequestAborted));
     }
 }

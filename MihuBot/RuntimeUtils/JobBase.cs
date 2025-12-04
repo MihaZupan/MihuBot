@@ -797,6 +797,45 @@ public abstract class JobBase
         _idleTimeoutCts.Cancel();
     }
 
+    protected async Task<bool> TrySignalAvailableRunnerAsync()
+    {
+        string runnerId;
+
+        for (int attempt = 1; ; attempt++)
+        {
+            runnerId = Parent.TrySignalAvailableRunner(this);
+
+            if (runnerId is not null)
+            {
+                break;
+            }
+
+            if (attempt <= 3)
+            {
+                await Task.Delay(attempt * 100);
+                continue;
+            }
+
+            return false;
+        }
+
+        Log($"Signaled an available runner: {runnerId}");
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+
+        while (stopwatch.Elapsed.TotalSeconds < 10)
+        {
+            if (InitialRemoteRunnerContact.HasValue)
+            {
+                return true;
+            }
+
+            await Task.Delay(500);
+        }
+
+        Log("Signaled runner did not respond");
+        return false;
+    }
 
     protected async Task RunOnNewVirtualMachineAsync(int defaultAzureCoreCount, CancellationToken jobTimeout)
     {

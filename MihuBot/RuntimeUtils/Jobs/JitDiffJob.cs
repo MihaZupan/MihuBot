@@ -35,7 +35,17 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
+        if (Metadata.TryGetValue("BaseRepo", out string baseRepo) && baseRepo == "dotnet/runtime" &&
+            Metadata.TryGetValue("BaseBranch", out string baseBranch) && baseBranch == "main" &&
+            GithubCommenterLogin == "MihaZupan" &&
+            await TrySignalAvailableRunnerAsync())
+        {
+            await JobCompletionTcs.Task;
+        }
+        else
+        {
+            await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
+        }
 
         LastSystemInfo = null;
 

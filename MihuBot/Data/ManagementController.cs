@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Primitives;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
@@ -26,13 +27,7 @@ public class ManagementController : ControllerBase
             return Unauthorized();
         }
 
-        if (!Request.Headers.TryGetValue("X-Update-Token", out var updateToken))
-        {
-            _logger.DebugLog("No X-Update-Token header received");
-            return Unauthorized();
-        }
-
-        if (!CheckToken(_updateToken, updateToken))
+        if (!CheckToken(Request.Headers, "X-Update-Token", _updateToken))
         {
             _logger.DebugLog("Invalid X-Update-Token received");
             return Unauthorized();
@@ -71,6 +66,11 @@ public class ManagementController : ControllerBase
             catch { }
         }
     }
+
+    public static bool CheckToken(IHeaderDictionary headers, string headerName, string expected) =>
+        headers.TryGetValue(headerName, out StringValues actual) &&
+        actual.Count == 1 &&
+        CheckToken(expected, actual.ToString());
 
     public static bool CheckToken(string expected, string actual)
     {
