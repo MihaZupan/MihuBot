@@ -825,7 +825,7 @@ public abstract class JobBase
 
         Stopwatch stopwatch = Stopwatch.StartNew();
 
-        while (stopwatch.Elapsed.TotalSeconds < 10)
+        while (stopwatch.Elapsed.TotalSeconds < 20)
         {
             if (InitialRemoteRunnerContact.HasValue)
             {

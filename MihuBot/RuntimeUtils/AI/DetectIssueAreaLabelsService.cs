@@ -120,65 +120,7 @@ public sealed class DetectIssueAreaLabelsService(
 
             try
             {
-                string issueData = (await IssueInfoForPrompt.CreateAsync(issue, GitHubDb, cancellationToken)).AsJson();
-
-                (IssueInfo Issue, double Score)[] similarIssues = await GetSimilarIssueAsync(issue);
-
-                var similarIssuesData = similarIssues
-                    .Select(si =>
-                    {
-                        string areaLabel = si.Issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name;
-                        if (areaLabel is null)
-                        {
-                            return null;
-                        }
-
-                        return new
-                        {
-                            Title = si.Issue.Title.TruncateWithDotDotDot(100),
-                            Body = si.Issue.Body.TruncateWithDotDotDot(1000),
-                            AreaLabel = areaLabel,
-                        };
-                    })
-                    .Where(d => d is not null)
-                    .ToArray();
-
-                ChatResponse<AreaLabelSuggestion[]> result = await OpenAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
-                    $"""
-                    You are an expert at classifying GitHub issues related to .NET into different categories based on their content.
-                    Your task is to determine which labels best match the new issue.
-
-                    Choose from the following areas:
-                    {string.Join(", ", repo.Labels
-                        .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
-                        .OrderBy(l => l.Name)
-                        .Select(l => l.Name))}
-
-                    Only return the labels which are likely relevant.
-                    Include the confidence level between 0 and 1 (where 1 is absolute certainty).
-
-                    Here is the issue data:
-                    ```json
-                    {issueData}
-                    ```
-
-                    Here are some issues that may be similar to this one, and the labels they were assigned:
-                    ```json
-                    {JsonSerializer.Serialize(similarIssuesData)}
-                    ```
-                    """, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
-
-                AreaLabelSuggestion[] suggestions = result.Result;
-
-                if (suggestions is null)
-                {
-                    continue;
-                }
-
-                suggestions = [.. suggestions
-                    .Where(s => s is not null && s.Confidence.HasValue && s.Confidence >= 0.5)
-                    .OrderByDescending(s => s.Confidence)
-                    .Take(5)];
+                AreaLabelSuggestion[] suggestions = await GetAreaLabelSuggestionsAsync(repo, issue, cancellationToken);
 
                 if (suggestions.Length == 0)
                 {
@@ -193,6 +135,71 @@ public sealed class DetectIssueAreaLabelsService(
                 await Logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }
+    }
+
+    private async Task<AreaLabelSuggestion[]> GetAreaLabelSuggestionsAsync(RepositoryInfo repo, IssueInfo issue, CancellationToken cancellationToken)
+    {
+        string issueData = (await IssueInfoForPrompt.CreateAsync(issue, GitHubDb, cancellationToken)).AsJson();
+
+        (IssueInfo Issue, double Score)[] similarIssues = await GetSimilarIssueAsync(issue);
+
+        var similarIssuesData = similarIssues
+            .Select(si =>
+            {
+                string areaLabel = si.Issue.Labels.FirstOrDefault(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))?.Name;
+                if (areaLabel is null)
+                {
+                    return null;
+                }
+
+                return new
+                {
+                    Title = si.Issue.Title.TruncateWithDotDotDot(100),
+                    Body = si.Issue.Body.TruncateWithDotDotDot(1000),
+                    AreaLabel = areaLabel,
+                };
+            })
+            .Where(d => d is not null)
+            .ToArray();
+
+        ChatResponse<AreaLabelSuggestion[]> result = await OpenAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
+            $"""
+            You are an expert at classifying GitHub issues related to .NET into different categories based on their content.
+            Your task is to determine which labels best match the new issue.
+
+            Choose from the following areas:
+            {string.Join(", ", repo.Labels
+                .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(l => l.Name)
+                .Select(l => l.Name))}
+
+            Only return the labels which are likely relevant.
+            Include the confidence level between 0 and 1 (where 1 is absolute certainty).
+
+            Here is the issue data:
+            ```json
+            {issueData}
+            ```
+
+            Here are some issues that may be similar to this one, and the labels they were assigned:
+            ```json
+            {JsonSerializer.Serialize(similarIssuesData)}
+            ```
+            """, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+
+        AreaLabelSuggestion[] suggestions = result.Result;
+
+        if (suggestions is null)
+        {
+            return [];
+        }
+
+        suggestions = [.. suggestions
+            .Where(s => s is not null && s.Confidence.HasValue && s.Confidence >= 0.5)
+            .OrderByDescending(s => s.Confidence)
+            .Take(5)];
+
+        return suggestions;
     }
 
     private async Task<(IssueInfo Issue, double Score)[]> GetSimilarIssueAsync(IssueInfo issue)
