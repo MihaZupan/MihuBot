@@ -707,10 +707,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             try
             {
-                return await tcs.Task;
+                Logger.DebugLog($"Runner {runnerId} announced for job type {jobType}");
+                string jobId = await tcs.Task;
+                Logger.DebugLog($"Runner {runnerId} got signaled");
+                return jobId;
             }
             catch
             {
+                Logger.DebugLog($"Runner {runnerId} announcement canceled");
                 return null;
             }
             finally

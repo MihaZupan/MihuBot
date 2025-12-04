@@ -105,7 +105,7 @@ public abstract class JobBase
         set => Metadata["CustomArguments"] = value;
     }
 
-    public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress/{ExternalId}";
+    public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={ExternalId}";
     public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
     public int TotalProgressSiteViews;
@@ -799,6 +799,8 @@ public abstract class JobBase
 
     protected async Task<bool> TrySignalAvailableRunnerAsync()
     {
+        Log("Checking for available runners");
+
         string runnerId;
 
         for (int attempt = 1; ; attempt++)
