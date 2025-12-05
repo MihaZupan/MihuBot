@@ -510,11 +510,21 @@ public abstract class JobBase
             ? $"Using arguments: ````{CustomArguments}````"
             : string.Empty;
 
+        string mainCommitLink = TryFindLogLine(l => l.Contains("main commit: ", StringComparison.Ordinal)) is { } mainCommit
+            ? $"Main commit: https://github.com/{Metadata["BaseRepo"]}/commit/{mainCommit.Split(' ')[^1]}"
+            : string.Empty;
+
+        string prCommitLink = TryFindLogLine(l => l.Contains("pr commit: ", StringComparison.Ordinal)) is { } prCommit
+            ? $"PR commit: https://github.com/{Metadata["PrRepo"]}/commit/{prCommit.Split(' ')[^1]}"
+            : string.Empty;
+
         await UpdateIssueBodyAsync(
             $$"""
             [Job]({{ProgressDashboardUrl}}) completed in {{GetElapsedTime()}}{{runnerDelay}}.
             {{(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}}
             {{customArguments}}
+            {{mainCommitLink}}
+            {{prCommitLink}}
             {{error}}
 
             {{customInfo}}
