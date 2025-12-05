@@ -35,9 +35,12 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        if (Metadata.TryGetValue("BaseRepo", out string baseRepo) && baseRepo == "dotnet/runtime" &&
+        if (!UseArm && !UseWindows && !UseHetzner &&
+            Metadata.TryGetValue("BaseRepo", out string baseRepo) && baseRepo == "dotnet/runtime" &&
             Metadata.TryGetValue("BaseBranch", out string baseBranch) && baseBranch == "main" &&
-            GithubCommenterLogin == "MihaZupan" &&
+            Metadata.TryGetValue("PrRepo", out string prRepo) &&
+            Parent.CheckGitHubAdminPermissions(GithubCommenterLogin) &&
+            Parent.CheckGitHubAdminPermissions(prRepo.Split('/')[0]) &&
             await TrySignalAvailableRunnerAsync())
         {
             await JobCompletionTcs.Task;

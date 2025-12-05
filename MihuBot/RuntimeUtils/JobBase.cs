@@ -176,6 +176,7 @@ public abstract class JobBase
     protected string Architecture => UseArm ? "ARM64" : "X64";
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
+    protected bool UseHetzner => CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
 
     public bool IsFromAdmin => Parent.CheckGitHubAdminPermissions(GithubCommenterLogin);
 
@@ -883,9 +884,7 @@ public abstract class JobBase
         cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', linuxStartupScript.SplitLines().Select(line => $"        - {line}"))}";
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-        bool useHetzner =
-            GetConfigFlag("ForceHetzner", false) ||
-            CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
+        bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
 
         bool useHelix =
             CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase) ||
