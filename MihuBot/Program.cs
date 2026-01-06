@@ -2,10 +2,10 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Azure.Core;
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using LettuceEncrypt;
-using Microsoft.ApplicationInsights.Extensibility.EventCounterCollector;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
@@ -27,11 +27,12 @@ using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
 using Yarp.ReverseProxy.Configuration;
-using Yarp.ReverseProxy.Transforms;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(10));
@@ -162,21 +163,28 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (ProgramState.AzureEnabled && OperatingSystem.IsLinux())
     {
-        services.AddApplicationInsightsTelemetry(options =>
-        {
-            options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString"); ;
-        });
-
-        services.ConfigureTelemetryModule<EventCounterCollectionModule>((module, options) =>
-        {
-            foreach (var (eventSource, counters) in RuntimeEventCounters.EventCounters)
+        builder.Services.AddOpenTelemetry()
+            .UseAzureMonitor(options =>
             {
-                foreach (string counter in counters)
+                options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+            })
+            .ConfigureResource(builder =>
+            {
+                builder.AddAttributes(new Dictionary<string, object>
                 {
-                    module.Counters.Add(new EventCounterCollectionRequest(eventSource, counter));
-                }
-            }
-        });
+                    { "service.name", "mihubot" },
+                    { "service.namespace", "mihubot" },
+                    { "service.instance.id", "mihubot" },
+                    { "service.version", Helpers.GetCommitId() }
+                });
+            })
+            .WithTracing(builder =>
+            {
+                builder.AddAspNetCoreInstrumentation();
+                builder.AddHttpClientInstrumentation();
+                builder.AddSource("Yarp.ReverseProxy");
+            })
+            .WithLogging();
     }
 
     services.AddHttpLogging(logging =>
@@ -439,9 +447,6 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.Map("/superpmi/{**remainder}", (HttpContext context, [FromRoute] string remainder) =>
         Results.Redirect($"https://storage.mihubot.xyz/superpmi/{remainder}"));
-
-    app.MapForwarder("/_appinsights-ingest/{**any}", "https://eastus2-3.in.applicationinsights.azure.com", request => request.AddPathRemovePrefix("/_appinsights-ingest"));
-    app.MapForwarder("/_appinsights-ingest-live/{**any}", "https://eastus2.livediagnostics.monitor.azure.com", request => request.AddPathRemovePrefix("/_appinsights-ingest-live"));
 
     app.MapReverseProxy();
 

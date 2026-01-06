@@ -1,6 +1,4 @@
-﻿@inject IEnumerable<Microsoft.ApplicationInsights.AspNetCore.JavaScriptSnippet> JavaScriptSnippets
-
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -11,13 +9,6 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" integrity="sha384-xOolHFLEh07PJGoPkLv1IbcEPTNtaed2xpHsD9ESMhqIYd0nLMwNLD69Npy4HI+N" crossorigin="anonymous">
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["MihuBot.styles.css"]" />
-
-    @foreach (var snippet in JavaScriptSnippets)
-    {
-        @((MarkupString)snippet.FullScript
-            .Replace("https://eastus2-3.in.applicationinsights.azure.com/", "https://mihubot.xyz/_appinsights-ingest", StringComparison.Ordinal)
-            .Replace("https://eastus2.livediagnostics.monitor.azure.com/", "https://mihubot.xyz/_appinsights-ingest-live", StringComparison.Ordinal))
-    }
 
     <ImportMap />
     <HeadOutlet />
