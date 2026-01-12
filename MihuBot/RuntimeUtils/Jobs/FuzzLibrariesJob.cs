@@ -1,4 +1,5 @@
 ﻿using System.IO.Compression;
+using System.Net.Mime;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using MihuBot.DB.GitHub;
@@ -205,7 +206,9 @@ public sealed class FuzzLibrariesJob : JobBase
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
                     BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/fuzzing-coverage/{entry.Name}");
-                    await blob.UploadAsync(new BinaryData(entry.Data), new BlobUploadOptions { AccessTier = AccessTier.Hot }, ct);
+                    var options = new BlobUploadOptions { AccessTier = AccessTier.Hot };
+                    options.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(entry.Name) ?? MediaTypeNames.Application.Octet;
+                    await blob.UploadAsync(new BinaryData(entry.Data), options, ct);
 
                     if (entry.Name == "index.html")
                     {

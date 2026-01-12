@@ -1,15 +1,16 @@
-﻿using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
-using Microsoft.EntityFrameworkCore;
-using MihuBot.Configuration;
-using MihuBot.DB;
-using System.Buffers;
+﻿using System.Buffers;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Net.Mime;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
+using MihuBot.DB;
 
 namespace MihuBot;
 
@@ -252,6 +253,7 @@ public sealed partial class Logger
                         accessTier = AccessTier.Cool;
 
                     var blobOptions = new BlobUploadOptions() { AccessTier = accessTier };
+                    blobOptions.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(extension) ?? MediaTypeNames.Application.Octet;
                     await blobClient.UploadAsync(fs, blobOptions);
                 }
 

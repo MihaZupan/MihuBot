@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Net.Mime;
+using System.Runtime.CompilerServices;
 using Azure;
 using Azure.Core;
 using Azure.ResourceManager;
@@ -627,10 +628,9 @@ public abstract class JobBase
 
         BlobClient blobClient = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
 
-        await blobClient.UploadAsync(contentStream, new BlobUploadOptions
-        {
-            AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool,
-        }, cancellationToken);
+        var options = new BlobUploadOptions { AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool };
+        options.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(fileName) ?? MediaTypeNames.Application.Octet;
+        await blobClient.UploadAsync(contentStream, options, cancellationToken);
 
         if (newStream is not null)
         {
