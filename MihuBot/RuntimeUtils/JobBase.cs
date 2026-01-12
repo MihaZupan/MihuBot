@@ -628,8 +628,11 @@ public abstract class JobBase
 
         BlobClient blobClient = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
 
-        var options = new BlobUploadOptions { AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool };
-        options.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(fileName) ?? MediaTypeNames.Application.Octet;
+        var options = new BlobUploadOptions
+        {
+            AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool,
+            HttpHeaders = new BlobHttpHeaders { ContentType = MediaTypeMap.GetMediaType(fileName) }
+        };
         await blobClient.UploadAsync(contentStream, options, cancellationToken);
 
         if (newStream is not null)

@@ -206,8 +206,12 @@ public sealed class FuzzLibrariesJob : JobBase
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
                     BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/fuzzing-coverage/{entry.Name}");
-                    var options = new BlobUploadOptions { AccessTier = AccessTier.Hot };
-                    options.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(entry.Name) ?? MediaTypeNames.Application.Octet;
+
+                    var options = new BlobUploadOptions
+                    {
+                        AccessTier = AccessTier.Hot,
+                        HttpHeaders = new BlobHttpHeaders { ContentType = MediaTypeMap.GetMediaType(entry.Name) }
+                    };
                     await blob.UploadAsync(new BinaryData(entry.Data), options, ct);
 
                     if (entry.Name == "index.html")

@@ -252,9 +252,12 @@ public sealed partial class Logger
                     if (accessTier == AccessTier.Archive && fs.Length < 2 * 1024 * 1024 /* 2 MB */)
                         accessTier = AccessTier.Cool;
 
-                    var blobOptions = new BlobUploadOptions() { AccessTier = accessTier };
-                    blobOptions.HttpHeaders.ContentType = MediaTypeMap.GetMediaType(extension) ?? MediaTypeNames.Application.Octet;
-                    await blobClient.UploadAsync(fs, blobOptions);
+                    var options = new BlobUploadOptions
+                    {
+                        AccessTier = accessTier,
+                        HttpHeaders = new BlobHttpHeaders { ContentType = MediaTypeMap.GetMediaType(extension) }
+                    };
+                    await blobClient.UploadAsync(fs, options);
                 }
 
                 if (Delete)
