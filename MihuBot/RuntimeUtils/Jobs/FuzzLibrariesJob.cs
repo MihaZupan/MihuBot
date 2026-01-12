@@ -190,7 +190,14 @@ public sealed class FuzzLibrariesJob : JobBase
             (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 64 * 1024 * 1024, cancellationToken);
 
             using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
-            ZipArchiveEntry[] htmlEntries = [.. zip.Entries.Where(e => e.Length < 128 * 1024 * 1024 && e.FullName.StartsWith("html/", StringComparison.Ordinal))];
+            if (zip.Entries.Sum(e => e.Length) > 128 * 1024 * 1024)
+            {
+                return replacement;
+            }
+
+            (string Name, byte[] Data)[] htmlEntries = [.. zip.Entries
+                .Where(e => e.FullName.StartsWith("html/", StringComparison.Ordinal))
+                .Select(e => (e.Name, e.ToArray()))];
 
             try
             {
@@ -198,8 +205,7 @@ public sealed class FuzzLibrariesJob : JobBase
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
                     BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/fuzzing-coverage/{entry.Name}");
-                    await using Stream entryStream = await entry.OpenAsync(ct);
-                    await blob.UploadAsync(entryStream, new BlobUploadOptions { AccessTier = AccessTier.Hot }, ct);
+                    await blob.UploadAsync(new BinaryData(entry.Data), new BlobUploadOptions { AccessTier = AccessTier.Hot }, ct);
 
                     if (entry.Name == "index.html")
                     {
