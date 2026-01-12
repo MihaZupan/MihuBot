@@ -1,4 +1,7 @@
-﻿using MihuBot.DB.GitHub;
+﻿using System.IO.Compression;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using MihuBot.DB.GitHub;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils.Jobs;
@@ -13,7 +16,8 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool RunUsingGitHubActions => !RunUsingAzurePipelines;
 
-    private readonly Dictionary<string, string> _errorStackTraces = new();
+    private readonly Dictionary<string, string> _errorStackTraces = [];
+    private readonly Dictionary<string, string> _coverageReportUrls = [];
 
     public FuzzLibrariesJob(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
         : base(parent, branch, githubCommenterLogin, arguments)
@@ -26,6 +30,16 @@ public sealed class FuzzLibrariesJob : JobBase
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
         await JobCompletionTcs.Task;
+
+        string codeCoverageUrls = string.Empty;
+        if (_coverageReportUrls.Where(e => e.Value is not null).ToArray() is { Length: > 0 } reportUrls)
+        {
+            codeCoverageUrls =
+                $"""
+                Code coverage reports:
+                {string.Join('\n', reportUrls.Select(url => $"- [{url.Key}]({url.Value})"))}
+                """;
+        }
 
         string errorStackTraces = string.Empty;
         if (_errorStackTraces.Count > 0)
@@ -41,32 +55,47 @@ public sealed class FuzzLibrariesJob : JobBase
             errorStackTraces = $"\n{errorStackTraces}\n";
         }
 
+        bool wasSuccessful = FirstErrorMessage is null && string.IsNullOrEmpty(errorStackTraces);
+
         await SetFinalTrackingIssueBodyAsync(
             $"""
             {errorStackTraces}
-            {(FirstErrorMessage is null && string.IsNullOrEmpty(errorStackTraces) ? "Ran the fuzzer(s) successfully." : "")}
+            {(wasSuccessful ? "Ran the fuzzer(s) successfully." : "")}
+
+            {codeCoverageUrls}
             """);
 
-        if (!string.IsNullOrEmpty(errorStackTraces) &&
+        if ((!string.IsNullOrEmpty(errorStackTraces) || (wasSuccessful && !string.IsNullOrEmpty(codeCoverageUrls))) &&
             ShouldLinkToPROrBranch &&
             ShouldMentionJobInitiator &&
             PullRequest is not null)
         {
-            string artifacts;
-            lock (Artifacts)
+            string message;
+
+            if (!string.IsNullOrEmpty(errorStackTraces))
             {
-                artifacts = string.Join('\n', _errorStackTraces
-                    .Select(error => Artifacts.FirstOrDefault(a => a.FileName == $"{error.Key}-input.bin"))
-                    .Where(error => error.Url is not null)
-                    .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
+                string artifacts;
+                lock (Artifacts)
+                {
+                    artifacts = string.Join('\n', _errorStackTraces
+                        .Select(error => Artifacts.FirstOrDefault(a => a.FileName == $"{error.Key}-input.bin"))
+                        .Where(error => error.Url is not null)
+                        .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
+                }
+
+                message =
+                    $"""
+                    {errorStackTraces}
+
+                    {artifacts}
+                    """;
+            }
+            else
+            {
+                message = $"Ran the fuzzer(s) successfully. {codeCoverageUrls}";
             }
 
-            await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number,
-                $"""
-                {errorStackTraces}
-
-                {artifacts}
-                """);
+            await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, message);
 
             ShouldMentionJobInitiator = false;
         }
@@ -83,6 +112,7 @@ public sealed class FuzzLibrariesJob : JobBase
     {
         const string StackNameSuffix = "-stack.txt";
         const string InputsNameSuffix = "-inputs.zip";
+        const string CoverageNameSuffix = "-coverage.zip";
 
         if (fileName.EndsWith(StackNameSuffix, StringComparison.Ordinal))
         {
@@ -140,6 +170,51 @@ public sealed class FuzzLibrariesJob : JobBase
                     Log(message);
                     await Logger.DebugAsync(message);
                 }
+            }
+
+            return replacement;
+        }
+
+        if (fileName.EndsWith(CoverageNameSuffix, StringComparison.Ordinal))
+        {
+            string fuzzerName = fileName.Substring(0, fileName.Length - CoverageNameSuffix.Length);
+
+            lock (_coverageReportUrls)
+            {
+                if (_coverageReportUrls.Count > 10 || !_coverageReportUrls.TryAdd(fuzzerName, null))
+                {
+                    return null;
+                }
+            }
+
+            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 64 * 1024 * 1024, cancellationToken);
+
+            using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
+            ZipArchiveEntry[] htmlEntries = [.. zip.Entries.Where(e => e.Length < 128 * 1024 * 1024 && e.FullName.StartsWith("html/", StringComparison.Ordinal))];
+
+            try
+            {
+                string indexUrl = null;
+                await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
+                {
+                    BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/fuzzing-coverage/{entry.Name}");
+                    await using Stream entryStream = await entry.OpenAsync(ct);
+                    await blob.UploadAsync(entryStream, new BlobUploadOptions { AccessTier = AccessTier.Hot }, ct);
+
+                    if (entry.Name == "index.html")
+                    {
+                        indexUrl = blob.Uri.AbsoluteUri;
+                    }
+                });
+
+                lock (_coverageReportUrls)
+                {
+                    _coverageReportUrls[fuzzerName] = indexUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to upload coverage report blobs:\n\n```\n{ex}\n```");
             }
 
             return replacement;
