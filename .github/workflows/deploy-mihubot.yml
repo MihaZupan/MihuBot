@@ -4,6 +4,7 @@ on:
   push:
     paths-ignore:
       - 'StorageService/**'
+      - '.github/workflows/deploy-mihubot-storage.yml'
 
 jobs:
   build:

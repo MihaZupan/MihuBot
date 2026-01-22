@@ -4,6 +4,7 @@ on:
   push:
     paths-ignore:
       - 'MihuBot/**'
+      - '.github/workflows/deploy-mihubot.yml'
 
 jobs:
   build:
