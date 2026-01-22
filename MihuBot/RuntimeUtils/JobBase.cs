@@ -1036,7 +1036,7 @@ public abstract class JobBase
 
             HetznerServerResponse server = await Hetzner.CreateServerAsync(
                 $"runner-{JobId}",
-                GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-22.04"),
+                GetConfigFlag($"HetznerImage{Architecture}", "ubuntu-24.04"),
                 GetConfigFlag($"HetznerLocation{cpuType}", "hel1"),
                 serverType,
                 cloudInitScript,
