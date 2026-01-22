@@ -971,8 +971,8 @@ public abstract class JobBase
                             value = new
                             {
                                 publisher = "canonical",
-                                offer = "0001-com-ubuntu-server-jammy",
-                                sku = UseArm ? "22_04-lts-arm64" : "22_04-lts-gen2",
+                                offer = "ubuntu-24_04-lts",
+                                sku = UseArm ? "server-arm64" : "server",
                                 version = "latest"
                             }
                         }
