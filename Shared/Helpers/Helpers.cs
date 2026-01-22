@@ -11,6 +11,14 @@ public static class Helpers
         value = !value;
     }
 
+    public static void AddRange<T>(this HashSet<T> set, IEnumerable<T> items)
+    {
+        foreach (T? item in items)
+        {
+            set.Add(item);
+        }
+    }
+
     public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");
 
     public static string ToISODate(this DateTimeOffset date) => ToISODate(date.UtcDateTime);

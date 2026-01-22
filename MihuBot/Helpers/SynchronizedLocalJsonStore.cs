@@ -61,6 +61,19 @@ public sealed class SynchronizedLocalJsonStore<T>
         }
     }
 
+    public void Query(Action<T> action)
+    {
+        _asyncLock.Wait();
+        try
+        {
+            action(_value);
+        }
+        finally
+        {
+            _asyncLock.Release();
+        }
+    }
+
     public TResult Query<TResult>(Func<T, TResult> selector)
     {
         _asyncLock.Wait();

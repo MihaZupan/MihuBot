@@ -50,7 +50,7 @@
             ("GitHub polling",              () => Services.PauseGitHubPolling,                  val => Services.PauseGitHubPolling = val),
             ("semantic ingestion",          () => Services.PauseSemanticIngestion,              val => Services.PauseSemanticIngestion = val),
             ("auto triage",                 () => Services.PauseAutoTriage,                     val => Services.PauseAutoTriage = val),
-            ("NCL notification polling",    () => Services.PauseGitHubNCLNotificationPolling,   val => Services.PauseGitHubNCLNotificationPolling = val),
+            ("GitHub notification polling", () => Services.PauseGitHubNotificationPolling,      val => Services.PauseGitHubNotificationPolling = val),
             ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),
             ("duplicate detection",         () => Services.PauseAutoDuplicateDetection,         val => Services.PauseAutoDuplicateDetection = val),
             ("vector search",               () => Services.DisableVectorSearch,                 val => Services.DisableVectorSearch = val),

@@ -40,10 +40,10 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseAutoTriage), value);
     }
 
-    public bool PauseGitHubNCLNotificationPolling
+    public bool PauseGitHubNotificationPolling
     {
-        get => Get(nameof(PauseGitHubNCLNotificationPolling));
-        set => Set(nameof(PauseGitHubNCLNotificationPolling), value);
+        get => Get(nameof(PauseGitHubNotificationPolling));
+        set => Set(nameof(PauseGitHubNotificationPolling), value);
     }
 
     public bool PauseGitHubNCLMentionPolling

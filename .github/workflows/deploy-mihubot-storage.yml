@@ -19,8 +19,8 @@ jobs:
         sudo apt install -y wget && \
         wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
         sudo chmod +x ./dotnet-install.sh && \
-        sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-latest && \
-        #sudo ./dotnet-install.sh --version 10.0.100-preview.7.25351.101 --install-dir dotnet-latest && \
+        #sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-latest && \
+        sudo ./dotnet-install.sh --version 11.0.100-alpha.1.26062.101 --install-dir dotnet-latest && \
         dotnet-latest/dotnet --info
 
     - name: Dotnet restore

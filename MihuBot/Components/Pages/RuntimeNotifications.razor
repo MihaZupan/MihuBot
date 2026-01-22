@@ -51,8 +51,58 @@
             </div>
 
             <br />
-            <input disabled="@_submittingPat" type="submit" class="btn btn-primary" value="@(_submittingPat ? "Submitting ..." : "Submit")" />
+            <input disabled="@_submittingPat" type="submit" class="btn btn-primary" value="@(_submittingPat ? "Submitting ..." : "Submit new PAT")" />
         </EditForm>
+
+        @if (_currentUser is not null)
+        {
+            <br />
+
+            <div class="mb-3 form-check">
+                <input class="form-check-input" type="checkbox" id="subscribeExisting"
+                       checked="@_currentUser.SubscribeToExistingIssues"
+                       @onchange="e => UpdateSubscribeToExistingIssuesAsync((bool)e.Value)" />
+                <label class="form-check-label" for="subscribeExisting"><strong>Subscribe to existing issues</strong></label>
+            </div>
+
+            <div class="mb-3 form-check">
+                <input class="form-check-input" type="checkbox" id="subscribeClosed"
+                       checked="@_currentUser.SubscribeToClosedIssues"
+                       @onchange="e => UpdateSubscribeToClosedIssuesAsync((bool)e.Value)" />
+                <label class="form-check-label" for="subscribeClosed"><strong>Subscribe to closed issues</strong></label>
+            </div>
+
+            <table class="table table-dark">
+                <thead>
+                    <tr>
+                        <th>Subscribe</th>
+                        <th>Team</th>
+                        <th>Area Labels</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var team in githubNotifications.DotnetTeamToAreaLabel.OrderBy(t => t.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <tr>
+                            <td>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           checked="@(_currentUser.Teams?.Contains(team.Key, StringComparer.OrdinalIgnoreCase) ?? false)"
+                                           @onchange="e => UpdateUserTeamsAsync(team.Key, (bool)e.Value)" />
+                                </div>
+                            </td>
+                            <td>@team.Key</td>
+                            <td>
+                                @foreach (var label in team.Value)
+                                {
+                                    <span class="badge bg-secondary mr-1">@label</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </Authorized>
     <NotAuthorized>
         <a href="Account/Login/GitHub?returnUrl=%2Fruntime-notifications">
@@ -141,6 +191,43 @@
         finally
         {
             _submittingPat = false;
+        }
+    }
+
+    private async Task UpdateSubscribeToExistingIssuesAsync(bool value)
+    {
+        if (_currentUser is not null && _currentUser.SubscribeToExistingIssues != value)
+        {
+            _currentUser = _currentUser with { SubscribeToExistingIssues = value };
+            await githubNotifications.UpdateUserRecordAsync(_currentUser);
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateSubscribeToClosedIssuesAsync(bool value)
+    {
+        if (_currentUser is not null && _currentUser.SubscribeToClosedIssues != value)
+        {
+            _currentUser = _currentUser with { SubscribeToClosedIssues = value };
+            await githubNotifications.UpdateUserRecordAsync(_currentUser);
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateUserTeamsAsync(string group, bool value)
+    {
+        if (_currentUser is not null)
+        {
+            var teams = new HashSet<string>(_currentUser.Teams ?? [], StringComparer.OrdinalIgnoreCase);
+
+            if (!(value ? teams.Add(group) : teams.Remove(group)))
+            {
+                return;
+            }
+
+            _currentUser = _currentUser with { Teams = teams.ToArray() };
+            await githubNotifications.UpdateUserRecordAsync(_currentUser);
+            StateHasChanged();
         }
     }
 }
