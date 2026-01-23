@@ -13,7 +13,7 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
 
-    protected override bool RunUsingAzurePipelines => Fast;
+    protected override bool RunUsingAzurePipelines => Fast && !UseHelix;
 
     protected override bool RunUsingGitHubActions => !RunUsingAzurePipelines && !UseHelix;
 
@@ -30,6 +30,11 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
+        if (UseHelix)
+        {
+            await RunOnNewVirtualMachineAsync(4, jobTimeout);
+        }
+
         await JobCompletionTcs.Task;
 
         string codeCoverageUrls = string.Empty;
