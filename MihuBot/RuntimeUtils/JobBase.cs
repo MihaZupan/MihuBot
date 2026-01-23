@@ -868,7 +868,7 @@ public abstract class JobBase
 
         string windowsStartupScript =
             $"""
-            winget install -e --id Git.Git
+            winget install -e --id Git.Git --source winget
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
 
