@@ -15,7 +15,7 @@ public sealed class FuzzLibrariesJob : JobBase
 
     protected override bool RunUsingAzurePipelines => Fast;
 
-    protected override bool RunUsingGitHubActions => !RunUsingAzurePipelines;
+    protected override bool RunUsingGitHubActions => !RunUsingAzurePipelines && !UseHelix;
 
     private readonly Dictionary<string, string> _errorStackTraces = [];
     private readonly Dictionary<string, string> _coverageReportUrls = [];

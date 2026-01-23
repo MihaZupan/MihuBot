@@ -178,6 +178,9 @@ public abstract class JobBase
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
     protected bool UseHetzner => CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
+    protected bool UseHelix => CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
+    protected virtual bool RunUsingGitHubActions => false;
+    protected virtual bool RunUsingAzurePipelines => false;
 
     public bool IsFromAdmin => Parent.CheckGitHubAdminPermissions(GithubCommenterLogin);
 
@@ -203,9 +206,6 @@ public abstract class JobBase
 
         return @default;
     }
-
-    protected virtual bool RunUsingGitHubActions => false;
-    protected virtual bool RunUsingAzurePipelines => false;
 
     public async Task RunJobAsync()
     {
@@ -888,10 +888,7 @@ public abstract class JobBase
 
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
         bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
-
-        bool useHelix =
-            CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase) ||
-            UseWindows;
+        bool useHelix = UseHelix || UseWindows;
 
         if (useHelix)
         {
@@ -1078,7 +1075,7 @@ public abstract class JobBase
         {
             string queueId = UseWindows
                 ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open")
-                : (UseArm ? "ubuntu.2204.armarch.open" : "ubuntu.2204.amd64.open");
+                : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
 
             Log($"Submitting a Helix job ({queueId}) ...");
 
