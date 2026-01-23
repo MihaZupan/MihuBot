@@ -176,7 +176,7 @@ public abstract class JobBase
     public bool UseArm => CustomArguments.Contains("-arm", StringComparison.OrdinalIgnoreCase);
     protected string Architecture => UseArm ? "ARM64" : "X64";
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
-    protected bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
+    protected virtual bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
     protected bool UseHetzner => CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
     protected bool UseHelix => CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
     protected virtual bool RunUsingGitHubActions => false;
