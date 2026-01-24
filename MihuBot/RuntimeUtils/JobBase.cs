@@ -869,8 +869,7 @@ public abstract class JobBase
         string windowsStartupScript =
             $"""
             winget install -e --id Git.Git --source winget
-            Invoke-WebRequest 'https://raw.githubusercontent.com/chocolatey/choco/refs/heads/master/src/chocolatey.resources/redirects/RefreshEnv.cmd' -OutFile 'RefreshEnv.cmd'
-            ./RefreshEnv.cmd
+            $Env:PATH += ";C:\Program Files\Git\cmd"
 
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
