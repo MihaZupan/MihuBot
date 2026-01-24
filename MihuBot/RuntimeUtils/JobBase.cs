@@ -1,6 +1,8 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Mime;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Azure;
 using Azure.Core;
 using Azure.ResourceManager;
@@ -1182,6 +1184,34 @@ public abstract class JobBase
                 catch when (_idleTimeoutCts.IsCancellationRequested) { }
 
                 await JobCompletionTcs.Task;
+            }
+            catch
+            {
+                try
+                {
+                    using var shortCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+
+                    IImmutableList<WorkItemSummary> workItems = await api.WorkItem.ListAsync(job.CorrelationId, shortCts.Token);
+
+                    foreach (WorkItemSummary workItem in workItems)
+                    {
+                        if (workItem.Name == "runner")
+                        {
+                            JsonDocument json = JsonDocument.Parse(await Http.GetStringAsync(workItem.DetailsUrl, shortCts.Token));
+                            if (json.RootElement.TryGetProperty("ConsoleOutputUri", out JsonElement consoleOutputUriProp))
+                            {
+                                string consoleOutputUri = consoleOutputUriProp.GetString();
+                                Log($"Work item '{workItem.Name}' console output: {consoleOutputUri}");
+
+                                using Stream consoleOutput = await Http.GetStreamAsync(consoleOutputUri, shortCts.Token);
+                                await ArtifactReceivedAsync("HelixConsole.log", consoleOutput, shortCts.Token);
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                throw;
             }
             finally
             {
