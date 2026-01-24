@@ -1076,7 +1076,7 @@ public abstract class JobBase
         async Task RunAsHelixJobAsync(CancellationToken jobTimeout)
         {
             string queueId = UseWindows
-                ? (UseArm ? "windows.11.arm64.open" : (Fast ? "windows.11.amd64.client.open.svc" : "windows.11.amd64.viper.perf.open"))
+                ? (UseArm ? "windows.11.arm64.open" : (Fast ? "windows.11.amd64.viper.perf.open" : "windows.11.amd64.client.open.svc"))
                 : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
 
             Log($"Submitting a Helix job ({queueId}) ...");
