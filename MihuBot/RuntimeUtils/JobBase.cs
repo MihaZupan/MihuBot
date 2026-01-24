@@ -908,6 +908,7 @@ public abstract class JobBase
 
             Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile 'dotnet-install.ps1'
             ./dotnet-install.ps1 -Verbose -Channel '8.0' -InstallDir dotnet-install
+            ./dotnet-install.ps1 -Verbose -Channel '9.0' -InstallDir dotnet-install
 
             $env:JOB_ID = '{JobId}';
             dotnet-install/dotnet run -c Release
