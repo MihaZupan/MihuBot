@@ -1117,7 +1117,7 @@ public abstract class JobBase
             if (!TryGetArgument("queue", out string queueId))
             {
                 queueId = UseWindows
-                    ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open.svc")
+                    ? (UseArm ? "windows.11.arm64.open" : "windows.amd64.vs2022.pre.open")
                     : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
             }
 
