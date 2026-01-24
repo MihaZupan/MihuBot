@@ -76,7 +76,7 @@ public abstract class JobBase
                     GithubCommenterLogin is not null ? $"For {GithubCommenterLogin}" :
                     $"{StartTime.ToISODateTime()}";
 
-                return $"[{JobTitlePrefix}] {title}".TruncateWithDotDotDot(80);
+                return $"[{JobTitlePrefix}] {title}";
             }
         }
     }
@@ -291,7 +291,7 @@ public abstract class JobBase
             TrackingIssue = await Github.Issue.Create(
                 IssueRepositoryOwner,
                 IssueRepositoryName,
-                new NewIssue(JobTitle)
+                new NewIssue(JobTitle.TruncateWithDotDotDot(80))
                 {
                     Body =
                         $"""

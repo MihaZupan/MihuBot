@@ -154,7 +154,7 @@
     @foreach (var (job, logs) in _activeJobs.Zip(_logs))
     {
         <tr>
-            <td scope="row"><a href="@job.ProgressDashboardUrl">@job.JobTitle</a></td>
+            <td scope="row"><a href="@job.ProgressDashboardUrl">@job.JobTitle.TruncateWithDotDotDot(80)</a></td>
             <td>
                 <pre>
                     <code>

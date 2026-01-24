@@ -8,7 +8,7 @@
 @if (_job is not null)
 {
     <h1>
-        <a href="@(_job.GitHubComment?.HtmlUrl ?? _job.TestedPROrBranchLink)">@_job.JobTitle</a>
+        <a href="@(_job.GitHubComment?.HtmlUrl ?? _job.TestedPROrBranchLink)">@_job.JobTitle.TruncateWithDotDotDot(80)</a>
         @if (_completedJob is null)
         {
             @if (_canCancelJob)
