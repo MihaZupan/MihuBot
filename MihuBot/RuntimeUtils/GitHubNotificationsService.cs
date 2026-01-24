@@ -295,7 +295,7 @@ public sealed partial class GitHubNotificationsService
 
     private async Task RescanOldRuntimeIssuesAsync()
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromDays(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(6));
 
         while (await timer.WaitForNextTickAsync())
         {
