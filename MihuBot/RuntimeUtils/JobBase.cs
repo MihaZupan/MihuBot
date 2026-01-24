@@ -1076,7 +1076,7 @@ public abstract class JobBase
         async Task RunAsHelixJobAsync(CancellationToken jobTimeout)
         {
             string queueId = UseWindows
-                ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open")
+                ? (UseArm ? "windows.11.arm64.open" : (Fast ? "windows.11.amd64.client.open.svc" : "windows.11.amd64.viper.perf.open"))
                 : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
 
             Log($"Submitting a Helix job ({queueId}) ...");
@@ -1088,6 +1088,7 @@ public abstract class JobBase
                 .WithTargetQueue(queueId)
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
+                .WithProperty("description", ProgressDashboardUrl)
                 .DefineWorkItem("runner")
                 .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
                 .WithSingleFilePayload(UseWindows ? "start-runner.ps1" : "start-runner.sh", UseWindows ? windowsStartupScript : linuxStartupScript)
