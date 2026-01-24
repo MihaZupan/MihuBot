@@ -887,15 +887,19 @@ public abstract class JobBase
 
     protected async Task RunOnNewVirtualMachineAsync(int defaultAzureCoreCount, CancellationToken jobTimeout)
     {
+        bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
+        bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
+        bool useHelix = UseHelix || UseWindows;
+
         string linuxStartupScript =
             $"""
             wget https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} &
             apt-get update
             apt-get install -y dotnet-sdk-8.0
-            cd /home
+            {(useHelix ? "" : "cd /home")}
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
-            HOME=/root JOB_ID={JobId} dotnet run -c Release
+            {(useHelix ? "" : "HOME=/root")} JOB_ID={JobId} dotnet run -c Release
             """;
 
         string windowsStartupScript =
@@ -920,10 +924,6 @@ public abstract class JobBase
                 runcmd:
             """;
         cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', linuxStartupScript.SplitLines().Select(line => $"        - {line}"))}";
-
-        bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-        bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
-        bool useHelix = UseHelix || UseWindows;
 
         if (useHelix)
         {
