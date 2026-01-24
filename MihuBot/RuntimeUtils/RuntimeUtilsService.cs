@@ -242,7 +242,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     }
                     else
                     {
-                        StartCoreRootGenerationJob("MihaZupan", $"{(isArm ? "-arm" : "")} -automated");
+                        StartCoreRootGenerationJob("MihuBot", $"{(isArm ? "-arm" : "")} -automated");
                     }
                 }
                 catch (Exception ex)

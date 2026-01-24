@@ -1132,13 +1132,26 @@ public abstract class JobBase
 
             IHelixApi api = ApiFactory.GetAnonymous();
 
-            ISentJob job = await api.Job.Define()
+            IJobDefinition jobDefinition = api.Job.Define()
                 .WithType($"MihuBot/runtime-utils/{JobType}")
                 .WithTargetQueue(queueId)
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
-                .WithProperty("description", ProgressDashboardUrl)
-                .WithProperty("trigger", GitHubComment?.HtmlUrl ?? GithubCommenterLogin ?? TestedPROrBranchLink)
+                .WithProperty("DashboardUrl", ProgressDashboardUrl)
+                .WithProperty("JobType", JobType)
+                .WithProperty("JobTitle", JobTitle)
+                .WithProperty("CustomArguments", CustomArguments)
+                .WithProperty("StartTime", StartTime.ToISODateTime())
+                .WithProperty("MaxJobDuration", MaxJobDuration.ToElapsedTime())
+                .WithProperty("Trigger", GitHubComment?.HtmlUrl ?? GithubCommenterLogin ?? "N/A")
+                .WithProperty("TestedPROrBranch", TestedPROrBranchLink);
+
+            if (TrackingIssue is not null)
+            {
+                jobDefinition = jobDefinition.WithProperty("TrackingIssue", TrackingIssue.HtmlUrl);
+            }
+
+            ISentJob job = await jobDefinition
                 .DefineWorkItem("runner")
                 .WithCommand(useWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
                 .WithSingleFilePayload(useWindows ? "start-runner.ps1" : "start-runner.sh", useWindows ? windowsStartupScript : linuxStartupScript)
