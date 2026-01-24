@@ -42,7 +42,7 @@ public static class Snowflake
 
         OperationStatus status = Base64Url.DecodeFromChars(snowflakeString, buffer, out int charsConsumed, out int bytesWritten);
 
-        if (status != OperationStatus.Done || charsConsumed != snowflakeString.Length || bytesWritten < 5)
+        if (status != OperationStatus.Done || charsConsumed != snowflakeString.Length || bytesWritten == 0)
         {
             snowflake = 0;
             return false;
