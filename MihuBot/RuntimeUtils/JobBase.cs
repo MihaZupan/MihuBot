@@ -1136,9 +1136,11 @@ public abstract class JobBase
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
                 .WithProperty("description", ProgressDashboardUrl)
+                .WithProperty("trigger", GitHubComment?.HtmlUrl ?? GithubCommenterLogin ?? TestedPROrBranchLink)
                 .DefineWorkItem("runner")
                 .WithCommand(useWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
                 .WithSingleFilePayload(useWindows ? "start-runner.ps1" : "start-runner.sh", useWindows ? windowsStartupScript : linuxStartupScript)
+                .WithTimeout(MaxJobDuration + TimeSpan.FromMinutes(5))
                 .AttachToJob()
                 .SendAsync(cancellationToken: jobTimeout);
 
@@ -1147,7 +1149,7 @@ public abstract class JobBase
                 Stopwatch jobDelayStopwatch = Stopwatch.StartNew();
 
                 JobSummary summary = await api.Job.SummaryAsync(job.CorrelationId, jobTimeout);
-                Log($"Job queued {summary.DetailsUrl} ...");
+                Log($"Job queued {summary.DetailsUrl}");
 
                 try
                 {
