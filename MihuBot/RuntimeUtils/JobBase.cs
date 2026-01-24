@@ -1,4 +1,5 @@
-﻿using System.Net.Mime;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Net.Mime;
 using System.Runtime.CompilerServices;
 using Azure;
 using Azure.Core;
@@ -205,6 +206,35 @@ public abstract class JobBase
         }
 
         return @default;
+    }
+
+    protected bool TryGetArgument(string argument, [NotNullWhen(true)] out string value)
+    {
+        value = null;
+
+        ReadOnlySpan<char> arguments = CustomArguments;
+        argument = $"-{argument} ";
+
+        int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+        if (offset < 0) return false;
+
+        arguments = arguments.Slice(offset + argument.Length);
+
+        int length = arguments.IndexOf(' ');
+        if (length >= 0)
+        {
+            arguments = arguments.Slice(0, length);
+        }
+
+        value = arguments.Trim().ToString();
+
+        if (value.Length == 0)
+        {
+            value = null;
+            return false;
+        }
+
+        return true;
     }
 
     public async Task RunJobAsync()
@@ -925,7 +955,11 @@ public abstract class JobBase
             defaultVmSize = $"Standard_{defaultVmSize.Replace("X", defaultAzureCoreCount.ToString())}";
 
             string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
-            string vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
+
+            if (!IsFromAdmin || !TryGetArgument("vmSize", out string vmSize))
+            {
+                vmSize = GetConfigFlag($"Azure.VMSize{vmConfigName}", defaultVmSize);
+            }
 
             string templateJson = await Http.GetStringAsync("https://gist.githubusercontent.com/MihaZupan/5385b7153709beae35cdf029eabf50eb/raw/AzureVirtualMachineTemplate.json", jobTimeout);
 
@@ -1027,9 +1061,12 @@ public abstract class JobBase
         {
             string cpuType = UseArm ? "ARM64" : (useIntelCpu ? "X64Intel" : "X64Amd");
 
-            string serverType = Fast
-                ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx52" : "cpx51"))
-                : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx42" : "cpx41"));
+            if (!IsFromAdmin || !TryGetArgument("serverType", out string serverType))
+            {
+                serverType = Fast
+                    ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx52" : "cpx51"))
+                    : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx42" : "cpx41"));
+            }
 
             Log($"Starting a Hetzner VM ({serverType}) ...");
 
@@ -1075,9 +1112,19 @@ public abstract class JobBase
 
         async Task RunAsHelixJobAsync(CancellationToken jobTimeout)
         {
-            string queueId = UseWindows
-                ? (UseArm ? "windows.11.arm64.open" : (Fast ? "windows.11.amd64.viper.perf.open" : "windows.11.amd64.client.open.svc"))
-                : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
+            if (!TryGetArgument("queue", out string queueId))
+            {
+                queueId = UseWindows
+                    ? (UseArm ? "windows.11.arm64.open" : "windows.11.amd64.client.open.svc")
+                    : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
+            }
+
+            bool useWindows = queueId.Contains("win", StringComparison.OrdinalIgnoreCase);
+
+            if (UseWindows != useWindows)
+            {
+                Log($"WARNING: Expected UseWindows={UseWindows}, but queue '{queueId}' indicates UseWindows={useWindows}. Adjusting ...");
+            }
 
             Log($"Submitting a Helix job ({queueId}) ...");
 
@@ -1090,8 +1137,8 @@ public abstract class JobBase
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
                 .WithProperty("description", ProgressDashboardUrl)
                 .DefineWorkItem("runner")
-                .WithCommand(UseWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
-                .WithSingleFilePayload(UseWindows ? "start-runner.ps1" : "start-runner.sh", UseWindows ? windowsStartupScript : linuxStartupScript)
+                .WithCommand(useWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
+                .WithSingleFilePayload(useWindows ? "start-runner.ps1" : "start-runner.sh", useWindows ? windowsStartupScript : linuxStartupScript)
                 .AttachToJob()
                 .SendAsync(cancellationToken: jobTimeout);
 
@@ -1125,6 +1172,7 @@ public abstract class JobBase
                         if (details.WorkItems.Running == 0 && details.WorkItems.Finished > 0)
                         {
                             Log("No more running Helix work items.");
+                            _idleTimeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
                             break;
                         }
                     }
