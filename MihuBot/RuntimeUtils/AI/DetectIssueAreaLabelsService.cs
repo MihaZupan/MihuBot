@@ -127,7 +127,7 @@ public sealed class DetectIssueAreaLabelsService(
                     continue;
                 }
 
-                await Discord.GetTextChannel(Channels.PrivateGeneral).TrySendMessageAsync(
+                await Discord.GetTextChannel(Channels.SuggestedLabels).TrySendMessageAsync(
                     $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}");
             }
             catch (Exception ex)

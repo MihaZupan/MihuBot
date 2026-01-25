@@ -60,6 +60,7 @@ public static class Channels
     public const ulong DuplicatesList   = 1396832159888703498ul;
     public const ulong DuplicatesPosted = 1396843623898939462ul;
     public const ulong DuplicatesEmbeddings = 1405689904880681020ul;
+    public const ulong SuggestedLabels  = 1464776244586483722ul;
 }
 
 public static class KnownUsers
