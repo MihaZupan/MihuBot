@@ -386,14 +386,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
             return Task.CompletedTask;
         }
 
-        Task ProcessMihuBotDotnetRuntimeIssueMention(CommentInfo comment, string arguments)
+        async Task ProcessMihuBotDotnetRuntimeIssueMention(CommentInfo comment, string arguments)
         {
             if (BenchmarkWithCompareRangeRegex().Match(arguments) is { Success: true } benchmarkMatch)
             {
                 StartBenchmarkJob(comment.User.Login, arguments, comment);
+                await TryAddEyesReaction(comment);
             }
-
-            return Task.CompletedTask;
         }
 
         async Task ProcessMihuBotDotnetRuntimeMention(CommentInfo comment, string arguments, PullRequest pullRequest)
@@ -453,6 +452,20 @@ public sealed partial class RuntimeUtilsService : IHostedService
             else
             {
                 StartJitDiffJob(pullRequest, comment.User.Login, arguments, comment);
+            }
+
+            await TryAddEyesReaction(comment);
+        }
+
+        async Task TryAddEyesReaction(CommentInfo comment)
+        {
+            try
+            {
+                await comment.AddReactionAsync(Github, Octokit.ReactionType.Eyes);
+            }
+            catch (Exception ex)
+            {
+                Logger.DebugLog($"Failed to add reaction to comment {comment.HtmlUrl}: {ex}");
             }
         }
 
