@@ -854,7 +854,7 @@ public sealed partial class Logger
 
                 string spaceMessage = $"Space available: {availableMB} / {totalMB} MB";
 
-                if (availableShare < 0.25) await DebugAsync(spaceMessage, message);
+                if (availableShare < 0.1) await DebugAsync(spaceMessage, message);
                 else DebugLog(spaceMessage, message);
             }
         }
