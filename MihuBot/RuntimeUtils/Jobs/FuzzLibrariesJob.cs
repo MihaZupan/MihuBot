@@ -210,7 +210,7 @@ public sealed class FuzzLibrariesJob : JobBase
                 string indexUrl = null;
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
-                    BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/fuzzing-coverage/{entry.Name}");
+                    BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fuzzerName}-coverage/{entry.Name}");
 
                     var options = new BlobUploadOptions
                     {
