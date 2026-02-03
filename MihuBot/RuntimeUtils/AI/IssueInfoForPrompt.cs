@@ -2,6 +2,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 #nullable enable
 
@@ -23,13 +24,13 @@ public sealed record IssueInfoForPrompt(
     CommentInfoForPrompt[] Comments,
     string? Miscellaneous)
 {
-    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    public static JsonSerializerOptions JsonOptions { get; } = new()
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
     };
 
-    public static async Task<IssueInfoForPrompt> CreateAsync(IssueInfo issue, IDbContextFactory<GitHubDbContext>? dbContextFactory, CancellationToken cancellationToken)
+    public static async Task<IssueInfoForPrompt> CreateAsync(IssueInfo issue, IDbContextFactory<GitHubDbContext>? dbContextFactory, CancellationToken cancellationToken, int contextLimitForIssueBody = int.MaxValue, int contextLimitForCommentBody = int.MaxValue)
     {
         CommentInfoForPrompt[] comments = (issue.Comments ?? [])
             .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c, removeSectionsWithoutContext: false, includeBotMessages: true))
@@ -38,7 +39,7 @@ public sealed record IssueInfoForPrompt(
                 c.User.Login,
                 c.AuthorAssociation == Octokit.AuthorAssociation.None ? null : c.AuthorAssociation.ToString(),
                 c.CreatedAt,
-                c.Body,
+                SemanticMarkdownChunker.TrimTextToTokens(GitHubSemanticSearchIngestionService.Tokenizer, c.Body, contextLimitForCommentBody),
                 new ReactionsInfoForPrompt(c.Plus1, c.Minus1, c.Laugh, c.Confused, c.Heart, c.Hooray, c.Eyes, c.Rocket).NullIfEmpty()))
             .ToArray();
 
@@ -70,7 +71,7 @@ public sealed record IssueInfoForPrompt(
             issue.PullRequest?.MergedAt,
             issue.Labels is null ? [] : [.. issue.Labels.Select(l => l.Name)],
             issue.Milestone?.Title,
-            issue.Body,
+            SemanticMarkdownChunker.TrimTextToTokens(GitHubSemanticSearchIngestionService.Tokenizer, issue.Body, contextLimitForIssueBody),
             issue.Assignees is null ? [] : [.. issue.Assignees.Select(a => a.Login)],
             new ReactionsInfoForPrompt(issue.Plus1, issue.Minus1, issue.Laugh, issue.Confused, issue.Heart, issue.Hooray, issue.Eyes, issue.Rocket).NullIfEmpty(),
             comments,
@@ -79,7 +80,7 @@ public sealed record IssueInfoForPrompt(
 
     public string AsJson()
     {
-        return JsonSerializer.Serialize(this, s_jsonOptions);
+        return JsonSerializer.Serialize(this, JsonOptions);
     }
 }
 

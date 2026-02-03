@@ -388,6 +388,11 @@ public static class SemanticMarkdownChunker
 
     public static string TrimTextToTokens(Tokenizer tokenizer, string text, int maxTokens)
     {
+        if (maxTokens == int.MaxValue)
+        {
+            return text;
+        }
+
         int tokens = tokenizer.CountTokens(text);
         if (tokens <= maxTokens)
         {

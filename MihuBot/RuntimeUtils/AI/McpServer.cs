@@ -16,7 +16,7 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         "Every term represents an independent search. " +
         "Prefer this tool over GitHub MCP when searching for discussions about a topic in the dotnet repositories. " +
         "Does not search through code.")]
-    public async Task<IssueTriageHelper.ShortIssueInfo[]> SearchDotnetRepos(
+    public async Task<IssueInfoForPrompt[]> SearchDotnetRepos(
         [Description("The repository to search through, e.g. dotnet/runtime, dotnet/aspire, or * for any.")] string repository,
         [Description("The set of terms to search for.")] string[] searchTerms,
         [Description("Additional context for this search, e.g. the title of a relevant GitHub issue.")] string extraSearchContext,

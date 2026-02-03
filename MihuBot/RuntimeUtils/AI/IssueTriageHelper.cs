@@ -11,10 +11,6 @@ namespace MihuBot.RuntimeUtils.AI;
 
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
-    public sealed record ShortCommentInfo(string CreatedAt, string Author, string Body);
-
-    public sealed record ShortIssueInfo(string Url, string Title, string CreatedAt, string ClosedAt, bool? Merged, string Author, string Body, ShortCommentInfo[] Comments);
-
     public ModelInfo[] AvailableModels => OpenAIService.AllModels;
     public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-4.1");
 
@@ -54,7 +50,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         return await context.DetectDuplicateIssuesAsync(cancellationToken);
     }
 
-    public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
+    public async Task<IssueInfoForPrompt[]> SearchDotnetGitHubAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
     {
         Context context = CreateContext(model, requesterLogin);
 
@@ -145,10 +141,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             If there is insufficient information to make a reliable determination, do not report the issue as a duplicate.
             Focus on making an accurate decision. Mistakingly reporting an issue as a duplicate is worse than not reporting it at all.
             """;
-
-        private static readonly HashSet<string> s_networkingTeam = new(
-            ["MihaZupan", "CarnaViire", "karelz", "antonfirsov", "ManickaP", "wfurt", "rzikm", "liveans", "rokonec"],
-            StringComparer.OrdinalIgnoreCase);
 
         public IssueTriageHelper Parent { get; set; }
         public Logger Logger { get; set; }
@@ -343,7 +335,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return document.ToHtmlAdvanced();
         }
 
-        private async Task<ShortIssueInfo[]> SearchCurrentRepoAsync(
+        private async Task<IssueInfoForPrompt[]> SearchCurrentRepoAsync(
             [Description("The set of terms to search for.")] string[] searchTerms,
             [Description("Whether to include open issues/PRs.")] bool includeOpen = true,
             [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed = true,
@@ -371,7 +363,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
         }
 
-        public async Task<ShortIssueInfo[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
+        public async Task<IssueInfoForPrompt[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
 
@@ -399,51 +391,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             GitHubSearchResponse results = await Search.SearchIssuesAndCommentsAsync(searchTerms, bulkFilters, filters, options, cancellationToken);
 
-            ShortIssueInfo[] issues = [.. results.Results.Select(i => CreateIssueInfo(i.Issue.CreatedAt, i.Issue.User, i.Issue.Body, i.Issue, [.. i.Comments.Select(CreateCommentInfo)]))];
+            IssueInfoForPrompt[] issues = await results.Results
+                .ToAsyncEnumerable()
+                .Select(async (i, ct) => await IssueInfoForPrompt.CreateAsync(i.Issue, GitHubDb, ct, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000))
+                .ToArrayAsync(cancellationToken);
 
             OnToolLog($"[Tool] Found {issues.Length} issues, {issues.Sum(i => i.Comments.Length)} comments ({(int)stopwatch.ElapsedMilliseconds} ms)");
 
             return issues;
-        }
-
-        private ShortIssueInfo CreateIssueInfo(DateTimeOffset createdAt, UserInfo author, string text, IssueInfo issue, ShortCommentInfo[] comments)
-        {
-            ShortCommentInfo info = CreateCommentInfo(createdAt, author, text, isComment: false);
-
-            //string extraInfo = score == 1 ? "" : $"Simmilarity score: {score:F2}";
-            //if (!string.IsNullOrEmpty(info.ExtraInfo))
-            //{
-            //    extraInfo = $"{extraInfo}\n{info.ExtraInfo}";
-            //}
-
-            string closedAt = issue.ClosedAt.HasValue ? issue.ClosedAt.Value.ToISODate() : null;
-            bool? merged = issue.PullRequest?.MergedAt.HasValue;
-
-            return new ShortIssueInfo(issue.HtmlUrl, issue.Title, info.CreatedAt, closedAt, merged, info.Author, info.Body, comments);
-        }
-
-        private ShortCommentInfo CreateCommentInfo(CommentInfo comment)
-        {
-            return CreateCommentInfo(comment.CreatedAt, comment.User, comment.Body, isComment: true);
-        }
-
-        private ShortCommentInfo CreateCommentInfo(DateTimeOffset createdAt, UserInfo author, string text, bool isComment)
-        {
-            string authorSuffix = s_networkingTeam.Contains(author.Login)
-                ? " (member of the .NET networking team)"
-                : string.Empty;
-
-            int maxLength = isComment ? 1_000 : 2_000;
-
-            if (UsingLargeContextWindow)
-            {
-                maxLength *= 2;
-            }
-
-            return new ShortCommentInfo(
-                createdAt.ToISODate(),
-                $"{author.Login}{authorSuffix}",
-                SemanticMarkdownChunker.TrimTextToTokens(Search.Tokenizer, text, maxLength));
         }
     }
 }
