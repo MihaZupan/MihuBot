@@ -19,11 +19,13 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         [Description("The repository to search through, e.g. dotnet/runtime, dotnet/aspire, or * for any.")] string repository,
         [Description("The set of terms to search for.")] string[] searchTerms,
         [Description("Additional context for this search, e.g. the title of a relevant GitHub issue.")] string extraSearchContext,
+        [Description("List of labels to filter on. Null/empty means any label.")] string[] labels = null,
         [Description("Whether to include open issues/PRs.")] bool includeOpen = true,
         [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed = true,
         [Description("Whether to include issues.")] bool includeIssues = true,
         [Description("Whether to include pull requests.")] bool includePullRequests = true,
         [Description("Optionally only include issues/PRs created after this date.")] DateTime? createdAfter = null,
+        [Description("Whether to include issue comments in the response.")] bool includeComments = true,
         CancellationToken cancellationToken = default)
     {
         repository = repository?.ToLowerInvariant();
@@ -36,6 +38,10 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         {
             repository = $"dotnet/{repository}";
         }
+        else if (GitHubHelper.TryParseRepoOwnerAndName(repository, out string owner, out string name, out _))
+        {
+            repository = $"{owner}/{name}";
+        }
 
         var filters = new IssueSearchFilters
         {
@@ -43,7 +49,9 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
             IncludeClosed = includeClosed,
             IncludeIssues = includeIssues,
             IncludePullRequests = includePullRequests,
-            Repository = repository
+            Repository = repository,
+            Labels = labels,
+            IncludeCommentsInResponse = includeComments,
         };
 
         Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRepos)} for {string.Join(", ", searchTerms)} ({filters})");

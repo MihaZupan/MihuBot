@@ -382,7 +382,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             var options = new IssueSearchResponseOptions
             {
-                IncludeIssueComments = SearchIncludeAllIssueComments,
+                IncludeIssueComments = filters.IncludeCommentsInResponse ?? SearchIncludeAllIssueComments,
                 MaxResults = maxTotalResults,
                 PreferSpeed = false,
             };

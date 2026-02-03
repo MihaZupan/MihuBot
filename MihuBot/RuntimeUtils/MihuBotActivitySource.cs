@@ -78,10 +78,11 @@ public static class MihuBotActivitySource
         activity?.SetTag("filters.search.include.closed", filters.IncludeClosed);
         activity?.SetTag("filters.search.include.issues", filters.IncludeIssues);
         activity?.SetTag("filters.search.include.pullRequests", filters.IncludePullRequests);
+        activity?.SetTag("filters.search.include.commentsInResponse", filters.IncludeCommentsInResponse);
         activity?.SetTag("filters.search.minScore", filters.MinScore);
         activity?.SetTag("filters.search.createdAfter", filters.CreatedAfter);
         activity?.SetTag("filters.search.repository", filters.Repository);
-        activity?.SetTag("filters.search.labelContains", filters.LabelContains);
+        activity?.SetTag("filters.search.labels", string.Join(';', filters.Labels ?? []));
         return activity!;
     }
 

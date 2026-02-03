@@ -341,9 +341,17 @@ public sealed class GitHubSearchService
             issuesQuery = issuesQuery.Where(i => i.IssueType != IssueType.PullRequest);
         }
 
-        if (!string.IsNullOrEmpty(filters.LabelContains))
+        if (filters.Labels is { Length: > 0 } labels)
         {
-            issuesQuery = issuesQuery.Where(i => i.Labels.Any(l => l.Name.Contains(filters.LabelContains)));
+            string[] labelIds = (await db.Labels
+                .AsNoTracking()
+                .Select(l => new { l.Id, l.Name })
+                .ToArrayAsync(cancellationToken))
+                .Where(label => labels.Contains(label.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(l => l.Id)
+                .ToArray();
+
+            issuesQuery = issuesQuery.Where(i => i.Labels.Any(l => labelIds.Contains(l.Id)));
         }
 
         issuesQuery = issuesQuery
