@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel;
-using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using ModelContextProtocol.Server;
 
@@ -50,31 +49,5 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
         Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRepos)} for {string.Join(", ", searchTerms)} ({filters})");
 
         return await TriageHelper.SearchDotnetGitHubAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, filters, cancellationToken);
-    }
-
-    [McpServerTool(Name = "triage_github_issue", Title = "Triage Issue")]
-    [Description("Triages an issue from the dotnet/runtime GitHub repository, returning an HTML summary of related issues.")]
-    public async Task<string> TriageIssue(
-        [Description("Link to the issue/PR to triage.")] string issueOrPrUrl,
-        CancellationToken cancellationToken)
-    {
-        Logger.DebugLog($"[MCP]: {nameof(TriageIssue)} for {issueOrPrUrl}");
-
-        if (!GitHubHelper.TryParseIssueOrPRNumber(issueOrPrUrl, out string repoName, out int issueOrPRNumber) ||
-            !"dotnet/runtime".Equals(repoName, StringComparison.OrdinalIgnoreCase))
-        {
-            return "Invalid issue or PR URL. Please provide a valid URL to an issue or pull request. E.g. https://github.com/dotnet/runtime/issues/123";
-        }
-
-        IssueInfo issue = await TriageHelper.GetIssueAsync("dotnet/runtime", issueOrPRNumber, cancellationToken);
-
-        if (issue is null)
-        {
-            return $"Unable to find issue #{issueOrPRNumber}.";
-        }
-
-        var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, UserLogin, issue, _ => { }, SkipCommentsOnCurrentIssue: false);
-
-        return await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken);
     }
 }
