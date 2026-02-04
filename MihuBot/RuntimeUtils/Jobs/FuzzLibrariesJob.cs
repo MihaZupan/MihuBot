@@ -86,7 +86,7 @@ public sealed class FuzzLibrariesJob : JobBase
                     artifacts = string.Join('\n', _errorStackTraces
                         .Select(error => Artifacts.FirstOrDefault(a => a.FileName == $"{error.Key}-input.bin"))
                         .Where(error => error.Url is not null)
-                        .Select(error => $"- [{error.FileName}]({error.Url}) ({GetRoughSizeString(error.Size)})"));
+                        .Select(error => $"- [{error.FileName}]({error.Url}) ({SharedHelpers.GetRoughSizeString(error.Size)})"));
                 }
 
                 message =

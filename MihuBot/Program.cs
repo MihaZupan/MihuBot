@@ -175,7 +175,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
                     { "service.name", "mihubot" },
                     { "service.namespace", "mihubot" },
                     { "service.instance.id", "mihubot" },
-                    { "service.version", Helpers.GetCommitId() }
+                    { "service.version", SharedHelpers.GetCommitId() }
                 });
             })
             .WithTracing(builder =>
@@ -272,6 +272,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<McpServer>();
 
     services.AddSingleton(new MinecraftRCON(builder.Configuration["Minecraft:Host"], int.Parse(builder.Configuration["Minecraft:Port"] ?? "25575"), builder.Configuration["Minecraft:RconPassword"]));
+
+    services.AddSingleton(new QBittorrentClient(builder.Configuration["QBittorrent:Host"], builder.Configuration["QBittorrent:Username"], builder.Configuration["QBittorrent:Password"]));
+
+    services.AddSingleton(new JellyfinClient(builder.Configuration["Jellyfin:Host"], builder.Configuration["Jellyfin:ApiKey"]));
 
     if (ProgramState.AzureEnabled)
     {

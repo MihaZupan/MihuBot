@@ -220,7 +220,7 @@ public sealed class IssueTriageService(
 
         string html = await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken) ?? "";
 
-        string commit = Helpers.Helpers.GetCommitId();
+        string commit = SharedHelpers.GetCommitId();
         string version = commit.Length >= 10 ? $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/tree/{commit})" : "unknown";
 
         string newIssueBody =

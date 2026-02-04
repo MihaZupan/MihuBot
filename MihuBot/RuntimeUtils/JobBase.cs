@@ -499,24 +499,6 @@ public abstract class JobBase
 
     public string GetElapsedTime(bool includeSeconds = true) => Stopwatch.Elapsed.ToElapsedTime(includeSeconds);
 
-    public static string GetRoughSizeString(long size)
-    {
-        double kb = size / 1024d;
-        double mb = kb / 1024d;
-
-        if (mb >= 1)
-        {
-            return $"{(int)mb} MB";
-        }
-
-        if (kb >= 1)
-        {
-            return $"{(int)kb} KB";
-        }
-
-        return $"{size} B";
-    }
-
     private async Task UpdateIssueBodyAsync(string newBody)
     {
         if (TrackingIssue is null)
@@ -582,7 +564,7 @@ public abstract class JobBase
         {
             foreach (var (FileName, Url, Size) in Artifacts)
             {
-                builder.AppendLine($"- [{FileName}]({Url}) ({GetRoughSizeString(Size)})");
+                builder.AppendLine($"- [{FileName}]({Url}) ({SharedHelpers.GetRoughSizeString(Size)})");
             }
         }
 
@@ -684,7 +666,7 @@ public abstract class JobBase
 
             if (ArtifactSizeLimit - _totalArtifactsSize < size)
             {
-                Log($"Artifact '{fileName}' was not saved because it would exceed the {GetRoughSizeString(ArtifactSizeLimit)} limit");
+                Log($"Artifact '{fileName}' was not saved because it would exceed the {SharedHelpers.GetRoughSizeString(ArtifactSizeLimit)} limit");
                 blobClient.DeleteIfExists(cancellationToken: cancellationToken);
                 return;
             }
@@ -693,7 +675,7 @@ public abstract class JobBase
             _totalArtifactsSize += size;
         }
 
-        Log($"Saved artifact '{fileName}' to {entry.ShortUrl} ({GetRoughSizeString(size)})");
+        Log($"Saved artifact '{fileName}' to {entry.ShortUrl} ({SharedHelpers.GetRoughSizeString(size)})");
     }
 
     protected virtual Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken) => Task.FromResult<Stream>(null);

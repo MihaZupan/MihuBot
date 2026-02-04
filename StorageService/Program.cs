@@ -72,7 +72,7 @@ if (OperatingSystem.IsLinux())
                 { "service.name", "storage" },
                 { "service.namespace", "mihubot" },
                 { "service.instance.id", "storage" },
-                { "service.version", Helpers.GetCommitId() }
+                { "service.version", SharedHelpers.GetCommitId() }
             });
         })
         .WithTracing(builder =>

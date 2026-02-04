@@ -4,7 +4,7 @@
 
 namespace MihuBot.Helpers;
 
-public static class Helpers
+public static class SharedHelpers
 {
     public static void Toggle(ref this bool value)
     {
@@ -17,6 +17,31 @@ public static class Helpers
         {
             set.Add(item);
         }
+    }
+
+    public static string GetRoughSizeString(long size)
+    {
+        double kb = size / 1024d;
+        double mb = kb / 1024d;
+        double gb = mb / 1024d;
+
+        if (gb >= 1)
+        {
+            int gbFraction = (int)(gb % 1 * 10);
+            return $"{(int)gb}.{gbFraction} GB";
+        }
+
+        if (mb >= 1)
+        {
+            return $"{(int)mb} MB";
+        }
+
+        if (kb >= 1)
+        {
+            return $"{(int)kb} KB";
+        }
+
+        return $"{size} B";
     }
 
     public static string ToISODate(this DateTime date) => date.ToString("yyyy-MM-dd");

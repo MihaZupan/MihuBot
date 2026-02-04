@@ -255,7 +255,7 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                string commit = Helpers.Helpers.GetCommitId();
+                string commit = SharedHelpers.GetCommitId();
 
                 var embed = new EmbedBuilder()
                     .WithTitle("Started")

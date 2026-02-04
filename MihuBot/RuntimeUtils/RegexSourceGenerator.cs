@@ -72,7 +72,7 @@ public sealed class RegexSourceGenerator
                 {
                     Assembly generatorAssembly = Assembly.LoadFile(path);
                     Type generatorType = generatorAssembly.GetTypes().Single(t => t.Name == "RegexGenerator");
-                    string commit = Helpers.Helpers.GetCommitId(generatorAssembly);
+                    string commit = SharedHelpers.GetCommitId(generatorAssembly);
                     string repo = int.Parse(name.Split('.')[0]) < 10 ? "dotnet/runtime" : "dotnet/dotnet";
 
                     generators.Add(new Generator(name, commit, repo, generatorType));
