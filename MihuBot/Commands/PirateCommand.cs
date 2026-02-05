@@ -11,6 +11,7 @@ public sealed partial class PirateCommand : CommandBase
 
     private readonly QBittorrentClient _qBittorrent;
     private readonly JellyfinClient _jellyfin;
+    private int _activeDownloads;
 
     public PirateCommand(QBittorrentClient qBittorrent, JellyfinClient jellyfin)
     {
@@ -68,6 +69,8 @@ public sealed partial class PirateCommand : CommandBase
 
     private async Task DownloadAsync(CommandContext ctx, MagnetUri uri)
     {
+        Interlocked.Increment(ref _activeDownloads);
+
         bool error = false;
         try
         {
@@ -137,7 +140,7 @@ public sealed partial class PirateCommand : CommandBase
                     await message.ModifyAsync(m => { m.Content = null; m.Embed = embed.Build(); });
                 }
 
-                await Task.Delay(5000, ctx.CancellationToken);
+                await Task.Delay(3000 * _activeDownloads, ctx.CancellationToken);
             }
 
             await _jellyfin.RefreshLibraryAsync(ctx.CancellationToken);
@@ -157,6 +160,8 @@ public sealed partial class PirateCommand : CommandBase
         }
         finally
         {
+            Interlocked.Decrement(ref _activeDownloads);
+
             try
             {
                 await _qBittorrent.DeleteTorrentAsync(uri.Hash, deleteFiles: error, ctx.CancellationToken);
