@@ -74,10 +74,10 @@ public sealed partial class PirateCommand : CommandBase
         bool error = false;
         try
         {
-            bool isSearies = SeasonRegex.IsMatch(uri.DisplayName);
+            bool isTvShow = SeasonRegex.IsMatch(uri.DisplayName);
 
             await _qBittorrent.LoginAsync(ctx.CancellationToken);
-            await _qBittorrent.AddTorrentAsync(uri.Url, isSearies ? "/media/Shows" : "/media/Movies", ctx.CancellationToken);
+            await _qBittorrent.AddTorrentAsync(uri.Url, isTvShow ? "/media/Shows" : "/media/Movies", ctx.CancellationToken);
 
             QBittorrentClient.TorrentInfo info;
             RestUserMessage? message = null;
@@ -175,12 +175,14 @@ public sealed partial class PirateCommand : CommandBase
 
     private static QBittorrentClient.SearchResult? TryGetBestResult(QBittorrentClient.SearchResult[] results, string name)
     {
+        const long GB = 1024L * 1024 * 1024;
+
         long minSize = 10L * 1024 * 1024; // 10 MB
 
-        // 50 GB for series season, 4 GB for episode, 16 GB for movies
+        // 50 GB for TV show season, 4 GB for episode, 16 GB for movies
         long maxSize = SeasonRegex.IsMatch(name)
-            ? (EpisodeRegex.IsMatch(name) ? 4L * 1024 * 1024 * 1024 : 50L * 1024 * 1024 * 1024)
-            : 16L * 1024 * 1024 * 1024;
+            ? (EpisodeRegex.IsMatch(name) ? 4 * GB : 50 * GB)
+            : 16 * GB;
 
         results = [.. results
             .Where(r => r.FileUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
