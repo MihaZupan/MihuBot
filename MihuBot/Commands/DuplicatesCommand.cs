@@ -240,7 +240,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                 bool autoPost = result.WouldAutoPost && automated && await ShouldAutoPostAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)]);
 
-                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)])
+                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)], CancellationToken.None)
                     ? "duplicate"
                     : "related and/or duplicate";
 
@@ -673,16 +673,16 @@ public sealed class DuplicatesCommand : CommandBase
         }
     }
 
-    private async Task<bool> AreAllRelatedIssuesLikelyDuplicatesAsync(IssueInfo issue, IssueInfo[] candidates)
+    private async Task<bool> AreAllRelatedIssuesLikelyDuplicatesAsync(IssueInfo issue, IssueInfo[] candidates, CancellationToken cancellationToken)
     {
         try
         {
             IChatClient chatClient = _openAI.GetChat("gpt-5-mini", secondary: true);
 
-            string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, CancellationToken.None, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
 
             string candidatesJson = string.Join("\n\n", await Task.WhenAll(candidates.Select(async c =>
-                (await IssueInfoForPrompt.CreateAsync(c, _db, CancellationToken.None, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson())));
+                (await IssueInfoForPrompt.CreateAsync(c, _db, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson())));
 
             string prompt =
                 $"""
@@ -703,7 +703,7 @@ public sealed class DuplicatesCommand : CommandBase
                 ```
                 """;
 
-            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: CancellationToken.None);
+            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
             return response.Result;
         }
