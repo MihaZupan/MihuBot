@@ -42,8 +42,6 @@ public sealed class GitHubSearchService
     private double VectorSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", 1.0);
     private double FullTextSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", 0.9);
 
-    internal float DefaultTemperature => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.{nameof(DefaultTemperature)}", 0.2f);
-
     [ImmutableObject(true)]
     private sealed record RawSearchResult(double Score, long RepositoryId, string IssueId, string SubIdentifier);
 
@@ -645,12 +643,7 @@ public sealed class GitHubSearchService
                             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                             cts.CancelAfter(TimeSpan.FromMinutes(2));
 
-                            var options = new ChatOptions
-                            {
-                                Temperature = DefaultTemperature
-                            };
-
-                            relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+                            relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
                             break;
                         }
                         catch (Exception ex) when (i < Retries - 1 && !cancellationToken.IsCancellationRequested)
