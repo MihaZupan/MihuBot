@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
@@ -29,13 +30,14 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly IConfigurationService _configuration;
     private readonly DiscordSocketClient _discord;
     private readonly GithubGraphQLClient _graphQL;
+    private readonly OpenAIService _openAI;
     private readonly SemaphoreSlim _sempahore = new(2, 2);
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
     private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.94d);
 
-    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search, GithubGraphQLClient graphQL)
+    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search, GithubGraphQLClient graphQL, OpenAIService openAI)
     {
         _db = db;
         _triageService = triageService;
@@ -47,6 +49,7 @@ public sealed class DuplicatesCommand : CommandBase
         _discord = discord;
         _search = search;
         _graphQL = graphQL;
+        _openAI = openAI;
     }
 
     public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
@@ -235,13 +238,19 @@ public sealed class DuplicatesCommand : CommandBase
 
                 bool plural = result.IssuesToReport.Length > 1;
 
+                bool autoPost = result.WouldAutoPost && automated && await ShouldAutoPostAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)]);
+
+                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)])
+                    ? "duplicate"
+                    : "related and/or duplicate";
+
                 string ghComment =
                     $"""
-                    I'm a bot. Here {(plural ? "are" : "is a")} possible related and/or duplicate issue{(plural ? "s" : "")} (I may be wrong):
+                    I'm a bot. Here {(plural ? "are" : "is a")} possible {relationship} issue{(plural ? "s" : "")} (I may be wrong):
                     {string.Join('\n', result.IssuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
                     """;
 
-                if (result.WouldAutoPost && automated && await ShouldAutoPostAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)]))
+                if (autoPost)
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
@@ -662,6 +671,48 @@ public sealed class DuplicatesCommand : CommandBase
             await ctx.ReplyAsync($"Backtest failed: {ex.Message}");
             await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Backtest error", ex);
         }
+    }
+
+    private async Task<bool> AreAllRelatedIssuesLikelyDuplicatesAsync(IssueInfo issue, IssueInfo[] candidates)
+    {
+        try
+        {
+            IChatClient chatClient = _openAI.GetChat("gpt-5-mini", secondary: true);
+
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, CancellationToken.None, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
+
+            string candidatesJson = string.Join("\n\n", await Task.WhenAll(candidates.Select(async c =>
+                (await IssueInfoForPrompt.CreateAsync(c, _db, CancellationToken.None, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson())));
+
+            string prompt =
+                $"""
+                You are an assistant helping classify the relationship between GitHub issues.
+                You will be given a NEW issue and one or more CANDIDATE issues that have been identified as potential duplicates.
+
+                Determine whether the candidates are true duplicates (describing the same underlying problem) or not.
+                Respond with true if you are confident they describe the same problem, false otherwise.
+
+                NEW ISSUE:
+                ```json
+                {issueJson}
+                ```
+
+                CANDIDATE ISSUE(S):
+                ```json
+                {candidatesJson}
+                ```
+                """;
+
+            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: CancellationToken.None);
+
+            return response.Result;
+        }
+        catch (Exception ex)
+        {
+            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Error classifying duplicate vs related for issue <{issue.HtmlUrl}>: {ex.Message}");
+        }
+
+        return false;
     }
 
     private async Task PostGhCommentSummary(IssueInfo issue, string comment)
