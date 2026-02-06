@@ -12,7 +12,7 @@ namespace MihuBot.RuntimeUtils.AI;
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
     public ModelInfo[] AvailableModels => OpenAIService.AllModels;
-    public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-4.1");
+    public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-5-mini");
 
     private Context CreateContext(ModelInfo model, string gitHubUserLogin) => new()
     {
@@ -125,21 +125,38 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             When referencing an older issue, reference when it was opened. E.g. "Issue #123 (July 2019) - Title".
             """;
 
-        private const string DuplicateDetectionPrompt =
+        private const string SearchQueryExtractionPrompt =
             """
-            Find which issues (if any) are likely duplicates of the new issue.
-            Specify the approximate certainty score from 0 to 1, where 1 means the issue is almost certainly a duplicate.
-            Return the set of issue numbers with their relevance scores. Include a short summary for why you believe the issue is a duplicate.
-            The summary should be a single paragraph, in GitHub markdown format.
+            You are an assistant helping find potential duplicate GitHub issues.
+            Given a new issue, extract a set of semantic search queries that would help find existing issues that describe the same problem.
 
-            You are specifically only looking for issues that are very likely duplicates of the new issue, not just related ones.
-            If an issue is related, but not a duplicate, do not include it in the results.
+            Focus on:
+            - The core problem or error being described
+            - Specific APIs, types, methods, or error messages mentioned
+            - The scenario or use case
+
+            Return between 2 and 6 search queries. Each query should be a short phrase or sentence capturing a distinct aspect of the issue.
+            Do not include issue numbers or URLs. Do not include generic terms like "bug" or "issue".
+            """;
+
+        private const string CandidateClassificationPrompt =
+            """
+            You are an assistant helping detect duplicate GitHub issues.
+            You will be given a NEW issue and one CANDIDATE issue that may be a duplicate.
+
+            Determine whether the candidate issue describes the same problem as the new issue.
+            Specify a certainty score from 0 to 1, where 1 means the candidate is almost certainly a duplicate.
+
+            You are specifically looking for issues that are very likely duplicates, not just related ones.
+            If an issue is related but not a duplicate, give it a low score.
 
             For example if two issues both report a failure in the same test file, but for a different test, or with a different error message, that is not a duplicate.
             If two issues report an error with the same API/method, but with different errors, that is not a duplicate.
 
-            If there is insufficient information to make a reliable determination, do not report the issue as a duplicate.
-            Focus on making an accurate decision. Mistakingly reporting an issue as a duplicate is worse than not reporting it at all.
+            If there is insufficient information to make a reliable determination, give a low score.
+            Focus on making an accurate decision. Mistakenly reporting an issue as a duplicate is worse than not reporting it at all.
+
+            Include a short summary (single paragraph, GitHub markdown format) explaining why you believe the candidate is or is not a duplicate.
             """;
 
         public IssueTriageHelper Parent { get; set; }
@@ -218,57 +235,141 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
         }
 
-        private sealed record DuplicateIssue(int IssueNumber, double? Certainty, string Summary);
+        private sealed record SearchQueries(string[] Queries);
+
+        private sealed record CandidateClassification(double? Certainty, string Summary);
 
         public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken)
         {
             Logger.DebugLog($"Starting duplicate detection for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
 
-            ChatOptions options = GetTriageOptions();
+            // Step 1: Extract search queries from the new issue
+            string[] searchQueries = await ExtractSearchQueriesAsync(cancellationToken);
 
-            using FunctionInvokingChatClient toolClient = GetToolClient();
+            OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
 
-            string prompt =
-                $"""
-                {GetSystemPrompt(DuplicateDetectionPrompt)}
-
-                Please help me find potential duplicates for issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}'.
-
-                Here is the issue:
-                {Issue.Body}
-                """;
-
-            ChatResponse<DuplicateIssue[]> chatResponse = await toolClient.GetResponseAsync<DuplicateIssue[]>(prompt, options, useJsonSchemaResponseFormat: true, cancellationToken);
-
-            if (_searchToolException is not null)
+            if (searchQueries.Length == 0)
             {
-                throw new Exception($"Search tool failed to return results: {_searchToolException}");
+                return [];
             }
 
-            List<(IssueInfo Issue, double Certainty, string Summary)> results = [];
-
-            foreach (DuplicateIssue duplicate in chatResponse.Result.OrderByDescending(r => r.Certainty))
+            // Step 2: Semantic search for candidate issues
+            var filters = new IssueSearchFilters
             {
-                if (duplicate.IssueNumber <= 0 || duplicate.IssueNumber == Issue.Number)
-                {
-                    continue;
-                }
+                IncludeOpen = true,
+                IncludeClosed = true,
+                IncludeIssues = true,
+                IncludePullRequests = true,
+                Repository = Issue.Repository.FullName,
+                MinScore = SearchMinCertainty,
+            };
 
-                IssueInfo issue = await Parent.GetIssueAsync(Issue.Repository.FullName, duplicate.IssueNumber, cancellationToken);
+            var bulkFilters = new IssueSearchBulkFilters
+            {
+                MaxResultsPerTerm = MaxResultsPerTerm,
+                ExcludeIssues = SkipCommentsOnCurrentIssue ? [Issue] : null,
+                PostProcessIssues = true,
+                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} on issue titled '{Issue.Title}'"
+            };
 
-                if (issue is not null && duplicate.Certainty.HasValue && duplicate.Certainty > 0)
-                {
-                    results.Add((issue, duplicate.Certainty.Value, duplicate.Summary));
-                }
+            var options = new IssueSearchResponseOptions
+            {
+                IncludeIssueComments = SearchIncludeAllIssueComments,
+                MaxResults = SearchMaxTotalResults,
+                PreferSpeed = false,
+            };
+
+            GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync(searchQueries, bulkFilters, filters, options, cancellationToken);
+
+            var candidates = searchResults.Results
+                .Where(r => r.Score >= 0.3 && r.Results[0].Issue.Id != Issue.Id)
+                .OrderByDescending(r => r.Score)
+                .Take(15)
+                .ToArray();
+
+            OnToolLog($"Found {candidates.Length} candidate issues to classify");
+
+            if (candidates.Length == 0)
+            {
+                return [];
             }
 
-            Logger.DebugLog($"Finished duplicate detection on issue #{Issue.Number} with model {Model.Name}:\n{JsonSerializer.Serialize(chatResponse.Result)}");
+            // Step 3: Classify each candidate independently
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, contextLimitForIssueBody: 4000)).AsJson();
+
+            var classificationTasks = candidates.Select(async candidate =>
+            {
+                var candidateIssue = candidate.Results[0].Issue;
+                var classification = await ClassifyCandidateAsync(issueJson, candidateIssue, cancellationToken);
+                return (Issue: candidateIssue, Certainty: classification.Certainty ?? 0, classification.Summary);
+            });
+
+            var results = await Task.WhenAll(classificationTasks);
+
+            Logger.DebugLog($"Finished duplicate detection on issue #{Issue.Number} with model {Model.Name}:\n{JsonSerializer.Serialize(results.Select(r => new { r.Issue.Number, r.Certainty, r.Summary }))}");
 
             return results
+                .Where(r => r.Certainty > 0)
                 .GroupBy(r => r.Issue.Id)
                 .Select(g => g.MaxBy(i => i.Certainty))
                 .OrderByDescending(i => i.Certainty)
                 .ToArray();
+        }
+
+        private async Task<string[]> ExtractSearchQueriesAsync(CancellationToken cancellationToken)
+        {
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+
+            string prompt =
+                $"""
+                {SearchQueryExtractionPrompt}
+
+                New issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}' in {Issue.Repository.FullName}:
+
+                {Issue.Body}
+                """;
+
+            var chatOptions = new ChatOptions();
+            if (Model.SupportsTemperature)
+            {
+                chatOptions.Temperature = Search.DefaultTemperature;
+            }
+
+            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, chatOptions, useJsonSchemaResponseFormat: true, cancellationToken);
+
+            return response.Result?.Queries ?? [];
+        }
+
+        private async Task<CandidateClassification> ClassifyCandidateAsync(string newIssueJson, IssueInfo candidate, CancellationToken cancellationToken)
+        {
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+
+            string candidateJson = (await IssueInfoForPrompt.CreateAsync(candidate, GitHubDb, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
+
+            string prompt =
+                $"""
+                {CandidateClassificationPrompt}
+
+                NEW ISSUE:
+                ```json
+                {newIssueJson}
+                ```
+
+                CANDIDATE ISSUE:
+                ```json
+                {candidateJson}
+                ```
+                """;
+
+            var chatOptions = new ChatOptions();
+            if (Model.SupportsTemperature)
+            {
+                chatOptions.Temperature = Search.DefaultTemperature;
+            }
+
+            ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, chatOptions, useJsonSchemaResponseFormat: true, cancellationToken);
+
+            return response.Result ?? new CandidateClassification(0, string.Empty);
         }
 
         private string GetSystemPrompt(string taskPrompt)
