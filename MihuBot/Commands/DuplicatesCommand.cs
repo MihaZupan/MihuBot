@@ -184,7 +184,7 @@ public sealed class DuplicatesCommand : CommandBase
         await _sempahore.WaitAsync();
         try
         {
-            (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+            (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, CancellationToken.None);
 
             if (duplicates.Length == 0)
             {
@@ -209,7 +209,7 @@ public sealed class DuplicatesCommand : CommandBase
             {
                 reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
 
-                var secondaryTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+                var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, CancellationToken.None);
 
                 bool secondaryTestIsUseful = secondaryTest.Any(d =>
                     IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
@@ -240,7 +240,7 @@ public sealed class DuplicatesCommand : CommandBase
                 bool thirdTestIsUseful = true;
                 if (DoThirdVerificationCheck)
                 {
-                    var thirdTest = await DetectIssueDuplicatesAsync(issue, CancellationToken.None);
+                    var thirdTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, CancellationToken.None);
 
                     thirdTestIsUseful = thirdTest.Any(d =>
                         IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
@@ -481,7 +481,7 @@ public sealed class DuplicatesCommand : CommandBase
         return true;
     }
 
-    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, CancellationToken cancellationToken)
+    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, CancellationToken cancellationToken)
     {
         ModelInfo model = _triageHelper.DefaultModel;
 
@@ -490,7 +490,7 @@ public sealed class DuplicatesCommand : CommandBase
             model = OpenAIService.AllModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
         }
 
-        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"), SkipCommentsOnCurrentIssue: true);
+        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"), SkipCommentsOnCurrentIssue: true, AllowReasoning: allowReasoning);
 
         int attemptCount = 0;
         while (true)

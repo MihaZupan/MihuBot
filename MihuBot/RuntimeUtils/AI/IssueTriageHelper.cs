@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using OpenAI.Chat;
 
 namespace MihuBot.RuntimeUtils.AI;
 
@@ -30,10 +31,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         context.Issue = options.Issue;
         context.OnToolLog = options.OnToolLog;
         context.SkipCommentsOnCurrentIssue = options.SkipCommentsOnCurrentIssue;
+        context.AllowReasoning = options.AllowReasoning;
         return context;
     }
 
-    public record TriageOptions(ModelInfo Model, string GitHubUserLogin, IssueInfo Issue, Action<string> OnToolLog, bool SkipCommentsOnCurrentIssue);
+    public record TriageOptions(ModelInfo Model, string GitHubUserLogin, IssueInfo Issue, Action<string> OnToolLog, bool SkipCommentsOnCurrentIssue, bool AllowReasoning = false);
 
     public IAsyncEnumerable<string> TriageIssueAsync(TriageOptions options, CancellationToken cancellationToken)
     {
@@ -152,6 +154,17 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public string GitHubUserLogin { get; set; }
         public Action<string> OnToolLog { get; set; } = _ => { };
         public bool SkipCommentsOnCurrentIssue { get; set; }
+        public bool AllowReasoning { get; set; }
+
+        private ChatOptions ReasoningChatOptions => AllowReasoning
+            ? new ChatOptions
+            {
+                RawRepresentationFactory = _ => new ChatCompletionOptions
+                {
+                    ReasoningEffortLevel = ChatReasoningEffortLevel.Medium,
+                },
+            }
+            : null;
 
         private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 25);
         private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
@@ -217,7 +230,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             string markdownResponse = "";
 
-            await foreach (ChatResponseUpdate update in chatClient.GetStreamingResponseAsync(prompt, cancellationToken: cancellationToken))
+            await foreach (ChatResponseUpdate update in chatClient.GetStreamingResponseAsync(prompt, ReasoningChatOptions, cancellationToken: cancellationToken))
             {
                 string updateText = update.Text;
 
@@ -335,7 +348,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 {Issue.Body}
                 """;
 
-            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
             return response.Result?.Queries ?? [];
         }
@@ -361,7 +374,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 ```
                 """;
 
-            ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+            ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
             return response.Result ?? new CandidateClassification(0, string.Empty);
         }

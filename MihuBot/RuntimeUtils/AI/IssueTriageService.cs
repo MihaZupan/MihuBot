@@ -216,7 +216,7 @@ public sealed class IssueTriageService(
     {
         ConcurrentQueue<string> toolLogs = [];
 
-        var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: false);
+        var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: false, AllowReasoning: true);
 
         string html = await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken) ?? "";
 
