@@ -14,7 +14,7 @@ namespace MihuBot.Commands;
 public sealed class DuplicatesCommand : CommandBase
 {
     public override string Command => "duplicates";
-    public override string[] Aliases => ["forcetriage"];
+    public override string[] Aliases => ["forcetriage", "testduplicates"];
 
     private readonly FileBackedHashSet _processedIssuesForDuplicateDetection = new("ProcessedIssuessForDuplicateDetection.txt");
     private readonly ConcurrentDictionary<string, (IssueInfo Issue, string DuplicatesSummary)> _duplicatesToPost = [];
@@ -28,13 +28,14 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
     private readonly DiscordSocketClient _discord;
+    private readonly GithubGraphQLClient _graphQL;
     private readonly SemaphoreSlim _sempahore = new(2, 2);
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
     private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.94d);
 
-    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search)
+    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search, GithubGraphQLClient graphQL)
     {
         _db = db;
         _triageService = triageService;
@@ -45,6 +46,7 @@ public sealed class DuplicatesCommand : CommandBase
         _github = github;
         _discord = discord;
         _search = search;
+        _graphQL = graphQL;
     }
 
     public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
@@ -67,7 +69,30 @@ public sealed class DuplicatesCommand : CommandBase
             return;
         }
 
-        if (ctx.Arguments.Length != 1 || !GitHubHelper.TryParseIssueOrPRNumber(ctx.Arguments[0], out string repoName, out int issueNumber))
+        string repoName = null;
+
+        if (ctx.Command == "testduplicates")
+        {
+            int count = 10;
+
+            if (ctx.Arguments.Length > 0)
+            {
+                count = int.Parse(ctx.Arguments[0]);
+            }
+
+            if (ctx.Arguments.Length > 1)
+            {
+                repoName = ctx.Arguments[1];
+            }
+
+            repoName ??= "dotnet/runtime";
+
+            await ctx.ReplyAsync($"Running duplicate detection backtest on last {count} duplicate issues in {repoName}...");
+            await RunDuplicateDetectionBacktestAsync(repoName, count, ctx);
+            return;
+        }
+
+        if (ctx.Arguments.Length != 1 || !GitHubHelper.TryParseIssueOrPRNumber(ctx.Arguments[0], out repoName, out int issueNumber))
         {
             await ctx.ReplyAsync("Invalid issue/PR URL. Use the number or the full link.");
             return;
@@ -184,9 +209,9 @@ public sealed class DuplicatesCommand : CommandBase
         await _sempahore.WaitAsync();
         try
         {
-            (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, CancellationToken.None);
+            var result = await RunMultiPassDuplicateDetectionAsync(issue, CancellationToken.None);
 
-            if (duplicates.Length == 0)
+            if (result.AllDuplicates.Length == 0)
             {
                 _logger.DebugLog($"{nameof(DuplicatesCommand)}: No duplicates found for issue <{issue.HtmlUrl}>");
 
@@ -200,68 +225,36 @@ public sealed class DuplicatesCommand : CommandBase
 
             SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesList);
             MessageComponent components = null;
-            double certaintyThreshold = CertaintyThreshold;
 
-            string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
-            string summary = FormatDuplicatesSummary(issue, duplicates);
+            string reply = FormatDuplicatesSummary(issue, result.AllDuplicates, includeSummary: false);
+            string summary = FormatDuplicatesSummary(issue, result.AllDuplicates);
 
-            if (duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold)))
+            if (result.IssuesToReport.Length > 0)
             {
                 reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
 
-                var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, CancellationToken.None);
-
-                bool secondaryTestIsUseful = secondaryTest.Any(d =>
-                    IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
-                    duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-                    IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
-
-                var issuesToReport = duplicates;
-
-                if (secondaryTestIsUseful)
-                {
-                    issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
-                }
-
-                issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.89 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
-                bool plural = issuesToReport.Length > 1;
-
-                if (issuesToReport.Length == 0)
-                {
-                    throw new UnreachableException("No issues?");
-                }
+                bool plural = result.IssuesToReport.Length > 1;
 
                 string ghComment =
                     $"""
                     I'm a bot. Here {(plural ? "are" : "is a")} possible related and/or duplicate issue{(plural ? "s" : "")} (I may be wrong):
-                    {string.Join('\n', issuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
+                    {string.Join('\n', result.IssuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
                     """;
 
-                bool thirdTestIsUseful = true;
-                if (DoThirdVerificationCheck)
-                {
-                    var thirdTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, CancellationToken.None);
-
-                    thirdTestIsUseful = thirdTest.Any(d =>
-                        IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
-                        duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-                        IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
-                }
-
-                if (SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful && automated && await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)]))
+                if (result.WouldAutoPost && automated && await ShouldAutoPostAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)]))
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
                 else
                 {
-                    if (!secondaryTestIsUseful)
+                    if (!result.SecondaryTestIsUseful)
                     {
                         reply = $"**Note:** Secondary test did not find overlapping useful duplicates.\n\n{reply}";
 
-                        summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, secondaryTest)}";
+                        summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, result.SecondaryTestDuplicates)}";
                     }
 
-                    if (!thirdTestIsUseful)
+                    if (!result.ThirdTestIsUseful)
                     {
                         reply = $"**Note:** Third test did not find overlapping useful duplicates.\n\n{reply}";
                     }
@@ -288,6 +281,70 @@ public sealed class DuplicatesCommand : CommandBase
         {
             _sempahore.Release();
         }
+    }
+
+    private sealed record MultiPassResult(
+        (IssueInfo Issue, double Certainty, string Summary)[] AllDuplicates,
+        (IssueInfo Issue, double Certainty, string Summary)[] SecondaryTestDuplicates,
+        (IssueInfo Issue, double Certainty, string Summary)[] IssuesToReport,
+        bool SecondaryTestIsUseful,
+        bool ThirdTestIsUseful,
+        bool WouldAutoPost);
+
+    private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, CancellationToken cancellationToken)
+    {
+        double certaintyThreshold = CertaintyThreshold;
+
+        // First pass (no reasoning)
+        var duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, cancellationToken);
+
+        if (duplicates.Length == 0 || !duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold)))
+        {
+            return new MultiPassResult(duplicates, [], [], SecondaryTestIsUseful: false, ThirdTestIsUseful: false, WouldAutoPost: false);
+        }
+
+        // Second pass (with reasoning)
+        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
+
+        bool secondaryTestIsUseful = secondaryTest.Any(d =>
+            IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
+            duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
+            IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
+
+        var issuesToReport = duplicates;
+
+        if (secondaryTestIsUseful)
+        {
+            issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
+        }
+
+        issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.89 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
+
+        if (issuesToReport.Length == 0)
+        {
+            return new MultiPassResult(duplicates, secondaryTest, [], secondaryTestIsUseful, ThirdTestIsUseful: false, WouldAutoPost: false);
+        }
+
+        // Third pass (with reasoning, optional)
+        bool thirdTestIsUseful = true;
+        if (DoThirdVerificationCheck)
+        {
+            var thirdTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
+
+            thirdTestIsUseful = thirdTest.Any(d =>
+                IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
+                duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
+                IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
+
+            if (thirdTestIsUseful)
+            {
+                issuesToReport = [.. issuesToReport.Where(d => thirdTest.Any(s => s.Issue.Id == d.Issue.Id))];
+            }
+        }
+
+        bool wouldAutoPost = SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful;
+
+        return new MultiPassResult(duplicates, secondaryTest, issuesToReport, secondaryTestIsUseful, thirdTestIsUseful, wouldAutoPost);
     }
 
     private async Task RunDuplicateDetectionAsync_EmbeddingsOnly(IssueInfo issue, bool automated, MessageContext message)
@@ -507,6 +564,104 @@ public sealed class DuplicatesCommand : CommandBase
     {
         return $"Duplicate issues for [{issue.Repository.FullName}#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}:\n" +
             string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>){(includeSummary ? $"\n  - {r.Summary}" : null)}"));
+    }
+
+    private async Task RunDuplicateDetectionBacktestAsync(string repoName, int count, CommandContext ctx)
+    {
+        try
+        {
+            string[] parts = repoName.Split('/');
+            if (parts.Length != 2)
+            {
+                await ctx.ReplyAsync("Invalid repo name. Use owner/repo format.");
+                return;
+            }
+
+            // Step 1: Use GraphQL to find recently closed issues marked as duplicates
+            var duplicateIssues = await _graphQL.GetIssuesMarkedAsDuplicateAsync(parts[0], parts[1], count, ctx.CancellationToken);
+
+            if (duplicateIssues.Length == 0)
+            {
+                await ctx.ReplyAsync("No issues marked as duplicate found via GraphQL.");
+                return;
+            }
+
+            await ctx.ReplyAsync($"Found {duplicateIssues.Length} issues marked as duplicate. Processing...");
+
+            var results = new List<string>();
+            int detected = 0;
+            int total = 0;
+
+            foreach ((int issueNumber, int canonicalNumber) in duplicateIssues)
+            {
+                try
+                {
+                    IssueInfo issue = await _triageHelper.GetIssueAsync(repoName, issueNumber, ctx.CancellationToken);
+
+                    if (issue is null)
+                    {
+                        results.Add($"⏭️ Skip | #{issueNumber} - Not found in database (canonical: #{canonicalNumber})");
+                        continue;
+                    }
+
+                    total++;
+
+                    var result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
+
+                    bool wouldHavePosted = result.IssuesToReport.Length > 0 && result.SecondaryTestIsUseful && result.ThirdTestIsUseful;
+                    bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == canonicalNumber);
+
+                    string status;
+                    if (matchesActualDuplicate && wouldHavePosted)
+                    {
+                        status = "✅ Correct";
+                        detected++;
+                    }
+                    else if (matchesActualDuplicate)
+                    {
+                        status = "🟡 Found but wouldn't post";
+                    }
+                    else if (wouldHavePosted)
+                    {
+                        status = "⚠️ Would post (different issue)";
+                    }
+                    else
+                    {
+                        status = "❌ Not detected";
+                    }
+
+                    string topResults = result.IssuesToReport.Length > 0
+                        ? string.Join(", ", result.IssuesToReport.Select(d => $"#{d.Issue.Number} ({d.Certainty:F2})"))
+                        : "none";
+
+                    string passInfo = $"2nd={result.SecondaryTestIsUseful}, 3rd={result.ThirdTestIsUseful}";
+
+                    results.Add($"{status} | [#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}\n" +
+                        $"  Canonical: #{canonicalNumber} | Detected: {topResults} | Passes: {passInfo}");
+
+                    _logger.DebugLog($"[Backtest] {status}: #{issue.Number} canonical=#{canonicalNumber} detected={topResults} {passInfo}");
+                }
+                catch (Exception ex)
+                {
+                    results.Add($"💥 Error | #{issueNumber}: {ex.Message}");
+                }
+            }
+
+            string summary =
+                $"""
+                **Duplicate Detection Backtest Results** ({repoName})
+                Tested: {total} | Correctly detected: {detected} | Rate: {(total > 0 ? (double)detected / total * 100 : 0):F0}%
+
+                {string.Join("\n\n", results)}
+                """;
+
+            await ctx.Channel.SendTextFileAsync($"Backtest-{Snowflake.NextString()}.txt", summary, $"Backtest complete: {detected}/{total} correctly detected.", components: null);
+        }
+        catch (Exception ex)
+        {
+            await ctx.ReplyAsync($"Backtest failed: {ex.Message}");
+            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Backtest error", ex);
+        }
     }
 
     private async Task PostGhCommentSummary(IssueInfo issue, string comment)

@@ -42,6 +42,14 @@ public static class HostApplicationBuilderExtensions
             };
         });
 
+        services.AddSingleton(sp =>
+        {
+            GitHubClientOptions options = sp.GetRequiredService<IOptions<GitHubClientOptions>>().Value;
+            ILogger<GithubGraphQLClient> logger = sp.GetRequiredService<ILogger<GithubGraphQLClient>>();
+
+            return new GithubGraphQLClient(options.ProductName, [options.Token], logger);
+        });
+
         // Register data ingestion services
         services.AddSingleton<GitHubDataIngestionService>();
         services.AddHostedService(sp => sp.GetRequiredService<GitHubDataIngestionService>());
