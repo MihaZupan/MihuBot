@@ -1,4 +1,3 @@
-﻿using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Markdig.Syntax;
@@ -94,41 +93,10 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
     private sealed class Context
     {
-        private const string SystemPromptTemplate =
-            """
-            You are an assistant helping the .NET team triage new GitHub issues in the {{REPO_URL}} repository.
-            You are provided with information about a new issue and you need to find related issues or comments among the existing GitHub data.
-
-            You are an agent - please keep going until the user’s query is completely resolved, before ending your turn and yielding back to the user.
-            Assume that the user will NOT be able to reply and ask futher, more refined questions. You MUST iterate and keep going until you have all the information.
-            Only terminate your turn when you are sure that the problem is solved.
-            Your thinking should be thorough and so it's fine if it's very long. You can think step by step before and after each action you decide to take.
-
-            Use tools to find issues and comments that may be relevant. It is up to you to determine whether the results are relevant.
-            Be thorough with your searches and always consider the full discussion on related issues. You should perform as many searches as needed{{MAX_SEARCH_COUNT}}.
-            Tools use semantic searching to find issues and comments that may be relevant to the issue you are triaging. You can search for multiple terms at the same time.
-
-            When evaulating an issue, always use tools to ask for the full history of comments on that issue.
-            Even if you've seen previous comments from an issue, you haven't seen all of them unless you've called the full history for that specific issue.
-            Use your tools to gather the relevant information from comments: do NOT guess or make up conclusions for a given issue.
-            Pay close attention to comments when summarizing the issue as questions may have already been answered.
-
-            {{TASK_PROMPT}}
-
-            Reply in GitHub markdown format, not wrapped in any HTML blocks.
-            """;
-
-        private const string TriagePrompt =
-            """
-            Reply with a list of related issues and include a short summary of the discussions/conclusions for each one.
-            Assume that the user is familiar with the repository and its processes, but not necessarily with the specific issue or discussion.
-            When referencing an older issue, reference when it was opened. E.g. "Issue #123 (July 2019) - Title".
-            """;
-
         private const string SearchQueryExtractionPrompt =
             """
-            You are an assistant helping find potential duplicate GitHub issues.
-            Given a new issue, extract a set of semantic search queries that would help find existing issues that describe the same problem.
+            You are an assistant helping find related GitHub issues.
+            Given a new issue, extract a set of semantic search queries that would help find existing issues that may be related or describe the same problem.
 
             Focus on:
             - The core problem or error being described
@@ -159,6 +127,21 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             Include a short summary (single paragraph, GitHub markdown format) explaining why you believe the candidate is or is not a duplicate.
             """;
 
+        private const string TriageSynthesisPrompt =
+            """
+            You are an assistant helping the .NET team triage new GitHub issues.
+            You are given information about a new issue and a set of potentially related existing issues found via semantic search.
+
+            Your task is to review the related issues and produce a summary of relevant findings.
+            Reply with a list of related issues and include a short summary of the discussions/conclusions for each one.
+            Assume that the user is familiar with the repository and its processes, but not necessarily with the specific issue or discussion.
+            When referencing an older issue, reference when it was opened. E.g. "Issue #123 (July 2019) - Title".
+
+            If none of the candidate issues are relevant, say so briefly.
+
+            Reply in GitHub markdown format, not wrapped in any HTML blocks.
+            """;
+
         public IssueTriageHelper Parent { get; set; }
         public Logger Logger { get; set; }
         public IDbContextFactory<GitHubDbContext> GitHubDb { get; set; }
@@ -167,19 +150,13 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public IssueInfo Issue { get; set; }
         public ModelInfo Model { get; set; }
         public string GitHubUserLogin { get; set; }
-        public bool UsingLargeContextWindow => Model.ContextSize >= 400_000;
         public Action<string> OnToolLog { get; set; } = _ => { };
         public bool SkipCommentsOnCurrentIssue { get; set; }
 
-        private Exception _searchToolException;
-
-        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 20);
-        private int MaxResultsPerTermLarge => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTermLarge)}", 40);
-        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
-        private int SearchMaxTotalResultsLarge => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResultsLarge)}", 60);
+        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 25);
+        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 50);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
-        private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 20);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -187,32 +164,67 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"{Issue.Repository.FullName}#{Issue.Number}: {Issue.Title} by {Issue.User.Login}");
 
-            ChatOptions options = GetTriageOptions();
+            // Step 1: Extract search queries from the new issue
+            string[] searchQueries = await ExtractSearchQueriesAsync(cancellationToken);
 
-            string systemPrompt = GetSystemPrompt(TriagePrompt);
+            OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
 
-            List<ChatMessage> messages = [new ChatMessage(ChatRole.System, systemPrompt)];
+            if (searchQueries.Length == 0)
+            {
+                string noResults = "No search queries could be extracted from the issue.";
+                yield return ConvertMarkdownToHtml(noResults, partial: false);
+                yield break;
+            }
 
-            messages.Add(new ChatMessage(ChatRole.User,
+            // Step 2: Semantic search for related issues
+            IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
+
+            OnToolLog($"Found {candidates.Length} candidate issues");
+
+            if (candidates.Length == 0)
+            {
+                string noResults = "No related issues found.";
+                yield return ConvertMarkdownToHtml(noResults, partial: false);
+                yield break;
+            }
+
+            // Step 3: Synthesize a triage summary from the results
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken)).AsJson();
+
+            IssueInfoForPrompt[] candidateInfos = await candidates
+                .ToAsyncEnumerable()
+                .Select(async (c, ct) => await IssueInfoForPrompt.CreateAsync(c.Results[0].Issue, GitHubDb, ct, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000))
+                .ToArrayAsync(cancellationToken);
+
+            string candidatesJson = JsonSerializer.Serialize(candidateInfos, IssueInfoForPrompt.JsonOptions);
+
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+
+            string prompt =
                 $"""
-                Please help me triage the following issue:
+                {TriageSynthesisPrompt}
 
+                NEW ISSUE:
                 ```json
-                {(await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken)).AsJson()}
+                {issueJson}
                 ```
-                """));
 
-            using FunctionInvokingChatClient toolClient = GetToolClient();
+                RELATED ISSUES FOUND VIA SEARCH:
+                ```json
+                {candidatesJson}
+                ```
+                """;
+
+            var chatOptions = new ChatOptions();
+            if (Model.SupportsTemperature)
+            {
+                chatOptions.Temperature = Search.DefaultTemperature;
+            }
 
             string markdownResponse = "";
 
-            await foreach (ChatResponseUpdate update in toolClient.GetStreamingResponseAsync(messages, options, cancellationToken))
+            await foreach (ChatResponseUpdate update in chatClient.GetStreamingResponseAsync(prompt, chatOptions, cancellationToken))
             {
-                if (_searchToolException is not null)
-                {
-                    break;
-                }
-
                 string updateText = update.Text;
 
                 if (string.IsNullOrEmpty(updateText))
@@ -223,11 +235,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 markdownResponse += updateText;
 
                 yield return ConvertMarkdownToHtml(markdownResponse, partial: true);
-            }
-
-            if (_searchToolException is not null)
-            {
-                throw new Exception($"Search tool failed to return results: {_searchToolException}");
             }
 
             Logger.DebugLog($"Triage: Finished triaging issue #{Issue.Number} with model {Model.Name}:\n{markdownResponse}");
@@ -254,38 +261,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             // Step 2: Semantic search for candidate issues
-            var filters = new IssueSearchFilters
-            {
-                IncludeOpen = true,
-                IncludeClosed = true,
-                IncludeIssues = true,
-                IncludePullRequests = true,
-                Repository = Issue.Repository.FullName,
-                MinScore = SearchMinCertainty,
-            };
-
-            var bulkFilters = new IssueSearchBulkFilters
-            {
-                MaxResultsPerTerm = MaxResultsPerTerm,
-                ExcludeIssues = SkipCommentsOnCurrentIssue ? [Issue] : null,
-                PostProcessIssues = true,
-                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} on issue titled '{Issue.Title}'"
-            };
-
-            var options = new IssueSearchResponseOptions
-            {
-                IncludeIssueComments = SearchIncludeAllIssueComments,
-                MaxResults = SearchMaxTotalResults,
-                PreferSpeed = false,
-            };
-
-            GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync(searchQueries, bulkFilters, filters, options, cancellationToken);
-
-            var candidates = searchResults.Results
-                .Where(r => r.Score >= 0.3 && r.Results[0].Issue.Id != Issue.Id)
-                .OrderByDescending(r => r.Score)
-                .Take(15)
-                .ToArray();
+            IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
 
             OnToolLog($"Found {candidates.Length} candidate issues to classify");
 
@@ -313,6 +289,42 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 .GroupBy(r => r.Issue.Id)
                 .Select(g => g.MaxBy(i => i.Certainty))
                 .OrderByDescending(i => i.Certainty)
+                .ToArray();
+        }
+
+        private async Task<IssueResultGroup[]> SearchForRelatedIssuesAsync(string[] searchQueries, CancellationToken cancellationToken, int maxCandidates = 15)
+        {
+            var filters = new IssueSearchFilters
+            {
+                IncludeOpen = true,
+                IncludeClosed = true,
+                IncludeIssues = true,
+                IncludePullRequests = true,
+                Repository = Issue.Repository.FullName,
+                MinScore = SearchMinCertainty,
+            };
+
+            var bulkFilters = new IssueSearchBulkFilters
+            {
+                MaxResultsPerTerm = MaxResultsPerTerm,
+                ExcludeIssues = SkipCommentsOnCurrentIssue ? [Issue] : null,
+                PostProcessIssues = true,
+                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} on issue titled '{Issue.Title}'"
+            };
+
+            var options = new IssueSearchResponseOptions
+            {
+                IncludeIssueComments = SearchIncludeAllIssueComments,
+                MaxResults = SearchMaxTotalResults,
+                PreferSpeed = false,
+            };
+
+            GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync(searchQueries, bulkFilters, filters, options, cancellationToken);
+
+            return searchResults.Results
+                .Where(r => r.Score >= 0.3 && r.Results[0].Issue.Id != Issue.Id)
+                .OrderByDescending(r => r.Score)
+                .Take(maxCandidates)
                 .ToArray();
         }
 
@@ -372,48 +384,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return response.Result ?? new CandidateClassification(0, string.Empty);
         }
 
-        private string GetSystemPrompt(string taskPrompt)
-        {
-            return SystemPromptTemplate
-                .Replace("{{REPO_URL}}", Issue.Repository.HtmlUrl, StringComparison.Ordinal)
-                .Replace("{{MAX_SEARCH_COUNT}}", UsingLargeContextWindow ? "" : " (max of 5)", StringComparison.Ordinal)
-                .Replace("{{TASK_PROMPT}}", taskPrompt, StringComparison.Ordinal);
-        }
-
-        private ChatOptions GetTriageOptions()
-        {
-            List<AITool> tools =
-            [
-                AIFunctionFactory.Create(SearchCurrentRepoAsync,
-                    $"search_{Issue.RepoOwner()}_{Issue.RepoName()}",
-                    $"Perform a set of semantic searches over issues and comments in the {Issue.Repository.FullName} GitHub repository. Every term represents an independent search."),
-            ];
-
-            var options = new ChatOptions
-            {
-                Tools = tools,
-                ToolMode = ChatToolMode.RequireAny
-            };
-
-            if (Model.SupportsTemperature)
-            {
-                options.Temperature = Search.DefaultTemperature;
-            }
-
-            return options;
-        }
-
-        private FunctionInvokingChatClient GetToolClient()
-        {
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
-
-            return new FunctionInvokingChatClient(chatClient)
-            {
-                AllowConcurrentInvocation = true,
-                MaximumIterationsPerRequest = 20,
-            };
-        }
-
         private string ConvertMarkdownToHtml(string markdown, bool partial)
         {
             markdown = MarkdownHelper.ReplaceGitHubUserMentionsWithLinks(markdown);
@@ -436,42 +406,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             return document.ToHtmlAdvanced();
         }
 
-        private async Task<IssueInfoForPrompt[]> SearchCurrentRepoAsync(
-            [Description("The set of terms to search for.")] string[] searchTerms,
-            [Description("Whether to include open issues/PRs.")] bool includeOpen = true,
-            [Description("Whether to include closed/merged issues/PRs. It's usually useful to include.")] bool includeClosed = true,
-            [Description("Whether to include issues.")] bool includeIssues = true,
-            [Description("Whether to include pull requests.")] bool includePullRequests = true,
-            CancellationToken cancellationToken = default)
-        {
-            var filters = new IssueSearchFilters
-            {
-                IncludeOpen = includeOpen,
-                IncludeClosed = includeClosed,
-                IncludeIssues = includeIssues,
-                IncludePullRequests = includePullRequests,
-                Repository = Issue.Repository.FullName,
-            };
-
-            try
-            {
-                return await SearchDotnetGitHubAsync(searchTerms, $"on issue titled '{Issue.Title}'", filters, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _searchToolException = ex;
-                throw;
-            }
-        }
-
         public async Task<IssueInfoForPrompt[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
 
             Stopwatch stopwatch = Stopwatch.StartNew();
 
-            int maxResultsPerTerm = UsingLargeContextWindow ? MaxResultsPerTermLarge : MaxResultsPerTerm;
-            int maxTotalResults = Math.Min(searchTerms.Length * maxResultsPerTerm, UsingLargeContextWindow ? SearchMaxTotalResultsLarge : SearchMaxTotalResults);
+            int maxResultsPerTerm = MaxResultsPerTerm;
+            int maxTotalResults = Math.Min(searchTerms.Length * maxResultsPerTerm, SearchMaxTotalResults);
 
             var bulkFilters = new IssueSearchBulkFilters
             {
