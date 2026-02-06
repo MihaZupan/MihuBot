@@ -7,9 +7,9 @@ namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 public static class GitHubGraphQL
 {
-    public static async Task<(int IssueNumber, int CanonicalNumber)[]> GetIssuesMarkedAsDuplicateAsync(this GithubGraphQLClient client, string owner, string name, int count, CancellationToken cancellationToken = default)
+    public static async Task<(string ClosedIssue, string DuplicatedAgainst)[]> GetIssuesMarkedAsDuplicateAsync(this GithubGraphQLClient client, string owner, string name, int count, CancellationToken cancellationToken = default)
     {
-        var results = new List<(int IssueNumber, int CanonicalNumber)>();
+        var results = new List<(string ClosedIssue, string DuplicatedAgainst)>();
         string? cursor = null;
 
         while (results.Count < count)
@@ -20,9 +20,11 @@ public static class GitHubGraphQL
 
             foreach (var node in page.Nodes)
             {
-                if (node.TimelineItems.Nodes.Length > 0 && node.TimelineItems.Nodes[0].Canonical?.Number is > 0)
+                if (node.TimelineItems.Nodes is [var duplicateEvent, ..] &&
+                    duplicateEvent.Duplicate is not null &&
+                    duplicateEvent.Canonical?.Url == node.Url)
                 {
-                    results.Add((node.Number, node.TimelineItems.Nodes[0].Canonical!.Number));
+                    results.Add((duplicateEvent.Duplicate.Url, node.Url));
 
                     if (results.Count >= count)
                     {
@@ -535,15 +537,19 @@ public static class GitHubGraphQL
             $$"""
             query IssuesMarkedAsDuplicate($owner: String!, $name: String!, $count: Int!, $cursor: String) {
               repository(owner: $owner, name: $name) {
-                issues(first: $count, after: $cursor, states: CLOSED, orderBy: { field: UPDATED_AT, direction: DESC }) {
+                issues(first: $count, after: $cursor, orderBy: { field: CREATED_AT, direction: DESC }) {
                   nodes {
-                    number
+                    url
                     timelineItems(itemTypes: [MARKED_AS_DUPLICATE_EVENT], first: 1) {
                       nodes {
                         ... on MarkedAsDuplicateEvent {
                           canonical {
-                            ... on Issue { number }
-                            ... on PullRequest { number }
+                            ... on Issue { url }
+                            ... on PullRequest { url }
+                          }
+                          duplicate {
+                            ... on Issue { url }
+                            ... on PullRequest { url }
                           }
                         }
                       }
@@ -647,10 +653,10 @@ public static class GitHubGraphQL
 
     private sealed record DuplicateIssuesResponseModel(DuplicateIssuesRepositoryModel Repository);
     private sealed record DuplicateIssuesRepositoryModel(ConnectionModel<DuplicateIssueNode> Issues);
-    public sealed record DuplicateIssueNode(int Number, DuplicateTimelineItems TimelineItems);
+    public sealed record DuplicateIssueNode(string Url, DuplicateTimelineItems TimelineItems);
     public sealed record DuplicateTimelineItems(MarkedAsDuplicateEventModel[] Nodes);
-    public sealed record MarkedAsDuplicateEventModel(DuplicateCanonicalModel? Canonical);
-    public sealed record DuplicateCanonicalModel(int Number);
+    public sealed record MarkedAsDuplicateEventModel(DuplicateCanonicalModel? Canonical, DuplicateCanonicalModel? Duplicate);
+    public sealed record DuplicateCanonicalModel(string Url);
 
     private sealed record CommentsNodeWithCostModel(RateLimitModel RateLimit, CommentsNode Node);
 

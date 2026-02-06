@@ -604,15 +604,18 @@ public sealed class DuplicatesCommand : CommandBase
             int detected = 0;
             int total = 0;
 
-            foreach ((int issueNumber, int canonicalNumber) in duplicateIssues)
+            foreach ((string issueUrl, string duplicatedAgainstUrl) in duplicateIssues)
             {
+                GitHubHelper.TryParseIssueOrPRNumber(issueUrl, out _, out int issueNumber);
+                GitHubHelper.TryParseIssueOrPRNumber(duplicatedAgainstUrl, out _, out int duplicateNumber);
+
                 try
                 {
                     IssueInfo issue = await _triageHelper.GetIssueAsync(repoName, issueNumber, ctx.CancellationToken);
 
                     if (issue is null)
                     {
-                        results.Add($"⏭️ Skip | #{issueNumber} - Not found in database (canonical: #{canonicalNumber})");
+                        results.Add($"⏭️ Skip | #{issueNumber} - Not found in database (duplicate: #{duplicateNumber})");
                         continue;
                     }
 
@@ -620,8 +623,8 @@ public sealed class DuplicatesCommand : CommandBase
 
                     var result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
 
-                    bool wouldHavePosted = result.IssuesToReport.Length > 0 && result.SecondaryTestIsUseful && result.ThirdTestIsUseful;
-                    bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == canonicalNumber);
+                    bool wouldHavePosted = result.IssuesToReport.Length > 0 && result.SecondaryTestIsUseful && (!DoThirdVerificationCheck || result.ThirdTestIsUseful);
+                    bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == duplicateNumber);
 
                     string status;
                     if (matchesActualDuplicate && wouldHavePosted)
@@ -649,9 +652,9 @@ public sealed class DuplicatesCommand : CommandBase
                     string passInfo = $"2nd={result.SecondaryTestIsUseful}, 3rd={result.ThirdTestIsUseful}";
 
                     results.Add($"{status} | [#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}\n" +
-                        $"  Canonical: #{canonicalNumber} | Detected: {topResults} | Passes: {passInfo}");
+                        $"  Duplicate: #{duplicateNumber} | Detected: {topResults} | Passes: {passInfo}");
 
-                    _logger.DebugLog($"[Backtest] {status}: #{issue.Number} canonical=#{canonicalNumber} detected={topResults} {passInfo}");
+                    _logger.DebugLog($"[Backtest] {status}: #{issue.Number} canonical=#{duplicateNumber} detected={topResults} {passInfo}");
                 }
                 catch (Exception ex)
                 {
