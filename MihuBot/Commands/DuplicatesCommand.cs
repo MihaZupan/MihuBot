@@ -262,10 +262,11 @@ public sealed class DuplicatesCommand : CommandBase
 
                         summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, result.SecondaryTestDuplicates)}";
                     }
-
-                    if (!result.ThirdTestIsUseful)
+                    else if (DoThirdVerificationCheck && !result.ThirdTestIsUseful)
                     {
                         reply = $"**Note:** Third test did not find overlapping useful duplicates.\n\n{reply}";
+
+                        summary = $"{summary}\n\nThird:\n{FormatDuplicatesSummary(issue, result.ThirdTestDuplicates)}";
                     }
 
                     string id = $"{Command}-{Snowflake.Next()}";
@@ -295,6 +296,7 @@ public sealed class DuplicatesCommand : CommandBase
     private sealed record MultiPassResult(
         (IssueInfo Issue, double Certainty, string Summary)[] AllDuplicates,
         (IssueInfo Issue, double Certainty, string Summary)[] SecondaryTestDuplicates,
+        (IssueInfo Issue, double Certainty, string Summary)[] ThirdTestDuplicates,
         (IssueInfo Issue, double Certainty, string Summary)[] IssuesToReport,
         bool SecondaryTestIsUseful,
         bool ThirdTestIsUseful,
@@ -309,7 +311,7 @@ public sealed class DuplicatesCommand : CommandBase
 
         if (duplicates.Length == 0 || !duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold)))
         {
-            return new MultiPassResult(duplicates, [], [], SecondaryTestIsUseful: false, ThirdTestIsUseful: false, WouldAutoPost: false);
+            return new MultiPassResult(duplicates, [], [], [], SecondaryTestIsUseful: false, ThirdTestIsUseful: false, WouldAutoPost: false);
         }
 
         // Second pass (with reasoning)
@@ -331,29 +333,30 @@ public sealed class DuplicatesCommand : CommandBase
 
         if (issuesToReport.Length == 0)
         {
-            return new MultiPassResult(duplicates, secondaryTest, [], secondaryTestIsUseful, ThirdTestIsUseful: false, WouldAutoPost: false);
+            return new MultiPassResult(duplicates, secondaryTest, [], [], secondaryTestIsUseful, ThirdTestIsUseful: false, WouldAutoPost: false);
         }
 
         // Third pass (with reasoning, optional)
         bool thirdTestIsUseful = true;
+        (IssueInfo Issue, double Certainty, string Summary)[] thirdTestDuplicates = [];
         if (DoThirdVerificationCheck)
         {
-            var thirdTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
+            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
 
-            thirdTestIsUseful = thirdTest.Any(d =>
+            thirdTestIsUseful = thirdTestDuplicates.Any(d =>
                 IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
                 duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
                 IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
 
             if (thirdTestIsUseful)
             {
-                issuesToReport = [.. issuesToReport.Where(d => thirdTest.Any(s => s.Issue.Id == d.Issue.Id))];
+                issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(s => s.Issue.Id == d.Issue.Id))];
             }
         }
 
         bool wouldAutoPost = SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful;
 
-        return new MultiPassResult(duplicates, secondaryTest, issuesToReport, secondaryTestIsUseful, thirdTestIsUseful, wouldAutoPost);
+        return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, secondaryTestIsUseful, thirdTestIsUseful, wouldAutoPost);
     }
 
     private async Task RunDuplicateDetectionAsync_EmbeddingsOnly(IssueInfo issue, bool automated, MessageContext message)
