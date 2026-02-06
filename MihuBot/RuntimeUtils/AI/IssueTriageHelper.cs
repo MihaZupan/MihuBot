@@ -11,7 +11,7 @@ namespace MihuBot.RuntimeUtils.AI;
 public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
 {
     public ModelInfo[] AvailableModels => OpenAIService.AllModels;
-    public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == "gpt-5-mini");
+    public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == OpenAIService.DefaultModel);
 
     private Context CreateContext(ModelInfo model, string gitHubUserLogin) => new()
     {
@@ -154,7 +154,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public bool SkipCommentsOnCurrentIssue { get; set; }
 
         private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 25);
-        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 50);
+        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
 
@@ -215,15 +215,9 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 ```
                 """;
 
-            var chatOptions = new ChatOptions();
-            if (Model.SupportsTemperature)
-            {
-                chatOptions.Temperature = Search.DefaultTemperature;
-            }
-
             string markdownResponse = "";
 
-            await foreach (ChatResponseUpdate update in chatClient.GetStreamingResponseAsync(prompt, chatOptions, cancellationToken))
+            await foreach (ChatResponseUpdate update in chatClient.GetStreamingResponseAsync(prompt, cancellationToken: cancellationToken))
             {
                 string updateText = update.Text;
 
@@ -341,13 +335,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 {Issue.Body}
                 """;
 
-            var chatOptions = new ChatOptions();
-            if (Model.SupportsTemperature)
-            {
-                chatOptions.Temperature = Search.DefaultTemperature;
-            }
-
-            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, chatOptions, useJsonSchemaResponseFormat: true, cancellationToken);
+            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
             return response.Result?.Queries ?? [];
         }
@@ -373,13 +361,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 ```
                 """;
 
-            var chatOptions = new ChatOptions();
-            if (Model.SupportsTemperature)
-            {
-                chatOptions.Temperature = Search.DefaultTemperature;
-            }
-
-            ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, chatOptions, useJsonSchemaResponseFormat: true, cancellationToken);
+            ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
             return response.Result ?? new CandidateClassification(0, string.Empty);
         }
