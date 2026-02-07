@@ -236,9 +236,9 @@ public sealed class DuplicatesCommand : CommandBase
 
                 bool plural = result.IssuesToReport.Length > 1;
 
-                bool autoPost = result.WouldAutoPost && automated && await ShouldAutoPostAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)]);
+                bool autoPost = result.WouldAutoPost && automated;
 
-                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)], CancellationToken.None)
+                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)], message?.CancellationToken ?? default)
                     ? "duplicate"
                     : "related and/or duplicate";
 
@@ -313,7 +313,7 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         // Second pass (with reasoning, reusing candidates from first pass)
-        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(d => d.Issue)]);
+        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
 
         issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold)))];
 
@@ -326,12 +326,15 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] thirdTestDuplicates = [];
         if (DoThirdVerificationCheck)
         {
-            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(d => d.Issue)]);
+            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
 
             issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold)))];
         }
 
-        bool wouldAutoPost = SkipManualVerificationBeforePosting && issuesToReport.Length > 0;
+        bool wouldAutoPost =
+            SkipManualVerificationBeforePosting &&
+            issuesToReport.Length > 0 &&
+            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)]);
 
         return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
     }
