@@ -44,11 +44,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         return context.TriageAsync(cancellationToken);
     }
 
-    public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(TriageOptions options, CancellationToken cancellationToken)
+    public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(TriageOptions options, CancellationToken cancellationToken, IssueInfo[] candidateIssues = null)
     {
         Context context = CreateContext(options);
 
-        return await context.DetectDuplicateIssuesAsync(cancellationToken);
+        return await context.DetectDuplicateIssuesAsync(cancellationToken, candidateIssues);
     }
 
     public async Task<IssueInfoForPrompt[]> SearchDotnetGitHubAsync(ModelInfo model, string requesterLogin, string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
@@ -253,36 +253,40 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private sealed record CandidateClassification(double? Certainty, string Summary);
 
-        public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken)
+        public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken, IssueInfo[] issuesToClassify = null)
         {
             Logger.DebugLog($"Starting duplicate detection for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
 
-            // Step 1: Extract search queries from the new issue
-            string[] searchQueries = await ExtractSearchQueriesAsync(cancellationToken);
-
-            OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
-
-            if (searchQueries.Length == 0)
+            if (issuesToClassify is null || issuesToClassify.Length == 0)
             {
-                return [];
-            }
+                // Step 1: Extract search queries from the new issue
+                string[] searchQueries = await ExtractSearchQueriesAsync(cancellationToken);
 
-            // Step 2: Semantic search for candidate issues
-            IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
+                OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
 
-            OnToolLog($"Found {candidates.Length} candidate issues to classify");
+                if (searchQueries.Length == 0)
+                {
+                    return [];
+                }
 
-            if (candidates.Length == 0)
-            {
-                return [];
+                // Step 2: Semantic search for candidate issues
+                IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
+
+                OnToolLog($"Found {candidates.Length} candidate issues to classify");
+
+                if (candidates.Length == 0)
+                {
+                    return [];
+                }
+
+                issuesToClassify = [.. candidates.Select(c => c.Results[0].Issue)];
             }
 
             // Step 3: Classify each candidate independently
             string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, contextLimitForIssueBody: 4000)).AsJson();
 
-            var classificationTasks = candidates.Select(async candidate =>
+            var classificationTasks = issuesToClassify.Select(async candidateIssue =>
             {
-                var candidateIssue = candidate.Results[0].Issue;
                 var classification = await ClassifyCandidateAsync(issueJson, candidateIssue, cancellationToken);
                 return (Issue: candidateIssue, Certainty: classification.Certainty ?? 0, classification.Summary);
             });

@@ -35,7 +35,7 @@ public sealed class DuplicatesCommand : CommandBase
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
-    private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.94d);
+    private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.89d);
 
     public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search, GithubGraphQLClient graphQL, OpenAIService openAI)
     {
@@ -260,13 +260,13 @@ public sealed class DuplicatesCommand : CommandBase
                 }
                 else
                 {
-                    if (!result.SecondaryTestIsUseful)
+                    if (result.SecondaryTestDuplicates.Length == 0)
                     {
                         reply = $"**Note:** Secondary test did not find overlapping useful duplicates.\n\n{reply}";
 
                         summary = $"{summary}\n\nSecondary:\n{FormatDuplicatesSummary(issue, result.SecondaryTestDuplicates)}";
                     }
-                    else if (DoThirdVerificationCheck && !result.ThirdTestIsUseful)
+                    else if (DoThirdVerificationCheck && result.ThirdTestDuplicates.Length == 0)
                     {
                         reply = $"**Note:** Third test did not find overlapping useful duplicates.\n\n{reply}";
 
@@ -302,8 +302,6 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] SecondaryTestDuplicates,
         (IssueInfo Issue, double Certainty, string Summary)[] ThirdTestDuplicates,
         (IssueInfo Issue, double Certainty, string Summary)[] IssuesToReport,
-        bool SecondaryTestIsUseful,
-        bool ThirdTestIsUseful,
         bool WouldAutoPost);
 
     private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, CancellationToken cancellationToken)
@@ -311,56 +309,37 @@ public sealed class DuplicatesCommand : CommandBase
         double certaintyThreshold = CertaintyThreshold;
 
         // First pass (no reasoning)
-        var duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, cancellationToken);
+        (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, cancellationToken);
 
-        if (duplicates.Length == 0 || !duplicates.Any(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold)))
-        {
-            return new MultiPassResult(duplicates, [], [], [], SecondaryTestIsUseful: false, ThirdTestIsUseful: false, WouldAutoPost: false);
-        }
-
-        // Second pass (with reasoning)
-        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
-
-        bool secondaryTestIsUseful = secondaryTest.Any(d =>
-            IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
-            duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-            IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
-
-        var issuesToReport = duplicates;
-
-        if (secondaryTestIsUseful)
-        {
-            issuesToReport = [.. duplicates.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id))];
-        }
-
-        issuesToReport = [.. issuesToReport.Where(d => d.Certainty >= 0.89 && !AreIssuesAlreadyLinked(issue, d.Issue)).Take(5)];
+        (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold))];
 
         if (issuesToReport.Length == 0)
         {
-            return new MultiPassResult(duplicates, secondaryTest, [], [], secondaryTestIsUseful, ThirdTestIsUseful: false, WouldAutoPost: false);
+            return new MultiPassResult(duplicates, [], [], [], WouldAutoPost: false);
         }
 
-        // Third pass (with reasoning, optional)
-        bool thirdTestIsUseful = true;
+        // Second pass (with reasoning, reusing candidates from first pass)
+        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(d => d.Issue)]);
+
+        issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold)))];
+
+        if (issuesToReport.Length == 0)
+        {
+            return new MultiPassResult(duplicates, secondaryTest, [], [], WouldAutoPost: false);
+        }
+
+        // Third pass (with reasoning, optional, reusing candidates from previous passes)
         (IssueInfo Issue, double Certainty, string Summary)[] thirdTestDuplicates = [];
         if (DoThirdVerificationCheck)
         {
-            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken);
+            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(d => d.Issue)]);
 
-            thirdTestIsUseful = thirdTestDuplicates.Any(d =>
-                IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold) &&
-                duplicates.FirstOrDefault(i => i.Issue.Id == d.Issue.Id) is { Issue: not null } other &&
-                IsLikelyUsefulToReport(issue, other.Issue, other.Certainty, certaintyThreshold));
-
-            if (thirdTestIsUseful)
-            {
-                issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(s => s.Issue.Id == d.Issue.Id))];
-            }
+            issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold)))];
         }
 
-        bool wouldAutoPost = SkipManualVerificationBeforePosting && secondaryTestIsUseful && thirdTestIsUseful;
+        bool wouldAutoPost = SkipManualVerificationBeforePosting && issuesToReport.Length > 0;
 
-        return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, secondaryTestIsUseful, thirdTestIsUseful, wouldAutoPost);
+        return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
     }
 
     private async Task RunDuplicateDetectionAsync_EmbeddingsOnly(IssueInfo issue, bool automated, MessageContext message)
@@ -554,7 +533,7 @@ public sealed class DuplicatesCommand : CommandBase
         return true;
     }
 
-    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, CancellationToken cancellationToken)
+    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, CancellationToken cancellationToken, IssueInfo[] candidateIssues = null)
     {
         ModelInfo model = _triageHelper.DefaultModel;
 
@@ -570,7 +549,7 @@ public sealed class DuplicatesCommand : CommandBase
         {
             try
             {
-                return await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken);
+                return await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken, candidateIssues);
             }
             catch (JsonException) when (++attemptCount < 3) { }
         }
@@ -654,7 +633,7 @@ public sealed class DuplicatesCommand : CommandBase
             int successCount = 0;
             int total = 0;
 
-            foreach ((int issueNumber, int? expectedDuplicate) in issues)
+            foreach ((int issueNumber, int expectedDuplicate) in issues)
             {
                 try
                 {
@@ -662,64 +641,43 @@ public sealed class DuplicatesCommand : CommandBase
 
                     if (issue is null)
                     {
-                        string skipExtra = expectedDuplicate.HasValue ? $" (duplicate: #{expectedDuplicate.Value})" : "";
+                        string skipExtra = $" (duplicate: #{expectedDuplicate})";
                         results.Add($"⏭️ Skip | #{issueNumber} - Not found in database{skipExtra}");
                         continue;
                     }
 
                     total++;
 
-                    var result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
-
-                    bool wouldHavePosted = result.IssuesToReport.Length > 0 && result.SecondaryTestIsUseful && (!DoThirdVerificationCheck || result.ThirdTestIsUseful);
+                    MultiPassResult result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
 
                     string status;
-                    if (expectedDuplicate.HasValue)
-                    {
-                        bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == expectedDuplicate.Value);
+                    bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == expectedDuplicate);
 
-                        if (matchesActualDuplicate && wouldHavePosted)
-                        {
-                            status = "✅ Correct";
-                            successCount++;
-                        }
-                        else if (matchesActualDuplicate)
-                        {
-                            status = "🟡 Found but wouldn't post";
-                        }
-                        else if (wouldHavePosted)
-                        {
-                            status = "⚠️ Would post (different issue)";
-                        }
-                        else
-                        {
-                            status = "❌ Not detected";
-                        }
+                    if (matchesActualDuplicate && result.WouldAutoPost)
+                    {
+                        status = "✅ Correct";
+                        successCount++;
+                    }
+                    else if (matchesActualDuplicate)
+                    {
+                        status = "🟡 Found but wouldn't post";
+                    }
+                    else if (result.WouldAutoPost)
+                    {
+                        status = "⚠️ Would post (different issue)";
                     }
                     else
                     {
-                        if (wouldHavePosted)
-                        {
-                            status = "✅ Would post";
-                            successCount++;
-                        }
-                        else if (result.IssuesToReport.Length > 0)
-                        {
-                            status = "🟡 Found but wouldn't post";
-                        }
-                        else
-                        {
-                            status = "❌ Not detected";
-                        }
+                        status = "❌ Not detected";
                     }
 
                     string topResults = result.IssuesToReport.Length > 0
                         ? string.Join(", ", result.IssuesToReport.Select(d => $"#{d.Issue.Number} ({d.Certainty:F2})"))
                         : "none";
 
-                    string passInfo = $"2nd={result.SecondaryTestIsUseful}, 3rd={result.ThirdTestIsUseful}";
+                    string passInfo = $"2nd={result.SecondaryTestDuplicates.Length > 0}, 3rd={result.ThirdTestDuplicates.Length > 0}";
 
-                    string dupeInfo = expectedDuplicate.HasValue ? $"Duplicate: #{expectedDuplicate.Value} | " : "";
+                    string dupeInfo = $"Duplicate: #{expectedDuplicate} | ";
 
                     results.Add($"{status} | [#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}\n" +
                         $"  {dupeInfo}Detected: {topResults} | Passes: {passInfo}");
