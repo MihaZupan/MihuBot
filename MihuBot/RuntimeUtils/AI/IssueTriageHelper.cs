@@ -175,14 +175,14 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
             : null;
 
-        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 20);
-        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
+        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 10);
+        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 20);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
         private float SearchResultMinScore => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchResultMinScore)}", 0.3f);
         private int ContextLimitForIssueBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForIssueBody)}", 4000);
         private int ContextLimitForCommentBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForCommentBody)}", 2000);
-        private int TriageMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(TriageMaxCandidates)}", 20);
+        private int TriageMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(TriageMaxCandidates)}", 25);
         private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 20);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
