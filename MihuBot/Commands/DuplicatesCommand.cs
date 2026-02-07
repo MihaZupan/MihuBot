@@ -76,22 +76,26 @@ public sealed class DuplicatesCommand : CommandBase
 
         if (ctx.Command == "testduplicates")
         {
+            bool fromPosted = ctx.Arguments.Length > 0 && ctx.Arguments[0].Equals("posted", StringComparison.OrdinalIgnoreCase);
+            string[] args = fromPosted ? ctx.Arguments[1..] : ctx.Arguments;
+
             int count = 10;
 
-            if (ctx.Arguments.Length > 0)
+            if (args.Length > 0)
             {
-                count = int.Parse(ctx.Arguments[0]);
+                count = int.Parse(args[0]);
             }
 
-            if (ctx.Arguments.Length > 1)
+            if (args.Length > 1)
             {
-                repoName = ctx.Arguments[1];
+                repoName = args[1];
             }
 
             repoName ??= "dotnet/runtime";
 
-            await ctx.ReplyAsync($"Running duplicate detection backtest on last {count} duplicate issues in {repoName}...");
-            await RunDuplicateDetectionBacktestAsync(repoName, count, ctx);
+            string source = fromPosted ? "previously posted issues" : "duplicate issues";
+            await ctx.ReplyAsync($"Running duplicate detection backtest on last {count} {source} in {repoName}...");
+            await RunDuplicateDetectionBacktestAsync(repoName, count, fromPosted, ctx);
             return;
         }
 
@@ -578,8 +582,10 @@ public sealed class DuplicatesCommand : CommandBase
             string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>){(includeSummary ? $"\n  - {r.Summary}" : null)}"));
     }
 
-    private async Task RunDuplicateDetectionBacktestAsync(string repoName, int count, CommandContext ctx)
+    private async Task RunDuplicateDetectionBacktestAsync(string repoName, int count, bool fromPosted, CommandContext ctx)
     {
+        string label = fromPosted ? "Backtest-Posted" : "Backtest";
+
         try
         {
             string[] parts = repoName.Split('/');
@@ -589,33 +595,75 @@ public sealed class DuplicatesCommand : CommandBase
                 return;
             }
 
-            // Step 1: Use GraphQL to find recently closed issues marked as duplicates
-            var duplicateIssues = await _graphQL.GetIssuesMarkedAsDuplicateAsync(parts[0], parts[1], count, ctx.CancellationToken);
+            var issues = new List<(int IssueNumber, int ExpectedDuplicate)>();
 
-            if (duplicateIssues.Length == 0)
+            if (fromPosted)
             {
-                await ctx.ReplyAsync("No issues marked as duplicate found via GraphQL.");
-                return;
+                var messages = await _discord.GetTextChannel(Channels.DuplicatesPosted).GetMessagesAsync(count * 3).FlattenAsync();
+
+                foreach (IMessage message in messages)
+                {
+                    string content = message.Content?.Trim('<', '>', ' ') ?? "";
+
+                    if (GitHubHelper.TryParseIssueOrPRNumber(content, out string msgRepo, out int issueNumber) &&
+                        repoName.Equals(msgRepo, StringComparison.OrdinalIgnoreCase) &&
+                        !issues.Any(e => e.IssueNumber == issueNumber) &&
+                        content.Contains("#issuecomment-", StringComparison.Ordinal) &&
+                        long.TryParse(content.AsSpan(content.IndexOf("#issuecomment-", StringComparison.Ordinal) + "#issuecomment-".Length), out long commentId))
+                    {
+                        try
+                        {
+                            IssueComment ghComment = await _github.Issue.Comment.Get(parts[0], parts[1], commentId);
+
+                            if (ghComment?.Body is { } body)
+                            {
+                                foreach (string line in GitHubHelper.ExtractGitHubLinks(body))
+                                {
+                                    if (GitHubHelper.TryParseIssueOrPRNumber(line, out _, out int dupeNumber))
+                                    {
+                                        issues.Add((issueNumber, dupeNumber));
+                                        break;
+                                    }
+                                }
+
+                                if (issues.Count >= count)
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            else
+            {
+                var duplicateIssues = await _graphQL.GetIssuesMarkedAsDuplicateAsync(parts[0], parts[1], count, ctx.CancellationToken);
+
+                foreach (var (closedIssue, duplicatedAgainst) in duplicateIssues)
+                {
+                    GitHubHelper.TryParseIssueOrPRNumber(closedIssue, out _, out int issueNumber);
+                    GitHubHelper.TryParseIssueOrPRNumber(duplicatedAgainst, out _, out int duplicateNumber);
+                    issues.Add((issueNumber, duplicateNumber));
+                }
             }
 
-            await ctx.ReplyAsync($"Found {duplicateIssues.Length} issues marked as duplicate. Processing...");
+            await ctx.ReplyAsync($"Found {issues.Count} issues. Processing...");
 
             var results = new List<string>();
-            int detected = 0;
+            int successCount = 0;
             int total = 0;
 
-            foreach ((string issueUrl, string duplicatedAgainstUrl) in duplicateIssues)
+            foreach ((int issueNumber, int? expectedDuplicate) in issues)
             {
-                GitHubHelper.TryParseIssueOrPRNumber(issueUrl, out _, out int issueNumber);
-                GitHubHelper.TryParseIssueOrPRNumber(duplicatedAgainstUrl, out _, out int duplicateNumber);
-
                 try
                 {
                     IssueInfo issue = await _triageHelper.GetIssueAsync(repoName, issueNumber, ctx.CancellationToken);
 
                     if (issue is null)
                     {
-                        results.Add($"⏭️ Skip | #{issueNumber} - Not found in database (duplicate: #{duplicateNumber})");
+                        string skipExtra = expectedDuplicate.HasValue ? $" (duplicate: #{expectedDuplicate.Value})" : "";
+                        results.Add($"⏭️ Skip | #{issueNumber} - Not found in database{skipExtra}");
                         continue;
                     }
 
@@ -624,25 +672,45 @@ public sealed class DuplicatesCommand : CommandBase
                     var result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
 
                     bool wouldHavePosted = result.IssuesToReport.Length > 0 && result.SecondaryTestIsUseful && (!DoThirdVerificationCheck || result.ThirdTestIsUseful);
-                    bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == duplicateNumber);
 
                     string status;
-                    if (matchesActualDuplicate && wouldHavePosted)
+                    if (expectedDuplicate.HasValue)
                     {
-                        status = "✅ Correct";
-                        detected++;
-                    }
-                    else if (matchesActualDuplicate)
-                    {
-                        status = "🟡 Found but wouldn't post";
-                    }
-                    else if (wouldHavePosted)
-                    {
-                        status = "⚠️ Would post (different issue)";
+                        bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == expectedDuplicate.Value);
+
+                        if (matchesActualDuplicate && wouldHavePosted)
+                        {
+                            status = "✅ Correct";
+                            successCount++;
+                        }
+                        else if (matchesActualDuplicate)
+                        {
+                            status = "🟡 Found but wouldn't post";
+                        }
+                        else if (wouldHavePosted)
+                        {
+                            status = "⚠️ Would post (different issue)";
+                        }
+                        else
+                        {
+                            status = "❌ Not detected";
+                        }
                     }
                     else
                     {
-                        status = "❌ Not detected";
+                        if (wouldHavePosted)
+                        {
+                            status = "✅ Would post";
+                            successCount++;
+                        }
+                        else if (result.IssuesToReport.Length > 0)
+                        {
+                            status = "🟡 Found but wouldn't post";
+                        }
+                        else
+                        {
+                            status = "❌ Not detected";
+                        }
                     }
 
                     string topResults = result.IssuesToReport.Length > 0
@@ -651,10 +719,12 @@ public sealed class DuplicatesCommand : CommandBase
 
                     string passInfo = $"2nd={result.SecondaryTestIsUseful}, 3rd={result.ThirdTestIsUseful}";
 
-                    results.Add($"{status} | [#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}\n" +
-                        $"  Duplicate: #{duplicateNumber} | Detected: {topResults} | Passes: {passInfo}");
+                    string dupeInfo = expectedDuplicate.HasValue ? $"Duplicate: #{expectedDuplicate.Value} | " : "";
 
-                    _logger.DebugLog($"[Backtest] {status}: #{issue.Number} canonical=#{duplicateNumber} detected={topResults} {passInfo}");
+                    results.Add($"{status} | [#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}\n" +
+                        $"  {dupeInfo}Detected: {topResults} | Passes: {passInfo}");
+
+                    _logger.DebugLog($"[{label}] {status}: #{issue.Number} {dupeInfo}detected={topResults} {passInfo}");
                 }
                 catch (Exception ex)
                 {
@@ -662,20 +732,22 @@ public sealed class DuplicatesCommand : CommandBase
                 }
             }
 
+            string successLabel = "Correctly detected";
+
             string summary =
                 $"""
-                **Duplicate Detection Backtest Results** ({repoName})
-                Tested: {total} | Correctly detected: {detected} | Rate: {(total > 0 ? (double)detected / total * 100 : 0):F0}%
+                **Duplicate Detection {label} Results** ({repoName})
+                Tested: {total} | {successLabel}: {successCount} | Rate: {(total > 0 ? (double)successCount / total * 100 : 0):F0}%
 
                 {string.Join("\n\n", results)}
                 """;
 
-            await ctx.Channel.SendTextFileAsync($"Backtest-{Snowflake.NextString()}.txt", summary, $"Backtest complete: {detected}/{total} correctly detected.", components: null);
+            await ctx.Channel.SendTextFileAsync($"{label}-{Snowflake.NextString()}.txt", summary, $"{label} complete: {successCount}/{total} {successLabel.ToLowerInvariant()}.", components: null);
         }
         catch (Exception ex)
         {
-            await ctx.ReplyAsync($"Backtest failed: {ex.Message}");
-            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Backtest error", ex);
+            await ctx.ReplyAsync($"{label} failed: {ex.Message}");
+            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: {label} error", ex);
         }
     }
 

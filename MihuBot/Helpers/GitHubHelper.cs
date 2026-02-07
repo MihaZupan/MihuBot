@@ -58,6 +58,17 @@ public static partial class GitHubHelper
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+)/([A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)([\?#/].*)?$")]
     private static partial Regex RepoAndBranchRegex();
 
+    [GeneratedRegex(@"\bhttps:\/\/github\.com\/\S*(?:\b|[\]\)\!]|\.\b)", RegexOptions.IgnoreCase)]
+    private static partial Regex GitHubUrlRegex { get; }
+
+    public static IEnumerable<string> ExtractGitHubLinks(string text)
+    {
+        foreach (Match match in GitHubUrlRegex.Matches(text))
+        {
+            yield return match.Value;
+        }
+    }
+
     public static async Task<(bool Valid, bool HasAllScopes)> ValidatePatAsync(HttpClient client, string pat, string[] scopes)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com");
@@ -162,7 +173,10 @@ public static partial class GitHubHelper
             return false;
         }
 
-        input = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
+        input = input
+            .Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0]
+            .ReplaceLineEndings()
+            .SplitFirstTrimmed('\n')
             .Trim('#', '<', '>');
 
         // https://github.com/dotnet/runtime/issues/111492
