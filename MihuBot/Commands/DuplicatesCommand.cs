@@ -3,11 +3,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
-using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
-using MihuBot.RuntimeUtils.Search;
 using Octokit;
 
 namespace MihuBot.Commands;
@@ -24,7 +22,6 @@ public sealed class DuplicatesCommand : CommandBase
     private readonly GitHubClient _github;
     private readonly IssueTriageService _triageService;
     private readonly IssueTriageHelper _triageHelper;
-    private readonly GitHubSearchService _search;
     private readonly ServiceConfiguration _serviceConfiguration;
     private readonly Logger _logger;
     private readonly IConfigurationService _configuration;
@@ -37,7 +34,7 @@ public sealed class DuplicatesCommand : CommandBase
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
     private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.89d);
 
-    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GitHubSearchService search, GithubGraphQLClient graphQL, OpenAIService openAI)
+    public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GithubGraphQLClient graphQL, OpenAIService openAI)
     {
         _db = db;
         _triageService = triageService;
@@ -47,7 +44,6 @@ public sealed class DuplicatesCommand : CommandBase
         _configuration = configuration;
         _github = github;
         _discord = discord;
-        _search = search;
         _graphQL = graphQL;
         _openAI = openAI;
     }
@@ -116,7 +112,6 @@ public sealed class DuplicatesCommand : CommandBase
         if (ctx.Command == "duplicates")
         {
             await RunDuplicateDetectionAsync(issue, automated: false, message: ctx);
-            await RunDuplicateDetectionAsync_EmbeddingsOnly(issue, automated: false, message: ctx);
         }
         else
         {
@@ -195,7 +190,6 @@ public sealed class DuplicatesCommand : CommandBase
                             _ = Task.Run(async () =>
                             {
                                 await RunDuplicateDetectionAsync(issue, automated: true, message: null);
-                                await RunDuplicateDetectionAsync_EmbeddingsOnly(issue, automated: true, message: null);
                             });
                         }
                     }
@@ -340,60 +334,6 @@ public sealed class DuplicatesCommand : CommandBase
         bool wouldAutoPost = SkipManualVerificationBeforePosting && issuesToReport.Length > 0;
 
         return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
-    }
-
-    private async Task RunDuplicateDetectionAsync_EmbeddingsOnly(IssueInfo issue, bool automated, MessageContext message)
-    {
-        try
-        {
-            string titleInfo = $"{issue.Repository.FullName}#{issue.Number}: {issue.Title}";
-            string description = $"{titleInfo}\n{issue.IssueType.ToDisplayString()} author: {issue.User.Login}\n\n{issue.Body?.Trim()}";
-
-            description = SemanticMarkdownChunker.TrimTextToTokens(_search.Tokenizer, description, SemanticMarkdownChunker.MaxSectionTokens);
-
-            var searchResults = await _search.SearchIssuesAndCommentsAsync(
-                description,
-                new IssueSearchFilters { Repository = issue.Repository.FullName },
-                new IssueSearchResponseOptions { MaxResults = 10, IncludeIssueComments = false },
-                cancellationToken: CancellationToken.None);
-
-            var duplicates = searchResults.Results
-                .Where(r => r.Score >= 0.5 && r.Results[0].Issue.Id != issue.Id)
-                .Select(r => (r.Results[0].Issue, r.Score, string.Empty))
-                .ToArray();
-
-            if (duplicates.Length == 0)
-            {
-                _logger.DebugLog($"{nameof(DuplicatesCommand)}: No duplicates found for issue <{issue.HtmlUrl}> (embeddings only)");
-
-                if (!automated)
-                {
-                    await message.ReplyAsync("No duplicates found (embeddings only).");
-                }
-
-                return;
-            }
-
-            SocketTextChannel channel = _logger.Options.Discord.GetTextChannel(Channels.DuplicatesEmbeddings);
-
-            string reply = FormatDuplicatesSummary(issue, duplicates, includeSummary: false);
-            double certaintyThreshold = CertaintyThreshold;
-
-            if (duplicates.Any(d => d.Score >= 0.7 && IsLikelyUsefulToReport(issue, d.Issue, certainty: 1, certaintyThreshold)))
-            {
-                reply = $"{MentionUtils.MentionUser(KnownUsers.Miha)} {reply}";
-            }
-
-            reply = reply.TruncateWithDotDotDot(1800);
-
-            reply = $"**Embeddings only**\n{reply}";
-
-            await (message?.Channel ?? channel).SendMessageAsync(reply, allowedMentions: AllowedMentions.None);
-        }
-        catch (Exception ex)
-        {
-            await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection for issue <{issue.HtmlUrl}> (embeddings only)", ex);
-        }
     }
 
     private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold)
