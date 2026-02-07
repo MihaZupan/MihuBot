@@ -106,7 +106,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             - The scenario or use case
 
             Return between 2 and 6 search queries. Each query should be a short phrase or sentence capturing a distinct aspect of the issue.
-            Do not include issue numbers or URLs. Do not include generic terms like "bug" or "issue".
+            Do not include issue numbers or URLs.
             """;
 
         private const string CandidateClassificationPrompt =
@@ -190,7 +190,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             // Step 2: Semantic search for related issues
-            IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
+            IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, maxCandidates: 20, cancellationToken);
 
             OnToolLog($"Found {candidates.Length} candidate issues");
 
@@ -249,8 +249,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
         }
 
-        private sealed record SearchQueries(string[] Queries);
-
         private sealed record CandidateClassification(double? Certainty, string Summary);
 
         public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken, IssueInfo[] issuesToClassify = null)
@@ -270,7 +268,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 }
 
                 // Step 2: Semantic search for candidate issues
-                IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, cancellationToken);
+                IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, maxCandidates: 100, cancellationToken);
 
                 OnToolLog($"Found {candidates.Length} candidate issues to classify");
 
@@ -303,7 +301,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 .ToArray();
         }
 
-        private async Task<IssueResultGroup[]> SearchForRelatedIssuesAsync(string[] searchQueries, CancellationToken cancellationToken, int maxCandidates = 15)
+        private async Task<IssueResultGroup[]> SearchForRelatedIssuesAsync(string[] searchQueries, int maxCandidates, CancellationToken cancellationToken)
         {
             var filters = new IssueSearchFilters
             {
@@ -343,18 +341,21 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
 
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
+
             string prompt =
                 $"""
                 {SearchQueryExtractionPrompt}
 
-                New issue #{Issue.Number} from {Issue.User.Login} titled '{Issue.Title}' in {Issue.Repository.FullName}:
-
-                {Issue.Body}
+                NEW ISSUE:
+                ```json
+                {issueJson}
+                ```
                 """;
 
-            ChatResponse<SearchQueries> response = await chatClient.GetResponseAsync<SearchQueries>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+            ChatResponse<string[]> response = await chatClient.GetResponseAsync<string[]>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
-            return response.Result?.Queries ?? [];
+            return response.Result ?? [];
         }
 
         private async Task<CandidateClassification> ClassifyCandidateAsync(string newIssueJson, IssueInfo candidate, CancellationToken cancellationToken)

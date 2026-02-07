@@ -713,7 +713,7 @@ public sealed class DuplicatesCommand : CommandBase
     {
         try
         {
-            IChatClient chatClient = _openAI.GetChat("gpt-5-mini", secondary: true);
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, secondary: true);
 
             string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
 
