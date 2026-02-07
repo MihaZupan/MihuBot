@@ -175,7 +175,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
             : null;
 
-        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 25);
+        private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 20);
         private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 40);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
@@ -183,6 +183,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         private int ContextLimitForIssueBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForIssueBody)}", 4000);
         private int ContextLimitForCommentBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForCommentBody)}", 2000);
         private int TriageMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(TriageMaxCandidates)}", 20);
+        private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 20);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -215,11 +216,11 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             // Step 3: Synthesize a triage summary from the results
-            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken)).AsJson();
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, maxComments: MaxCommentsPerIssue)).AsJson();
 
             IssueInfoForPrompt[] candidateInfos = await candidates
                 .ToAsyncEnumerable()
-                .Select(async (c, ct) => await IssueInfoForPrompt.CreateAsync(c.Results[0].Issue, GitHubDb, ct, ContextLimitForIssueBody, ContextLimitForCommentBody))
+                .Select(async (c, ct) => await IssueInfoForPrompt.CreateAsync(c.Results[0].Issue, GitHubDb, ct, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue))
                 .ToArrayAsync(cancellationToken);
 
             string candidatesJson = JsonSerializer.Serialize(candidateInfos, IssueInfoForPrompt.JsonOptions);
@@ -294,7 +295,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             }
 
             // Step 3: Classify each candidate independently
-            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody)).AsJson();
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, maxComments: MaxCommentsPerIssue)).AsJson();
 
             var classificationTasks = issuesToClassify.Select(async candidateIssue =>
             {
@@ -355,7 +356,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
 
-            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody)).AsJson();
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 
             string prompt =
                 $"""
@@ -376,7 +377,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         {
             IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
 
-            string candidateJson = (await IssueInfoForPrompt.CreateAsync(candidate, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody)).AsJson();
+            string candidateJson = (await IssueInfoForPrompt.CreateAsync(candidate, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 
             string prompt =
                 $"""
@@ -450,7 +451,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             IssueInfoForPrompt[] issues = await results.Results
                 .ToAsyncEnumerable()
-                .Select(async (i, ct) => await IssueInfoForPrompt.CreateAsync(i.Issue, GitHubDb, ct, ContextLimitForIssueBody, ContextLimitForCommentBody))
+                .Select(async (i, ct) => await IssueInfoForPrompt.CreateAsync(i.Issue, GitHubDb, ct, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue))
                 .ToArrayAsync(cancellationToken);
 
             OnToolLog($"[Tool] Found {issues.Length} issues, {issues.Sum(i => i.Comments.Length)} comments ({(int)stopwatch.ElapsedMilliseconds} ms)");

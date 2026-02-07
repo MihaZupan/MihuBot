@@ -30,7 +30,7 @@ public sealed record IssueInfoForPrompt(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
     };
 
-    public static async Task<IssueInfoForPrompt> CreateAsync(IssueInfo issue, IDbContextFactory<GitHubDbContext>? dbContextFactory, CancellationToken cancellationToken, int contextLimitForIssueBody = int.MaxValue, int contextLimitForCommentBody = int.MaxValue)
+    public static async Task<IssueInfoForPrompt> CreateAsync(IssueInfo issue, IDbContextFactory<GitHubDbContext>? dbContextFactory, CancellationToken cancellationToken, int contextLimitForIssueBody = int.MaxValue, int contextLimitForCommentBody = int.MaxValue, int maxComments = int.MaxValue)
     {
         CommentInfoForPrompt[] comments = (issue.Comments ?? [])
             .Where(c => !SemanticMarkdownChunker.IsUnlikelyToBeUseful(issue, c, removeSectionsWithoutContext: false, includeBotMessages: true))
@@ -42,6 +42,13 @@ public sealed record IssueInfoForPrompt(
                 SemanticMarkdownChunker.TrimTextToTokens(GitHubSemanticSearchIngestionService.Tokenizer, c.Body, contextLimitForCommentBody),
                 new ReactionsInfoForPrompt(c.Plus1, c.Minus1, c.Laugh, c.Confused, c.Heart, c.Hooray, c.Eyes, c.Rocket).NullIfEmpty()))
             .ToArray();
+
+        if (comments.Length > maxComments)
+        {
+            int firstHalf = maxComments / 2;
+            int secondHalf = maxComments - firstHalf;
+            comments = [.. comments[..firstHalf], .. comments[^secondHalf..]];
+        }
 
         string? miscellaneous = null;
 
