@@ -210,7 +210,7 @@ public sealed class DuplicatesCommand : CommandBase
         await _sempahore.WaitAsync();
         try
         {
-            var result = await RunMultiPassDuplicateDetectionAsync(issue, ignoreBotComments: !automated, message?.CancellationToken ?? default);
+            var result = await RunMultiPassDuplicateDetectionAsync(issue, backtesting: !automated, message?.CancellationToken ?? default);
 
             if (result.AllDuplicates.Length == 0)
             {
@@ -298,14 +298,16 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] IssuesToReport,
         bool WouldAutoPost);
 
-    private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, bool ignoreBotComments, CancellationToken cancellationToken)
+    private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, bool backtesting, CancellationToken cancellationToken)
     {
         double certaintyThreshold = CertaintyThreshold;
 
-        // First pass (no reasoning)
-        (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, cancellationToken);
+        bool candidatePreFilter(IssueInfo issue, IssueInfo duplicate) => UsefulIssueToReportPreFilter(issue, duplicate, backtesting);
 
-        (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold, ignoreBotComments))];
+        // First pass (no reasoning)
+        (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, candidateIssues: [], candidatePreFilter, cancellationToken);
+
+        (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold, backtesting))];
 
         if (issuesToReport.Length == 0)
         {
@@ -313,9 +315,9 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         // Second pass (with reasoning, reusing candidates from first pass)
-        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
+        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
 
-        issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold, ignoreBotComments)))];
+        issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold, backtesting)))];
 
         if (issuesToReport.Length == 0)
         {
@@ -326,26 +328,21 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] thirdTestDuplicates = [];
         if (DoThirdVerificationCheck)
         {
-            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
+            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
 
-            issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold, ignoreBotComments)))];
+            issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold, backtesting)))];
         }
 
         bool wouldAutoPost =
             SkipManualVerificationBeforePosting &&
             issuesToReport.Length > 0 &&
-            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)], ignoreBotComments);
+            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)], backtesting);
 
         return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
     }
 
-    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold, bool ignoreBotComments)
+    private static bool UsefulIssueToReportPreFilter(IssueInfo issue, IssueInfo duplicate, bool backtesting)
     {
-        if (certainty < certaintyThreshold)
-        {
-            return false;
-        }
-
         if (duplicate.UserId == issue.UserId && duplicate.UserId != GitHubDataIngestionService.GhostUserId)
         {
             // Same author? They're likely aware of the other issue.
@@ -370,7 +367,7 @@ public sealed class DuplicatesCommand : CommandBase
             return false;
         }
 
-        if (AreIssuesAlreadyLinked(issue, duplicate, ignoreBotComments))
+        if (AreIssuesAlreadyLinked(issue, duplicate, backtesting))
         {
             // Already linked in some way.
             return false;
@@ -379,19 +376,29 @@ public sealed class DuplicatesCommand : CommandBase
         return true;
     }
 
-    private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate, bool ignoreBotComments)
+    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold, bool backtesting)
     {
-        if (MentionsIssue(issue.Title, duplicate, ignoreBotComments) || MentionsIssue(issue.Body, duplicate, ignoreBotComments))
+        if (certainty < certaintyThreshold)
+        {
+            return false;
+        }
+
+        return UsefulIssueToReportPreFilter(issue, duplicate, backtesting);
+    }
+
+    private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate, bool backtesting)
+    {
+        if (MentionsIssue(issue.Title, duplicate, backtesting) || MentionsIssue(issue.Body, duplicate, backtesting))
         {
             return true;
         }
 
-        if (issue.Comments is not null && issue.Comments.Any(c => MentionsIssue(c.Body, duplicate, ignoreBotComments)))
+        if (issue.Comments is not null && issue.Comments.Any(c => MentionsIssue(c.Body, duplicate, backtesting)))
         {
             return true;
         }
 
-        if (duplicate.Comments is not null && duplicate.Comments.Any(c => MentionsIssue(c.Body, issue, ignoreBotComments)))
+        if (duplicate.Comments is not null && duplicate.Comments.Any(c => MentionsIssue(c.Body, issue, backtesting)))
         {
             return true;
         }
@@ -417,13 +424,13 @@ public sealed class DuplicatesCommand : CommandBase
             || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool ignoreBotComments)
+    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool backtesting)
     {
         try
         {
             Issue ghIssue = await _github.Issue.Get(issue.Repository.Id, issue.Number);
 
-            if (ghIssue.State == ItemState.Closed)
+            if (ghIssue.State == ItemState.Closed && !backtesting)
             {
                 return false;
             }
@@ -436,7 +443,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             IReadOnlyList<IssueComment> ghComments = await _github.Issue.Comment.GetAllForIssue(issue.Repository.Id, issue.Number);
 
-            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe, ignoreBotComments))))
+            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe, backtesting))))
             {
                 // Someone beat us to it.
                 return false;
@@ -481,7 +488,7 @@ public sealed class DuplicatesCommand : CommandBase
         return true;
     }
 
-    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, CancellationToken cancellationToken, IssueInfo[] candidateIssues = null)
+    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, IssueInfo[] candidateIssues, Func<IssueInfo, IssueInfo, bool> candidatePreFilter, CancellationToken cancellationToken)
     {
         ModelInfo model = _triageHelper.DefaultModel;
 
@@ -490,7 +497,14 @@ public sealed class DuplicatesCommand : CommandBase
             model = OpenAIService.AllModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
         }
 
-        var options = new IssueTriageHelper.TriageOptions(model, "MihaZupan", issue, OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"), SkipCommentsOnCurrentIssue: true, AllowReasoning: allowReasoning);
+        var options = new IssueTriageHelper.TriageOptions(
+            model,
+            "MihaZupan",
+            issue,
+            OnToolLog: log => _logger.DebugLog($"[Duplicates {issue.Repository.FullName}#{issue.Number}]: {log}"),
+            SkipCommentsOnCurrentIssue: true,
+            RelatedIssuesFilter: candidatePreFilter,
+            AllowReasoning: allowReasoning);
 
         int attemptCount = 0;
         while (true)
@@ -528,7 +542,7 @@ public sealed class DuplicatesCommand : CommandBase
             {
                 var messages = await _discord.GetTextChannel(Channels.DuplicatesPosted).GetMessagesAsync(count * 3).FlattenAsync();
 
-                foreach (IMessage message in messages)
+                foreach (IMessage message in messages.OrderByDescending(m => m.Timestamp))
                 {
                     string content = message.Content?.Trim('<', '>', ' ') ?? "";
 
@@ -596,7 +610,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                     total++;
 
-                    MultiPassResult result = await RunMultiPassDuplicateDetectionAsync(issue, ignoreBotComments: true, ctx.CancellationToken);
+                    MultiPassResult result = await RunMultiPassDuplicateDetectionAsync(issue, backtesting: true, ctx.CancellationToken);
 
                     string status;
                     bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == expectedDuplicate);

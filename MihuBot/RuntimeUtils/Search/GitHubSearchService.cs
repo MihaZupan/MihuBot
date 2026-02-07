@@ -106,9 +106,11 @@ public sealed class GitHubSearchService
 
         var excludeIssueIds = new HashSet<string>(bulkFilters.ExcludeIssues?.Select(i => i.Id) ?? []);
 
+        Func<IssueSearchResult, bool>? originalFilter = filters.PostFilter;
         filters = filters with
         {
             PostFilter = result =>
+                (originalFilter is null || originalFilter(result)) &&
                 (result.Comment is null || !SemanticMarkdownChunker.IsUnlikelyToBeUseful(result.Issue, result.Comment)) &&
                 !excludeIssueIds.Contains(result.Issue.Id)
         };

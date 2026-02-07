@@ -32,10 +32,18 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         context.OnToolLog = options.OnToolLog;
         context.SkipCommentsOnCurrentIssue = options.SkipCommentsOnCurrentIssue;
         context.AllowReasoning = options.AllowReasoning;
+        context.RelatedIssuesFilter = options.RelatedIssuesFilter ?? ((newIssue, candidateIssue) => true);
         return context;
     }
 
-    public record TriageOptions(ModelInfo Model, string GitHubUserLogin, IssueInfo Issue, Action<string> OnToolLog, bool SkipCommentsOnCurrentIssue, bool AllowReasoning = false);
+    public record TriageOptions(
+        ModelInfo Model,
+        string GitHubUserLogin,
+        IssueInfo Issue,
+        Action<string> OnToolLog,
+        bool SkipCommentsOnCurrentIssue,
+        Func<IssueInfo, IssueInfo, bool> RelatedIssuesFilter = null,
+        bool AllowReasoning = false);
 
     public IAsyncEnumerable<string> TriageIssueAsync(TriageOptions options, CancellationToken cancellationToken)
     {
@@ -155,6 +163,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         public Action<string> OnToolLog { get; set; } = _ => { };
         public bool SkipCommentsOnCurrentIssue { get; set; }
         public bool AllowReasoning { get; set; }
+        public Func<IssueInfo, IssueInfo, bool> RelatedIssuesFilter { get; set; }
 
         private ChatOptions ReasoningChatOptions => AllowReasoning
             ? new ChatOptions
@@ -311,6 +320,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 IncludePullRequests = true,
                 Repository = Issue.Repository.FullName,
                 MinScore = SearchMinCertainty,
+                PostFilter = result => RelatedIssuesFilter(Issue, result.Issue),
             };
 
             var bulkFilters = new IssueSearchBulkFilters
