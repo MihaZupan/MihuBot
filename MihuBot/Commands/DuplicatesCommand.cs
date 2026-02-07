@@ -185,6 +185,12 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
+                            if (await IsLikelySpamOrUnfilledIssueAsync(issue, CancellationToken.None))
+                            {
+                                _logger.DebugLog($"{nameof(DuplicatesCommand)}: Skipping likely spam/unfilled issue <{issue.HtmlUrl}>");
+                                continue;
+                            }
+
                             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Running duplicate detection for issue <{issue.HtmlUrl}>");
 
                             _ = Task.Run(async () =>
@@ -711,6 +717,49 @@ public sealed class DuplicatesCommand : CommandBase
         catch (Exception ex)
         {
             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Error classifying duplicate vs related for issue <{issue.HtmlUrl}>: {ex.Message}");
+        }
+
+        return false;
+    }
+
+    private async Task<bool> IsLikelySpamOrUnfilledIssueAsync(IssueInfo issue, CancellationToken cancellationToken)
+    {
+        try
+        {
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, secondary: true);
+
+            string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, cancellationToken, contextLimitForIssueBody: 1000, contextLimitForCommentBody: 200)).AsJson();
+
+            string prompt =
+                $"""
+                You are an assistant helping filter GitHub issues before running duplicate detection.
+                Determine whether the following issue is likely spam or represents an unfilled/mostly-empty issue template that does not contain actionable information.
+
+                An issue should be considered NOT actionable (respond true) if:
+                - It is spam, gibberish, or clearly not a real bug report / feature request.
+                - It consists almost entirely of unfilled issue template placeholders (e.g. empty sections, placeholder text like "A clear and concise description of what the bug is.").
+                - The title is useful, but the body contains mostly unfilled issue template placeholders.
+
+                An issue should be considered actionable (respond false) if:
+                - It contains a meaningful description of a problem, bug, or feature request, even if some template sections are left unfilled.
+                - It has enough context for someone to understand what the issue is about.
+
+                Respond with true if the issue is very likely spam or does not contain actionable information, false otherwise.
+                When in doubt, respond with false (i.e. treat it as actionable).
+
+                NEW ISSUE:
+                ```json
+                {issueJson}
+                ```
+                """;
+
+            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+
+            return response.Result;
+        }
+        catch (Exception ex)
+        {
+            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Error checking if issue is spam/unfilled <{issue.HtmlUrl}>: {ex.Message}");
         }
 
         return false;
