@@ -637,7 +637,7 @@ public sealed class DuplicatesCommand : CommandBase
                         ? string.Join(", ", result.IssuesToReport.Select(d => $"#{d.Issue.Number} ({d.Certainty:F2})"))
                         : "none";
 
-                    string passInfo = $"2nd={result.SecondaryTestDuplicates.Length > 0}, 3rd={result.ThirdTestDuplicates.Length > 0}";
+                    string passInfo = $"2nd={PassSuccessful(result.SecondaryTestDuplicates)}, 3rd={PassSuccessful(result.ThirdTestDuplicates)}";
 
                     string dupeInfo = $"Duplicate: #{expectedDuplicate} | ";
 
@@ -645,6 +645,9 @@ public sealed class DuplicatesCommand : CommandBase
                         $"  {dupeInfo}Detected: {topResults} | Passes: {passInfo}");
 
                     _logger.DebugLog($"[{label}] {status}: #{issue.Number} {dupeInfo}detected={topResults} {passInfo}");
+
+                    bool PassSuccessful((IssueInfo Issue, double Certainty, string Summary)[] duplicates) =>
+                        duplicates.Any(d => d.Certainty >= CertaintyThreshold);
                 }
                 catch (Exception ex)
                 {
