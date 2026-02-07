@@ -14,23 +14,31 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup .NET 11.0
+    - name: Setup .NET 11.0, restore, and publish
       run: |
-        sudo apt install -y wget && \
-        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-        sudo chmod +x ./dotnet-install.sh && \
-        #sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-latest && \
-        sudo ./dotnet-install.sh --version 11.0.100-alpha.1.26062.101 --install-dir dotnet-latest && \
-        dotnet-latest/dotnet --info
+        sudo apt install -y wget
+        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+        sudo chmod +x ./dotnet-install.sh
 
-    - name: Dotnet restore
-      run: dotnet-latest/dotnet restore MihuBot
+        DOTNET_DIR=""
 
-    - name: Dotnet publish
-      run: dotnet-latest/dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+        # Try the daily build first
+        if sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-daily && \
+           dotnet-daily/dotnet --info && \
+           dotnet-daily/dotnet restore MihuBot && \
+           dotnet-daily/dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}; then
+          DOTNET_DIR="dotnet-daily"
+        else
+          echo "Daily build failed, falling back to known good version"
+          rm -rf artifacts
+          sudo ./dotnet-install.sh --version 11.0.100-alpha.1.26062.101 --install-dir dotnet-fallback
+          dotnet-fallback/dotnet --info
+          dotnet-fallback/dotnet restore MihuBot
+          dotnet-fallback/dotnet publish MihuBot -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+          DOTNET_DIR="dotnet-fallback"
+        fi
 
-    - name: Copy Regex source generator
-      run: cp dotnet-latest/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts
+        cp $DOTNET_DIR/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts
 
     - name: Compress artifacts
       run: tar -cvzf artifacts.tar.gz artifacts

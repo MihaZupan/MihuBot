@@ -14,20 +14,26 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup .NET 11.0
+    - name: Setup .NET 11.0, restore, and publish
       run: |
-        sudo apt install -y wget && \
-        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
-        sudo chmod +x ./dotnet-install.sh && \
-        #sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-latest && \
-        sudo ./dotnet-install.sh --version 11.0.100-alpha.1.26062.101 --install-dir dotnet-latest && \
-        dotnet-latest/dotnet --info
+        sudo apt install -y wget
+        wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+        sudo chmod +x ./dotnet-install.sh
 
-    - name: Dotnet restore
-      run: dotnet-latest/dotnet restore StorageService
-
-    - name: Dotnet publish
-      run: dotnet-latest/dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+        # Try the daily build first
+        if sudo ./dotnet-install.sh --channel 11.0 --quality daily --install-dir dotnet-daily && \
+           dotnet-daily/dotnet --info && \
+           dotnet-daily/dotnet restore StorageService && \
+           dotnet-daily/dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}; then
+          echo "Daily build succeeded"
+        else
+          echo "Daily build failed, falling back to known good version"
+          rm -rf artifacts
+          sudo ./dotnet-install.sh --version 11.0.100-alpha.1.26062.101 --install-dir dotnet-fallback
+          dotnet-fallback/dotnet --info
+          dotnet-fallback/dotnet restore StorageService
+          dotnet-fallback/dotnet publish StorageService -c Release -r linux-arm64 --self-contained true -p:PublishSingleFile=true -o artifacts -p:SourceRevisionId=${GITHUB_SHA}
+        fi
 
     - name: Compress artifacts
       run: tar -cvzf artifacts.tar.gz artifacts
