@@ -210,7 +210,7 @@ public sealed class DuplicatesCommand : CommandBase
         await _sempahore.WaitAsync();
         try
         {
-            var result = await RunMultiPassDuplicateDetectionAsync(issue, CancellationToken.None);
+            var result = await RunMultiPassDuplicateDetectionAsync(issue, ignoreBotComments: !automated, message?.CancellationToken ?? default);
 
             if (result.AllDuplicates.Length == 0)
             {
@@ -298,14 +298,14 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] IssuesToReport,
         bool WouldAutoPost);
 
-    private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, CancellationToken cancellationToken)
+    private async Task<MultiPassResult> RunMultiPassDuplicateDetectionAsync(IssueInfo issue, bool ignoreBotComments, CancellationToken cancellationToken)
     {
         double certaintyThreshold = CertaintyThreshold;
 
         // First pass (no reasoning)
         (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, cancellationToken);
 
-        (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold))];
+        (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold, ignoreBotComments))];
 
         if (issuesToReport.Length == 0)
         {
@@ -315,7 +315,7 @@ public sealed class DuplicatesCommand : CommandBase
         // Second pass (with reasoning, reusing candidates from first pass)
         var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
 
-        issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold)))];
+        issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold, ignoreBotComments)))];
 
         if (issuesToReport.Length == 0)
         {
@@ -328,18 +328,18 @@ public sealed class DuplicatesCommand : CommandBase
         {
             thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, cancellationToken, [.. issuesToReport.Select(i => i.Issue)]);
 
-            issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold)))];
+            issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold, ignoreBotComments)))];
         }
 
         bool wouldAutoPost =
             SkipManualVerificationBeforePosting &&
             issuesToReport.Length > 0 &&
-            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)]);
+            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)], ignoreBotComments);
 
         return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
     }
 
-    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold)
+    private static bool IsLikelyUsefulToReport(IssueInfo issue, IssueInfo duplicate, double certainty, double certaintyThreshold, bool ignoreBotComments)
     {
         if (certainty < certaintyThreshold)
         {
@@ -370,7 +370,7 @@ public sealed class DuplicatesCommand : CommandBase
             return false;
         }
 
-        if (AreIssuesAlreadyLinked(issue, duplicate))
+        if (AreIssuesAlreadyLinked(issue, duplicate, ignoreBotComments))
         {
             // Already linked in some way.
             return false;
@@ -379,19 +379,19 @@ public sealed class DuplicatesCommand : CommandBase
         return true;
     }
 
-    private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate)
+    private static bool AreIssuesAlreadyLinked(IssueInfo issue, IssueInfo duplicate, bool ignoreBotComments)
     {
-        if (MentionsIssue(issue.Title, duplicate) || MentionsIssue(issue.Body, duplicate))
+        if (MentionsIssue(issue.Title, duplicate, ignoreBotComments) || MentionsIssue(issue.Body, duplicate, ignoreBotComments))
         {
             return true;
         }
 
-        if (issue.Comments is not null && issue.Comments.Any(c => MentionsIssue(c.Body, duplicate)))
+        if (issue.Comments is not null && issue.Comments.Any(c => MentionsIssue(c.Body, duplicate, ignoreBotComments)))
         {
             return true;
         }
 
-        if (duplicate.Comments is not null && duplicate.Comments.Any(c => MentionsIssue(c.Body, issue)))
+        if (duplicate.Comments is not null && duplicate.Comments.Any(c => MentionsIssue(c.Body, issue, ignoreBotComments)))
         {
             return true;
         }
@@ -399,9 +399,14 @@ public sealed class DuplicatesCommand : CommandBase
         return false;
     }
 
-    private static bool MentionsIssue(string text, IssueInfo issue)
+    private static bool MentionsIssue(string text, IssueInfo issue, bool ignoreBotComments)
     {
         if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (ignoreBotComments && text.AsSpan().Trim().StartsWith("I'm a bot.", StringComparison.Ordinal))
         {
             return false;
         }
@@ -412,7 +417,7 @@ public sealed class DuplicatesCommand : CommandBase
             || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport)
+    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool ignoreBotComments)
     {
         try
         {
@@ -431,7 +436,7 @@ public sealed class DuplicatesCommand : CommandBase
 
             IReadOnlyList<IssueComment> ghComments = await _github.Issue.Comment.GetAllForIssue(issue.Repository.Id, issue.Number);
 
-            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe))))
+            if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe, ignoreBotComments))))
             {
                 // Someone beat us to it.
                 return false;
@@ -591,7 +596,7 @@ public sealed class DuplicatesCommand : CommandBase
 
                     total++;
 
-                    MultiPassResult result = await RunMultiPassDuplicateDetectionAsync(issue, ctx.CancellationToken);
+                    MultiPassResult result = await RunMultiPassDuplicateDetectionAsync(issue, ignoreBotComments: true, ctx.CancellationToken);
 
                     string status;
                     bool matchesActualDuplicate = result.IssuesToReport.Any(d => d.Issue.Number == expectedDuplicate);
