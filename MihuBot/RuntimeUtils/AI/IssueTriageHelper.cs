@@ -176,14 +176,15 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
             : null;
 
         private int MaxResultsPerTerm => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(MaxResultsPerTerm)}", 10);
-        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 20);
+        private int SearchMaxTotalResults => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMaxTotalResults)}", 50);
         private float SearchMinCertainty => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchMinCertainty)}", 0.2f);
         private bool SearchIncludeAllIssueComments => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchIncludeAllIssueComments)}", true);
         private float SearchResultMinScore => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.Search.{nameof(SearchResultMinScore)}", 0.3f);
         private int ContextLimitForIssueBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForIssueBody)}", 4000);
         private int ContextLimitForCommentBody => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(ContextLimitForCommentBody)}", 2000);
-        private int TriageMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(TriageMaxCandidates)}", 25);
         private int MaxCommentsPerIssue => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(MaxCommentsPerIssue)}", 20);
+        private int TriageMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(TriageMaxCandidates)}", 25);
+        private int DuplicatesMaxCandidates => Search._configuration.GetOrDefault(null, $"{nameof(IssueTriageHelper)}.{nameof(DuplicatesMaxCandidates)}", 20);
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -282,7 +283,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 }
 
                 // Step 2: Semantic search for candidate issues
-                IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, maxCandidates: int.MaxValue, cancellationToken);
+                IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, DuplicatesMaxCandidates, cancellationToken);
 
                 OnToolLog($"Found {candidates.Length} candidate issues to classify");
 
@@ -323,7 +324,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 IncludeClosed = true,
                 IncludeIssues = true,
                 IncludePullRequests = true,
-                Repository = Issue.Repository.FullName,
                 MinScore = SearchMinCertainty,
                 PostFilter = result => RelatedIssuesFilter(Issue, result.Issue),
             };
@@ -345,8 +345,20 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync(searchQueries, bulkFilters, filters, options, cancellationToken);
 
-            return searchResults.Results
-                .Where(r => r.Score >= SearchResultMinScore && r.Results[0].Issue.Id != Issue.Id)
+            long currentRepo = Issue.Repository.Id;
+            int maxOtherRepoResults = SearchMaxTotalResults / 2;
+
+            var allResults = searchResults.Results
+                .Where(r => r.Score >= SearchResultMinScore && r.Issue.Id != Issue.Id)
+                .OrderByDescending(r => r.Score)
+                .ToArray();
+
+            // Prioritize same-repo results, cap other-repo results to half of SearchMaxTotalResults
+            var sameRepo = allResults.Where(r => r.Issue.Repository.Id == currentRepo);
+            var otherRepo = allResults.Where(r => r.Issue.Repository.Id != currentRepo).Take(maxOtherRepoResults);
+
+            return sameRepo
+                .Concat(otherRepo)
                 .OrderByDescending(r => r.Score)
                 .Take(maxCandidates)
                 .ToArray();
