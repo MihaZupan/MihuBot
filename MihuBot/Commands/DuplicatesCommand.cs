@@ -187,6 +187,11 @@ public sealed class DuplicatesCommand : CommandBase
                                 continue;
                             }
 
+                            if (IsPublicAnnouncementIssue(issue))
+                            {
+                                continue;
+                            }
+
                             if (await IsLikelySpamOrUnfilledIssueAsync(issue, CancellationToken.None))
                             {
                                 _logger.DebugLog($"{nameof(DuplicatesCommand)}: Skipping likely spam/unfilled issue <{issue.HtmlUrl}>");
@@ -856,6 +861,14 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         return false;
+    }
+
+    private static bool IsPublicAnnouncementIssue(IssueInfo issue)
+    {
+        return
+            issue.Title.Contains("Security Advisory", StringComparison.OrdinalIgnoreCase) ||
+            issue.Body.Contains("# Announcement", StringComparison.OrdinalIgnoreCase) ||
+            issue.Body.Contains("# Microsoft Security Advisory", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task PostGhCommentSummary(IssueInfo issue, string comment)
