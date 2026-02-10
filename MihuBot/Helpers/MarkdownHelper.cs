@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Globalization;
+using System.Text.RegularExpressions;
 using Markdig;
 using Markdig.Helpers;
 using Markdig.Syntax;
@@ -158,6 +159,23 @@ public static partial class MarkdownHelper
         static bool IsEmphasisStart(ReadOnlySpan<char> text)
         {
             return text is "*" or "**" or "***" or "_" or "__" or "___";
+        }
+    }
+
+    public static IEnumerable<int> ExtractMentionedGitHubIssueNumbersWithImplicitRepo(this MarkdownDocument document)
+    {
+        foreach (LiteralInline literal in document.Descendants<LiteralInline>())
+        {
+            if (literal.Content.AsSpan().Contains('#'))
+            {
+                foreach (Match match in IssueNumberRegex().Matches(literal.Content.ToString()))
+                {
+                    if (int.TryParse(match.Groups[1].ValueSpan, NumberStyles.Any, CultureInfo.InvariantCulture, out int issueNumber))
+                    {
+                        yield return issueNumber;
+                    }
+                }
+            }
         }
     }
 

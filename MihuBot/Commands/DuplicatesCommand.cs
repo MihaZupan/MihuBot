@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
+using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
@@ -32,6 +33,7 @@ public sealed class DuplicatesCommand : CommandBase
 
     private bool SkipManualVerificationBeforePosting => _configuration.GetOrDefault(null, $"{Command}.AutoPost", false);
     private bool DoThirdVerificationCheck => _configuration.GetOrDefault(null, $"{Command}.ThirdTest", true);
+    private bool CheckRecursiveMentions => _configuration.GetOrDefault(null, $"{Command}.CheckRecursiveMentions", true);
     private double CertaintyThreshold => _configuration.GetOrDefault(null, $"{Command}.{nameof(CertaintyThreshold)}", 0.91d);
 
     public DuplicatesCommand(IDbContextFactory<GitHubDbContext> db, IssueTriageService triageService, IssueTriageHelper triageHelper, ServiceConfiguration serviceConfiguration, Logger logger, IConfigurationService configuration, GitHubClient github, DiscordSocketClient discord, GithubGraphQLClient graphQL, OpenAIService openAI)
@@ -339,10 +341,12 @@ public sealed class DuplicatesCommand : CommandBase
             issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold, backtesting)))];
         }
 
+        issuesToReport = [.. issuesToReport.Take(10)];
+
         bool wouldAutoPost =
             SkipManualVerificationBeforePosting &&
             issuesToReport.Length > 0 &&
-            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)], backtesting);
+            await ShouldAutoPostAsync(issue, [.. issuesToReport.Select(i => i.Issue)], backtesting, cancellationToken);
 
         return new MultiPassResult(duplicates, secondaryTest, thirdTestDuplicates, issuesToReport, wouldAutoPost);
     }
@@ -430,7 +434,7 @@ public sealed class DuplicatesCommand : CommandBase
             || text.Contains(issue.HtmlUrl, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool backtesting)
+    private async Task<bool> ShouldAutoPostAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool backtesting, CancellationToken cancellationToken)
     {
         try
         {
@@ -452,6 +456,12 @@ public sealed class DuplicatesCommand : CommandBase
             if (issuesToReport.All(dupe => ghComments.Any(c => MentionsIssue(c.Body, dupe, backtesting))))
             {
                 // Someone beat us to it.
+                return false;
+            }
+
+            if (CheckRecursiveMentions &&
+                await RecursivelyMentionsAllIssuesAsync(issue, issuesToReport, backtesting, maxDepth: 1, cancellationToken))
+            {
                 return false;
             }
 
@@ -492,6 +502,89 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         return true;
+
+        async Task<bool> RecursivelyMentionsAllIssuesAsync(IssueInfo issue, IssueInfo[] issuesToReport, bool backtesting, int maxDepth, CancellationToken cancellationToken)
+        {
+            HashSet<string> unmentioned = issuesToReport.Select(i => i.HtmlUrl).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            Dictionary<string, IssueInfo> mentionedIssues = new(StringComparer.OrdinalIgnoreCase)
+            {
+                [issue.HtmlUrl] = issue
+            };
+
+            CheckMentions(issue);
+
+            for (int i = 0; i < maxDepth && unmentioned.Count > 0; i++)
+            {
+                foreach (IssueInfo mentioned in mentionedIssues.Values.ToArray())
+                {
+                    try
+                    {
+                        foreach ((string RepoOwner, string RepoName, int Number) in
+                            ExtractIssues(mentioned, mentioned.Title)
+                            .Concat(ExtractIssues(mentioned, mentioned.Body))
+                            .Concat(mentioned.Comments.SelectMany(c => ExtractIssues(mentioned, c.Body)))
+                            .Distinct()
+                            .Where(e => !mentionedIssues.ContainsKey($"https://github.com/{e.RepoOwner}/{e.RepoName}/issues/{e.Number}")))
+                        {
+                            IssueInfo mentionedIssue = await _triageHelper.GetIssueAsync($"{RepoOwner}/{RepoName}", Number, cancellationToken);
+                            if (mentionedIssue is not null && mentionedIssues.TryAdd(mentionedIssue.HtmlUrl, mentionedIssue))
+                            {
+                                CheckMentions(mentionedIssue);
+
+                                if (unmentioned.Count == 0)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.DebugLog($"{nameof(RecursivelyMentionsAllIssuesAsync)}: {ex}");
+                    }
+                }
+            }
+
+            return false;
+
+            static IEnumerable<(string RepoOwner, string RepoName, int Number)> ExtractIssues(IssueInfo issue, string text)
+            {
+                MarkdownDocument doc = null;
+                try
+                {
+                    doc = MarkdownHelper.ParseAdvanced(text);
+                }
+                catch { }
+
+                if (doc is not null)
+                {
+                    foreach (int issueNumber in doc.ExtractMentionedGitHubIssueNumbersWithImplicitRepo())
+                    {
+                        yield return (issue.RepoOwner(), issue.RepoName(), issueNumber);
+                    }
+                }
+
+                foreach (string link in GitHubHelper.ExtractGitHubLinks(text))
+                {
+                    if (GitHubHelper.TryParseIssueOrPRNumber(link, out string repoOwner, out string repoName, out int issueNumber))
+                    {
+                        yield return (repoOwner, repoName, issueNumber);
+                    }
+                }
+            }
+
+            void CheckMentions(IssueInfo issue)
+            {
+                foreach (IssueInfo toReport in issuesToReport)
+                {
+                    if (unmentioned.Contains(toReport.HtmlUrl) && AreIssuesAlreadyLinked(issue, toReport, backtesting))
+                    {
+                        unmentioned.Remove(toReport.HtmlUrl);
+                    }
+                }
+            }
+        }
     }
 
     private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, IssueInfo[] candidateIssues, Func<IssueInfo, IssueInfo, bool> candidatePreFilter, CancellationToken cancellationToken)
