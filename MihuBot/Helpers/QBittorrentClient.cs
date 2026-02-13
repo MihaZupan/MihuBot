@@ -14,7 +14,6 @@ public sealed class QBittorrentClient
     private readonly HttpClient _client;
     private readonly string _username;
     private readonly string _password;
-    private bool _loggedIn;
 
     public QBittorrentClient(string url, string username, string password)
     {
@@ -26,14 +25,8 @@ public sealed class QBittorrentClient
 
     public async Task LoginAsync(CancellationToken ct = default)
     {
-        if (_loggedIn)
-        {
-            return;
-        }
-
         using HttpResponseMessage response = await MakeRequestAsync("/api/v2/auth/login", ct, ("username", _username), ("password", _password));
         response.EnsureSuccessStatusCode();
-        _loggedIn = true;
     }
 
     public async Task<SearchResult[]> SearchAsync(string pattern, TimeSpan searchDelay, CancellationToken ct = default)
