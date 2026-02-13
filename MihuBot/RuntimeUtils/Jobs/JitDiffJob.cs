@@ -35,7 +35,7 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        if (!UseArm && !UseWindows && !UseHetzner &&
+        if (!UseArm && !UseWindows && !UseHetzner && !UseHelix &&
             Metadata.TryGetValue("BaseRepo", out string baseRepo) && baseRepo == "dotnet/runtime" &&
             Metadata.TryGetValue("BaseBranch", out string baseBranch) && baseBranch == "main" &&
             Metadata.TryGetValue("PrRepo", out string prRepo) &&
