@@ -24,15 +24,26 @@
 
         @if (_hasRuntimeUtilsPermissions)
         {
-            <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#newJobModal">
-                Submit new job
-            </button>
+            <div class="btn-group">
+                <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.JitDiff)">
+                    JitDiff
+                </button>
+                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Benchmark)">
+                    Benchmark
+                </button>
+                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Fuzz)">
+                    Fuzz
+                </button>
+                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.RegexDiff)">
+                    RegexDiff
+                </button>
+            </div>
 
             <div class="modal fade" id="newJobModal" tabindex="-1" role="dialog">
                 <div class="modal-dialog modal-dialog-centered" role="document">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h5 class="modal-title" id="newJobModalLabel">Submit a new job</h5>
+                            <h5 class="modal-title" id="newJobModalLabel">Submit a new @_selectedJobType job</h5>
                             <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                                 <span>&times;</span>
                             </button>
@@ -54,6 +65,23 @@
                                         data-toggle="tooltip" data-html="true"
                                         title="88394<br />https://github.com/dotnet/runtime/pull/88394<br />https://github.com/MihaZupan/runtime/tree/main<br />https://github.com/MihaZupan/runtime/blob/main/README.md" />
                                 </div>
+                                @if (_selectedJobType == NewJobType.Benchmark)
+                                {
+                                    <div class="form-check">
+                                        <InputText style="width: 90%;" @bind-Value=_newJob.BenchmarkFilter placeholder="Benchmark filter (e.g. GetUnicodeCategory)" />
+                                    </div>
+                                    <div class="form-check">
+                                        <InputText style="width: 90%;" @bind-Value=_newJob.CompareLink placeholder="GitHub compare link (optional, instead of PR)"
+                                            data-toggle="tooltip" data-html="true"
+                                            title="https://github.com/dotnet/runtime/compare/abc123...def456" />
+                                    </div>
+                                }
+                                @if (_selectedJobType == NewJobType.Fuzz)
+                                {
+                                    <div class="form-check">
+                                        <InputText style="width: 90%;" @bind-Value=_newJob.FuzzPattern placeholder="Fuzzer name pattern (e.g. HttpHeaders)" />
+                                    </div>
+                                }
                                 <br />
                                 <div class="form-check">
                                     <InputCheckbox @bind-Value=_newJob.MentionPrOnTrackingIssue id="mentionPrCheck" />
@@ -67,14 +95,17 @@
                                     <InputCheckbox @bind-Value=_newJob.RunOnArm id="runOnArmCheck" />
                                     <label for="runOnArmCheck">Run on ARM64</label>
                                 </div>
-                                <div class="form-check">
-                                    <InputCheckbox @bind-Value=_newJob.RunCctors id="runCctorsCheck" />
-                                    <label for="runCctorsCheck">Pass --cctors to jit-diff</label>
-                                </div>
-                                <div class="form-check">
-                                    <InputCheckbox @bind-Value=_newJob.RunTier0 id="runTier0Check" />
-                                    <label for="runTier0Check">Generate tier0 code</label>
-                                </div>
+                                @if (_selectedJobType == NewJobType.JitDiff)
+                                {
+                                    <div class="form-check">
+                                        <InputCheckbox @bind-Value=_newJob.RunCctors id="runCctorsCheck" />
+                                        <label for="runCctorsCheck">Pass --cctors to jit-diff</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <InputCheckbox @bind-Value=_newJob.RunTier0 id="runTier0Check" />
+                                        <label for="runTier0Check">Generate tier0 code</label>
+                                    </div>
+                                }
 
                                 <p>
                                     <button class="btn btn-secondary" type="button" data-toggle="collapse" data-target="#collapseAdvancedOptions">
@@ -83,10 +114,13 @@
                                 </p>
                                 <div class="collapse" id="collapseAdvancedOptions">
                                     <div class="card card-body">
-                                        <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.IncludeKnownNoise id="includeKnownNoiseCheck" />
-                                            <label for="includeKnownNoiseCheck">Include noisy diffs</label>
-                                        </div>
+                                        @if (_selectedJobType == NewJobType.JitDiff)
+                                        {
+                                            <div class="form-check">
+                                                <InputCheckbox @bind-Value=_newJob.IncludeKnownNoise id="includeKnownNoiseCheck" />
+                                                <label for="includeKnownNoiseCheck">Include noisy diffs</label>
+                                            </div>
+                                        }
                                         <div class="form-check">
                                             <InputCheckbox @bind-Value=_newJob.RunOnHetzner id="runOnHetznerCheck" />
                                             <label for="runOnHetznerCheck">Run on a Hetzner VM instead of Azure</label>
@@ -95,14 +129,17 @@
                                             <InputCheckbox @bind-Value=_newJob.RunOnIntel id="runOnIntelCheck" />
                                             <label for="runOnIntelCheck">Run on an Intel-based CPU instead of AMD</label>
                                         </div>
-                                        <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.IncludeNewMethodRegressions id="includeNewMethodsCheck" />
-                                            <label for="includeNewMethodsCheck">Include new method "regressions"</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.IncludeRemovedMethodImprovements id="includeRemovedMethodsCheck" />
-                                            <label for="includeRemovedMethodsCheck">Include removed method "improvements"</label>
-                                        </div>
+                                        @if (_selectedJobType == NewJobType.JitDiff)
+                                        {
+                                            <div class="form-check">
+                                                <InputCheckbox @bind-Value=_newJob.IncludeNewMethodRegressions id="includeNewMethodsCheck" />
+                                                <label for="includeNewMethodsCheck">Include new method "regressions"</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <InputCheckbox @bind-Value=_newJob.IncludeRemovedMethodImprovements id="includeRemovedMethodsCheck" />
+                                                <label for="includeRemovedMethodsCheck">Include removed method "improvements"</label>
+                                            </div>
+                                        }
                                         <div class="form-check">
                                             <InputText style="width: 90%;" @bind-Value=_newJob.DependsOn placeholder="List of PRs this change depends on" />
                                         </div>
@@ -117,7 +154,7 @@
                                     </div>
                                 </div>
 
-                                <p>
+                                <p style="word-break: break-all;">
                                     <small class="text-muted">@@MihuBot @_newJob.Arguments</small>
                                 </p>
                                 <input disabled="@_submittingJob" type="submit" class="btn btn-primary" value="@(_submittingJob ? "Submitting ..." : "Submit")" />
@@ -192,16 +229,27 @@
 
     private bool _submittingJob;
     private string _submittingJobError;
+    private NewJobType _selectedJobType = NewJobType.JitDiff;
 
     private readonly NewJobModel _newJob = new();
 
+    private void SelectJobType(NewJobType jobType)
+    {
+        _selectedJobType = jobType;
+        _newJob.JobType = jobType;
+        _submittingJobError = null;
+    }
+
+    private enum NewJobType { JitDiff, Benchmark, Fuzz, RegexDiff }
+
     private class NewJobModel
     {
-        [Required]
         [RegularExpression(
             pattern: @"^\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_\.]+/[A-Za-z\d-_\.]+/(?:tree|blob)/[A-Za-z\d-_\.]+)(?:[\?#/].*)?$",
             ErrorMessage = "Invalid PR number / link / branch")]
         public string InputPROrBranch { get; set; }
+
+        public NewJobType JobType { get; set; }
 
         public bool MentionPrOnTrackingIssue { get; set; } = true;
         public bool RunOnHetzner { get; set; }
@@ -214,6 +262,10 @@
         public bool IncludeNewMethodRegressions { get; set; }
         public bool IncludeRemovedMethodImprovements { get; set; }
 
+        public string BenchmarkFilter { get; set; }
+        public string CompareLink { get; set; }
+        public string FuzzPattern { get; set; }
+
         [RegularExpression(@"^\d{1,8}(?:,\d{1,8})*$", ErrorMessage = "Must be a comma-separated list of PR numbers")]
         public string DependsOn { get; set; }
 
@@ -223,16 +275,19 @@
         public string CustomArguments { get; set; }
 
         public string Arguments =>
+            (JobType == NewJobType.Benchmark ? $"benchmark {BenchmarkFilter} " + (string.IsNullOrEmpty(CompareLink) ? "" : $"{CompareLink} ") : "") +
+            (JobType == NewJobType.Fuzz ? $"fuzz {FuzzPattern} " : "") +
+            (JobType == NewJobType.RegexDiff ? "regexdiff " : "") +
             (MentionPrOnTrackingIssue ? "" : "-NoPRLink ") +
             (FastJob ? "-fast " : "") +
             (RunOnArm ? "-arm " : "") +
-            (RunCctors ? "" : "-nocctors ") +
-            (RunTier0 ? "-tier0 " : "") +
-            (IncludeKnownNoise ? "-includeKnownNoise " : "") +
+            (RunCctors || JobType != NewJobType.JitDiff ? "" : "-nocctors ") +
+            (RunTier0 && JobType == NewJobType.JitDiff ? "-tier0 " : "") +
+            (IncludeKnownNoise && JobType == NewJobType.JitDiff ? "-includeKnownNoise " : "") +
             (RunOnHetzner ? "-hetzner " : "") +
             (RunOnIntel ? "-intel " : "") +
-            (IncludeNewMethodRegressions ? "-includeNewMethodRegressions " : "") +
-            (IncludeRemovedMethodImprovements ? "-includeRemovedMethodImprovements " : "") +
+            (IncludeNewMethodRegressions && JobType == NewJobType.JitDiff ? "-includeNewMethodRegressions " : "") +
+            (IncludeRemovedMethodImprovements && JobType == NewJobType.JitDiff ? "-includeRemovedMethodImprovements " : "") +
             (string.IsNullOrEmpty(DependsOn) ? "" : $"-dependsOn {DependsOn} ") +
             (string.IsNullOrEmpty(CombineWith) ? "" : $"-combineWith {CombineWith} ") +
             CustomArguments;
@@ -327,10 +382,37 @@
 
         try
         {
+            if (_selectedJobType == NewJobType.Benchmark && string.IsNullOrWhiteSpace(_newJob.BenchmarkFilter))
+            {
+                _submittingJobError = "Benchmark filter is required";
+                return;
+            }
+            if (_selectedJobType == NewJobType.Fuzz && string.IsNullOrWhiteSpace(_newJob.FuzzPattern))
+            {
+                _submittingJobError = "Fuzzer name pattern is required";
+                return;
+            }
+
             string prOrBranch = _newJob.InputPROrBranch;
             JobBase newJob;
 
-            if (GitHubHelper.TryParseIssueOrPRNumber(prOrBranch, out int prNumber))
+            if (string.IsNullOrWhiteSpace(prOrBranch))
+            {
+                if (_selectedJobType != NewJobType.Benchmark || string.IsNullOrWhiteSpace(_newJob.CompareLink))
+                {
+                    _submittingJobError = "PR number/link or branch is required";
+                    return;
+                }
+
+                if (OperatingSystem.IsWindows())
+                {
+                    _submittingJobError = $"Benchmark with compare link";
+                    return;
+                }
+
+                newJob = runtimeUtils.StartBenchmarkJob(_githubUserLogin, _newJob.Arguments, comment: null);
+            }
+            else if (GitHubHelper.TryParseIssueOrPRNumber(prOrBranch, out int prNumber))
             {
                 PullRequest pullRequest;
                 try
@@ -349,7 +431,7 @@
                     return;
                 }
 
-                newJob = runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, _newJob.Arguments, comment: null);
+                newJob = StartJob(pullRequest, _newJob.Arguments);
             }
             else
             {
@@ -365,7 +447,7 @@
                     return;
                 }
 
-                newJob = runtimeUtils.StartJitDiffJob(branch, _githubUserLogin, _newJob.Arguments);
+                newJob = StartJob(branch, _newJob.Arguments);
             }
 
             Navigation.NavigateTo(newJob.ProgressDashboardUrl, forceLoad: true);
@@ -379,6 +461,22 @@
             _submittingJob = false;
         }
     }
+
+    private JobBase StartJob(PullRequest pullRequest, string arguments) => _selectedJobType switch
+    {
+        NewJobType.Benchmark => runtimeUtils.StartBenchmarkJob(pullRequest, _githubUserLogin, arguments, comment: null),
+        NewJobType.Fuzz => runtimeUtils.StartFuzzLibrariesJob(pullRequest, _githubUserLogin, arguments, comment: null),
+        NewJobType.RegexDiff => runtimeUtils.StartRegexDiffJob(pullRequest, _githubUserLogin, arguments, comment: null),
+        _ => runtimeUtils.StartJitDiffJob(pullRequest, _githubUserLogin, arguments, comment: null),
+    };
+
+    private JobBase StartJob(BranchReference branch, string arguments) => _selectedJobType switch
+    {
+        NewJobType.Benchmark => runtimeUtils.StartBenchmarkJob(branch, _githubUserLogin, arguments),
+        NewJobType.Fuzz => runtimeUtils.StartFuzzLibrariesJob(branch, _githubUserLogin, arguments),
+        NewJobType.RegexDiff => runtimeUtils.StartRegexDiffJob(branch, _githubUserLogin, arguments),
+        _ => runtimeUtils.StartJitDiffJob(branch, _githubUserLogin, arguments),
+    };
 
     public void Dispose() => _cts.Cancel();
 }
