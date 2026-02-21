@@ -618,7 +618,7 @@ public sealed class DuplicatesCommand : CommandBase
     private static string FormatDuplicatesSummary(IssueInfo issue, (IssueInfo Issue, double Certainty, string Summary)[] duplicates, bool includeSummary = true)
     {
         return $"Duplicate issues for [{issue.Repository.FullName}#{issue.Number}](<{issue.HtmlUrl}>) - {issue.Title}:\n" +
-            string.Join('\n', duplicates.Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>){(includeSummary ? $"\n  - {r.Summary}" : null)}"));
+            string.Join('\n', duplicates.Where(d => d.Certainty >= 0.4).Take(10).Select(r => $"- ({r.Certainty:F2}) [#{r.Issue.Number} - {r.Issue.Title}](<{r.Issue.HtmlUrl}>){(includeSummary ? $"\n  - {r.Summary}" : null)}"));
     }
 
     private async Task RunDuplicateDetectionBacktestAsync(string repoName, int count, bool fromPosted, CommandContext ctx)
