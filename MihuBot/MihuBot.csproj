@@ -15,7 +15,7 @@
   <ItemGroup>
     <PackageReference Include="AspNet.Security.OAuth.Discord" Version="10.0.0" />
     <PackageReference Include="AspNet.Security.OAuth.GitHub" Version="10.0.0" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.5.0-beta.1" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.8.0-beta.1" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.4.0" />
     <PackageReference Include="Azure.Identity" Version="1.17.1" />
     <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.4.0" />
@@ -28,9 +28,9 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.3.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="10.3.0" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="2.0.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.66.0-preview" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.Qdrant" Version="1.72.0-preview" />
     <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.72.0" />
-    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.4.0-preview.2" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.9.0-preview.1" />
     <PackageReference Include="Qdrant.Client" Version="1.17.0" />
     <PackageReference Include="System.Linq.Async" Version="7.0.0" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.73.0.4053" />
