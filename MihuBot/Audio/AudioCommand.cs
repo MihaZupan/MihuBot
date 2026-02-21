@@ -202,7 +202,7 @@ public sealed partial class AudioCommands : CommandBase
                             return;
                         }
 
-                        var page = await _spotifyClient.Playlists.GetItems(playlistId);
+                        var page = await _spotifyClient.Playlists.GetPlaylistItems(playlistId);
 
                         bool foundAny = false;
 
