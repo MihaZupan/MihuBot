@@ -7,33 +7,35 @@
 
 @if (_job is not null)
 {
-    <h1>
+    <h1 style="word-break: break-word;">
         <a href="@(_job.GitHubComment?.HtmlUrl ?? _job.TestedPROrBranchLink)">@_job.JobTitle.TruncateWithDotDotDot(80)</a>
-        @if (_completedJob is null)
-        {
+    </h1>
+    @if (_completedJob is null)
+    {
+        <div class="d-flex flex-wrap align-items-center mb-2">
             @if (_canCancelJob)
             {
-                <button class="btn btn-danger ml-3" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
+                <button class="btn btn-danger mr-2 mb-1" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
             }
             @if (_canViewCredentials)
             {
-                <small class="text-muted ml-3" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
+                <small class="text-muted mr-2 mb-1" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
             }
             @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
             {
-                <small class="text-muted ml-3" style="font-size: small">@remoteLogin</small>
+                <small class="text-muted mr-2 mb-1" style="font-size: small; overflow-wrap: break-word;">@remoteLogin</small>
 
                 @if (_job.ShouldDeleteVM)
                 {
-                    <button class="btn btn-danger ml-3" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
+                    <button class="btn btn-danger mr-2 mb-1" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
                 }
             }
-        }
-    </h1>
-    <div>For all the logs, see <a href="@_job.ProgressUrl">@_job.ProgressUrl</a></div>
+        </div>
+    }
+    <div>For all the logs, see <a href="@_job.ProgressUrl">here</a>.</div>
     @if (_job.TrackingIssue is not null)
     {
-        <div>Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
+        <div style="overflow-wrap: break-word;">Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
     }
 
     @if (_completedJob is not null)
@@ -53,12 +55,12 @@
         var memoryUsageWidth = $"{info.MemoryUsagePercentage}%";
 
         <div>@cpuUsageCaption</div>
-        <div class="progress" style="width: 25%">
+        <div class="progress" style="max-width: 400px;">
             <div class="progress-bar" role="progressbar" style="width: @cpuUsageWidth"></div>
         </div>
 
         <div>@memoryUsageCaption</div>
-        <div class="progress" style="width: 25%">
+        <div class="progress" style="max-width: 400px;">
             <div class="progress-bar" role="progressbar" style="width: @memoryUsageWidth"></div>
         </div>
     }
@@ -70,8 +72,8 @@
         }
     </p>
 
-    <pre style="max-width: 98%; max-height: max(calc(95vh - 240px), 200px); overflow: hidden; display: flex; flex-direction: column-reverse;">
-        <code style="word-wrap: break-word">
+    <pre style="max-width: 98%; max-height: max(calc(95vh - 240px), 200px); overflow: hidden; display: flex; flex-direction: column-reverse; white-space: pre-wrap; word-break: break-word;">
+        <code>
             @foreach (string line in _lines)
             {
                 @line
@@ -82,15 +84,15 @@
 }
 else if (_completedJob is not null)
 {
-    <h1><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
+    <h1 style="word-break: break-word;"><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
     <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
     @if (_completedJob.TrackingIssueUrl is not null)
     {
-        <div>Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
+        <div style="overflow-wrap: break-word;">Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
     }
     @if ((_completedJob.LogsArtifactUrl ?? _completedJob.Artifacts?.FirstOrDefault(a => a.FileName == "logs.txt")?.Url) is { } logsUrl)
     {
-        <div>You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
+        <div style="overflow-wrap: break-word;">You can download the logs <a href="@logsUrl">here</a>@(_completedJob.Duration.TotalDays > 7 ? " (file may no longer exist)" : "").</div>
     }
     <br />
     @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)

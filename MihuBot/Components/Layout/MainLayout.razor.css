@@ -6,7 +6,12 @@
 
 main {
     flex: 1;
-    max-width: calc(100% - 240px)
+}
+
+@media (min-width: 641px) {
+    main {
+        max-width: calc(100% - 240px);
+    }
 }
 
 .sidebar {
