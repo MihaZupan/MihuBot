@@ -249,19 +249,13 @@ public sealed class DuplicatesCommand : CommandBase
 
                 bool plural = result.IssuesToReport.Length > 1;
 
-                bool autoPost = result.WouldAutoPost && automated;
-
-                string relationship = autoPost && await AreAllRelatedIssuesLikelyDuplicatesAsync(issue, [.. result.IssuesToReport.Select(i => i.Issue)], message?.CancellationToken ?? default)
-                    ? "duplicate"
-                    : "related and/or duplicate";
-
                 string ghComment =
                     $"""
-                    I'm a bot. Here {(plural ? "are" : "is a")} possible {relationship} issue{(plural ? "s" : "")} (I may be wrong):
+                    I'm a bot. Here {(plural ? "are" : "is a")} possible related and/or duplicate issue{(plural ? "s" : "")} (I may be wrong):
                     {string.Join('\n', result.IssuesToReport.Select(d => $"- {d.Issue.HtmlUrl}"))}
                     """;
 
-                if (autoPost)
+                if (result.WouldAutoPost && automated)
                 {
                     await PostGhCommentSummary(issue, ghComment);
                 }
@@ -776,48 +770,6 @@ public sealed class DuplicatesCommand : CommandBase
             await ctx.ReplyAsync($"{label} failed: {ex.Message}");
             await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: {label} error", ex);
         }
-    }
-
-    private async Task<bool> AreAllRelatedIssuesLikelyDuplicatesAsync(IssueInfo issue, IssueInfo[] candidates, CancellationToken cancellationToken)
-    {
-        try
-        {
-            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, secondary: true);
-
-            string issueJson = (await IssueInfoForPrompt.CreateAsync(issue, _db, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson();
-
-            string candidatesJson = string.Join("\n\n", await Task.WhenAll(candidates.Select(async c =>
-                (await IssueInfoForPrompt.CreateAsync(c, _db, cancellationToken, contextLimitForIssueBody: 4000, contextLimitForCommentBody: 2000)).AsJson())));
-
-            string prompt =
-                $"""
-                You are an assistant helping classify the relationship between GitHub issues.
-                You will be given a NEW issue and one or more CANDIDATE issues that have been identified as potential duplicates.
-
-                Determine whether the candidates are true duplicates (describing the same underlying problem) or not.
-                Respond with true if you are confident they describe the same problem, false otherwise.
-
-                NEW ISSUE:
-                ```json
-                {issueJson}
-                ```
-
-                CANDIDATE ISSUE(S):
-                ```json
-                {candidatesJson}
-                ```
-                """;
-
-            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
-
-            return response.Result;
-        }
-        catch (Exception ex)
-        {
-            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Error classifying duplicate vs related for issue <{issue.HtmlUrl}>: {ex.Message}");
-        }
-
-        return false;
     }
 
     private async Task<bool> IsLikelySpamOrUnfilledIssueAsync(IssueInfo issue, CancellationToken cancellationToken)
