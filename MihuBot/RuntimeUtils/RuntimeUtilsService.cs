@@ -14,6 +14,7 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed partial class RuntimeUtilsService : IHostedService
 {
+    // https://gist.github.com/MihaZupan/6bcaacbe025265aa457ea7bb9a4dbcae
     private const string UsageCommentMarkdown =
         """
         <details>
@@ -27,9 +28,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
             -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
 
             -arm                  Run on an ARM64 VM instead of X64.
-            -intel                Run on an Intel-based VM instead of an AMD-based one.
+            -intel                Run on an Intel-based VM instead of an AMD-based one (doesn't work with -helix).
             -fast                 Run on a more powerful VM to save a few minutes.
             -hetzner              Run on a Hetzner VM instead of Azure.
+            -helix                Run on a public Helix queue instead.
+            -queue <queueId>      Run on a specific Helix queue (requires that -helix also be set).
 
         Example:
             @MihuBot -arm -hetzner -combineWith #1000,#1001
