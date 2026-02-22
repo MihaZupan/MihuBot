@@ -296,9 +296,10 @@
     protected override async Task OnInitializedAsync()
     {
         if (authenticationState is not null &&
-            (await authenticationState).User.TryGetGitHubLogin(out _githubUserLogin))
+            (await authenticationState).User is { } user &&
+            user.TryGetGitHubLogin(out _githubUserLogin))
         {
-            _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions(_githubUserLogin);
+            _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions("dotnet", _githubUserLogin, (long)(user.GetGitHubUserId() ?? 0)) == true;
         }
 
         if (OperatingSystem.IsWindows() && runtimeUtils.GetAllActiveJobs().Length == 0)

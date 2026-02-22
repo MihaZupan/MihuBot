@@ -40,7 +40,7 @@ public sealed class JitDiffJob : JobBase
             Metadata.TryGetValue("BaseBranch", out string baseBranch) && baseBranch == "main" &&
             Metadata.TryGetValue("PrRepo", out string prRepo) &&
             Parent.CheckGitHubAdminPermissions(GithubCommenterLogin) &&
-            Parent.CheckGitHubAdminPermissions(prRepo.Split('/')[0]) &&
+            (prRepo == "dotnet/runtime" || Parent.CheckGitHubAdminPermissions(prRepo.Split('/')[0])) &&
             await TrySignalAvailableRunnerAsync())
         {
             await JobCompletionTcs.Task;

@@ -1,13 +1,14 @@
-﻿using Azure.Storage.Blobs;
+﻿using System.Text.RegularExpressions;
+using Azure.Storage.Blobs;
 using Markdig;
 using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Jobs;
 using Octokit;
-using System.Text.RegularExpressions;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -318,7 +319,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 }
 
                 if (comment.Body.Contains("@MihuBot", StringComparison.OrdinalIgnoreCase) &&
-                    comment.User.Type == AccountType.User &&
                     !comment.User.Login.Equals("MihuBot", StringComparison.OrdinalIgnoreCase) &&
                     _processedMentions.TryAdd(comment.Id) &&
                     TryExtractMihuBotArguments(comment.Body, out string arguments))
@@ -333,7 +333,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                         return;
                     }
 
-                    if (!CheckGitHubUserPermissions(comment.User.Login))
+                    if (!CheckGitHubCommenterPermissions(comment))
                     {
                         if (!comment.User.Login.Equals("msftbot", StringComparison.OrdinalIgnoreCase) &&
                             !comment.User.Login.Contains("dotnet-policy-service", StringComparison.OrdinalIgnoreCase))
@@ -763,8 +763,54 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return tcs?.TrySetResult(job.JobId) == true ? runnerId : null;
     }
 
-    public bool CheckGitHubUserPermissions(string userLogin) =>
-        ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", false);
+    public bool? CheckGitHubUserPermissions(string repositoryOwner, string userLogin, long userId)
+    {
+        if (string.IsNullOrWhiteSpace(repositoryOwner) ||
+            string.IsNullOrWhiteSpace(userLogin) ||
+            userId == 0 ||
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userId}", false) ||
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userLogin}", false))
+        {
+            return false;
+        }
+
+        if (ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", false) ||
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{repositoryOwner}.{userLogin}", false))
+        {
+            return true;
+        }
+
+        if (userId == GitHubDataIngestionService.CopilotUserId &&
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AllowCopilot.{repositoryOwner}", true))
+        {
+            return true;
+        }
+
+        if (CheckGitHubAdminPermissions(repositoryOwner))
+        {
+            return true;
+        }
+
+        return null;
+    }
+
+    public bool CheckGitHubCommenterPermissions(CommentInfo comment)
+    {
+        bool? result = CheckGitHubUserPermissions(comment.RepoOwner(), comment.User.Login, comment.UserId);
+
+        if (result.HasValue)
+        {
+            return result.Value;
+        }
+
+        if (comment.AuthorAssociation is AuthorAssociation.Owner or AuthorAssociation.Member or AuthorAssociation.Collaborator &&
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AllowCollaborators.{comment.RepoOwner()}", true))
+        {
+            return true;
+        }
+
+        return false;
+    }
 
     public bool CheckGitHubAdminPermissions(string userLogin) =>
         ConfigurationService.GetOrDefault(null, $"RuntimeUtils.Admin.{userLogin}", false);

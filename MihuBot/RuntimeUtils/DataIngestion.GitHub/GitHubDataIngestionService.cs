@@ -1652,7 +1652,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
             if ("MEMBER".Equals(association, StringComparison.OrdinalIgnoreCase)) return AuthorAssociation.Member;
             if ("NONE".Equals(association, StringComparison.OrdinalIgnoreCase)) return AuthorAssociation.None;
             if ("OWNER".Equals(association, StringComparison.OrdinalIgnoreCase)) return AuthorAssociation.Owner;
-            return default;
+            return AuthorAssociation.None;
         }
 
         private static MergeableState ParseMergeableState(string state)
@@ -1660,7 +1660,7 @@ public sealed class GitHubDataIngestionService : BackgroundService
             if ("CONFLICTING".Equals(state, StringComparison.OrdinalIgnoreCase)) return MergeableState.Dirty;
             if ("MERGEABLE".Equals(state, StringComparison.OrdinalIgnoreCase)) return MergeableState.Clean;
             if ("UNKNOWN".Equals(state, StringComparison.OrdinalIgnoreCase)) return MergeableState.Unknown;
-            return default;
+            return MergeableState.Unstable;
         }
     }
 }
