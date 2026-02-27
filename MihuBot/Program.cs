@@ -61,7 +61,7 @@ try
     if (ProgramState.AzureEnabled)
     {
         ProgramState.AzureCredential = OperatingSystem.IsLinux()
-            ? new ManagedIdentityCredential()
+            ? new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned)
             : new AzureCliCredential();
 
         builder.Configuration.AddAzureKeyVault(
