@@ -174,11 +174,18 @@ public sealed partial class GitHubNotificationsService
                         new InMemoryCredentialStore(user.Token),
                         _http);
 
-                    await connection.EnableIssueNotifiactionsAsync(comment.Issue.Id);
+                    try
+                    {
+                        await connection.EnableIssueNotifiactionsAsync(comment.Issue.Id);
+
+                        _logger.DebugLog($"Enabled notifications on {comment.Issue.HtmlUrl} for {user.Name}");
+                    }
+                    catch (Exception ex) when (ex.Message.Contains("Could not resolve to a node with the global id", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.DebugLog($"Failed to enable notifications on {comment.HtmlUrl} for {user.Name} due to issue transfer: {ex}");
+                    }
 
                     _processedMentions.TryAdd(duplicationKey);
-
-                    _logger.DebugLog($"Enabled notifications on {comment.Issue.HtmlUrl} for {user.Name}");
                 }
                 catch (Exception ex)
                 {
