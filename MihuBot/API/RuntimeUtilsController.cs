@@ -154,15 +154,27 @@ public sealed class RuntimeUtilsController : ControllerBase
     }
 
     [HttpGet("Jobs/AnnounceRunner")]
-    public async Task<IActionResult> AnnounceJobRunner([FromQuery] string jobType, [FromQuery] string runnerId)
+    public async Task<IActionResult> AnnounceJobRunner(
+        [FromQuery] string jobType,
+        [FromQuery] string runnerId,
+        [FromQuery] string os,
+        [FromQuery] string architecture,
+        [FromQuery] string baseRepo,
+        [FromQuery] string baseBranch)
     {
         if (string.IsNullOrWhiteSpace(jobType) ||
             string.IsNullOrWhiteSpace(runnerId) ||
+            string.IsNullOrWhiteSpace(os) ||
+            string.IsNullOrWhiteSpace(architecture) ||
+            string.IsNullOrWhiteSpace(baseRepo) ||
+            string.IsNullOrWhiteSpace(baseBranch) ||
             !_jobs.ConfigurationService.TryGet(null, $"RuntimeUtils.RunnerAnnounceToken.{runnerId}", out string expectedToken) ||
             !ManagementController.CheckToken(Request.Headers, "X-Runner-Announce-Token", expectedToken))
         {
             return NotFound();
         }
+
+        var capabilities = new RunnerCapabilities(jobType, os, architecture, baseRepo, baseBranch);
 
         if (HttpContext.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } dataRateFeature)
         {
@@ -174,6 +186,6 @@ public sealed class RuntimeUtilsController : ControllerBase
             timeoutFeature.DisableTimeout();
         }
 
-        return new JsonResult(await _jobs.AnnounceRunnerAsync(runnerId, jobType, HttpContext.RequestAborted));
+        return new JsonResult(await _jobs.AnnounceRunnerAsync(runnerId, capabilities, HttpContext.RequestAborted));
     }
 }

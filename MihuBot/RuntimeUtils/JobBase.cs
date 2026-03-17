@@ -187,6 +187,16 @@ public abstract class JobBase
 
     public bool IsFromAdmin => Parent.CheckGitHubAdminPermissions(GithubCommenterLogin);
 
+    public virtual RunnerCapabilities GetRequiredRunnerCapabilities()
+    {
+        string jobType = GetType().Name;
+        string os = UseWindows ? "windows" : "linux";
+        string arch = UseArm ? "arm64" : "x64";
+        Metadata.TryGetValue("BaseRepo", out string baseRepo);
+        Metadata.TryGetValue("BaseBranch", out string baseBranch);
+        return new RunnerCapabilities(jobType, os, arch, baseRepo ?? "", baseBranch ?? "");
+    }
+
     protected bool ShouldMentionJobInitiator { get; set; }
 
     protected bool GetConfigFlag(string name, bool @default)
@@ -827,6 +837,23 @@ public abstract class JobBase
 
     protected async Task<bool> TrySignalAvailableRunnerAsync()
     {
+        if (UseHetzner || UseHelix)
+        {
+            return false;
+        }
+
+        if (!IsFromAdmin)
+        {
+            return false;
+        }
+
+        if (Metadata.TryGetValue("PrRepo", out string prRepo) &&
+            prRepo != Metadata.GetValueOrDefault("BaseRepo") &&
+            !Parent.CheckGitHubAdminPermissions(prRepo.Split('/')[0]))
+        {
+            return false;
+        }
+
         Log("Checking for available runners");
 
         string runnerId;

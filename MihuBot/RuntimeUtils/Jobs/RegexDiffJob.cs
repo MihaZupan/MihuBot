@@ -27,7 +27,14 @@ public sealed partial class RegexDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
+        if (await TrySignalAvailableRunnerAsync())
+        {
+            await JobCompletionTcs.Task;
+        }
+        else
+        {
+            await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
+        }
 
         string resultsMarkdown = string.Empty;
 

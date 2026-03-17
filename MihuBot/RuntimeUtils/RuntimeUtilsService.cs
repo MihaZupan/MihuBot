@@ -126,7 +126,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         """;
 
     private readonly Dictionary<string, JobBase> _jobs = new(StringComparer.Ordinal);
-    private readonly List<(string RunnerId, string JobType, TaskCompletionSource<string> RunnerAnnounceTCS)> _availableRunners = [];
+    private readonly List<(string RunnerId, RunnerCapabilities Capabilities, TaskCompletionSource<string> RunnerAnnounceTCS)> _availableRunners = [];
     private readonly FileBackedHashSet _processedMentions = new("ProcessedMentionComments.txt");
 
     private static readonly MarkdownPipeline s_precisePipeline = new MarkdownPipelineBuilder()
@@ -707,13 +707,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    public async Task<string> AnnounceRunnerAsync(string runnerId, string jobType, CancellationToken cancellationToken)
+    public async Task<string> AnnounceRunnerAsync(string runnerId, RunnerCapabilities capabilities, CancellationToken cancellationToken)
     {
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         lock (_availableRunners)
         {
-            _availableRunners.Add((runnerId, jobType, tcs));
+            _availableRunners.Add((runnerId, capabilities, tcs));
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -723,7 +723,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             try
             {
-                Logger.DebugLog($"Runner {runnerId} announced for job type {jobType}");
+                Logger.DebugLog($"Runner {runnerId} announced ({capabilities})");
                 string jobId = await tcs.Task;
                 Logger.DebugLog($"Runner {runnerId} got signaled");
                 return jobId;
@@ -745,7 +745,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public string TrySignalAvailableRunner(JobBase job)
     {
-        string jobType = job.GetType().Name;
+        RunnerCapabilities required = job.GetRequiredRunnerCapabilities();
 
         TaskCompletionSource<string> tcs = null;
         string runnerId = null;
@@ -754,7 +754,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         {
             _availableRunners.RemoveAll(static entry => entry.RunnerAnnounceTCS.Task.IsCompleted);
 
-            int idx = _availableRunners.FindIndex(entry => entry.JobType == jobType);
+            int idx = _availableRunners.FindIndex(entry => required.IsCompatibleWith(entry.Capabilities));
             if (idx >= 0)
             {
                 tcs = _availableRunners[idx].RunnerAnnounceTCS;
