@@ -301,7 +301,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
                 foreach (CommentInfo comment in comments)
                 {
-                    if (comment.RepoOwner() == "dotnet" && comment.RepoName() is "runtime" or "yarp")
+                    if (IsDotnetRuntimeRepo(comment) || IsDotnetYarpRepo(comment))
                     {
                         await ProcessCommentAsync(comment);
                     }
@@ -312,6 +312,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 Logger.DebugLog($"Failure while polling for mentions: {ex}");
             }
         }
+
+        bool IsDotnetRuntimeRepo(CommentInfo comment) =>
+            (comment.RepoOwner() == "dotnet" && comment.RepoName() == "runtime") ||
+            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.WatchRuntimeMentions.{comment.Issue.Repository.FullName}", false);
+
+        bool IsDotnetYarpRepo(CommentInfo comment) =>
+            comment.RepoOwner() == "dotnet" && comment.RepoName() == "yarp";
 
         async Task ProcessCommentAsync(CommentInfo comment)
         {
@@ -356,18 +363,18 @@ public sealed partial class RuntimeUtilsService : IHostedService
                     {
                         PullRequest pullRequest = await Github.PullRequest.Get(comment.Issue.RepositoryId, comment.Issue.Number);
 
-                        if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "runtime")
+                        if (IsDotnetRuntimeRepo(comment))
                         {
                             await ProcessMihuBotDotnetRuntimeMention(comment, arguments, pullRequest);
                         }
-                        else if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "yarp")
+                        else if (IsDotnetYarpRepo(comment))
                         {
                             await ProcessMihuBotYarpMention(comment, arguments, pullRequest);
                         }
                     }
                     else
                     {
-                        if (comment.RepoOwner() == "dotnet" && comment.RepoName() == "runtime")
+                        if (IsDotnetRuntimeRepo(comment))
                         {
                             await ProcessMihuBotDotnetRuntimeIssueMention(comment, arguments);
                         }
