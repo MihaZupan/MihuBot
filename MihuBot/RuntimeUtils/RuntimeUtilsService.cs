@@ -2,6 +2,7 @@
 using Azure.Storage.Blobs;
 using Markdig;
 using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
@@ -497,6 +498,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 if (document.FindBlockAtPosition(offset) is not { } block)
                 {
                     candidateOffset = offset;
+                    continue;
+                }
+
+                if (block.Descendants<CodeInline>()
+                    .Any(ci => ci.Span.Start <= offset && ci.Span.End >= offset))
+                {
                     continue;
                 }
 
