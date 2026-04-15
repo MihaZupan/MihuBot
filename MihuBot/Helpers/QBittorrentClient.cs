@@ -88,6 +88,6 @@ public sealed class QBittorrentClient
         string DownloadPath, string SavePath,
         long NbConnections, long NbConnectionsLimit,
         long Peers, long PeersTotal, long PieceSize, long PiecesHave, long PiecesNum,
-        long Popularity, long SeedingTime, long Seeds, long SeedsTotal, double ShareRatio,
+        double Popularity, long SeedingTime, long Seeds, long SeedsTotal, double ShareRatio,
         long TotalDownloaded, long TotalDownloadedSession, long TotalSize, long TotalUploaded, long TotalUploadedSession, long TotalWasted);
 }
