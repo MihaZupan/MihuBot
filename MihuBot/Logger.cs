@@ -976,7 +976,7 @@ public sealed partial class Logger
         public static RoleModel FromSocketRole(SocketRole role) => new RoleModel()
         {
             Id = role.Id,
-            Color = role.Color,
+            Color = role.Colors.PrimaryColor,
             IsHoisted = role.IsHoisted,
             IsManaged = role.IsManaged,
             IsMentionable = role.IsMentionable,
