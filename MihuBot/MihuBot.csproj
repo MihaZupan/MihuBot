@@ -9,7 +9,7 @@
     <SelfContained>true</SelfContained>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-    <NoWarn>$(NoWarn);NU1903;OPENAI001</NoWarn>
+    <NoWarn>$(NoWarn);NU1903;OPENAI001;CS9361</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

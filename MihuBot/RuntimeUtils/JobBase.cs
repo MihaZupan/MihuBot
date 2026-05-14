@@ -837,7 +837,7 @@ public abstract class JobBase
 
     protected async Task<bool> TrySignalAvailableRunnerAsync()
     {
-        if (UseHetzner || UseHelix)
+        if (UseHetzner || UseHelix || CustomArguments.Contains("-NoPreparedRunner", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }

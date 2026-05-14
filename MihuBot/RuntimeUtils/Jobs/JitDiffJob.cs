@@ -35,7 +35,9 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        if (await TrySignalAvailableRunnerAsync())
+        if (!CustomArguments.Contains("-nuget", StringComparison.OrdinalIgnoreCase) &&
+            !CustomArguments.Contains("-jitutils", StringComparison.OrdinalIgnoreCase) &&
+            await TrySignalAvailableRunnerAsync())
         {
             await JobCompletionTcs.Task;
         }
