@@ -206,6 +206,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             {
                 _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
                 _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
+                _ = Task.Run(StartNuGetExtraAssembliesJobsAsync, CancellationToken.None);
                 _ = Task.Run(WatchForNegativeMihuBotCommentSentimentAsync, CancellationToken.None);
             }
         }
@@ -254,6 +255,30 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 {
                     await Logger.DebugAsync(nameof(StartCoreRootGenerationJobsAsync), ex);
                 }
+            }
+        }
+    }
+
+    private async Task StartNuGetExtraAssembliesJobsAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromDays(7));
+
+        while (await timer.WaitForNextTickAsync())
+        {
+            try
+            {
+                if (GetAllActiveJobs().Any(j => j is NuGetExtraAssembliesJob))
+                {
+                    Logger.DebugLog("Skipping NuGetExtraAssemblies job, one is already running");
+                }
+                else
+                {
+                    StartNuGetExtraAssembliesJob("MihuBot", "-automated");
+                }
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync(nameof(StartNuGetExtraAssembliesJobsAsync), ex);
             }
         }
     }
@@ -665,6 +690,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public JobBase StartCoreRootGenerationJob(string githubCommenterLogin, string arguments) =>
         StartJobCore(new CoreRootGenerationJob(this, githubCommenterLogin, arguments));
+
+    public JobBase StartNuGetExtraAssembliesJob(string githubCommenterLogin, string arguments) =>
+        StartJobCore(new NuGetExtraAssembliesJob(this, githubCommenterLogin, arguments));
 
     public JobBase StartJobCore(JobBase job)
     {

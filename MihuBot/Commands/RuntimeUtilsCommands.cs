@@ -10,7 +10,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
     private readonly RuntimeUtilsService _runtimeUtilsService;
 
     public override string Command => "cancel";
-    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff", "backport", "corerootgen"];
+    public override string[] Aliases => ["fuzz", "benchmark", "rebase", "merge", "format", "regexdiff", "backport", "corerootgen", "nugetextra"];
 
     public RuntimeUtilsCommands(GitHubClient github, RuntimeUtilsService runtimeUtilsService)
     {
@@ -44,7 +44,7 @@ public sealed class RuntimeUtilsCommands : CommandBase
             return;
         }
 
-        int minArgs = ctx.Command == "corerootgen" ? 0 : 1;
+        int minArgs = ctx.Command is "corerootgen" or "nugetextra" ? 0 : 1;
 
         const string Initiator = "MihaZupan";
         string arguments = $"{ctx.Command} {string.Join(' ', ctx.Arguments.Skip(minArgs)).Trim()} -NoPRLink";
@@ -52,6 +52,12 @@ public sealed class RuntimeUtilsCommands : CommandBase
         if (ctx.Command == "corerootgen")
         {
             await ctx.ReplyAsync(_runtimeUtilsService.StartCoreRootGenerationJob(Initiator, arguments).ProgressDashboardUrl);
+            return;
+        }
+
+        if (ctx.Command == "nugetextra")
+        {
+            await ctx.ReplyAsync(_runtimeUtilsService.StartNuGetExtraAssembliesJob(Initiator, arguments).ProgressDashboardUrl);
             return;
         }
 
