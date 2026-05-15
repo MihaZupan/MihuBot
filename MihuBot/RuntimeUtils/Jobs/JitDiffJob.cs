@@ -42,7 +42,8 @@ public sealed class JitDiffJob : JobBase
         }
         else
         {
-            await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 16, jobTimeout);
+            int coreCount = CustomArguments.Contains("-nuget", StringComparison.OrdinalIgnoreCase) ? 32 : 16;
+            await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: coreCount, jobTimeout);
         }
 
         LastSystemInfo = null;
