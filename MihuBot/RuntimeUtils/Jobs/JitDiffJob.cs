@@ -35,14 +35,17 @@ public sealed class JitDiffJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        if (!CustomArguments.Contains("-jitutils", StringComparison.OrdinalIgnoreCase) &&
+        bool nuget = CustomArguments.Contains("-nuget", StringComparison.OrdinalIgnoreCase);
+
+        if (!nuget &&
+            !CustomArguments.Contains("-jitutils", StringComparison.OrdinalIgnoreCase) &&
             await TrySignalAvailableRunnerAsync())
         {
             await JobCompletionTcs.Task;
         }
         else
         {
-            int coreCount = CustomArguments.Contains("-nuget", StringComparison.OrdinalIgnoreCase) ? 32 : 16;
+            int coreCount = nuget ? 32 : 16;
             await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: coreCount, jobTimeout);
         }
 
