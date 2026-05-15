@@ -2,6 +2,9 @@
 
 public sealed class NuGetExtraAssembliesJob : JobBase
 {
+    public const string FullBlobName = "nuget-extra-assemblies.zip";
+    public const string SubsetBlobName = "nuget-extra-assemblies-subset.zip";
+
     public override string JobTitlePrefix => "NuGetExtraAssemblies";
 
     public NuGetExtraAssembliesJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
@@ -24,9 +27,9 @@ public sealed class NuGetExtraAssembliesJob : JobBase
 
     protected override async Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken)
     {
-        if (fileName == "nuget-extra-assemblies.zip")
+        if (fileName is FullBlobName or SubsetBlobName)
         {
-            string tempPath = Path.Combine(Path.GetTempPath(), $"NuGetExtraAssemblies_{ExternalId}.zip");
+            string tempPath = Path.Combine(Path.GetTempPath(), $"NuGetExtraAssemblies_{ExternalId}_{fileName}");
             try
             {
                 using (FileStream tempFs = File.Create(tempPath))

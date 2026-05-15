@@ -26,9 +26,14 @@ public sealed class JitDiffJob : JobBase
 
     protected override Task InitializeAsync(CancellationToken jobTimeout)
     {
-        var blobClient = Parent.JitDiffExtraAssembliesBlobContainerClient.GetBlobClient("nuget-extra-assemblies.zip");
-        Uri sasUri = blobClient.GenerateSasUri(BlobSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
-        Metadata.Add("JitDiffExtraAssembliesUrl", sasUri.AbsoluteUri);
+        var container = Parent.JitDiffExtraAssembliesBlobContainerClient;
+        var expiry = DateTimeOffset.UtcNow.Add(MaxJobDuration);
+
+        var blobClient = container.GetBlobClient(NuGetExtraAssembliesJob.FullBlobName);
+        Metadata.Add("JitDiffExtraAssembliesUrl", blobClient.GenerateSasUri(BlobSasPermissions.Read, expiry).AbsoluteUri);
+
+        var subsetBlobClient = container.GetBlobClient(NuGetExtraAssembliesJob.SubsetBlobName);
+        Metadata.Add("JitDiffExtraAssembliesSubsetUrl", subsetBlobClient.GenerateSasUri(BlobSasPermissions.Read, expiry).AbsoluteUri);
 
         return Task.CompletedTask;
     }
