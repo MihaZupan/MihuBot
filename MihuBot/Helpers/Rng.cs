@@ -1,6 +1,6 @@
-﻿using System.Numerics;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+﻿using System.Buffers;
+using System.Numerics;
+using System.Numerics.Tensors;
 using System.Security.Cryptography;
 
 namespace MihuBot.Helpers;
@@ -21,42 +21,25 @@ public static class Rng
 
     public static int FlipCoins(int count)
     {
-        if (count < 0)
-            throw new ArgumentOutOfRangeException(nameof(count), "Must be > 0");
-
-        const int StackallocSize = 1024;
-        const int SizeAsUlong = StackallocSize / 8;
+        ArgumentOutOfRangeException.ThrowIfNegative(count, nameof(count));
 
         int heads = 0;
 
-        Span<byte> memory = stackalloc byte[StackallocSize];
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(Math.Min(count / 8, 1024 * 1024));
 
-        while (count >= 64)
+        while (count >= 8)
         {
-            RandomNumberGenerator.Fill(memory);
-
-            Span<ulong> memoryAsLongs = MemoryMarshal.CreateSpan(
-                ref Unsafe.As<byte, ulong>(ref MemoryMarshal.GetReference(memory)),
-                Math.Min(SizeAsUlong, count >> 6));
-
-            foreach (ulong e in memoryAsLongs)
-                heads += BitOperations.PopCount(e);
-
-            count -= memoryAsLongs.Length << 6;
+            Span<byte> slice = buffer.AsSpan(0, Math.Min(buffer.Length, count / 8));
+            RandomNumberGenerator.Fill(slice);
+            heads += (int)TensorPrimitives.PopCount(slice);
+            count -= slice.Length * 8;
         }
+
+        ArrayPool<byte>.Shared.Return(buffer);
 
         if (count > 0)
         {
-            RandomNumberGenerator.Fill(memory.Slice(0, (count + 7) >> 3));
-
-            foreach (byte b in memory.Slice(0, count >> 3))
-                heads += BitOperations.PopCount(b);
-
-            if ((count & 7) != 0)
-            {
-                uint lastBits = memory[count >> 3] & ((1u << (count & 7)) - 1);
-                heads += BitOperations.PopCount(lastBits);
-            }
+            heads += BitOperations.PopCount((uint)RandomNumberGenerator.GetInt32(1 << count));
         }
 
         return heads;

@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
 namespace MihuBot.Data;
@@ -70,18 +69,5 @@ public class ManagementController : ControllerBase
     public static bool CheckToken(IHeaderDictionary headers, string headerName, string expected) =>
         headers.TryGetValue(headerName, out StringValues actual) &&
         actual.Count == 1 &&
-        CheckToken(expected, actual.ToString());
-
-    public static bool CheckToken(string expected, string actual)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(expected);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 1000);
-
-        if (actual is null || expected.Length != actual.Length)
-            return false;
-
-        return CryptographicOperations.FixedTimeEquals(
-            MemoryMarshal.Cast<char, byte>(expected),
-            MemoryMarshal.Cast<char, byte>(actual));
-    }
+        CryptographicOperations.FixedTimeEquals(expected, actual);
 }

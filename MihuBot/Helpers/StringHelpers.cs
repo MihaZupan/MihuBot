@@ -2,6 +2,7 @@
 using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 
 #nullable enable
@@ -113,16 +114,19 @@ public static class StringHelpers
         return source.AsSpan(index + 1).Trim().ToString();
     }
 
+    [InlineArray(64)]
+    private struct SHA512Buffer { private byte _b; }
+
     public static string GetUtf8Sha3_512HashBase64Url(this string text)
     {
-        Span<byte> hash = stackalloc byte[SHA3_512.HashSizeInBytes];
+        SHA512Buffer hash = default;
         ComputeHash(text, hash);
         return Base64Url.EncodeToString(hash);
     }
 
     public static Guid GetTruncatedContentHash(this string content)
     {
-        Span<byte> hash = stackalloc byte[SHA3_512.HashSizeInBytes];
+        SHA512Buffer hash = default;
         ComputeHash(content, hash);
         return new Guid(hash[..16], bigEndian: false);
     }

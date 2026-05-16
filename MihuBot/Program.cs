@@ -401,7 +401,7 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
         static bool IsDebugMode(HttpContext context) =>
             context.User.IsAdmin() ||
             (context.Request.Query.TryGetValue("debug", out var value) &&
-            ManagementController.CheckToken(DebugHash, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))));
+            CryptographicOperations.FixedTimeEquals(DebugHash, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))));
 
         app.UseWhen(IsDebugMode,
             app => app.UseDeveloperExceptionPage());
@@ -464,10 +464,9 @@ static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
     {
         var config = context.RequestServices.GetRequiredService<IConfigurationService>();
 
-        if (!context.Request.Headers.TryGetValue(HeaderNames.Authorization, out var token) || token.Count != 1 ||
-            !context.Request.Query.TryGetValue("host", out var host) || host.Count != 1 ||
+        if (!context.Request.Query.TryGetValue("host", out var host) || host.Count != 1 ||
             !config.TryGet(null, $"YarpTunnelAuth.{host}", out string expectedAuthorization) ||
-            !ManagementController.CheckToken(expectedAuthorization, token.ToString()))
+            !ManagementController.CheckToken(context.Request.Headers, HeaderNames.Authorization, expectedAuthorization))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return Task.CompletedTask;

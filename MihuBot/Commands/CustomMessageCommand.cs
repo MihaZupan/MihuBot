@@ -43,7 +43,7 @@ public sealed class CustomMessageCommand : CommandBase
             }
             else
             {
-                string message = ctx.Content.AsSpan(lines[0].Length + 1).Trim(stackalloc char[] { ' ', '\t', '\r', '\n' }).ToString();
+                string message = ctx.Content.AsSpan(lines[0].Length + 1).Trim([' ', '\t', '\r', '\n']).ToString();
 
                 if (ctx.Command == "regionalmsg")
                 {

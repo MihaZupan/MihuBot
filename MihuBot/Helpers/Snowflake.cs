@@ -1,6 +1,7 @@
 ﻿using System.Buffers;
 using System.Buffers.Binary;
 using System.Buffers.Text;
+using System.Runtime.CompilerServices;
 
 namespace MihuBot.Helpers;
 
@@ -29,16 +30,15 @@ public static class Snowflake
 
     public static string GetString(ulong snowflake)
     {
-        Span<byte> buffer = stackalloc byte[sizeof(ulong)];
+        InlineArray8<byte> buffer = default;
         BinaryPrimitives.WriteUInt64BigEndian(buffer, snowflake);
 
-        return Base64Url.EncodeToString(buffer.TrimEnd((byte)0));
+        return Base64Url.EncodeToString(((ReadOnlySpan<byte>)buffer).TrimEnd((byte)0));
     }
 
     public static bool TryGetFromString(ReadOnlySpan<char> snowflakeString, out ulong snowflake)
     {
-        Span<byte> buffer = stackalloc byte[sizeof(ulong)];
-        buffer.Clear();
+        InlineArray8<byte> buffer = default;
 
         OperationStatus status = Base64Url.DecodeFromChars(snowflakeString, buffer, out int charsConsumed, out int bytesWritten);
 

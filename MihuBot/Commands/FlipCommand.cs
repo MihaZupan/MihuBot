@@ -28,11 +28,17 @@ public sealed class FlipCommand : CommandBase
 
             await ctx.ReplyAsync(choice, mention: true);
         }
-        else if (ctx.Arguments.Length > 0 && int.TryParse(ctx.Arguments[0], out int count) && count > 0)
+        else if (ctx.Arguments.Length > 0 && int.TryParse(ctx.Arguments[0], out int count))
         {
-            count = Math.Min(1024, count);
-            int heads = Rng.FlipCoins(count);
-            await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
+            if (count is <= 0 or > 10_000_000)
+            {
+                await ctx.ReplyAsync("No");
+            }
+            else
+            {
+                int heads = Rng.FlipCoins(count);
+                await ctx.ReplyAsync($"Heads: {heads}, Tails {count - heads}", mention: true);
+            }
         }
         else
         {

@@ -1,6 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
+using Microsoft.AspNetCore.Mvc;
 
 namespace MihuBot.Data;
 
@@ -23,7 +22,7 @@ public class ManagementController(IConfiguration configuration) : ControllerBase
             return Unauthorized();
         }
 
-        if (!CheckToken(_updateToken, updateToken))
+        if (!CryptographicOperations.FixedTimeEquals(_updateToken, updateToken))
         {
             return Unauthorized();
         }
@@ -57,18 +56,5 @@ public class ManagementController(IConfiguration configuration) : ControllerBase
             Console.WriteLine($"Failed to deploy an update for {runNumber}: {ex}");
             throw;
         }
-    }
-
-    public static bool CheckToken(string expected, string? actual)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(expected);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 1000);
-
-        if (actual is null || expected.Length != actual.Length)
-            return false;
-
-        return CryptographicOperations.FixedTimeEquals(
-            MemoryMarshal.Cast<char, byte>(expected),
-            MemoryMarshal.Cast<char, byte>(actual));
     }
 }

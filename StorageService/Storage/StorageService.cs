@@ -3,6 +3,7 @@ using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,9 @@ public sealed class StorageService
     private readonly ILogger<StorageService> _logger;
     private readonly string _storageDirectory;
     private readonly ConcurrentDictionary<string, byte> _locks = [];
+
+    [InlineArray(32)]
+    private struct SHA256Buffer { private byte _b; }
 
     public StorageService(IDbContextFactory<StorageDbContext> dbContextFactory, ILogger<StorageService> logger)
     {
@@ -201,14 +205,14 @@ public sealed class StorageService
         }
 
         // Check signature format
-        Span<byte> requestSignature = stackalloc byte[HMACSHA256.HashSizeInBytes];
+        SHA256Buffer requestSignature = default;
 
         if (!context.Request.Query.TryGetValue("sig", out var signatureValues) ||
             signatureValues.Count != 1 ||
             signatureValues[0] is not { } signatureValue ||
             Base64Url.DecodeFromChars(signatureValue, requestSignature, out int charsConsumed, out int bytesWritten) != OperationStatus.Done ||
             charsConsumed != signatureValue.Length ||
-            bytesWritten != requestSignature.Length)
+            bytesWritten != HMACSHA256.HashSizeInBytes)
         {
             return false;
         }
@@ -235,7 +239,7 @@ public sealed class StorageService
 
         static bool CheckSignature(ReadOnlySpan<byte> key, ReadOnlySpan<byte> requestSignature, string toSign)
         {
-            Span<byte> actualSignature = stackalloc byte[HMACSHA256.HashSizeInBytes];
+            SHA256Buffer actualSignature = default;
 
             HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(toSign), actualSignature);
 
