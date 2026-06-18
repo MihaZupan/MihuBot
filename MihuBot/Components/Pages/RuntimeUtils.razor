@@ -105,6 +105,10 @@
                                         <InputCheckbox @bind-Value=_newJob.RunTier0 id="runTier0Check" />
                                         <label for="runTier0Check">Generate tier0 code</label>
                                     </div>
+                                    <div class="form-check">
+                                        <InputCheckbox @bind-Value=_newJob.UseNuGetPackages id="useNuGetPackagesCheck" />
+                                        <label for="useNuGetPackagesCheck">Collect diffs for popular NuGet packages</label>
+                                    </div>
                                 }
 
                                 <p>
@@ -258,6 +262,7 @@
         public bool RunOnArm { get; set; }
         public bool RunCctors { get; set; } = true;
         public bool RunTier0 { get; set; }
+        public bool UseNuGetPackages { get; set; }
         public bool IncludeKnownNoise { get; set; }
         public bool IncludeNewMethodRegressions { get; set; }
         public bool IncludeRemovedMethodImprovements { get; set; }
@@ -283,6 +288,7 @@
             (RunOnArm ? "-arm " : "") +
             (RunCctors || JobType != NewJobType.JitDiff ? "" : "-nocctors ") +
             (RunTier0 && JobType == NewJobType.JitDiff ? "-tier0 " : "") +
+            (UseNuGetPackages && JobType == NewJobType.JitDiff ? "-nuget " : "") +
             (IncludeKnownNoise && JobType == NewJobType.JitDiff ? "-includeKnownNoise " : "") +
             (RunOnHetzner ? "-hetzner " : "") +
             (RunOnIntel ? "-intel " : "") +
