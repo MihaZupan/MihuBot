@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using Octokit;
+using SortDirection = Octokit.SortDirection;
 
 #nullable enable
 
