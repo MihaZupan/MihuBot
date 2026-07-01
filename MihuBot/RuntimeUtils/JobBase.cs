@@ -92,6 +92,12 @@ public abstract class JobBase
     private string _firstErrorMessage;
     protected string FirstErrorMessage => _firstErrorMessage;
     protected virtual bool PostErrorAsGitHubComment => false;
+
+    // An error the runner asked us to surface to the user even though the job as a whole succeeded.
+    public const string UserVisibleErrorArtifactFileName = "UserVisibleError.json";
+    private sealed record UserVisibleError(string Summary, string Details, bool PostComment);
+    private UserVisibleError _userVisibleError;
+
     private bool _manuallyCancelled;
 
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -528,6 +534,17 @@ public abstract class JobBase
             ? $"\n```\n{message}\n```\n"
             : string.Empty;
 
+        string userVisibleError = string.Empty;
+        if (_userVisibleError is { } uve && uve.Summary.Length > 0)
+        {
+            userVisibleError = $"\n{FormatWarningAlert(uve.Summary)}\n";
+
+            if (!string.IsNullOrEmpty(uve.Details))
+            {
+                userVisibleError += $"\n{uve.Details}\n";
+            }
+        }
+
         string runnerDelay = InitialRemoteRunnerContact.HasValue
             ? $" (remote runner delay: {(InitialRemoteRunnerContact.Value - StartTime).ToElapsedTime(true)})"
             : string.Empty;
@@ -552,11 +569,45 @@ public abstract class JobBase
             {{mainCommitLink}}
             {{prCommitLink}}
             {{error}}
+            {{userVisibleError}}
 
             {{customInfo}}
 
             {{GetArtifactList()}}
             """);
+
+        if (_userVisibleError is { PostComment: true, Summary.Length: > 0 } &&
+            PullRequest is not null &&
+            ShouldLinkToPROrBranch)
+        {
+            string jobLink = TrackingIssue?.HtmlUrl ?? ProgressDashboardUrl;
+            string trigger =
+                GitHubComment?.HtmlUrl is { } commentUrl ? $", triggered by {commentUrl}" :
+                GithubCommenterLogin is { } login ? $", triggered by [@{login}](https://github.com/{login})" :
+                string.Empty;
+
+            string comment = $"{FormatWarningAlert(_userVisibleError.Summary)}\n\n<sub>See job details in {jobLink}{trigger}.</sub>";
+
+            try
+            {
+                await Github.Issue.Comment.Create(RepoOwner, RepoName, PullRequest.Number, comment);
+
+                if (GitHubComment is not null)
+                {
+                    ShouldMentionJobInitiator = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                await Logger.DebugAsync("Failed to post user-visible error comment", ex);
+            }
+        }
+    }
+
+    // Wraps runner-provided plain Markdown in a GitHub '[!WARNING]' alert (blockquote).
+    private static string FormatWarningAlert(string summary)
+    {
+        return "> [!WARNING]\n" + string.Join('\n', summary.SplitLines().Select(l => $"> {l}".Trim()));
     }
 
     protected string GetArtifactList()
@@ -645,6 +696,21 @@ public abstract class JobBase
             Interlocked.Decrement(ref _artifactsCount);
             Log($"Too many artifacts received, skipping {fileName}");
             return;
+        }
+
+        if (fileName == UserVisibleErrorArtifactFileName)
+        {
+            (byte[] bytes, Stream replacement) = await ReadArtifactAndReplaceStreamAsync(contentStream, 1024 * 1024, cancellationToken);
+            contentStream = replacement;
+
+            try
+            {
+                _userVisibleError = JsonSerializer.Deserialize<UserVisibleError>(bytes);
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to parse {fileName}: {ex}");
+            }
         }
 
         Stream newStream = await InterceptArtifactAsync(fileName, contentStream, cancellationToken);
