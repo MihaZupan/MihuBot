@@ -234,7 +234,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private async Task StartCoreRootGenerationJobsAsync()
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromHours(8));
+        using var timer = new PeriodicTimer(TimeSpan.FromHours(24));
 
         while (await timer.WaitForNextTickAsync())
         {
