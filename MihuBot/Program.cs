@@ -27,6 +27,7 @@ using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Qdrant.Client;
@@ -183,7 +184,18 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
                 builder.AddHttpClientInstrumentation();
                 builder.AddSource("Yarp.ReverseProxy");
             })
-            .WithLogging();
+            .WithLogging()
+            .WithMetrics(m =>
+            {
+                m.AddView("http.client.open_connections", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+                m.AddView("http.client.active_requests", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+                m.AddView("http.client.request.time_in_queue", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+                m.AddView("http.client.connection.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+                m.AddView("http.client.request.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+
+                m.AddView("http.server.request.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+                m.AddView("http.server.active_requests", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
+            });
     }
 
     services.AddHttpLogging(logging =>
