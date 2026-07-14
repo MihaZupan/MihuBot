@@ -51,7 +51,7 @@ public sealed class FriendlyActionsCommands : CommandBase
 
         if (ctx.Arguments.Length > 0)
         {
-            if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@") && ctx.Arguments[0].EndsWith('>'))
+            if (ctx.Message.MentionedUsers.Count != 0 && ctx.Arguments[0].StartsWith("<@", StringComparison.Ordinal) && ctx.Arguments[0].EndsWith('>'))
             {
                 rngUser = ctx.Message.MentionedUsers.Random();
                 at = true;

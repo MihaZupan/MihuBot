@@ -129,7 +129,7 @@ public static class YoutubeDl
             if (Height.HasValue && other.Height.HasValue)
                 return Height.Value.CompareTo(other.Height.Value);
 
-            return FormatId.CompareTo(other.FormatId);
+            return FormatId.CompareTo(other.FormatId, StringComparison.Ordinal);
         }
     }
 }

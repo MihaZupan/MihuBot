@@ -39,7 +39,7 @@ public sealed class AvatarCommand : CommandBase
 
         string pattern = ctx.Arguments[0];
 
-        if (ctx.Message.MentionedUsers.Count != 0 && pattern.StartsWith("<@") && pattern.EndsWith('>'))
+        if (ctx.Message.MentionedUsers.Count != 0 && pattern.StartsWith("<@", StringComparison.Ordinal) && pattern.EndsWith('>'))
         {
             return Choose(ctx.Message.MentionedUsers).Id;
         }
