@@ -2,6 +2,8 @@ name: build-mihubot-storage
 
 on:
   push:
+    branches:
+      - main
     paths-ignore:
       - 'MihuBot/**'
       - '.github/workflows/deploy-mihubot.yml'
