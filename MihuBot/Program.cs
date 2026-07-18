@@ -58,19 +58,16 @@ Console.CancelKeyPress += (_, e) =>
 
 try
 {
+    // Allows supplying config (e.g. an Azure service principal) when running outside of Azure.
+    builder.Configuration.AddJsonFile("credentials.json", optional: true);
+
     if (ProgramState.AzureEnabled)
     {
-        ProgramState.AzureCredential = OperatingSystem.IsLinux()
-            ? new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned)
-            : new AzureCliCredential();
+        ProgramState.AzureCredential = CreateAzureCredential(builder.Configuration);
 
         builder.Configuration.AddAzureKeyVault(
             new Uri("https://mihubotkv.vault.azure.net/"),
             ProgramState.AzureCredential);
-    }
-    else
-    {
-        builder.Configuration.AddJsonFile("credentials.json", optional: true);
     }
 
     builder.WebHost.UseKestrel(options =>
@@ -126,6 +123,29 @@ try
 catch (Exception ex)
 {
     Console.WriteLine(ex);
+}
+
+static TokenCredential CreateAzureCredential(IConfiguration configuration)
+{
+    // A service principal can authenticate to Azure from anywhere, so prefer it when configured.
+    string tenantId = configuration["Azure:TenantId"];
+    string clientId = configuration["Azure:ClientId"];
+    string clientSecret = configuration["Azure:ClientSecret"];
+
+    if (!string.IsNullOrEmpty(tenantId) &&
+        !string.IsNullOrEmpty(clientId) &&
+        !string.IsNullOrEmpty(clientSecret))
+    {
+        return new ClientSecretCredential(tenantId, clientId, clientSecret);
+    }
+
+    if (!OperatingSystem.IsLinux())
+    {
+        return new AzureCliCredential();
+    }
+
+    // Uses the managed identity when inside Azure, and falls back to other credentials elsewhere.
+    return new DefaultAzureCredential();
 }
 
 static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection services)
