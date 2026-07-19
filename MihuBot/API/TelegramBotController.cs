@@ -22,7 +22,7 @@ public sealed class TelegramBotController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Update()
     {
-        if (!ManagementController.CheckToken(Request.Headers, "X-Telegram-Bot-Api-Secret-Token", WebhookUpdateSecret))
+        if (!TokenHelper.CheckToken(Request.Headers, "X-Telegram-Bot-Api-Secret-Token", WebhookUpdateSecret))
         {
             return Unauthorized();
         }

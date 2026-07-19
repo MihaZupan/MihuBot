@@ -58,6 +58,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseAutoDuplicateDetection), value);
     }
 
+    public bool PauseSelfUpdate
+    {
+        get => Get(nameof(PauseSelfUpdate));
+        set => Set(nameof(PauseSelfUpdate), value);
+    }
+
     private bool Get(string name) => _configuration.GetOrDefault(null, name, false);
 
     private void Set(string name, bool value) => _configuration.Set(null, name, value.ToString());

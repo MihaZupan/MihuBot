@@ -1,4 +1,4 @@
-﻿using Azure.Storage.Sas;
+using Azure.Storage.Sas;
 using MihuBot.DB.GitHub;
 using Octokit;
 

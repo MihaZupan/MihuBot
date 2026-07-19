@@ -108,7 +108,7 @@ public sealed class RuntimeUtilsController : ControllerBase
         if (!_jobs.TryGetJob(jobId, publicId: false, out var job))
         {
             if (!_jobs.TryGetJob(jobId, publicId: true, out job) ||
-                !ManagementController.CheckToken(Request.Headers, "X-Runtime-Utils-Token", _githubAuthToken))
+                !TokenHelper.CheckToken(Request.Headers, "X-Runtime-Utils-Token", _githubAuthToken))
             {
                 return NotFound();
             }
@@ -169,7 +169,7 @@ public sealed class RuntimeUtilsController : ControllerBase
             string.IsNullOrWhiteSpace(baseRepo) ||
             string.IsNullOrWhiteSpace(baseBranch) ||
             !_jobs.ConfigurationService.TryGet(null, $"RuntimeUtils.RunnerAnnounceToken.{runnerId}", out string expectedToken) ||
-            !ManagementController.CheckToken(Request.Headers, "X-Runner-Announce-Token", expectedToken))
+            !TokenHelper.CheckToken(Request.Headers, "X-Runner-Announce-Token", expectedToken))
         {
             return NotFound();
         }
