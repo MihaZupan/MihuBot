@@ -27,6 +27,7 @@ using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using MihuBot.Storage;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -172,7 +173,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (OperatingSystem.IsLinux())
     {
-        DirectoryInfo certDir = new("/home/certs");
+        DirectoryInfo certDir = new($"{Constants.StateDirectory}/certs");
         certDir.Create();
 
         services.AddLettuceEncrypt()
@@ -278,6 +279,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<HetznerClient>();
 
+    services.AddStorageServices();
+
     services.AddSingleton<CoreRootService>();
 
     services.AddSingleton<RegexSourceGenerator>();
@@ -299,6 +302,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<DetectIssueAreaLabelsService>();
     services.AddHostedService(s => s.GetRequiredService<DetectIssueAreaLabelsService>());
+
+    services.AddSingleton<SelfUpdateService>();
+    services.AddHostedService(s => s.GetRequiredService<SelfUpdateService>());
 
     services.AddSingleton<McpServer>();
 
@@ -480,8 +486,7 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
     app.MapTunnel("/_yarp-tunnel")
         .Add(ConfigureYarpTunnelAuth);
 
-    app.Map("/superpmi/{**remainder}", (HttpContext context, [FromRoute] string remainder) =>
-        Results.Redirect($"https://storage.mihubot.xyz/superpmi/{remainder}"));
+    app.MapGroup("/s").MapStorageApis();
 
     app.MapReverseProxy();
 
@@ -498,7 +503,7 @@ static void ConfigureYarpTunnelAuth(EndpointBuilder builder)
 
         if (!context.Request.Query.TryGetValue("host", out var host) || host.Count != 1 ||
             !config.TryGet(null, $"YarpTunnelAuth.{host}", out string expectedAuthorization) ||
-            !ManagementController.CheckToken(context.Request.Headers, HeaderNames.Authorization, expectedAuthorization))
+            !TokenHelper.CheckToken(context.Request.Headers, HeaderNames.Authorization, expectedAuthorization))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return Task.CompletedTask;

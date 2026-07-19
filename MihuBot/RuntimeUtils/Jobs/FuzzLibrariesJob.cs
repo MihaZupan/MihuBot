@@ -1,4 +1,4 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 using System.Net.Mime;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -9,6 +9,7 @@ namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class FuzzLibrariesJob : JobBase
 {
+    private const string RunnerPersistentContainer = "runner-persistent";
     public override string JobTitlePrefix => $"Fuzzing {Architecture}";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
@@ -153,22 +154,18 @@ public sealed class FuzzLibrariesJob : JobBase
             {
                 try
                 {
-                    var blob = Parent.RunnerPersistentStateBlobContainerClient.GetBlobClient(fileName);
+                    var existing = await Parent.Storage.GetFileEntryAsync(RunnerPersistentContainer, fileName, cancellationToken);
 
-                    if (await blob.ExistsAsync(cancellationToken))
+                    if (existing is not null)
                     {
-                        var properties = await blob.GetPropertiesAsync(cancellationToken: cancellationToken);
-
-                        if ((DateTimeOffset.UtcNow - properties.Value.LastModified).TotalDays < 1 &&
-                            properties.Value.ContentLength > bytes.Length)
+                        if ((DateTime.UtcNow - existing.CreatedAt).TotalDays < 1 &&
+                            existing.ContentLength > bytes.Length)
                         {
                             return replacement;
                         }
-
-                        await blob.DeleteAsync(cancellationToken: cancellationToken);
                     }
 
-                    await blob.UploadAsync(BinaryData.FromBytes(bytes), cancellationToken);
+                    await Parent.Storage.UploadAsync(RunnerPersistentContainer, fileName, new MemoryStream(bytes), cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -210,14 +207,14 @@ public sealed class FuzzLibrariesJob : JobBase
                 string indexUrl = null;
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
-                    BlobClient blob = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fuzzerName}-coverage/{entry.Name}");
+                    BlobClient blob = Parent.FuzzCoverageBlobContainerClient.GetBlobClient($"{ExternalId}/{fuzzerName}-coverage/{entry.Name}");
 
                     var options = new BlobUploadOptions
                     {
                         AccessTier = AccessTier.Hot,
                         HttpHeaders = new BlobHttpHeaders { ContentType = MediaTypeMap.GetMediaType(entry.Name) }
                     };
-                    await blob.UploadAsync(new BinaryData(entry.Data), options, ct);
+                    await blob.UploadAsync(new MemoryStream(entry.Data), options, ct);
 
                     if (entry.Name == "index.html")
                     {

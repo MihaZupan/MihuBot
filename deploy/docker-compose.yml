@@ -1,0 +1,32 @@
+# Runs the MihuBot self-updating runner loop in a container.
+#
+#   docker compose up -d --build
+#
+# MihuBot polls GitHub for new commits on `main` and rebuilds itself in-container
+# via build-latest.sh; the runner loop applies the fresh build and relaunches.
+services:
+  mihubot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mihubot
+    container_name: mihubot
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - mihubot-data:/data
+    # Secrets for running outside of Azure can be supplied either as a
+    # credentials.json placed in the mihubot-data volume (at /data/credentials.json)
+    # or as environment variables, e.g. an Azure service principal:
+    # environment:
+    #   - Azure__TenantId=...
+    #   - Azure__ClientId=...
+    #   - Azure__ClientSecret=...
+    # env_file:
+    #   - mihubot.env
+
+volumes:
+  mihubot-data:

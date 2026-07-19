@@ -9,6 +9,7 @@ using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Jobs;
+using MihuBot.Storage;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils;
@@ -142,18 +143,20 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly IConfigurationService ConfigurationService;
     public readonly ServiceConfiguration ServiceConfiguration;
     public readonly HetznerClient Hetzner;
-    public readonly BlobContainerClient ArtifactsBlobContainerClient;
-    public readonly BlobContainerClient RunnerPersistentStateBlobContainerClient;
-    public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
+    public readonly StorageService Storage;
     public readonly StorageClient LogsStorage;
+    public readonly StorageClient ArtifactsStorage;
+    public readonly StorageClient RunnerPersistentStorage;
+    public readonly BlobContainerClient FuzzCoverageBlobContainerClient;
+    public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     private readonly IDbContextFactory<MihuBotDbContext> _mihuBotDb;
     private readonly IDbContextFactory<GitHubDbContext> _gitHubDataDb;
 
     private bool _shuttingDown;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage)
     {
         Logger = logger;
         Github = github;
@@ -165,24 +168,21 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Hetzner = hetzner;
         UrlShortener = urlShortener;
         CoreRoot = coreRoot;
+        Storage = storage;
 
         _mihuBotDb = mihuBotDb;
         _gitHubDataDb = gitHubDataDb;
 
-        if (ProgramState.AzureEnabled)
-        {
-            ArtifactsBlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-                "artifacts");
+        ArtifactsStorage = CreateStorageClient(storage, http, "artifacts", owner: "runtime-utils", isPublic: true, TimeSpan.FromDays(60));
+        RunnerPersistentStorage = CreateStorageClient(storage, http, "runner-persistent", owner: "runtime-utils", isPublic: false, TimeSpan.FromDays(90));
 
-            RunnerPersistentStateBlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-                "runner-persistent");
+        FuzzCoverageBlobContainerClient = new BlobContainerClient(
+            configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+            "artifacts");
 
-            JitDiffExtraAssembliesBlobContainerClient = new BlobContainerClient(
-                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-                "jitdiff-extra-assemblies");
-        }
+        JitDiffExtraAssembliesBlobContainerClient = new BlobContainerClient(
+            configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+            "jitdiff-extra-assemblies");
 
         if (!ConfigurationService.TryGet(null, "RuntimeUtils.JobLogs.SasKey", out string sasKey))
         {
@@ -196,6 +196,12 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
 
         LogsStorage = new StorageClient(Http, "runtimeutils-logs", sasKey, isPublic: true);
+
+        static StorageClient CreateStorageClient(StorageService storage, HttpClient http, string name, string owner, bool isPublic, TimeSpan retention)
+        {
+            ContainerDbEntry entry = storage.EnsureContainerAsync(name, owner, isPublic, retention).GetAwaiter().GetResult();
+            return new StorageClient(http, name, entry.SasKey, isPublic);
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

@@ -9,9 +9,6 @@ using Azure.ResourceManager;
 using Azure.ResourceManager.Network;
 using Azure.ResourceManager.Resources;
 using Azure.ResourceManager.Resources.Models;
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
-using Azure.Storage.Sas;
 using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
@@ -23,6 +20,8 @@ namespace MihuBot.RuntimeUtils;
 
 public abstract class JobBase
 {
+    private const string ArtifactsContainer = "artifacts";
+
     protected TimeSpan MaxJobDuration { get; set; } = TimeSpan.FromHours(5);
 
     public const string IssueRepositoryOwner = "MihuBot";
@@ -138,8 +137,7 @@ public abstract class JobBase
         arguments = arguments.SplitLines()[0].Trim();
         Metadata.Add("CustomArguments", arguments);
 
-        var containerClient = Parent.RunnerPersistentStateBlobContainerClient;
-        Uri sasUri = containerClient.GenerateSasUri(BlobContainerSasPermissions.Read, DateTimeOffset.UtcNow.Add(MaxJobDuration));
+        Uri sasUri = new Uri(Parent.RunnerPersistentStorage.GetContainerUrl(MaxJobDuration, writeAccess: false));
         Metadata.Add("PersistentStateSasUri", sasUri.AbsoluteUri);
 
         ShouldDeleteVM = GetConfigFlag("ShouldDeleteVM", true);
@@ -441,7 +439,7 @@ public abstract class JobBase
             try
             {
                 string path = $"{ExternalId}.txt";
-                await Parent.LogsStorage.UploadAsync(path, stream, CancellationToken.None);
+                await Parent.Storage.UploadAsync("runtimeutils-logs", path, stream, CancellationToken.None);
                 logsArtifactPath = path;
             }
             catch (Exception ex)
@@ -716,24 +714,18 @@ public abstract class JobBase
         Stream newStream = await InterceptArtifactAsync(fileName, contentStream, cancellationToken);
         contentStream = newStream ?? contentStream;
 
-        BlobClient blobClient = Parent.ArtifactsBlobContainerClient.GetBlobClient($"{ExternalId}/{fileName}");
-
-        var options = new BlobUploadOptions
-        {
-            AccessTier = Path.GetExtension(fileName) == ".txt" ? AccessTier.Hot : AccessTier.Cool,
-            HttpHeaders = new BlobHttpHeaders { ContentType = MediaTypeMap.GetMediaType(fileName) }
-        };
-        await blobClient.UploadAsync(contentStream, options, cancellationToken);
+        string blobPath = $"{ExternalId}/{fileName}";
+        await Parent.Storage.UploadAsync(ArtifactsContainer, blobPath, contentStream, cancellationToken);
 
         if (newStream is not null)
         {
             await newStream.DisposeAsync();
         }
 
-        var properties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
-        long size = properties.Value.ContentLength;
+        long size = (await Parent.Storage.GetFileEntryAsync(ArtifactsContainer, blobPath, cancellationToken))?.ContentLength ?? 0;
 
-        var entry = await Parent.UrlShortener.CreateAsync(ProgressDashboardUrl, blobClient.Uri);
+        string publicUrl = Parent.ArtifactsStorage.GetFileUrl(blobPath, TimeSpan.MaxValue, writeAccess: false);
+        var entry = await Parent.UrlShortener.CreateAsync(ProgressDashboardUrl, new Uri(publicUrl));
 
         lock (Artifacts)
         {
@@ -743,7 +735,7 @@ public abstract class JobBase
             if (ArtifactSizeLimit - _totalArtifactsSize < size)
             {
                 Log($"Artifact '{fileName}' was not saved because it would exceed the {SharedHelpers.GetRoughSizeString(ArtifactSizeLimit)} limit");
-                blobClient.DeleteIfExists(cancellationToken: cancellationToken);
+                _ = Parent.Storage.DeleteAsync(ArtifactsContainer, blobPath, CancellationToken.None);
                 return;
             }
 

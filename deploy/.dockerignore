@@ -1,0 +1,4 @@
+# Ignore everything except the scripts needed by the image.
+*
+!run.sh
+!build-latest.sh

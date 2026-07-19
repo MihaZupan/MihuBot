@@ -26,7 +26,7 @@ public class EmailController : ControllerBase
             return Unauthorized();
         }
 
-        if (!ManagementController.CheckToken(Request.Headers, "X-Email-Api-Key", apiKey))
+        if (!TokenHelper.CheckToken(Request.Headers, "X-Email-Api-Key", apiKey))
         {
             _logger.DebugLog("Invalid X-Email-Api-Key received");
             return Unauthorized();
