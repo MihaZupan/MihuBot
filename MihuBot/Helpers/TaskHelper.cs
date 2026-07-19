@@ -24,4 +24,16 @@ public static class TaskHelper
         Task<T> asTask = WaitAsyncAndSupressNotObserved(task.AsTask(), cancellationToken);
         return new ValueTask<T>(asTask);
     }
+
+    public static void IgnoreExceptions(this Task task)
+    {
+        if (!task.IsCompletedSuccessfully)
+        {
+            task.ContinueWith(
+                static task => _ = task.Exception?.InnerException,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Current);
+        }
+    }
 }

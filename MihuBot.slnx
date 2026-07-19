@@ -6,5 +6,4 @@
     <File Path="nuget.config" />
   </Folder>
   <Project Path="MihuBot/MihuBot.csproj" />
-  <Project Path="Shared/Shared.shproj" />
 </Solution>

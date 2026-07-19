@@ -1,4 +1,4 @@
-﻿@page "/runtime-utils/{jobId}"
+@page "/runtime-utils/{jobId}"
 @using MihuBot.RuntimeUtils;
 @using System.Collections.Concurrent;
 @inject RuntimeUtilsService runtimeUtils
@@ -107,7 +107,7 @@ else if (_completedJob is not null)
             @foreach (var (FileName, Url, Size) in _completedJob.Artifacts)
             {
                 <li class="list-group-item">
-                    <a href="@Url">@FileName</a> (@SharedHelpers.GetRoughSizeString(Size))
+                    <a href="@Url">@FileName</a> (@Size.GetRoughSizeString())
                 </li>
             }
         </ul>

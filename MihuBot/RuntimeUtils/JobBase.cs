@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Mime;
 using System.Runtime.CompilerServices;
@@ -623,7 +623,7 @@ public abstract class JobBase
         {
             foreach (var (FileName, Url, Size) in Artifacts)
             {
-                builder.AppendLine($"- [{FileName}]({Url}) ({SharedHelpers.GetRoughSizeString(Size)})");
+                builder.AppendLine($"- [{FileName}]({Url}) ({Size.GetRoughSizeString()})");
             }
         }
 
@@ -734,7 +734,7 @@ public abstract class JobBase
 
             if (ArtifactSizeLimit - _totalArtifactsSize < size)
             {
-                Log($"Artifact '{fileName}' was not saved because it would exceed the {SharedHelpers.GetRoughSizeString(ArtifactSizeLimit)} limit");
+                Log($"Artifact '{fileName}' was not saved because it would exceed the {ArtifactSizeLimit.GetRoughSizeString()} limit");
                 _ = Parent.Storage.DeleteAsync(ArtifactsContainer, blobPath, CancellationToken.None);
                 return;
             }
@@ -743,7 +743,7 @@ public abstract class JobBase
             _totalArtifactsSize += size;
         }
 
-        Log($"Saved artifact '{fileName}' to {entry.ShortUrl} ({SharedHelpers.GetRoughSizeString(size)})");
+        Log($"Saved artifact '{fileName}' to {entry.ShortUrl} ({size.GetRoughSizeString()})");
     }
 
     protected virtual Task<Stream> InterceptArtifactAsync(string fileName, Stream contentStream, CancellationToken cancellationToken) => Task.FromResult<Stream>(null);

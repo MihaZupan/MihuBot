@@ -1,4 +1,30 @@
-﻿namespace MihuBot.Helpers;
+﻿using System.Reflection;
+
+namespace MihuBot.Helpers;
+
+public static class BuildInfo
+{
+    public static string GetCommitId()
+    {
+        return GetCommitId(typeof(Program).Assembly);
+    }
+
+    public static string GetCommitId(Assembly assembly)
+    {
+        string commit = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+
+        if (commit is not null)
+        {
+            int plusOffset = commit.IndexOf('+');
+            if (plusOffset >= 0)
+            {
+                commit = commit.Substring(plusOffset + 1);
+            }
+        }
+
+        return commit ?? "unknown";
+    }
+}
 
 public static class Constants
 {

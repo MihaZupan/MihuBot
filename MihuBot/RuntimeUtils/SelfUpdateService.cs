@@ -137,7 +137,7 @@ public sealed class SelfUpdateService : IHostedService
 
         Reference branchRef = await _github.Git.Reference.Get(owner, repo, $"heads/{branch}");
         string latestSha = branchRef.Object.Sha;
-        string currentSha = SharedHelpers.GetCommitId();
+        string currentSha = BuildInfo.GetCommitId();
 
         if (string.Equals(latestSha, currentSha, StringComparison.OrdinalIgnoreCase))
         {

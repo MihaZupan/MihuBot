@@ -196,7 +196,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
                     { "service.name", "mihubot" },
                     { "service.namespace", "mihubot" },
                     { "service.instance.id", "mihubot" },
-                    { "service.version", SharedHelpers.GetCommitId() }
+                    { "service.version", BuildInfo.GetCommitId() }
                 });
             })
             .WithTracing(builder =>

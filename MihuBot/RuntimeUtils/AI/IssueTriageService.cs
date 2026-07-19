@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
@@ -220,7 +220,7 @@ public sealed class IssueTriageService(
 
         string html = await TriageHelper.TriageIssueAsync(options, cancellationToken).LastOrDefaultAsync(cancellationToken) ?? "";
 
-        string commit = SharedHelpers.GetCommitId();
+        string commit = BuildInfo.GetCommitId();
         string version = commit.Length >= 10 ? $"[`{commit.AsSpan(0, 6)}`](https://github.com/MihaZupan/MihuBot/tree/{commit})" : "unknown";
 
         string newIssueBody =

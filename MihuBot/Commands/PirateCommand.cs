@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Discord.Rest;
 
 #nullable enable
@@ -119,8 +119,8 @@ public sealed partial class PirateCommand : CommandBase
                     };
 
                     embed = embed
-                        .AddField("Size", SharedHelpers.GetRoughSizeString(info.TotalSize), inline: true)
-                        .AddField("Progress", $"{progressStr} ({SharedHelpers.GetRoughSizeString(info.TotalDownloaded)})", inline: true)
+                        .AddField("Size", info.TotalSize.GetRoughSizeString(), inline: true)
+                        .AddField("Progress", $"{progressStr} ({info.TotalDownloaded.GetRoughSizeString()})", inline: true)
                         .AddField("Download Speed", speed, inline: true)
                         .AddField("ETA", eta, inline: true)
                         .WithColor(r: 0, g: (int)(progress * 255), b: 0);

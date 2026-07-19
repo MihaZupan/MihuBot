@@ -1,10 +1,6 @@
-﻿using System.Reflection;
-
-#nullable enable
-
 namespace MihuBot.Helpers;
 
-public static class SharedHelpers
+public static class MihuBotHelpers
 {
     public static void Toggle(ref this bool value)
     {
@@ -13,13 +9,24 @@ public static class SharedHelpers
 
     public static void AddRange<T>(this HashSet<T> set, IEnumerable<T> items)
     {
-        foreach (T? item in items)
+        foreach (T item in items)
         {
             set.Add(item);
         }
     }
 
-    public static string GetRoughSizeString(long size)
+    public static T[] InitializeWithDefaultCtor<T>(this T[] array)
+        where T : new()
+    {
+        for (int i = 0; i < array.Length; i++)
+        {
+            array[i] = new T();
+        }
+
+        return array;
+    }
+
+    public static string GetRoughSizeString(this long size)
     {
         double kb = size / 1024d;
         double mb = kb / 1024d;
@@ -107,49 +114,5 @@ public static class SharedHelpers
         static string GetYears(int number) => GetString(number, "year");
 
         static string GetString(int number, string type) => $"{number} {type}{(number == 1 ? "" : "s")}";
-    }
-
-    public static T[] InitializeWithDefaultCtor<T>(this T[] array)
-        where T : new()
-    {
-        for (int i = 0; i < array.Length; i++)
-        {
-            array[i] = new T();
-        }
-
-        return array;
-    }
-
-    public static void IgnoreExceptions(this Task task)
-    {
-        if (!task.IsCompletedSuccessfully)
-        {
-            task.ContinueWith(
-                static task => _ = task.Exception?.InnerException,
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Current);
-        }
-    }
-
-    public static string GetCommitId()
-    {
-        return GetCommitId(typeof(Program).Assembly);
-    }
-
-    public static string GetCommitId(Assembly assembly)
-    {
-        string? commit = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-
-        if (commit is not null)
-        {
-            int plusOffset = commit.IndexOf('+');
-            if (plusOffset >= 0)
-            {
-                commit = commit.Substring(plusOffset + 1);
-            }
-        }
-
-        return commit ?? "unknown";
     }
 }

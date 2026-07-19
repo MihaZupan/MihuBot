@@ -1,4 +1,4 @@
-﻿using MihuBot.Permissions;
+using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System.Collections.Concurrent;
 using System.Reflection;
@@ -255,7 +255,7 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                string commit = SharedHelpers.GetCommitId();
+                string commit = BuildInfo.GetCommitId();
 
                 var embed = new EmbedBuilder()
                     .WithTitle("Started")
