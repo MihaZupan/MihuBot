@@ -64,19 +64,6 @@ public class MihuBotService : IHostedService
     {
         try
         {
-            if (reaction.Emote is Emote reactionEmote)
-            {
-                if (reactionEmote.Id == Emotes.James.Id) // James emote
-                {
-                    var userMessage = reaction.Message;
-
-                    if (userMessage.IsSpecified)
-                    {
-                        await userMessage.Value.AddReactionsAsync(Emotes.JamesEmotes);
-                    }
-                }
-            }
-
             if (reaction.Emote?.Name == Emotes.RedCross.Name && (Constants.Admins.Contains(reaction.UserId) || reaction.UserId == reaction.Message.GetValueOrDefault()?.Author?.Id))
             {
                 if (_runningCommands.TryRemove(reaction.MessageId, out CancellationTokenSource cts))

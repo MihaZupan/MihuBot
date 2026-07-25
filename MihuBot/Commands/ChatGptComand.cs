@@ -123,7 +123,7 @@ public sealed class ChatGptComand : CommandBase
 
         if (ImagineCommand.GetContentFromMessageReference(context) is { Content: not null } extra)
         {
-            prompt = $"{prompt}\n\n\nReferenced message by {KnownUsers.GetName(extra.Author)}: {extra.Content}";
+            prompt = $"{prompt}\n\n\nReferenced message by {extra.Author.GetName()}: {extra.Content}";
         }
 
         if (!_configurationService.TryGet(channel.Guild.Id, "ChatGPT.MaxTokens", out string maxTokensString) ||

@@ -33,7 +33,7 @@ public sealed class JaredVoiceChannel : NonCommandHandler
 
             if (_configuration.TryGet(null, "JaredVoiceChannelPrefix", out string prefix))
             {
-                string newName = $"{prefix} {KnownUsers.GetName(user)}";
+                string newName = $"{prefix} {user.GetName()}";
 
                 if (Rng.Chance(10) && _configuration.TryGet(null, "JaredVoiceChannelSpecial", out string name))
                 {
