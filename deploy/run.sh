@@ -12,6 +12,9 @@
 #   $MIHUBOT_HOME/State/        - persistent app state (databases, logs, ...)
 #   $MIHUBOT_HOME/next_update/  - incoming update tarball
 #
+# The StorageService file blobs live in $MIHUBOT_STORAGE_DIRECTORY (defaults to
+# $MIHUBOT_HOME/State/Files when unset), which can be a separate volume.
+#
 # For the first boot on a new host there is no build yet (the deploy endpoint is
 # served by the app itself). The runner bootstraps by building the latest main
 # branch in-container (see build-latest.sh), unless an initial build is supplied
@@ -34,12 +37,14 @@ BUILD_SCRIPT="${MIHUBOT_BUILD_SCRIPT:-$(dirname "$(readlink -f "$0")")/build-lat
 APP_DIR="$MIHUBOT_HOME/artifacts"
 STATE_DIR="$MIHUBOT_HOME/State"
 UPDATE_DIR="$MIHUBOT_HOME/next_update"
+# Bulk file storage for the app's StorageService, potentially on its own volume.
+STORAGE_DIR="${MIHUBOT_STORAGE_DIRECTORY:-$STATE_DIR/Files}"
 UPDATE_TARBALL="$UPDATE_DIR/artifacts.tar.gz"
 # Optional initial build supplied by whoever runs the image, placed in the State
 # directory. Used as-is if present; otherwise produced by BUILD_SCRIPT.
 SEED_TARBALL="$STATE_DIR/artifacts.tar.gz"
 
-mkdir -p "$MIHUBOT_HOME" "$STATE_DIR" "$UPDATE_DIR"
+mkdir -p "$MIHUBOT_HOME" "$STATE_DIR" "$UPDATE_DIR" "$STORAGE_DIR"
 
 extract_build() {
     # The tarball produced by CI (`tar -czf artifacts.tar.gz artifacts`) contains

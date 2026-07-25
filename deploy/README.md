@@ -8,18 +8,38 @@ into a container so the bot can be hosted anywhere (not just on the Azure VM).
 
 ## How it works
 
-Everything lives under `/data` (a persistent volume):
+Everything lives under `/data` (a persistent volume), except the bulk file
+storage which gets its own volume at `/storage`:
 
 | Path                   | Purpose                                            |
 | ---------------------- | -------------------------------------------------- |
 | `/data/artifacts/`     | Current build; **replaced** on every update        |
 | `/data/State/`         | Persistent state (SQLite DBs, logs, JSON stores, TLS certs) |
 | `/data/next_update/`   | Incoming `artifacts.tar.gz` produced by the app    |
+| `/storage/`            | `StorageService` file blobs (uploaded files)       |
 
 The app resolves `State/` and `next_update/` relative to its working directory,
 so the runner starts it from `/data` and pins ASP.NET's content root to
 `artifacts/` (which drives `wwwroot`/appsettings). This keeps the data and the
 replaceable build separate without any symlinks.
+
+The storage location is controlled by `MIHUBOT_STORAGE_DIRECTORY` (set to
+`/storage` by the image); when unset the app falls back to `State/Files`.
+
+## Volumes
+
+`docker-compose.yml` declares two named volumes, `mihubot-data` (mounted at
+`/data`) and `mihubot-storage` (mounted at `/storage`), so state and file
+storage can be backed up, sized, or relocated independently.
+
+Either can be pointed at a host directory (or a pre-created named volume)
+without editing the compose file:
+
+```bash
+MIHUBOT_STORAGE_VOLUME=/mnt/bigdisk/mihubot-storage \
+MIHUBOT_DATA_VOLUME=/srv/mihubot-data \
+  docker compose up -d --build
+```
 
 ## Run it
 
@@ -63,3 +83,6 @@ in `docker-compose.yml`, or as a `credentials.json` placed at
 - Ports 80/443 are exposed; port 80 must be reachable for LettuceEncrypt (ACME).
   TLS certs are persisted under `State/certs` (on the `/data` volume).
 - `MIHUBOT_EXECUTABLE` overrides the executable name (default `MihuBot`).
+- `MIHUBOT_STORAGE_DIRECTORY` overrides where the `StorageService` keeps files
+  (default `/storage` in the image, `State/Files` outside of it). Existing
+  deployments can migrate by moving `State/Files` onto the new volume.

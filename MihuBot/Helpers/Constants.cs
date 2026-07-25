@@ -30,6 +30,13 @@ public static class Constants
 {
     public static string StateDirectory => "State";
 
+    // Bulk file storage for the StorageService. Defaults to living under the state directory,
+    // but may point elsewhere (e.g. a separate Docker volume) via MIHUBOT_STORAGE_DIRECTORY.
+    public static string StorageDirectory { get; } =
+        Environment.GetEnvironmentVariable("MIHUBOT_STORAGE_DIRECTORY") is { Length: > 0 } dir
+            ? dir
+            : $"{StateDirectory}/Files";
+
     public static readonly FrozenSet<ulong> Admins = FrozenSet.Create(
     [
         KnownUsers.Miha,

@@ -17,7 +17,12 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - mihubot-data:/data
+      # General state (SQLite DBs, logs, JSON stores, TLS certs, current build).
+      - ${MIHUBOT_DATA_VOLUME:-mihubot-data}:/data
+      # StorageService file blobs, kept on a separate volume so the (potentially
+      # large) file data can live on its own disk (see MIHUBOT_STORAGE_DIRECTORY
+      # in the Dockerfile).
+      - ${MIHUBOT_STORAGE_VOLUME:-mihubot-storage}:/storage
     # Secrets for running outside of Azure can be supplied either as a
     # credentials.json placed in the mihubot-data volume (at /data/credentials.json)
     # or as environment variables, e.g. an Azure service principal:
@@ -28,5 +33,9 @@ services:
     # env_file:
     #   - mihubot.env
 
+# Either volume can be pointed at a host directory instead by setting
+# MIHUBOT_DATA_VOLUME / MIHUBOT_STORAGE_VOLUME to an absolute path, e.g.
+#   MIHUBOT_STORAGE_VOLUME=/mnt/bigdisk/mihubot-storage docker compose up -d
 volumes:
   mihubot-data:
+  mihubot-storage:

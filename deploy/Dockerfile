@@ -11,7 +11,8 @@
 FROM --platform=linux/amd64 debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    MIHUBOT_HOME=/data
+    MIHUBOT_HOME=/data \
+    MIHUBOT_STORAGE_DIRECTORY=/storage
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -39,7 +40,9 @@ RUN sed -i 's/\r$//' /usr/local/bin/run.sh /usr/local/bin/build-latest.sh \
     && chmod +x /usr/local/bin/run.sh /usr/local/bin/build-latest.sh
 
 # Persistent state / current build / incoming updates (certs live under State/).
-VOLUME ["/data"]
+# /storage holds the StorageService file blobs and can be mounted separately so
+# the (potentially large) file data lives on its own volume.
+VOLUME ["/data", "/storage"]
 
 EXPOSE 80 443
 

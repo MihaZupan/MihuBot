@@ -45,7 +45,7 @@ public sealed class StorageService
     {
         _db = dbContextFactory;
         _logger = logger;
-        _storageDirectory = $"{Constants.StateDirectory}/Files";
+        _storageDirectory = Constants.StorageDirectory;
 
         Directory.CreateDirectory(_storageDirectory);
 
