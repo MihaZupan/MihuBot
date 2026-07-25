@@ -1,5 +1,7 @@
-﻿using MihuBot.Configuration;
-using System.Net.Http.Json;
+﻿using Microsoft.Extensions.AI;
+using MihuBot.Configuration;
+using MihuBot.DB.GitHub;
+using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 
 namespace MihuBot.Commands;
@@ -43,43 +45,46 @@ public sealed class Magic8BallCommand : CommandBase
     };
 
     private static readonly Dictionary<ulong, UserState> s_userStates = new();
-    private readonly HttpClient _http;
     private readonly IConfigurationService _configurationService;
-    private readonly string _apiKey;
+    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly string[] _commandAndAliases;
 
-    public Magic8BallCommand(HttpClient http, IConfiguration configuration, IConfigurationService configurationService)
+    public Magic8BallCommand(IConfigurationService configurationService, IEnumerable<OpenAIService> openAI)
     {
-        _http = http;
         _configurationService = configurationService;
-        _apiKey = configuration["RapidAPI:Key"];
+        // Optional - without it we can only match prompts by prefix.
+        _embeddingGenerator = openAI.FirstOrDefault()?.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel);
         _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
     }
 
-    private async Task<double> QueryTextSimilarityAsync(string text1, string text2)
+    private async Task<ReadOnlyMemory<float>> GetEmbeddingAsync(string text)
     {
-        if (string.IsNullOrEmpty(_apiKey))
+        if (_embeddingGenerator is null)
         {
-            // Without the RapidAPI key we can't tell how similar the prompts are.
+            return default;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            return await _embeddingGenerator.GenerateVectorAsync(text, cancellationToken: cts.Token);
+        }
+        catch
+        {
+            // Fall back to matching prompts by prefix only.
+            return default;
+        }
+    }
+
+    private static double GetSimilarity(ReadOnlyMemory<float> left, ReadOnlyMemory<float> right)
+    {
+        if (left.IsEmpty || right.IsEmpty)
+        {
             return 0;
         }
 
-        string query = $"?text1={Uri.EscapeDataString(text1)}&text2={Uri.EscapeDataString(text2)}";
-        string url = $"https://twinword-text-similarity-v1.p.rapidapi.com/similarity/{query}";
-
-        var request = new HttpRequestMessage(HttpMethod.Get, url)
-        {
-            Version = HttpVersion.Version20
-        };
-
-        request.Headers.TryAddWithoutValidation("X-RapidAPI-Key", _apiKey);
-        request.Headers.TryAddWithoutValidation("X-RapidAPI-Host", "twinword-text-similarity-v1.p.rapidapi.com");
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-        using var response = await _http.SendAsync(request);
-        var apiResponse = await response.Content.ReadFromJsonAsync<RapidAPIResponseModel>(cancellationToken: cts.Token);
-        return apiResponse.Similarity;
+        return TensorPrimitives.CosineSimilarity(left.Span, right.Span);
     }
 
     private double GetMinimumTextSimilarity()
@@ -91,10 +96,8 @@ public sealed class Magic8BallCommand : CommandBase
             return value / 100d;
         }
 
-        return 0.35d;
+        return 0.8d;
     }
-
-    private sealed record RapidAPIResponseModel(double Similarity);
 
     private sealed class UserState
     {
@@ -104,7 +107,7 @@ public sealed class Magic8BallCommand : CommandBase
         private readonly SemaphoreSlim _lock = new(1);
         private long? _delayStartTimestamp;
 
-        private readonly List<(string Prompt, ResponseType Response, DateTime TimeStamp)> _previousPrompts = new();
+        private readonly List<(string Prompt, ReadOnlyMemory<float> Embedding, ResponseType Response, DateTime TimeStamp)> _previousPrompts = new();
 
         public UserState(Magic8BallCommand parent)
         {
@@ -161,6 +164,20 @@ public sealed class Magic8BallCommand : CommandBase
                 _delayStartTimestamp = null;
             }
 
+            ReadOnlyMemory<float> promptEmbedding = default;
+            bool hasEmbedding = false;
+
+            async Task<ReadOnlyMemory<float>> GetPromptEmbeddingAsync()
+            {
+                if (!hasEmbedding)
+                {
+                    promptEmbedding = await _parent.GetEmbeddingAsync(prompt);
+                    hasEmbedding = true;
+                }
+
+                return promptEmbedding;
+            }
+
             if (_previousPrompts.Count > 0)
             {
                 int matchingPrompt = -1;
@@ -178,26 +195,11 @@ public sealed class Magic8BallCommand : CommandBase
 
                 if (matchingPrompt < 0)
                 {
-                    Task<double>[] apiTasks = Enumerable.Range(0, _previousPrompts.Count)
-                        .Select(i => Task.Run(async () =>
-                        {
-                            try
-                            {
-                                return await _parent.QueryTextSimilarityAsync(_previousPrompts[i].Prompt, prompt);
-                            }
-                            catch
-                            {
-                                return 0;
-                            }
-                        }))
-                        .ToArray();
+                    ReadOnlyMemory<float> embedding = await GetPromptEmbeddingAsync();
 
-                    await Task.WhenAll(apiTasks);
-
-                    (double similarity, int index) = apiTasks
-                        .Select((response, i) => (response.Result, i))
-                        .OrderByDescending(r => r.Result)
-                        .First();
+                    (double similarity, int index) = _previousPrompts
+                        .Select((previous, i) => (Similarity: GetSimilarity(embedding, previous.Embedding), i))
+                        .MaxBy(r => r.Similarity);
 
                     if (similarity > _parent.GetMinimumTextSimilarity())
                     {
@@ -227,7 +229,7 @@ public sealed class Magic8BallCommand : CommandBase
                     _previousPrompts.RemoveAt(_previousPrompts.Count - 1);
                 }
 
-                _previousPrompts.Add((prompt, response, DateTime.UtcNow));
+                _previousPrompts.Add((prompt, await GetPromptEmbeddingAsync(), response, DateTime.UtcNow));
             }
 
             return response;

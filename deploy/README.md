@@ -89,7 +89,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | Configuration | Disabled without it |
 | --- | --- |
 | `AppInsights:ConnectionString` | Azure Monitor / OpenTelemetry export |
-| `AzureOpenAI:Key` | Everything AI: `!chatgpt`, `!imagine`, `!duplicates`, GitHub search/triage pages, auto-triage, area label detection, semantic ingestion and the MCP endpoint |
+| `AzureOpenAI:Key` | Everything AI: `!chatgpt`, `!imagine`, `!duplicates`, GitHub search/triage pages, auto-triage, area label detection, semantic ingestion, the MCP endpoint, and `!magic8ball` prompt similarity |
 | `AzureOpenAI:ImageKey` | Image generation (`!imagine`) |
 | `AzureOpenAI:SecondaryChat:Endpoint` + `:Key` | Secondary chat endpoint (falls back to the primary one) |
 | `AzureOpenAI:SecondaryEmbedding:Endpoint` + `:Key` | Secondary embedding endpoint (falls back to the primary one) |
@@ -109,7 +109,6 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Spotify:ClientId`+`ClientSecret` | Spotify links in `!play` |
 | `TelegramBot:ApiKey` | Telegram relay + webhook endpoint (404) |
 | `Tenor:ApiKey` | Tenor links in `!emote` |
-| `RapidAPI:Key` | `!magic8ball` similarity check |
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |

@@ -35,7 +35,6 @@ public static class OptionalFeatures
     public static readonly OptionalFeature OpenWeather = new("Weather and location lookups (!weather)", "OpenWeather:ApiKey");
     public static readonly OptionalFeature QBittorrent = new("Torrent downloads (!pirate)", "QBittorrent:Host", "QBittorrent:Username", "QBittorrent:Password");
     public static readonly OptionalFeature Qdrant = new("Vector search and semantic ingestion", "Qdrant:Host");
-    public static readonly OptionalFeature RapidAPI = new("Prompt similarity checks (!magic8ball)", "RapidAPI:Key");
     public static readonly OptionalFeature Spotify = new("Spotify tracks and playlists (!play)", "Spotify:ClientId", "Spotify:ClientSecret");
     public static readonly OptionalFeature Telegram = new("Telegram relay bot", "TelegramBot:ApiKey");
     public static readonly OptionalFeature Tenor = new("Tenor gifs (!emote)", "Tenor:ApiKey");
@@ -66,7 +65,6 @@ public static class OptionalFeatures
         OpenWeather,
         QBittorrent,
         Qdrant,
-        RapidAPI,
         Spotify,
         Telegram,
         Tenor,
