@@ -6,6 +6,16 @@ namespace MihuBot.Helpers;
 
 public static class DatabaseSetupHelper
 {
+    private static readonly TaskCompletionSource s_migrationsCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Completes once <see cref="DbServiceCollectionExtensions.RunDatabaseMigrations"/> is done.
+    /// Anything writing to a database on startup has to wait for it, the tables may not exist yet.
+    /// </summary>
+    public static Task MigrationsCompleted => s_migrationsCompleted.Task;
+
+    public static void NotifyMigrationsCompleted() => s_migrationsCompleted.TrySetResult();
+
     public static void AddPooledDbContextFactory<TDbContext>(IServiceCollection services, string databasePath)
         where TDbContext : DbContext
     {

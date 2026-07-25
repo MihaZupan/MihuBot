@@ -6,9 +6,10 @@ public sealed class YoutubeHandler : NonCommandHandler
 {
     private readonly YouTubeService _youtubeService;
 
-    public YoutubeHandler(YouTubeService youtubeService)
+    public YoutubeHandler(IEnumerable<YouTubeService> youtubeServices)
     {
-        _youtubeService = youtubeService ?? throw new ArgumentNullException(nameof(youtubeService));
+        // Optional - YoutubeHelper falls back to scraping when the API isn't configured.
+        _youtubeService = youtubeServices.FirstOrDefault();
     }
 
     public override Task HandleAsync(MessageContext ctx)

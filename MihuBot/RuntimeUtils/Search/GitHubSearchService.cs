@@ -26,7 +26,7 @@ public sealed class GitHubSearchService
     private readonly OpenAIService _openAi;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator2;
-    private readonly VectorStore _vectorStore;
+    private readonly VectorStore? _vectorStore;
     private readonly HybridCache _cache;
     internal readonly IConfigurationService _configuration;
     private readonly ServiceConfiguration _serviceConfiguration;
@@ -45,7 +45,7 @@ public sealed class GitHubSearchService
     [ImmutableObject(true)]
     private sealed record RawSearchResult(double Score, long RepositoryId, string IssueId, string SubIdentifier);
 
-    public GitHubSearchService(ILogger<GitHubSearchService> logger, IDbContextFactory<GitHubDbContext> db, GitHubDataIngestionService ingestionService, OpenAIService openAi, HybridCache cache, IConfigurationService configuration, ServiceConfiguration serviceConfiguration, VectorStore vectorStore)
+    public GitHubSearchService(ILogger<GitHubSearchService> logger, IDbContextFactory<GitHubDbContext> db, GitHubDataIngestionService ingestionService, OpenAIService openAi, HybridCache cache, IConfigurationService configuration, ServiceConfiguration serviceConfiguration, IEnumerable<VectorStore> vectorStores)
     {
         _logger = logger;
         _db = db;
@@ -53,7 +53,7 @@ public sealed class GitHubSearchService
         _openAi = openAi;
         _embeddingGenerator = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel);
         _embeddingGenerator2 = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, secondary: true);
-        _vectorStore = vectorStore;
+        _vectorStore = vectorStores.FirstOrDefault();
         _cache = cache;
         _configuration = configuration;
         _serviceConfiguration = serviceConfiguration;
@@ -436,7 +436,7 @@ public sealed class GitHubSearchService
 
     private async Task<RawSearchResult[]> VectorSearchAsync(string query, int topVectors, long repositoryFilter, SearchTimings timings, CancellationToken cancellationToken)
     {
-        if (_serviceConfiguration.DisableVectorSearch)
+        if (_vectorStore is null || _serviceConfiguration.DisableVectorSearch)
         {
             _logger.LogDebug("Vector search is disabled, skipping search for '{Query}'", query);
             return [];

@@ -43,6 +43,11 @@ public sealed class InitializedDiscordClient : DiscordSocketClient
 
     private async Task InitializeAsync()
     {
+        if (string.IsNullOrWhiteSpace(_token))
+        {
+            throw new InvalidOperationException("The Discord bot token is not configured.");
+        }
+
         Log += e =>
         {
             if (e.Exception is not null && !_initializedTcs.Task.IsCompleted)

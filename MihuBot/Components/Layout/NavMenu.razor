@@ -1,5 +1,7 @@
-﻿@inject IPermissionsService permissions
+﻿@using MihuBot.Configuration
+@inject IPermissionsService permissions
 @inject NavigationManager Navigation
+@inject AvailableFeatures features
 
 <div class="top-row ps-3 navbar navbar-dark">
     <AuthorizeView Policy="Discord">
@@ -17,36 +19,51 @@
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="runtime-utils">
-                <span class="bi bi-wrench-adjustable" aria-hidden="true"></span> Runtime utils
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="runtime-notifications">
-                <span class="bi bi-bell-fill" aria-hidden="true"></span> Runtime notifications
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="search">
-                <span class="bi bi-search" aria-hidden="true"></span> Search
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="triage">
-                <span class="bi bi-card-checklist" aria-hidden="true"></span> Triage
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="data-ingestion">
-                <span class="bi bi-database" aria-hidden="true"></span> Data ingestion
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="issue-data">
-                <span class="bi bi-database" aria-hidden="true"></span> Issue data
-            </NavLink>
-        </div>
+        @if (features.RuntimeUtils)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="runtime-utils">
+                    <span class="bi bi-wrench-adjustable" aria-hidden="true"></span> Runtime utils
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="runtime-notifications">
+                    <span class="bi bi-bell-fill" aria-hidden="true"></span> Runtime notifications
+                </NavLink>
+            </div>
+        }
+        @if (features.GitHubSearch)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="search">
+                    <span class="bi bi-search" aria-hidden="true"></span> Search
+                </NavLink>
+            </div>
+        }
+        @if (features.GitHubTriage)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="triage">
+                    <span class="bi bi-card-checklist" aria-hidden="true"></span> Triage
+                </NavLink>
+            </div>
+        }
+        @if (features.GitHubIngestion && features.RuntimeUtils)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="data-ingestion">
+                    <span class="bi bi-database" aria-hidden="true"></span> Data ingestion
+                </NavLink>
+            </div>
+        }
+        @if (features.GitHubData)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="issue-data">
+                    <span class="bi bi-database" aria-hidden="true"></span> Issue data
+                </NavLink>
+            </div>
+        }
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="regex?pattern=Hello%20World">
                 <span class="bi bi-regex" aria-hidden="true"></span> Regex
@@ -54,11 +71,14 @@
         </div>
         <AuthorizeView Policy="Discord">
             <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="@discordLoginHrefUrl">
-                        <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (Discord)
-                    </NavLink>
-                </div>
+                @if (features.DiscordLogin)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="@discordLoginHrefUrl">
+                            <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (Discord)
+                        </NavLink>
+                    </div>
+                }
             </NotAuthorized>
             <Authorized>
                 <div class="nav-item px-3">
@@ -74,7 +94,7 @@
                         </NavLink>
                     </div>
                 }
-                @if (permissions.HasPermission("mc", context.User.GetDiscordUserId()))
+                @if (features.Minecraft && permissions.HasPermission("mc", context.User.GetDiscordUserId()))
                 {
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="minecraft-remote">
@@ -100,11 +120,14 @@
         </AuthorizeView>
         <AuthorizeView Policy="GitHub">
             <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="@githubLoginHrefUrl">
-                        <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (GitHub)
-                    </NavLink>
-                </div>
+                @if (features.GitHubLogin)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="@githubLoginHrefUrl">
+                            <span class="bi bi-box-arrow-left" aria-hidden="true"></span> Log in (GitHub)
+                        </NavLink>
+                    </div>
+                }
             </NotAuthorized>
         </AuthorizeView>
         <AuthorizeView>

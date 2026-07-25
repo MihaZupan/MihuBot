@@ -213,6 +213,13 @@ public sealed class TelegramService
                 newMessage += $" ({speedKmph.ToString("F1", CultureInfo.InvariantCulture)} km/h)";
             }
 
+            if (string.IsNullOrEmpty(_googleMapsApiKey))
+            {
+                // Without a Google Maps key we can only relay the coordinates.
+                await channel.TrySendMessageAsync(newMessage, logger: _logger);
+                return true;
+            }
+
             using TempFile tempImageFile = new("png");
 
             await using (var tempImageFsWriteStream = System.IO.File.Create(tempImageFile.Path))

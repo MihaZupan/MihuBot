@@ -66,6 +66,7 @@ public sealed class EmoteCommand : CommandBase
             }
 
             if (url is null &&
+                !string.IsNullOrEmpty(_apiKey) &&
                 message.Content.StartsWith("https://tenor.com/view/", StringComparison.OrdinalIgnoreCase) &&
                 message.Content.Contains("-gif-", StringComparison.OrdinalIgnoreCase) &&
                 long.TryParse(message.Content.SplitLastTrimmed('-'), out long id))

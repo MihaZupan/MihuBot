@@ -77,6 +77,43 @@ environment variables (`Azure__TenantId`, `Azure__ClientId`, `Azure__ClientSecre
 in `docker-compose.yml`, or as a `credentials.json` placed at
 `/data/credentials.json` (the runner copies it in and it survives updates).
 
+## Optional integrations
+
+Only Discord (`Discord:AuthToken`) is required for the bot itself. These
+integrations register themselves only when their configuration is present, and
+the features depending on them (commands, handlers, API controllers, pages,
+background services) are disabled instead of failing startup when it isn't. On
+startup the missing ones are written to the console and posted to the Discord
+debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
+
+| Configuration | Disabled without it |
+| --- | --- |
+| `AppInsights:ConnectionString` | Azure Monitor / OpenTelemetry export |
+| `AzureOpenAI:Key` | Everything AI: `!chatgpt`, `!imagine`, `!duplicates`, GitHub search/triage pages, auto-triage, area label detection, semantic ingestion and the MCP endpoint |
+| `AzureOpenAI:ImageKey` | Image generation (`!imagine`) |
+| `AzureOpenAI:SecondaryChat:Endpoint` + `:Key` | Secondary chat endpoint (falls back to the primary one) |
+| `AzureOpenAI:SecondaryEmbedding:Endpoint` + `:Key` | Secondary embedding endpoint (falls back to the primary one) |
+| `AzureStorage:ConnectionString` | Archiving Discord attachments to blob storage (files stay on disk) |
+| `AzureStorage:ConnectionString-RuntimeUtils` | Fuzzing coverage reports and jitdiff extra assemblies |
+| `GitHub:Token` | All GitHub API access: runtime-utils jobs and their API/pages, data ingestion, notifications, self-update, `!runtimeutils` |
+| `GitHub:ClientId` + `GitHub:ClientSecret` *(`-dev` suffixed outside Linux)* | Signing in with GitHub (the login link is hidden and the endpoint 404s) |
+| `Discord:ClientSecret` *(`-dev` suffixed outside Linux)* | Signing in with Discord — this is the OAuth secret, separate from the bot token |
+| `GitHub-PostgreSQL:ConnectionString` | The GitHub data database: ingestion, search, triage, duplicate detection, issue data page |
+| `RuntimeUtils.CoreRootService.SasKey` *(GlobalConfiguration.json)* | Signed Core_Root storage URLs |
+| `RuntimeUtils.JobLogs.SasKey` *(GlobalConfiguration.json)* | Signed job log storage URLs |
+| `OpenWeather:ApiKey` | `!weather` and location lookups |
+| `Qdrant:Host` (+`:Port`) | Vector search + semantic ingestion (FTS still works) |
+| `Hetzner:ApiKey` | Hetzner runner VMs → jobs fall back to Azure VMs |
+| `GoogleMaps:ApiKey` | Static map image on relayed Telegram locations |
+| `Youtube:ApiKey` | YouTube API search/playlists (scraping fallback remains) |
+| `Spotify:ClientId`+`ClientSecret` | Spotify links in `!play` |
+| `TelegramBot:ApiKey` | Telegram relay + webhook endpoint (404) |
+| `Tenor:ApiKey` | Tenor links in `!emote` |
+| `RapidAPI:Key` | `!magic8ball` similarity check |
+| `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
+| `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
+| `Jellyfin:Host`+`ApiKey` | `!pirate` |
+
 ## Notes
 
 - MihuBot publishes `linux-x64`, so the image is `linux/amd64`.

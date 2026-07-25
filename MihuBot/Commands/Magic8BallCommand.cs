@@ -58,6 +58,12 @@ public sealed class Magic8BallCommand : CommandBase
 
     private async Task<double> QueryTextSimilarityAsync(string text1, string text2)
     {
+        if (string.IsNullOrEmpty(_apiKey))
+        {
+            // Without the RapidAPI key we can't tell how similar the prompts are.
+            return 0;
+        }
+
         string query = $"?text1={Uri.EscapeDataString(text1)}&text2={Uri.EscapeDataString(text2)}";
         string url = $"https://twinword-text-similarity-v1.p.rapidapi.com/similarity/{query}";
 

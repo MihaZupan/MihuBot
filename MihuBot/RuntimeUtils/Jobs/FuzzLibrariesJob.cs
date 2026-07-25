@@ -178,7 +178,8 @@ public sealed class FuzzLibrariesJob : JobBase
             return replacement;
         }
 
-        if (fileName.EndsWith(CoverageNameSuffix, StringComparison.Ordinal))
+        if (fileName.EndsWith(CoverageNameSuffix, StringComparison.Ordinal) &&
+            Parent.FuzzCoverageBlobContainerClient is { } coverageContainer)
         {
             string fuzzerName = fileName.Substring(0, fileName.Length - CoverageNameSuffix.Length);
 
@@ -207,7 +208,7 @@ public sealed class FuzzLibrariesJob : JobBase
                 string indexUrl = null;
                 await Parallel.ForEachAsync(htmlEntries, new ParallelOptions { MaxDegreeOfParallelism = 32, CancellationToken = cancellationToken }, async (entry, ct) =>
                 {
-                    BlobClient blob = Parent.FuzzCoverageBlobContainerClient.GetBlobClient($"{ExternalId}/{fuzzerName}-coverage/{entry.Name}");
+                    BlobClient blob = coverageContainer.GetBlobClient($"{ExternalId}/{fuzzerName}-coverage/{entry.Name}");
 
                     var options = new BlobUploadOptions
                     {

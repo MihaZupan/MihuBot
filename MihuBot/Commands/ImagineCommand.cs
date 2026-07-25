@@ -54,6 +54,12 @@ public sealed class ImagineCommand : CommandBase
 
     private async Task ExecuteAsync(MessageContext ctx, string prompt)
     {
+        if (!_openAI.ImageEnabled)
+        {
+            await ctx.ReplyAsync("Image generation is not configured");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(prompt))
         {
             prompt = GetContentFromMessageReference(ctx).Content;

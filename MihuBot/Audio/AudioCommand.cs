@@ -17,11 +17,11 @@ public sealed partial class AudioCommands : CommandBase
     private readonly SpotifyClient _spotifyClient;
     private readonly YouTubeService _youtubeService;
 
-    public AudioCommands(AudioService audioService, IEnumerable<SpotifyClient> spotifyClients, YouTubeService youtubeService)
+    public AudioCommands(AudioService audioService, IEnumerable<SpotifyClient> spotifyClients, IEnumerable<YouTubeService> youtubeServices)
     {
         _audioService = audioService;
         _spotifyClient = spotifyClients.SingleOrDefault();
-        _youtubeService = youtubeService;
+        _youtubeService = youtubeServices.SingleOrDefault();
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)

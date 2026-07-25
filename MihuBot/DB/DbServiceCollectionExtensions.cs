@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
 
@@ -19,26 +20,37 @@ public static class DbServiceCollectionExtensions
         DatabaseSetupHelper.AddPooledDbContextFactory<MihuBotDbContext>(services, GetDatabasePath<MihuBotDbContext>());
         DatabaseSetupHelper.AddPooledDbContextFactory<StorageDbContext>(services, GetDatabasePath<StorageDbContext>());
 
-        services.AddPooledDbContextFactory<GitHubDbContext>(options =>
+        if (configuration.IsConfigured(OptionalFeatures.GitHubDatabase))
         {
-            options.UseNpgsql(configuration["GitHub-PostgreSQL:ConnectionString"]);
-
-            if (!OperatingSystem.IsLinux())
+            services.AddPooledDbContextFactory<GitHubDbContext>(options =>
             {
-                options.EnableSensitiveDataLogging();
-            }
-        });
+                options.UseNpgsql(configuration["GitHub-PostgreSQL:ConnectionString"]);
+
+                if (!OperatingSystem.IsLinux())
+                {
+                    options.EnableSensitiveDataLogging();
+                }
+            });
+        }
     }
 
     public static async Task RunDatabaseMigrations(this IHost host)
     {
-        await DatabaseSetupHelper.MigrateAsync<LogsDbContext>(host, GetDatabasePath<LogsDbContext>());
-        await DatabaseSetupHelper.MigrateAsync<MihuBotDbContext>(host, GetDatabasePath<MihuBotDbContext>());
-        await DatabaseSetupHelper.MigrateAsync<StorageDbContext>(host, GetDatabasePath<StorageDbContext>());
-
-        if (OperatingSystem.IsLinux())
+        try
         {
-            await DatabaseSetupHelper.MigrateRemoteServerAsync<GitHubDbContext>(host);
+            await DatabaseSetupHelper.MigrateAsync<LogsDbContext>(host, GetDatabasePath<LogsDbContext>());
+            await DatabaseSetupHelper.MigrateAsync<MihuBotDbContext>(host, GetDatabasePath<MihuBotDbContext>());
+            await DatabaseSetupHelper.MigrateAsync<StorageDbContext>(host, GetDatabasePath<StorageDbContext>());
+
+            if (OperatingSystem.IsLinux() &&
+                host.Services.GetService<IDbContextFactory<GitHubDbContext>>() is not null)
+            {
+                await DatabaseSetupHelper.MigrateRemoteServerAsync<GitHubDbContext>(host);
+            }
+        }
+        finally
+        {
+            DatabaseSetupHelper.NotifyMigrationsCompleted();
         }
     }
 }

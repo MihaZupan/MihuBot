@@ -1,0 +1,10 @@
+<PageTitle>Not available</PageTitle>
+
+<div class="alert alert-warning" role="alert">
+    This functionality is not available in this deployment@(string.IsNullOrEmpty(Reason) ? "" : $" ({Reason})").
+</div>
+
+@code {
+    [Parameter]
+    public string Reason { get; set; }
+}

@@ -1,3 +1,4 @@
+using MihuBot.Configuration;
 using MihuBot.Permissions;
 using SharpCollections.Generic;
 using System.Collections.Concurrent;
@@ -28,7 +29,20 @@ public class MihuBotService : IHostedService
             .GetTypes()
             .Where(t => t.IsPublic && !t.IsAbstract))
         {
-            if (typeof(CommandBase).IsAssignableFrom(type))
+            bool isCommand = typeof(CommandBase).IsAssignableFrom(type);
+
+            if (!isCommand && !typeof(NonCommandHandler).IsAssignableFrom(type))
+            {
+                continue;
+            }
+
+            if (OptionalDependencies.GetMissingDependency(services, type) is { } missingDependency)
+            {
+                Console.WriteLine($"Skipping {type.Name} as {missingDependency.Name} is not available.");
+                continue;
+            }
+
+            if (isCommand)
             {
                 var instance = ActivatorUtilities.CreateInstance(services, type) as CommandBase;
                 _commands.Add(instance.Command.ToLowerInvariant(), instance);
@@ -38,7 +52,7 @@ public class MihuBotService : IHostedService
                 }
                 _nonCommandHandlers.Add(instance);
             }
-            else if (typeof(NonCommandHandler).IsAssignableFrom(type))
+            else
             {
                 var instance = ActivatorUtilities.CreateInstance(services, type) as NonCommandHandler;
                 _nonCommandHandlers.Add(instance);

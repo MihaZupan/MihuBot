@@ -1,4 +1,6 @@
-﻿namespace MihuBot.RuntimeUtils.Jobs;
+﻿using MihuBot.Configuration;
+
+namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class NuGetExtraAssembliesJob : JobBase
 {
@@ -6,6 +8,8 @@ public sealed class NuGetExtraAssembliesJob : JobBase
     public const string SubsetBlobName = "nuget-extra-assemblies-subset.zip";
 
     public override string JobTitlePrefix => "NuGetExtraAssemblies";
+
+    protected override OptionalFeature[] RequiredFeatures => [OptionalFeatures.AzureStorageRuntimeUtils];
 
     public NuGetExtraAssembliesJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
         : base(parent, githubCommenterLogin, arguments)

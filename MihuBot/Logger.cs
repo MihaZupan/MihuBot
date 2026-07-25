@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Net.Mime;
@@ -54,7 +54,7 @@ public sealed partial class Logger
         _configurationService = configurationService;
         _serviceConfiguration = serviceConfiguration;
 
-        if (ProgramState.AzureEnabled)
+        if (ProgramState.AzureEnabled && configuration.IsConfigured(OptionalFeatures.AzureStorage))
         {
             BlobContainerClient = new BlobContainerClient(
                 configuration["AzureStorage:ConnectionString"],
@@ -186,6 +186,9 @@ public sealed partial class Logger
     {
         List<LogDbEntry> events = new(512);
 
+        // The logs table doesn't exist until migrations have run.
+        await DatabaseSetupHelper.MigrationsCompleted;
+
         while (await LogChannel.Reader.WaitToReadAsync())
         {
             while (events.Count < events.Capacity && LogChannel.Reader.TryRead(out LogDbEntry logEvent))
@@ -214,11 +217,6 @@ public sealed partial class Logger
     {
         await foreach (var (FileName, FilePath, Message, Delete) in FileArchivingChannel.Reader.ReadAllAsync())
         {
-            if (!ProgramState.AzureEnabled)
-            {
-                continue;
-            }
-
             try
             {
                 string blobName = FilePath
@@ -245,10 +243,13 @@ public sealed partial class Logger
                     _ => AccessTier.Archive
                 };
 
-                BlobClient blobClient = BlobContainerClient.GetBlobClient(blobName);
+                // Blob storage may not be configured, in which case the file is only logged locally.
+                BlobClient blobClient = BlobContainerClient?.GetBlobClient(blobName);
 
-                using (FileStream fs = File.OpenRead(FilePath))
+                if (blobClient is not null)
                 {
+                    using FileStream fs = File.OpenRead(FilePath);
+
                     if (accessTier == AccessTier.Archive && fs.Length < 2 * 1024 * 1024 /* 2 MB */)
                         accessTier = AccessTier.Cool;
 
@@ -265,7 +266,7 @@ public sealed partial class Logger
                     File.Delete(FilePath);
                 }
 
-                if (Message != null)
+                if (Message != null && blobClient is not null)
                 {
                     var embed = new EmbedBuilder()
                         .WithAuthor(Message.Author.Username, Message.Author.GetAvatarUrl())

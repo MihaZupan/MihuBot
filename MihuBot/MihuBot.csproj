@@ -60,7 +60,7 @@
 
   <ItemGroup>
     <Content Update="credentials.json">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 

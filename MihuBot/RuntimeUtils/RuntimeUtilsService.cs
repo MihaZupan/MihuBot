@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using Azure.Storage.Blobs;
 using Markdig;
 using Markdig.Syntax;
@@ -142,6 +142,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly IConfiguration Configuration;
     public readonly IConfigurationService ConfigurationService;
     public readonly ServiceConfiguration ServiceConfiguration;
+    /// <summary>Null when no Hetzner API key is configured.</summary>
     public readonly HetznerClient Hetzner;
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
@@ -149,14 +150,16 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly StorageClient LogsStorage;
     public readonly StorageClient ArtifactsStorage;
     public readonly StorageClient RunnerPersistentStorage;
+    /// <summary>Null when AzureStorage isn't configured.</summary>
     public readonly BlobContainerClient FuzzCoverageBlobContainerClient;
+    /// <summary>Null when AzureStorage isn't configured.</summary>
     public readonly BlobContainerClient JitDiffExtraAssembliesBlobContainerClient;
     private readonly IDbContextFactory<MihuBotDbContext> _mihuBotDb;
     private readonly IDbContextFactory<GitHubDbContext> _gitHubDataDb;
 
     private bool _shuttingDown;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, HetznerClient hetzner, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<HetznerClient> hetznerClients, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage)
     {
         Logger = logger;
         Github = github;
@@ -165,7 +168,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Configuration = configuration;
         ConfigurationService = configurationService;
         ServiceConfiguration = serviceConfiguration;
-        Hetzner = hetzner;
+        Hetzner = hetznerClients.FirstOrDefault();
         UrlShortener = urlShortener;
         CoreRoot = coreRoot;
         Storage = storage;
@@ -176,22 +179,20 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ArtifactsStorage = CreateStorageClient(storage, http, "artifacts", owner: "runtime-utils", isPublic: true, TimeSpan.FromDays(60));
         RunnerPersistentStorage = CreateStorageClient(storage, http, "runner-persistent", owner: "runtime-utils", isPublic: false, TimeSpan.FromDays(90));
 
-        FuzzCoverageBlobContainerClient = new BlobContainerClient(
-            configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-            "artifacts");
+        if (configuration.IsConfigured(OptionalFeatures.AzureStorageRuntimeUtils))
+        {
+            FuzzCoverageBlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                "artifacts");
 
-        JitDiffExtraAssembliesBlobContainerClient = new BlobContainerClient(
-            configuration["AzureStorage:ConnectionString-RuntimeUtils"],
-            "jitdiff-extra-assemblies");
+            JitDiffExtraAssembliesBlobContainerClient = new BlobContainerClient(
+                configuration["AzureStorage:ConnectionString-RuntimeUtils"],
+                "jitdiff-extra-assemblies");
+        }
 
         if (!ConfigurationService.TryGet(null, "RuntimeUtils.JobLogs.SasKey", out string sasKey))
         {
-            if (OperatingSystem.IsLinux())
-            {
-                throw new InvalidOperationException("Missing 'RuntimeUtils.JobLogs.SasKey'");
-            }
-
-            // For local testing
+            // Without the key we can still read public blobs, but signed URLs won't be valid.
             sasKey = "";
         }
 
@@ -219,6 +220,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Returns the first feature that isn't configured, if any.
+    /// </summary>
+    public OptionalFeature GetMissingFeature(params OptionalFeature[] features) =>
+        features.FirstOrDefault(feature => feature.RuntimeConfiguration
+            ? !ConfigurationService.IsConfigured(feature)
+            : !Configuration.IsConfigured(feature));
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {

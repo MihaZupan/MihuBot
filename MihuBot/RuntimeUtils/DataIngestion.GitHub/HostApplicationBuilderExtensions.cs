@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MihuBot.Configuration;
 using Octokit;
 
 #nullable enable
@@ -19,6 +20,12 @@ public static class HostApplicationBuilderExtensions
     {
         var services = builder.Services;
         var configuration = builder.Configuration;
+
+        if (!configuration.IsConfigured(OptionalFeatures.GitHub))
+        {
+            // No GitHub token, everything talking to GitHub stays disabled.
+            return builder;
+        }
 
         // Configure and validate GitHub options
         services.Configure<GitHubClientOptions>(configuration.GetSection(GitHubClientOptions.SectionName));
@@ -50,10 +57,21 @@ public static class HostApplicationBuilderExtensions
             return new GithubGraphQLClient(options.ProductName, [options.Token], logger);
         });
 
+        if (!configuration.IsConfigured(OptionalFeatures.GitHubDatabase))
+        {
+            // Ingestion has nowhere to store the data.
+            return builder;
+        }
+
         // Register data ingestion services
         services.AddSingleton<GitHubDataIngestionService>();
         services.AddHostedService(sp => sp.GetRequiredService<GitHubDataIngestionService>());
-        services.AddHostedService<GitHubSemanticSearchIngestionService>();
+
+        // Semantic ingestion requires a Qdrant instance to write the vectors to and AzureOpenAI for the embeddings.
+        if (configuration.IsConfigured(OptionalFeatures.Qdrant) && configuration.IsConfigured(OptionalFeatures.AzureOpenAI))
+        {
+            services.AddHostedService<GitHubSemanticSearchIngestionService>();
+        }
 
         return builder;
     }

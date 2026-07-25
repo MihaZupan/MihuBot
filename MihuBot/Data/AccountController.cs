@@ -8,9 +8,16 @@ namespace MihuBot.Data;
 public class AccountController : ControllerBase
 {
     [HttpGet("Login/{provider}")]
-    public IActionResult Login([FromRoute] string provider, [FromQuery] string returnUrl = "/")
+    public async Task<IActionResult> Login([FromRoute] string provider, [FromQuery] string returnUrl = "/")
     {
         if (provider is not ("Discord" or "GitHub"))
+        {
+            return NotFound();
+        }
+
+        // The scheme isn't registered when the provider isn't configured.
+        var schemes = HttpContext.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        if (await schemes.GetSchemeAsync(provider) is null)
         {
             return NotFound();
         }

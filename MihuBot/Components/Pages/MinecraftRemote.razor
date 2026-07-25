@@ -1,7 +1,7 @@
 ﻿@page "/minecraft-remote"
 @attribute [Authorize]
 @inject IPermissionsService permissions
-@inject MinecraftRCON minecraftRCON
+@inject IEnumerable<MinecraftRCON> minecraftRCONs
 @rendermode InteractiveServer
 
 <form @onsubmit="SendCommandAsync">
@@ -58,7 +58,11 @@
             string message = currentValue;
             currentValue = null;
 
-            if (permissions.HasPermission("mc", userId))
+            if (minecraftRCONs.FirstOrDefault() is not { } minecraftRCON)
+            {
+                exception = "Minecraft RCON is not configured";
+            }
+            else if (permissions.HasPermission("mc", userId))
             {
                 string response = await minecraftRCON.SendCommandAsync(message.Trim());
                 response = response.Trim();

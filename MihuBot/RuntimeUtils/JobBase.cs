@@ -46,6 +46,11 @@ public abstract class JobBase
     protected virtual string RepoOwner => GitHubComment?.RepoOwner() ?? "dotnet";
     protected virtual string RepoName => GitHubComment?.RepoName() ?? "runtime";
 
+    /// <summary>
+    /// Configuration the job can't run without. Checked before any resources are provisioned.
+    /// </summary>
+    protected virtual OptionalFeature[] RequiredFeatures => [];
+
     protected Logger Logger => Parent.Logger;
     public GitHubClient Github => Parent.Github;
     protected HttpClient Http => Parent.Http;
@@ -260,6 +265,13 @@ public abstract class JobBase
         if (!ProgramState.AzureEnabled)
         {
             Log("No Azure support. Aborting ...");
+            NotifyJobCompletion();
+            return;
+        }
+
+        if (Parent.GetMissingFeature(RequiredFeatures) is { } missingFeature)
+        {
+            Log($"Missing configuration for '{missingFeature.Description}' ({string.Join(", ", missingFeature.Keys)}). Aborting ...");
             NotifyJobCompletion();
             return;
         }
@@ -957,6 +969,12 @@ public abstract class JobBase
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
         bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
         bool useHelix = UseHelix || UseWindows;
+
+        if (useHetzner && Hetzner is null)
+        {
+            Log("Hetzner is not configured, falling back to an Azure VM");
+            useHetzner = false;
+        }
 
         string linuxStartupScript =
             $"""

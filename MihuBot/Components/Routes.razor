@@ -1,6 +1,18 @@
-﻿<Router AppAssembly="typeof(ProgramState).Assembly">
+﻿@using MihuBot.Configuration
+@inject IServiceProvider Services
+
+<Router AppAssembly="typeof(ProgramState).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        @if (OptionalDependencies.GetMissingInjectedService(Services, routeData.PageType) is { } missingService)
+        {
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <FeatureUnavailable Reason="@($"{missingService.Name} is not configured")" />
+            </LayoutView>
+        }
+        else
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        }
     </Found>
 </Router>

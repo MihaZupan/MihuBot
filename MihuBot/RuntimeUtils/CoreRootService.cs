@@ -27,12 +27,7 @@ public sealed class CoreRootService
 
         if (!configurationService.TryGet(null, "RuntimeUtils.CoreRootService.SasKey", out string sasKey))
         {
-            if (OperatingSystem.IsLinux())
-            {
-                throw new InvalidOperationException("Missing 'RuntimeUtils.CoreRootService.SasKey'");
-            }
-
-            // For local testing
+            // Without the key we can still read public blobs, but signed URLs won't be valid.
             sasKey = "";
         }
 

@@ -27,6 +27,14 @@ public sealed class JitDiffJob : JobBase
     protected override Task InitializeAsync(CancellationToken jobTimeout)
     {
         var container = Parent.JitDiffExtraAssembliesBlobContainerClient;
+
+        if (container is null)
+        {
+            // Without blob storage the runner skips diffing extra assemblies.
+            Log("Extra assemblies storage is not configured, they won't be diffed");
+            return Task.CompletedTask;
+        }
+
         var expiry = DateTimeOffset.UtcNow.Add(MaxJobDuration);
 
         var blobClient = container.GetBlobClient(NuGetExtraAssembliesJob.FullBlobName);

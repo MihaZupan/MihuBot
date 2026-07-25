@@ -1,4 +1,4 @@
-﻿using Azure.AI.OpenAI;
+using Azure.AI.OpenAI;
 using Azure;
 using OpenAI.Images;
 using MihuBot.Configuration;
@@ -23,36 +23,49 @@ public sealed class OpenAIService
 
     private readonly Logger _logger;
     private readonly AzureOpenAIClient _chat;
-    private readonly AzureOpenAIClient _image;
-    private readonly AzureOpenAIClient _secondaryEmbeddingClient;
-    private readonly AzureOpenAIClient _secondaryChatClient;
+    private readonly AzureOpenAIClient? _image;
+    private readonly AzureOpenAIClient? _secondaryEmbeddingClient;
+    private readonly AzureOpenAIClient? _secondaryChatClient;
     private readonly IConfigurationService _configurationService;
+
+    /// <summary>False when no image generation endpoint is configured.</summary>
+    public bool ImageEnabled => _image is not null;
 
     public OpenAIService(IConfiguration configuration, IConfigurationService configurationService, Logger logger)
     {
         _configurationService = configurationService;
         _logger = logger;
 
+        // Only the primary endpoint is required, the rest fall back to it when not configured.
         _chat = new AzureOpenAIClient(
             new Uri("https://mihubotai8467177614.openai.azure.com"),
             new AzureKeyCredential(configuration["AzureOpenAI:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI Key")));
 
-        _image = new AzureOpenAIClient(
-            new Uri("https://mihaz-m30zd4gd-eastus.openai.azure.com"),
-            new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"] ?? throw new InvalidOperationException("Missing AzureOpenAI Image Key")));
+        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAIImage))
+        {
+            _image = new AzureOpenAIClient(
+                new Uri("https://mihaz-m30zd4gd-eastus.openai.azure.com"),
+                new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"]!));
+        }
 
-        _secondaryEmbeddingClient = new AzureOpenAIClient(
-            new Uri(configuration["AzureOpenAI:SecondaryEmbedding:Endpoint"] ?? throw new InvalidOperationException("Missing secondary embedding endpoint")),
-            new AzureKeyCredential(configuration["AzureOpenAI:SecondaryEmbedding:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI secondary embedding Key")));
+        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAISecondaryEmbedding))
+        {
+            _secondaryEmbeddingClient = new AzureOpenAIClient(
+                new Uri(configuration["AzureOpenAI:SecondaryEmbedding:Endpoint"]!),
+                new AzureKeyCredential(configuration["AzureOpenAI:SecondaryEmbedding:Key"]!));
+        }
 
-        _secondaryChatClient = new AzureOpenAIClient(
-            new Uri(configuration["AzureOpenAI:SecondaryChat:Endpoint"] ?? throw new InvalidOperationException("Missing secondary chat endpoint")),
-            new AzureKeyCredential(configuration["AzureOpenAI:SecondaryChat:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI secondary chat Key")));
+        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAISecondaryChat))
+        {
+            _secondaryChatClient = new AzureOpenAIClient(
+                new Uri(configuration["AzureOpenAI:SecondaryChat:Endpoint"]!),
+                new AzureKeyCredential(configuration["AzureOpenAI:SecondaryChat:Key"]!));
+        }
     }
 
     public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool secondary = false)
     {
-        AzureOpenAIClient client = secondary ? _secondaryEmbeddingClient : _chat;
+        AzureOpenAIClient client = (secondary ? _secondaryEmbeddingClient : null) ?? _chat;
         return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator();
     }
 
@@ -68,7 +81,7 @@ public sealed class OpenAIService
     {
         deployment ??= DefaultModel;
 
-        AzureOpenAIClient client = secondary ? _secondaryChatClient : _chat;
+        AzureOpenAIClient client = (secondary ? _secondaryChatClient : null) ?? _chat;
         IChatClient chatClient = client.GetChatClient(deployment).AsIChatClient();
 
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
@@ -76,8 +89,13 @@ public sealed class OpenAIService
         return chatClient;
     }
 
-    public ImageClient GetImage(ulong? context)
+    public ImageClient? GetImage(ulong? context)
     {
+        if (_image is null)
+        {
+            return null;
+        }
+
         _configurationService.TryGet(context, "ChatGPT.ImageDeployment", out string? deployment);
 
         deployment ??= "dall-e-3";

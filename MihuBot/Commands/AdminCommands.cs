@@ -21,9 +21,9 @@ public sealed class AdminCommands : CommandBase
     private readonly HybridCache _cache;
     private readonly Logger _logger;
 
-    public AdminCommands(IDbContextFactory<GitHubDbContext> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, Logger logger)
+    public AdminCommands(IEnumerable<IDbContextFactory<GitHubDbContext>> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, Logger logger)
     {
-        _db = db;
+        _db = db.FirstOrDefault();
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
         _cache = cache;
@@ -39,6 +39,12 @@ public sealed class AdminCommands : CommandBase
 
         if (ctx.Command == "clearbodyedithistorytable")
         {
+            if (_db is null)
+            {
+                await ctx.ReplyAsync("The GitHub database is not configured.");
+                return;
+            }
+
             await using GitHubDbContext db = _db.CreateDbContext();
             int updates = await db.BodyEditHistory.ExecuteDeleteAsync();
             await ctx.ReplyAsync($"Deleted {updates} body edit history entries.");
@@ -46,37 +52,46 @@ public sealed class AdminCommands : CommandBase
 
         if (ctx.Command == "dumpdbcounts")
         {
-            await using GitHubDbContext db = _db.CreateDbContext();
+            await using GitHubDbContext db = _db?.CreateDbContext();
             await using MihuBotDbContext dbMihuBot = _dbMihuBot.CreateDbContext();
             await using LogsDbContext dbLogs = _dbLogs.CreateDbContext();
 
-            (string Name, Func<Task<int>> CountCallback)[] tables =
+            List<(string Name, Func<Task<int>> CountCallback)> tables = [];
+
+            if (db is not null)
+            {
+                tables.AddRange(
+                [
+                    ("Issues", () => db.Issues.CountAsync()),
+                    ("Repositories", () => db.Repositories.CountAsync()),
+                    ("PullRequests", () => db.PullRequests.CountAsync()),
+                    ("Comments", () => db.Comments.CountAsync()),
+                    ("Users", () => db.Users.CountAsync()),
+                    ("Labels", () => db.Labels.CountAsync()),
+                    ("Milestones", () => db.Milestones.CountAsync()),
+                    ("BodyEditHistory", () => db.BodyEditHistory.CountAsync()),
+                    ("TriagedIssues", () => db.TriagedIssues.CountAsync()),
+                    ("SemanticIngestionBacklog", () => db.SemanticIngestionBacklog.CountAsync()),
+                    ("IngestedEmbeddings", () => db.IngestedEmbeddings.CountAsync()),
+                    ("TextEntries", () => db.TextEntries.CountAsync()),
+                ]);
+            }
+
+            tables.AddRange(
             [
-                ("Issues", () => db.Issues.CountAsync()),
-                ("Repositories", () => db.Repositories.CountAsync()),
-                ("PullRequests", () => db.PullRequests.CountAsync()),
-                ("Comments", () => db.Comments.CountAsync()),
-                ("Users", () => db.Users.CountAsync()),
-                ("Labels", () => db.Labels.CountAsync()),
-                ("Milestones", () => db.Milestones.CountAsync()),
-                ("BodyEditHistory", () => db.BodyEditHistory.CountAsync()),
-                ("TriagedIssues", () => db.TriagedIssues.CountAsync()),
-                ("SemanticIngestionBacklog", () => db.SemanticIngestionBacklog.CountAsync()),
-                ("IngestedEmbeddings", () => db.IngestedEmbeddings.CountAsync()),
-                ("TextEntries", () => db.TextEntries.CountAsync()),
                 ("Logs", () => dbLogs.Logs.CountAsync()),
                 ("Reminders", () => dbMihuBot.Reminders.CountAsync()),
                 ("CompletedJobs", () => dbMihuBot.CompletedJobs.CountAsync()),
                 ("UrlShortenerEntries", () => dbMihuBot.UrlShortenerEntries.CountAsync()),
                 ("UserLocations", () => dbMihuBot.UserLocation.CountAsync()),
                 ("CoreRootEntries", () => dbMihuBot.CoreRoot.CountAsync())
-            ];
+            ]);
 
             if (ctx.Arguments.Length > 0)
             {
                 tables = [.. tables.Where(t => ctx.Arguments.Any(a => t.Name.Contains(a, StringComparison.OrdinalIgnoreCase)))];
 
-                if (tables.Length == 0)
+                if (tables.Count == 0)
                 {
                     await ctx.ReplyAsync("No tables matched the provided arguments.");
                     return;

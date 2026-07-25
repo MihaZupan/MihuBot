@@ -71,6 +71,18 @@ try
             ProgramState.AzureCredential);
     }
 
+    // Discord is the one integration MihuBot can't run without.
+    if (!builder.Configuration.IsConfigured(OptionalFeatures.Discord))
+    {
+        Console.WriteLine(
+            $"""
+            Discord is not configured, MihuBot can not start.
+            Set '{OptionalFeatures.Discord.Keys[0]}' (the bot token) in Azure Key Vault, in credentials.json next to the executable,
+            or via the '{OptionalFeatures.Discord.Keys[0].Replace(":", "__")}' environment variable.
+            """);
+        return;
+    }
+
     builder.WebHost.UseKestrel(options =>
     {
         options.Limits.MaxResponseBufferSize *= 32;
@@ -169,7 +181,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         };
     });
 
-    string devSuffix = OperatingSystem.IsLinux() ? "" : "-dev";
+    string devSuffix = Constants.DevSuffix;
 
     if (OperatingSystem.IsLinux())
     {
@@ -182,12 +194,13 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
 
-    if (ProgramState.AzureEnabled && OperatingSystem.IsLinux())
+    if (ProgramState.AzureEnabled && OperatingSystem.IsLinux() &&
+        builder.Configuration.IsConfigured(OptionalFeatures.AppInsights))
     {
         builder.Services.AddOpenTelemetry()
             .UseAzureMonitor(options =>
             {
-                options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"] ?? throw new Exception("Missing AppInsights ConnectionString");
+                options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"];
             })
             .ConfigureResource(builder =>
             {
@@ -260,6 +273,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<ServiceConfiguration>();
 
+    services.AddSingleton<AvailableFeatures>();
+
+    services.AddHostedService<OptionalFeatureReportService>();
+
     services.AddSingleton<Logger>();
 
     services.TryAddEnumerable(
@@ -267,54 +284,111 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddSingleton<IPermissionsService, PermissionsService>();
 
-    services.AddSingleton<OpenAIService>();
+    // Everything AI-related needs at least the primary AzureOpenAI endpoint.
+    bool openAIEnabled = builder.Configuration.IsConfigured(OptionalFeatures.AzureOpenAI);
+
+    bool gitHubEnabled = builder.Configuration.IsConfigured(OptionalFeatures.GitHub);
+    bool gitHubDbEnabled = builder.Configuration.IsConfigured(OptionalFeatures.GitHubDatabase);
+
+    // Runtime-utils jobs need both the GitHub API and the ingested GitHub data.
+    bool runtimeUtilsEnabled = gitHubEnabled && gitHubDbEnabled;
+
+    // Search and triage run on top of the ingested GitHub data.
+    bool gitHubAIEnabled = openAIEnabled && runtimeUtilsEnabled;
+
+    if (openAIEnabled)
+    {
+        services.AddSingleton<OpenAIService>();
+    }
 
     services.AddSingleton<UrlShortenerService>();
 
     services.AddSingleton<ReminderService>();
 
-    services.AddSingleton<OpenWeatherClient>();
+    if (builder.Configuration.IsConfigured(OptionalFeatures.OpenWeather))
+    {
+        services.AddSingleton<OpenWeatherClient>();
 
-    services.AddSingleton<LocationService>();
+        if (openAIEnabled)
+        {
+            services.AddSingleton<LocationService>();
+        }
+    }
 
-    services.AddSingleton<HetznerClient>();
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Hetzner))
+    {
+        services.AddSingleton<HetznerClient>();
+    }
 
     services.AddStorageServices();
 
-    services.AddSingleton<CoreRootService>();
+    if (gitHubEnabled)
+    {
+        services.AddSingleton<CoreRootService>();
+    }
 
     services.AddSingleton<RegexSourceGenerator>();
 
-    services.AddSingleton<GitHubNotificationsService>();
+    if (runtimeUtilsEnabled)
+    {
+        services.AddSingleton<GitHubNotificationsService>();
+    }
 
-    builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
-    builder.Services.AddQdrantVectorStore();
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Qdrant))
+    {
+        builder.Services.AddSingleton(new QdrantClient(builder.Configuration["Qdrant:Host"], int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334")));
+        builder.Services.AddQdrantVectorStore();
+    }
 
-    services.AddSingleton<GitHubSearchService>();
+    if (gitHubAIEnabled)
+    {
+        services.AddSingleton<GitHubSearchService>();
 
-    services.AddSingleton<IssueTriageHelper>();
+        services.AddSingleton<IssueTriageHelper>();
 
-    services.AddSingleton<IssueTriageService>();
-    services.AddHostedService(s => s.GetRequiredService<IssueTriageService>());
+        services.AddSingleton<IssueTriageService>();
+        services.AddHostedService(s => s.GetRequiredService<IssueTriageService>());
+    }
 
-    services.AddSingleton<RuntimeUtilsService>();
-    services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
+    if (runtimeUtilsEnabled)
+    {
+        services.AddSingleton<RuntimeUtilsService>();
+        services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
+    }
 
-    services.AddSingleton<DetectIssueAreaLabelsService>();
-    services.AddHostedService(s => s.GetRequiredService<DetectIssueAreaLabelsService>());
+    if (gitHubAIEnabled)
+    {
+        services.AddSingleton<DetectIssueAreaLabelsService>();
+        services.AddHostedService(s => s.GetRequiredService<DetectIssueAreaLabelsService>());
+    }
 
-    services.AddSingleton<SelfUpdateService>();
-    services.AddHostedService(s => s.GetRequiredService<SelfUpdateService>());
+    if (gitHubEnabled)
+    {
+        services.AddSingleton<SelfUpdateService>();
+        services.AddHostedService(s => s.GetRequiredService<SelfUpdateService>());
+    }
 
-    services.AddSingleton<McpServer>();
+    if (gitHubAIEnabled)
+    {
+        services.AddSingleton<McpServer>();
+    }
 
-    services.AddSingleton(new MinecraftRCON(builder.Configuration["Minecraft:Host"], int.Parse(builder.Configuration["Minecraft:Port"] ?? "25575"), builder.Configuration["Minecraft:RconPassword"]));
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Minecraft))
+    {
+        services.AddSingleton(new MinecraftRCON(builder.Configuration["Minecraft:Host"], int.Parse(builder.Configuration["Minecraft:Port"] ?? "25575"), builder.Configuration["Minecraft:RconPassword"]));
+    }
 
-    services.AddSingleton(new QBittorrentClient(builder.Configuration["QBittorrent:Host"], builder.Configuration["QBittorrent:Username"], builder.Configuration["QBittorrent:Password"]));
+    if (builder.Configuration.IsConfigured(OptionalFeatures.QBittorrent))
+    {
+        services.AddSingleton(new QBittorrentClient(builder.Configuration["QBittorrent:Host"], builder.Configuration["QBittorrent:Username"], builder.Configuration["QBittorrent:Password"]));
+    }
 
-    services.AddSingleton(new JellyfinClient(builder.Configuration["Jellyfin:Host"], builder.Configuration["Jellyfin:ApiKey"]));
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Jellyfin))
+    {
+        services.AddSingleton(new JellyfinClient(builder.Configuration["Jellyfin:Host"], builder.Configuration["Jellyfin:ApiKey"]));
+    }
 
-    if (ProgramState.AzureEnabled)
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Spotify))
     {
         services.AddSingleton(new SpotifyClient(SpotifyClientConfig.CreateDefault()
             .WithAuthenticator(new ClientCredentialsAuthenticator(
@@ -322,17 +396,23 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
                 builder.Configuration["Spotify:ClientSecret"]))));
     }
 
-    services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Youtube))
     {
-        ApiKey = builder.Configuration["Youtube:ApiKey"],
-        ApplicationName = $"MihuBot{devSuffix}"
-    }));
+        services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
+        {
+            ApiKey = builder.Configuration["Youtube:ApiKey"],
+            ApplicationName = $"MihuBot{devSuffix}"
+        }));
+    }
 
     services.AddSingleton<AudioService>();
 
-    services.AddSingleton(new TelegramBotClient(builder.Configuration["TelegramBot:ApiKey"]));
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Telegram))
+    {
+        services.AddSingleton(new TelegramBotClient(builder.Configuration["TelegramBot:ApiKey"]));
 
-    services.AddSingleton<TelegramService>();
+        services.AddSingleton<TelegramService>();
+    }
 
     services.AddHostedService<MihuBotService>();
 
@@ -349,24 +429,35 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         .AddCookie(options =>
         {
             options.LoginPath = "/Account/Login/Discord";
-        })
-        .AddDiscord(options =>
-        {
-            options.SaveTokens = true;
-            options.ClientId = KnownUsers.MihuBot.ToString();
-            options.ClientSecret = builder.Configuration[$"Discord:ClientSecret{devSuffix}"];
-            options.Scope.Add("guilds");
-
-            options.Events.OnTicketReceived = MergeIdentities;
-        })
-        .AddGitHub(options =>
-        {
-            options.SaveTokens = true;
-            options.ClientId = builder.Configuration[$"GitHub:ClientId{devSuffix}"];
-            options.ClientSecret = builder.Configuration[$"GitHub:ClientSecret{devSuffix}"];
-
-            options.Events.OnTicketReceived = MergeIdentities;
         });
+
+    // OAuth handlers validate their options on every request, so they can only be registered when configured.
+    if (builder.Configuration.IsConfigured(OptionalFeatures.DiscordOAuth))
+    {
+        services.AddAuthentication()
+            .AddDiscord(options =>
+            {
+                options.SaveTokens = true;
+                options.ClientId = KnownUsers.MihuBot.ToString();
+                options.ClientSecret = builder.Configuration[$"Discord:ClientSecret{devSuffix}"];
+                options.Scope.Add("guilds");
+
+                options.Events.OnTicketReceived = MergeIdentities;
+            });
+    }
+
+    if (builder.Configuration.IsConfigured(OptionalFeatures.GitHubOAuth))
+    {
+        services.AddAuthentication()
+            .AddGitHub(options =>
+            {
+                options.SaveTokens = true;
+                options.ClientId = builder.Configuration[$"GitHub:ClientId{devSuffix}"];
+                options.ClientSecret = builder.Configuration[$"GitHub:ClientSecret{devSuffix}"];
+
+                options.Events.OnTicketReceived = MergeIdentities;
+            });
+    }
 
     static async Task MergeIdentities(TicketReceivedContext context)
     {
@@ -402,6 +493,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         .AddInteractiveServerComponents();
 
     services.AddControllers();
+    services.AddRemoveUnavailableControllersConvention();
 
     services.AddAuthorizationBuilder()
         .AddPolicy("Admin", policy =>
@@ -421,9 +513,12 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddReverseProxy()
         .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-    services.AddMcpServer()
-        .WithHttpTransport()
-        .WithTools<McpServer>();
+    if (gitHubAIEnabled)
+    {
+        services.AddMcpServer()
+            .WithHttpTransport()
+            .WithTools<McpServer>();
+    }
 }
 
 static void Configure(WebApplication app, IWebHostEnvironment env)
@@ -490,7 +585,10 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.MapReverseProxy();
 
-    app.MapMcp("/mcp");
+    if (app.Services.GetService<McpServer>() is not null)
+    {
+        app.MapMcp("/mcp");
+    }
 }
 
 static void ConfigureYarpTunnelAuth(EndpointBuilder builder)

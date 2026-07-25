@@ -30,6 +30,9 @@ public static class Constants
 {
     public static string StateDirectory => "State";
 
+    // Dev credentials are used everywhere except the Linux deployment.
+    public static string DevSuffix { get; } = OperatingSystem.IsLinux() ? "" : "-dev";
+
     // Bulk file storage for the StorageService. Defaults to living under the state directory,
     // but may point elsewhere (e.g. a separate Docker volume) via MIHUBOT_STORAGE_DIRECTORY.
     public static string StorageDirectory { get; } =
