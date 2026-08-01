@@ -47,7 +47,7 @@ SEED_TARBALL="$STATE_DIR/artifacts.tar.gz"
 mkdir -p "$MIHUBOT_HOME" "$STATE_DIR" "$UPDATE_DIR" "$STORAGE_DIR"
 
 extract_build() {
-    # The tarball produced by CI (`tar -czf artifacts.tar.gz artifacts`) contains
+    # The produced tarball (`tar -czf artifacts.tar.gz artifacts`) contains
     # a top-level `artifacts/` directory, so extract it into $MIHUBOT_HOME.
     rm -rf "$APP_DIR"
     if tar -xzf "$1" -C "$MIHUBOT_HOME"; then

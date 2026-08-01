@@ -43,7 +43,7 @@ publish() {
 
 cd "$WORKDIR/src"
 
-# Prefer the daily build (as CI does); fall back to a known-good version.
+# Prefer the daily build; fall back to a known-good version.
 DOTNET_DIR=""
 if "$WORKDIR/dotnet-install.sh" --channel "$DOTNET_CHANNEL" --quality daily --install-dir "$WORKDIR/dotnet-daily" \
     && publish "$WORKDIR/dotnet-daily/dotnet"; then
@@ -56,7 +56,7 @@ else
     DOTNET_DIR="$WORKDIR/dotnet-fallback"
 fi
 
-# Match CI: ship the regex source generator analyzer next to the app.
+# Ship the regex source generator analyzer next to the app.
 cp "$DOTNET_DIR"/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts/ 2>/dev/null || true
 
 echo "[build] Packaging $OUT_TARBALL ..."
