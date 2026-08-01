@@ -14,10 +14,10 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "31000:5000"
+      - "31001:5001"
     volumes:
-      # General state (SQLite DBs, logs, JSON stores, TLS certs, current build).
+      # General state (SQLite DBs, logs, JSON stores, current build).
       - ${MIHUBOT_DATA_VOLUME:-mihubot-data}:/data
       # StorageService file blobs, kept on a separate volume so the (potentially
       # large) file data can live on its own disk (see MIHUBOT_STORAGE_DIRECTORY

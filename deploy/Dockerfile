@@ -39,11 +39,9 @@ COPY run.sh build-latest.sh /usr/local/bin/
 RUN sed -i 's/\r$//' /usr/local/bin/run.sh /usr/local/bin/build-latest.sh \
     && chmod +x /usr/local/bin/run.sh /usr/local/bin/build-latest.sh
 
-# Persistent state / current build / incoming updates (certs live under State/).
+# Persistent state / current build / incoming updates.
 # /storage holds the StorageService file blobs and can be mounted separately so
 # the (potentially large) file data lives on its own volume.
 VOLUME ["/data", "/storage"]
-
-EXPOSE 80 443
 
 ENTRYPOINT ["/usr/local/bin/run.sh"]

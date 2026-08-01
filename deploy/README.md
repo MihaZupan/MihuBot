@@ -14,7 +14,7 @@ storage which gets its own volume at `/storage`:
 | Path                   | Purpose                                            |
 | ---------------------- | -------------------------------------------------- |
 | `/data/artifacts/`     | Current build; **replaced** on every update        |
-| `/data/State/`         | Persistent state (SQLite DBs, logs, JSON stores, TLS certs) |
+| `/data/State/`         | Persistent state (SQLite DBs, logs, JSON stores)   |
 | `/data/next_update/`   | Incoming `artifacts.tar.gz` produced by the app    |
 | `/storage/`            | `StorageService` file blobs (uploaded files)       |
 
@@ -116,8 +116,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 ## Notes
 
 - MihuBot publishes `linux-x64`, so the image is `linux/amd64`.
-- Ports 80/443 are exposed; port 80 must be reachable for LettuceEncrypt (ACME).
-  TLS certs are persisted under `State/certs` (on the `/data` volume).
+- Ports 5000/5001 are exposed; 5001 is H2C.
 - `MIHUBOT_EXECUTABLE` overrides the executable name (default `MihuBot`).
 - `MIHUBOT_STORAGE_DIRECTORY` overrides where the `StorageService` keeps files
   (default `/storage` in the image, `State/Files` outside of it). Existing

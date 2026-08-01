@@ -5,12 +5,10 @@ using Azure.Identity;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
-using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
-using Microsoft.AspNetCore.HttpsPolicy;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
@@ -19,7 +17,6 @@ using MihuBot;
 using MihuBot.Audio;
 using MihuBot.Components;
 using MihuBot.Configuration;
-using MihuBot.Data;
 using MihuBot.Location;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
@@ -101,9 +98,10 @@ try
                 return next(context);
             });
         });
-    });
 
-    builder.WebHost.UseUrls("http://*:80", "https://*:443");
+        options.ListenAnyIP(5000);
+        options.ListenAnyIP(5001, options => options.Protocols = HttpProtocols.Http2); // H2C
+    });
 
     Console.WriteLine("Configuring services ...");
     ConfigureServices(builder, builder.Services);
@@ -182,17 +180,6 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     });
 
     string devSuffix = Constants.DevSuffix;
-
-    if (OperatingSystem.IsLinux())
-    {
-        DirectoryInfo certDir = new($"{Constants.StateDirectory}/certs");
-        certDir.Create();
-
-        services.AddLettuceEncrypt()
-            .PersistDataToDirectory(certDir, "certpass123");
-    }
-
-    services.Configure<HttpsRedirectionOptions>(options => options.HttpsPort = 443);
 
     if (ProgramState.AzureEnabled && OperatingSystem.IsLinux() &&
         builder.Configuration.IsConfigured(OptionalFeatures.AppInsights))
@@ -551,8 +538,6 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
     app.UseHttpLogging();
 
     app.UseCors();
-
-    app.UseHttpsRedirection();
 
     app.UseStaticFiles(new StaticFileOptions
     {
