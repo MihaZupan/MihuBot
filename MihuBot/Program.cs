@@ -320,6 +320,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     if (gitHubEnabled)
     {
         services.AddSingleton<CoreRootService>();
+        services.AddHostedService(s => s.GetRequiredService<CoreRootService>());
     }
 
     services.AddSingleton<RegexSourceGenerator>();

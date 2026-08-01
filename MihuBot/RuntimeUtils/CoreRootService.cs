@@ -6,8 +6,10 @@ using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class CoreRootService
+public sealed class CoreRootService : BackgroundService
 {
+    private const int RetentionDays = 180;
+
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<MihuBotDbContext> _dbContextFactory;
     private readonly Logger _logger;
@@ -23,9 +25,59 @@ public sealed class CoreRootService
 
         _storage = new Lazy<StorageClient>(() =>
         {
-            ContainerDbEntry entry = storage.EnsureContainerAsync("coreroot", "runtime-utils", isPublic: true, TimeSpan.FromDays(180)).GetAwaiter().GetResult();
+            ContainerDbEntry entry = storage.EnsureContainerAsync("coreroot", "runtime-utils", isPublic: true, TimeSpan.FromDays(RetentionDays)).GetAwaiter().GetResult();
             return new StorageClient(http, entry.Name, entry.SasKey, entry.IsPublic);
         });
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await using MihuBotDbContext context2 = _dbContextFactory.CreateDbContext();
+            await context2.CoreRoot
+                .Where(e => (DateTime.UtcNow - e.CreatedOn).TotalMinutes > 5)
+                .ExecuteDeleteAsync(stoppingToken);
+
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
+
+            int consecutiveFailureCount = 0;
+
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+            {
+                try
+                {
+                    await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
+
+                    await context.CoreRoot
+                        .Where(e => (DateTime.UtcNow - e.CreatedOn).TotalDays > RetentionDays)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    consecutiveFailureCount = 0;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveFailureCount++;
+
+                    string errorMessage = $"{nameof(CoreRootService)}: ({consecutiveFailureCount}): {ex}";
+                    _logger.DebugLog(errorMessage);
+
+                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount, stoppingToken);
+
+                    if (consecutiveFailureCount == 2)
+                    {
+                        await _logger.DebugAsync(errorMessage);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!stoppingToken.IsCancellationRequested)
+            {
+                Console.WriteLine($"Unexpected exception: {ex}");
+            }
+        }
     }
 
     public static bool TryValidate(ref string arch, ref string os, ref string type)
@@ -88,7 +140,7 @@ public sealed class CoreRootService
         CoreRootDbEntry entry = await context.CoreRoot.AsNoTracking()
             .FirstOrDefaultAsync(e => e.Sha == sha && e.Arch == arch && e.Os == os && e.Type == type);
 
-        if (entry is null || (DateTime.UtcNow - entry.CreatedOn).TotalDays > 60)
+        if (entry is null)
         {
             return null;
         }
@@ -105,7 +157,6 @@ public sealed class CoreRootService
             .ToListAsync();
 
         return entries
-            .Where(e => e is not null && (DateTime.UtcNow - e.CreatedOn).TotalDays <= 60)
             .Select(Remap)
             .ToArray();
     }
