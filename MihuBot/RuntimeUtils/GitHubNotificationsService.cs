@@ -479,7 +479,8 @@ public sealed partial class GitHubNotificationsService
 
                             foreach (IssueEvent e in events)
                             {
-                                if (e.Event.Value == EventInfoState.Labeled &&
+                                if (e.Event.TryParse(out EventInfoState eventState) &&
+                                    eventState == EventInfoState.Labeled &&
                                     e.Label?.Name is { } labelName &&
                                     Constants.NetworkingLabels.Contains(labelName) &&
                                     (DateTime.UtcNow - e.CreatedAt) < maxTimeFromLabelToMention)
