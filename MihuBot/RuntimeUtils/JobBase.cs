@@ -1037,9 +1037,9 @@ public abstract class JobBase
 
             string defaultVmSize =
                 UseArm ? (needsFastSideDisk ? "DXpds_v6" : "DXps_v6") :
-                useIntelCpu ? "DXds_v5" :
+                useIntelCpu ? "DXds_v7" :
                 //fast ? "FXas_v6" :
-                (needsFastSideDisk ? "DXads_v6" : "DXas_v6");
+                (needsFastSideDisk ? "DXads_v7" : "DXas_v7");
             defaultVmSize = $"Standard_{defaultVmSize.Replace("X", defaultAzureCoreCount.ToString())}";
 
             string vmConfigName = $"{(Fast ? "Fast" : "")}{cpuType}";
