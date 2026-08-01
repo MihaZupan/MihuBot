@@ -487,7 +487,16 @@ public sealed class StorageService
                 Options = FileOptions.SequentialScan | FileOptions.Asynchronous
             }))
             {
-                await stream.CopyToAsync(fs, cancellationToken);
+                try
+                {
+                    await stream.CopyToAsync(fs, cancellationToken);
+                }
+                catch
+                {
+                    try { File.Delete(tempPath); } catch { }
+
+                    throw;
+                }
             }
 
             File.Move(tempPath, fullPath, overwrite: true);
