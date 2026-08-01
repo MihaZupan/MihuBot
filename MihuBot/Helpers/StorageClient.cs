@@ -5,7 +5,7 @@ namespace MihuBot.Helpers;
 
 public sealed class StorageClient
 {
-    private const string Host = "https://storage.mihubot.xyz";
+    private const string Host = "https://mihubot.xyz";
     private const string PathPrefix = "/s";
 
     private readonly HttpClient _http;
