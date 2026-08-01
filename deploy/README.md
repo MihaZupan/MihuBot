@@ -99,8 +99,6 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `GitHub:ClientId` + `GitHub:ClientSecret` *(`-dev` suffixed outside Linux)* | Signing in with GitHub (the login link is hidden and the endpoint 404s) |
 | `Discord:ClientSecret` *(`-dev` suffixed outside Linux)* | Signing in with Discord — this is the OAuth secret, separate from the bot token |
 | `GitHub-PostgreSQL:ConnectionString` | The GitHub data database: ingestion, search, triage, duplicate detection, issue data page |
-| `RuntimeUtils.CoreRootService.SasKey` *(GlobalConfiguration.json)* | Signed Core_Root storage URLs |
-| `RuntimeUtils.JobLogs.SasKey` *(GlobalConfiguration.json)* | Signed job log storage URLs |
 | `OpenWeather:ApiKey` | `!weather` and location lookups |
 | `Qdrant:Host` (+`:Port`) | Vector search + semantic ingestion (FTS still works) |
 | `Hetzner:ApiKey` | Hetzner runner VMs → jobs fall back to Azure VMs |

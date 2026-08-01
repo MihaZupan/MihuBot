@@ -1,6 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
-using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.Storage;
 using Octokit;
@@ -9,29 +8,24 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class CoreRootService
 {
-    private const string ContainerName = "coreroot";
-
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<MihuBotDbContext> _dbContextFactory;
     private readonly Logger _logger;
-    private readonly StorageService _storage;
+    private readonly Lazy<StorageClient> _storage;
 
-    public readonly StorageClient Storage;
+    public StorageClient Storage => _storage.Value;
 
-    public CoreRootService(GitHubClient github, HttpClient http, IDbContextFactory<MihuBotDbContext> dbContextFactory, Logger logger, IConfigurationService configurationService, StorageService storage)
+    public CoreRootService(GitHubClient github, HttpClient http, IDbContextFactory<MihuBotDbContext> dbContextFactory, Logger logger, StorageService storage)
     {
         _github = github;
         _dbContextFactory = dbContextFactory;
         _logger = logger;
-        _storage = storage;
 
-        if (!configurationService.TryGet(null, "RuntimeUtils.CoreRootService.SasKey", out string sasKey))
+        _storage = new Lazy<StorageClient>(() =>
         {
-            // Without the key we can still read public blobs, but signed URLs won't be valid.
-            sasKey = "";
-        }
-
-        Storage = new StorageClient(http, ContainerName, sasKey, isPublic: true);
+            ContainerDbEntry entry = storage.EnsureContainerAsync("coreroot", "runtime-utils", isPublic: true, TimeSpan.FromDays(180)).GetAwaiter().GetResult();
+            return new StorageClient(http, entry.Name, entry.SasKey, entry.IsPublic);
+        });
     }
 
     public static bool TryValidate(ref string arch, ref string os, ref string type)
@@ -65,12 +59,6 @@ public sealed class CoreRootService
         if (await GetAsync(sha, arch, os, type) is not null)
         {
             await _logger.DebugAsync($"CoreRoot conflict for `{sha}/{arch}/{os}/{type} - {blobName}`");
-            return false;
-        }
-
-        if (!await _storage.ExistsAsync(ContainerName, blobName))
-        {
-            _logger.DebugLog($"CoreRoot blob does not exist? '{blobName}'");
             return false;
         }
 

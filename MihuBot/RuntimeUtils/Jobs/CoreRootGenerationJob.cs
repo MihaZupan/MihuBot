@@ -6,8 +6,6 @@ public sealed class CoreRootGenerationJob : JobBase
 {
     public override string JobTitlePrefix => $"CoreRootGen {Architecture}";
 
-    protected override OptionalFeature[] RequiredFeatures => [OptionalFeatures.CoreRootStorage];
-
     public CoreRootGenerationJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
         : base(parent, githubCommenterLogin, arguments)
     {

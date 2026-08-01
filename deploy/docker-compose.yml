@@ -13,6 +13,7 @@ services:
     container_name: mihubot
     platform: linux/amd64
     restart: unless-stopped
+    pull_policy: always
     ports:
       - "31000:5000"
       - "31001:5001"

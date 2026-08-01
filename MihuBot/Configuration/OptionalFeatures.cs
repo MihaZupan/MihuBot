@@ -40,9 +40,6 @@ public static class OptionalFeatures
     public static readonly OptionalFeature Tenor = new("Tenor gifs (!emote)", "Tenor:ApiKey");
     public static readonly OptionalFeature Youtube = new("YouTube data API (search and playlists)", "Youtube:ApiKey");
 
-    public static readonly OptionalFeature CoreRootStorage = new("Signed Core_Root storage URLs", "RuntimeUtils.CoreRootService.SasKey") { RuntimeConfiguration = true };
-    public static readonly OptionalFeature JobLogsStorage = new("Signed job log storage URLs", "RuntimeUtils.JobLogs.SasKey") { RuntimeConfiguration = true };
-
     public static readonly OptionalFeature[] All =
     [
         AppInsights,
@@ -52,7 +49,6 @@ public static class OptionalFeatures
         AzureOpenAISecondaryEmbedding,
         AzureStorage,
         AzureStorageRuntimeUtils,
-        CoreRootStorage,
         DiscordOAuth,
         GitHub,
         GitHubDatabase,
@@ -60,7 +56,6 @@ public static class OptionalFeatures
         GoogleMaps,
         Hetzner,
         Jellyfin,
-        JobLogsStorage,
         Minecraft,
         OpenWeather,
         QBittorrent,

@@ -146,10 +146,16 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HetznerClient Hetzner;
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
+
     public readonly StorageService Storage;
-    public readonly StorageClient LogsStorage;
-    public readonly StorageClient ArtifactsStorage;
-    public readonly StorageClient RunnerPersistentStorage;
+    public StorageClient LogsStorage => _logsStorage.Value;
+    public StorageClient ArtifactsStorage => _artifactsStorage.Value;
+    public StorageClient RunnerPersistentStorage => _runnerPersistentStorage.Value;
+
+    private readonly Lazy<StorageClient> _logsStorage;
+    private readonly Lazy<StorageClient> _artifactsStorage;
+    private readonly Lazy<StorageClient> _runnerPersistentStorage;
+
     /// <summary>Null when AzureStorage isn't configured.</summary>
     public readonly BlobContainerClient FuzzCoverageBlobContainerClient;
     /// <summary>Null when AzureStorage isn't configured.</summary>
@@ -176,8 +182,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
         _mihuBotDb = mihuBotDb;
         _gitHubDataDb = gitHubDataDb;
 
-        ArtifactsStorage = CreateStorageClient(storage, http, "artifacts", owner: "runtime-utils", isPublic: true, TimeSpan.FromDays(60));
-        RunnerPersistentStorage = CreateStorageClient(storage, http, "runner-persistent", owner: "runtime-utils", isPublic: false, TimeSpan.FromDays(90));
+        _logsStorage = new Lazy<StorageClient>(() => CreateStorageClient(storage, http, "runtimeutils-logs", owner: "runtime-utils", isPublic: true, TimeSpan.FromDays(365 * 2)));
+        _artifactsStorage = new Lazy<StorageClient>(() => CreateStorageClient(storage, http, "artifacts", owner: "runtime-utils", isPublic: true, TimeSpan.FromDays(60)));
+        _runnerPersistentStorage = new Lazy<StorageClient>(() => CreateStorageClient(storage, http, "runner-persistent", owner: "runtime-utils", isPublic: false, TimeSpan.FromDays(90)));
 
         if (configuration.IsConfigured(OptionalFeatures.AzureStorageRuntimeUtils))
         {
@@ -189,14 +196,6 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 configuration["AzureStorage:ConnectionString-RuntimeUtils"],
                 "jitdiff-extra-assemblies");
         }
-
-        if (!ConfigurationService.TryGet(null, "RuntimeUtils.JobLogs.SasKey", out string sasKey))
-        {
-            // Without the key we can still read public blobs, but signed URLs won't be valid.
-            sasKey = "";
-        }
-
-        LogsStorage = new StorageClient(Http, "runtimeutils-logs", sasKey, isPublic: true);
 
         static StorageClient CreateStorageClient(StorageService storage, HttpClient http, string name, string owner, bool isPublic, TimeSpan retention)
         {
