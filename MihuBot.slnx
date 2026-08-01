@@ -1,9 +1,18 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
+    <File Path=".github/workflows/publish-docker.yml" />
     <File Path=".gitignore" />
     <File Path="CodeAnalysis.globalconfig" />
     <File Path="nuget.config" />
+  </Folder>
+  <Folder Name="/Solution Items/Deploy/">
+    <File Path="deploy/.dockerignore" />
+    <File Path="deploy/build-latest.sh" />
+    <File Path="deploy/docker-compose.yml" />
+    <File Path="deploy/Dockerfile" />
+    <File Path="deploy/README.md" />
+    <File Path="deploy/run.sh" />
   </Folder>
   <Project Path="MihuBot/MihuBot.csproj" />
 </Solution>
