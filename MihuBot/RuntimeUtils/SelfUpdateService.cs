@@ -17,7 +17,7 @@ public sealed class SelfUpdateService : IHostedService
     private const string DefaultRepo = "MihuBot";
     private const string DefaultBranch = "main";
     private const string DefaultBuildScript = "/usr/local/bin/build-latest.sh";
-    private const int DefaultPollIntervalSeconds = 2 * 60;
+    private const int DefaultPollIntervalSeconds = 1 * 60;
     private const int DefaultBuildTimeoutSeconds = 30 * 60;
 
     private readonly Logger _logger;

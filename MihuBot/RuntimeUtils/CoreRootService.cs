@@ -36,7 +36,6 @@ public sealed class CoreRootService : BackgroundService
         {
             await using MihuBotDbContext context2 = _dbContextFactory.CreateDbContext();
             await context2.CoreRoot
-                .Where(e => (DateTime.UtcNow - e.CreatedOn).TotalDays > 0)
                 .ExecuteDeleteAsync(stoppingToken);
 
             using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
