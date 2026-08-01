@@ -7,9 +7,9 @@
 # Invoked by the app itself (SelfUpdateService) when a new commit is detected on
 # `main`, or by the runner loop on first boot when no build exists yet.
 #
-# Everything it downloads - the cloned source and the .NET SDK - is kept in a
-# temporary directory that is removed on exit, so nothing is left behind except
-# the resulting tarball.
+# Everything it downloads - the cloned source, the .NET SDK and the NuGet cache -
+# is kept in a temporary directory that is removed on exit (including on failure
+# or interruption), so nothing is left behind except the resulting tarball.
 
 set -euo pipefail
 
@@ -24,8 +24,20 @@ DOTNET_CHANNEL="${MIHUBOT_DOTNET_CHANNEL:-11.0}"
 DOTNET_FALLBACK_VERSION="${MIHUBOT_DOTNET_FALLBACK_VERSION:-11.0.0-preview.7.26364.116}"
 
 WORKDIR="$(mktemp -d)"
-cleanup() { rm -rf "$WORKDIR"; }
+cleanup() {
+    rm -rf "$WORKDIR"
+    rm -f "$OUT_TARBALL.tmp"
+}
 trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+
+# Keep the NuGet/dotnet caches inside the work directory so the build doesn't
+# leave anything behind in $HOME either.
+export NUGET_PACKAGES="$WORKDIR/nuget"
+export DOTNET_CLI_HOME="$WORKDIR/dotnet-home"
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
+export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 echo "[build] Cloning $REPO_URL ($BRANCH) ..."
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$WORKDIR/src"
