@@ -92,19 +92,22 @@
                             }
                         </div>
                     </div>
-                    <div class="input-group-append ml-1">
-                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Generator.Name</button>
-                        <div class="dropdown-menu">
-                            @foreach (var generator in SourceGenerator.Generators)
-                            {
-                                <a class="dropdown-item" @onclick="() => Generator = generator">@generator.Name</a>
-                            }
+                    @if (Generator is not null)
+                    {
+                        <div class="input-group-append ml-1">
+                            <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Generator.Name</button>
+                            <div class="dropdown-menu">
+                                @foreach (var generator in SourceGenerator.Generators)
+                                {
+                                    <a class="dropdown-item" @onclick="() => Generator = generator">@generator.Name</a>
+                                }
+                            </div>
                         </div>
-                    </div>
+                    }
                 </div>
             </div>
         </div>
-        @if (Generator.Commit is not null)
+        @if (Generator is { Commit: not null })
         {
             <div class="commit-container">
                 <p>Generator commit: <a href="https://github.com/@Generator.Repo/commit/@Generator.Commit">@Generator.Commit.Substring(0, 6)</a></p>
@@ -120,6 +123,12 @@
     {
         <div class="alert alert-danger">
             @_errorMessage
+        </div>
+    }
+    else if (LoadError is not null)
+    {
+        <div class="alert alert-danger">
+            @LoadError
         </div>
     }
 
@@ -180,6 +189,8 @@
             RegenerateSource();
         }
     }
+
+    private string LoadError => SourceGenerator.LoadError ?? (Generator is null ? "No regex source generators are available" : null);
 
     private void ToggleRegexOption(RegexOptions option)
     {
@@ -265,7 +276,7 @@
                 _rawGeneratedSource = "throw new StopItException();";
                 _errorMessage = "Stop it";
             }
-            else if (SourceGenerator.LoadError is { } loadError)
+            else if (LoadError is { } loadError)
             {
                 _rawGeneratedSource = null;
                 _errorMessage = loadError;

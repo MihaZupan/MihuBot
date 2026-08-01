@@ -29,8 +29,8 @@ public sealed class RegexSourceGenerator
     private readonly Logger _logger;
     private readonly HybridCache _cache;
 
-    public ImmutableArray<Generator> Generators { get; }
-    public Generator Latest => Generators[0];
+    public ImmutableArray<Generator> Generators { get; } = [];
+    public Generator? Latest => Generators.IsDefaultOrEmpty ? null : Generators[0];
 
     public string? LoadError { get; }
 
@@ -77,10 +77,15 @@ public sealed class RegexSourceGenerator
 
                     generators.Add(new Generator(name, commit, repo, generatorType));
                 }
-                catch (Exception ex) when (generators.Count == 0)
+                catch (Exception ex)
                 {
                     _logger.DebugLog($"Failed to load generator '{name}' from '{path}': {ex}");
                 }
+            }
+
+            if (generators.Count == 0)
+            {
+                throw new InvalidOperationException("Failed to load any regex source generators");
             }
 
             Generators = [.. generators.OrderByDescending(g => g.Name, StringComparer.Create(CultureInfo.InvariantCulture, CompareOptions.NumericOrdering))];
