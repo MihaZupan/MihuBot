@@ -8,6 +8,7 @@ using Google.Apis.YouTube.v3;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -223,6 +224,13 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     {
         logging.RequestHeaders.Add(HeaderNames.Referer);
         logging.RequestHeaders.Add(HeaderNames.Origin);
+    });
+
+    services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.All;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
     });
 
     var httpClient = new HttpClient(new HttpClientHandler()
@@ -510,6 +518,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
 static void Configure(WebApplication app, IWebHostEnvironment env)
 {
+    app.UseForwardedHeaders();
+
     if (env.IsDevelopment())
     {
         app.UseDeveloperExceptionPage();
