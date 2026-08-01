@@ -52,6 +52,10 @@
 
     private async Task UpdateAsync()
     {
-        await JS.InvokeVoidAsync("updateCode", DisplayId, Code);
+        try
+        {
+            await JS.InvokeVoidAsync("updateCode", DisplayId, Code);
+        }
+        catch { }
     }
 }

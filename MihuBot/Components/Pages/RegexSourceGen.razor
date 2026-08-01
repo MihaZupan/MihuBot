@@ -207,7 +207,11 @@
     {
         if (firstRender)
         {
-            await JSRuntime.InvokeVoidAsync("registerScrollCallback");
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("registerScrollCallback");
+            }
+            catch { }
 
             if (Uri.TryCreate(Navigation.Uri, UriKind.Absolute, out Uri uri))
             {
@@ -329,7 +333,11 @@
 
         if (newUrl.Length <= 10_000)
         {
-            await JSRuntime.InvokeVoidAsync("replaceHistory", newUrl);
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("replaceHistory", newUrl);
+            }
+            catch { }
         }
     }
 

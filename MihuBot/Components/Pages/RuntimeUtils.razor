@@ -376,7 +376,11 @@
     {
         if (firstRender)
         {
-            await JS.InvokeVoidAsync("addTooltips");
+            try
+            {
+                await JS.InvokeVoidAsync("addTooltips");
+            }
+            catch { }
         }
     }
 
