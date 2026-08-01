@@ -34,10 +34,6 @@ public sealed class CoreRootService : BackgroundService
     {
         try
         {
-            await using MihuBotDbContext context2 = _dbContextFactory.CreateDbContext();
-            await context2.CoreRoot
-                .ExecuteDeleteAsync(stoppingToken);
-
             using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
 
             int consecutiveFailureCount = 0;
@@ -48,8 +44,10 @@ public sealed class CoreRootService : BackgroundService
                 {
                     await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
 
+                    DateTime maxAge = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
+
                     await context.CoreRoot
-                        .Where(e => (DateTime.UtcNow - e.CreatedOn).TotalDays > RetentionDays)
+                        .Where(e => e.CreatedOn < maxAge)
                         .ExecuteDeleteAsync(stoppingToken);
 
                     consecutiveFailureCount = 0;
