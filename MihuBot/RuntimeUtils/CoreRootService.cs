@@ -10,7 +10,16 @@ public sealed class CoreRootService : PeriodicBackgroundService
 {
     public const string ContainerName = "coreroot";
 
-    private const int RetentionDays = 180;
+    /// <summary>How long the underlying blob storage keeps CoreRoot archives around.</summary>
+    private const int StorageRetentionDays = 365;
+
+    /// <summary>
+    /// How long we keep the metadata pointing at those archives.
+    /// Archives are compressed using a previous CoreRoot as a ZStandard prefix, so a blob may still be
+    /// needed as a prefix after its own metadata entry is no longer interesting. Dropping the metadata
+    /// ahead of the storage expiration guarantees that any prefix we still hand out remains downloadable.
+    /// </summary>
+    private const int MetadataRetentionDays = StorageRetentionDays - 3;
 
     private readonly GitHubClient _github;
     private readonly IDbContextFactory<MihuBotDbContext> _dbContextFactory;
@@ -28,7 +37,7 @@ public sealed class CoreRootService : PeriodicBackgroundService
 
         _storage = new Lazy<StorageClient>(() =>
         {
-            ContainerDbEntry entry = storage.EnsureContainerAsync(ContainerName, "runtime-utils", isPublic: true, TimeSpan.FromDays(RetentionDays)).GetAwaiter().GetResult();
+            ContainerDbEntry entry = storage.EnsureContainerAsync(ContainerName, "runtime-utils", isPublic: true, TimeSpan.FromDays(StorageRetentionDays)).GetAwaiter().GetResult();
             return new StorageClient(http, entry.Name, entry.SasKey, entry.IsPublic);
         });
     }
@@ -37,7 +46,7 @@ public sealed class CoreRootService : PeriodicBackgroundService
     {
         await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
 
-        DateTime maxAge = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
+        DateTime maxAge = DateTime.UtcNow - TimeSpan.FromDays(MetadataRetentionDays);
 
         await context.CoreRoot
             .Where(e => e.CreatedOn < maxAge)
@@ -70,7 +79,7 @@ public sealed class CoreRootService : PeriodicBackgroundService
         return entries;
     }
 
-    public async Task<bool> SaveAsync(string sha, string arch, string os, string type, string blobName)
+    public async Task<bool> SaveAsync(string sha, string arch, string os, string type, string blobName, string prefixBlobName, DateTime commitTime)
     {
         if (await GetAsync(sha, arch, os, type) is not null)
         {
@@ -78,7 +87,30 @@ public sealed class CoreRootService : PeriodicBackgroundService
             return false;
         }
 
+        prefixBlobName = string.IsNullOrEmpty(prefixBlobName) ? null : prefixBlobName;
+
         await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
+
+        if (prefixBlobName is not null)
+        {
+            // Prefix chains are not allowed: a consumer only ever downloads one prefix, so the archive it
+            // is used with must be decompressible with that prefix alone. Enforce that the prefix exists
+            // and is itself standalone, otherwise this entry would be impossible to decompress.
+            CoreRootDbEntry prefixEntry = await context.CoreRoot.AsNoTracking()
+                .FirstOrDefaultAsync(e => e.BlobName == prefixBlobName);
+
+            if (prefixEntry is null)
+            {
+                await _logger.DebugAsync($"CoreRoot `{blobName}` references unknown prefix `{prefixBlobName}`");
+                return false;
+            }
+
+            if (prefixEntry.PrefixBlobName is not null)
+            {
+                await _logger.DebugAsync($"CoreRoot `{blobName}` references prefix `{prefixBlobName}`, which is itself a delta of `{prefixEntry.PrefixBlobName}`");
+                return false;
+            }
+        }
 
         context.CoreRoot.Add(new CoreRootDbEntry
         {
@@ -86,13 +118,15 @@ public sealed class CoreRootService : PeriodicBackgroundService
             Arch = arch,
             Os = os,
             Type = type,
+            CommitTime = commitTime,
             CreatedOn = DateTime.UtcNow,
             BlobName = blobName,
+            PrefixBlobName = prefixBlobName,
         });
 
         await context.SaveChangesAsync();
 
-        _logger.DebugLog($"CoreRoot saved: '{blobName}'");
+        _logger.DebugLog($"CoreRoot saved: '{blobName}'{(prefixBlobName is null ? " (standalone reference)" : $" (delta of '{prefixBlobName}')")}");
 
         return true;
     }
@@ -136,6 +170,12 @@ public sealed class CoreRootService : PeriodicBackgroundService
             Os = entry.Os,
             Type = entry.Type,
             Url = sasUrl,
+            BlobName = entry.BlobName,
+            PrefixBlobName = entry.PrefixBlobName,
+            PrefixUrl = string.IsNullOrEmpty(entry.PrefixBlobName)
+                ? null
+                : Storage.GetFileUrl(entry.PrefixBlobName, TimeSpan.FromHours(8), writeAccess: false),
+            CommitTime = entry.CommitTime,
             CreatedOn = entry.CreatedOn,
         };
     }
@@ -149,8 +189,21 @@ public sealed class CoreRootService : PeriodicBackgroundService
         public string Arch { get; set; }
         public string Os { get; set; }
         public string Type { get; set; }
+
+        /// <summary>
+        /// When the underlying commit was authored. CoreRoots are not necessarily generated in commit
+        /// order (a job may be started manually for older commits), so this - not <see cref="CreatedOn"/> -
+        /// is what places an entry relative to the others in the repository's history.
+        /// </summary>
+        public DateTime CommitTime { get; set; }
+
+        /// <summary>When this CoreRoot was generated. Drives blob retention, not ordering.</summary>
         public DateTime CreatedOn { get; set; }
+
         public string BlobName { get; set; }
+
+        /// <summary>The blob that was used as the ZStandard prefix when compressing <see cref="BlobName"/>, if any.</summary>
+        public string PrefixBlobName { get; set; }
     }
 
     public sealed class CoreRootEntry
@@ -160,6 +213,18 @@ public sealed class CoreRootService : PeriodicBackgroundService
         public string Os { get; set; }
         public string Type { get; set; }
         public string Url { get; set; }
+        public string BlobName { get; set; }
+
+        /// <summary>The blob that was used as the ZStandard prefix when compressing this archive, if any.</summary>
+        public string PrefixBlobName { get; set; }
+
+        /// <summary>A download link for <see cref="PrefixBlobName"/>. Required to decompress this archive.</summary>
+        public string PrefixUrl { get; set; }
+
+        /// <summary>When the underlying commit was authored.</summary>
+        public DateTime CommitTime { get; set; }
+
+        /// <summary>When this CoreRoot was generated.</summary>
         public DateTime CreatedOn { get; set; }
     }
 }

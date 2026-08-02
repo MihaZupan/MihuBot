@@ -341,6 +341,17 @@ public sealed class StorageService
 
         if (existing is not null)
         {
+            // The retention period is configured in code, so keep the stored value in sync when it changes.
+            // This only affects files uploaded from here on: each file's expiration is stamped at upload
+            // time from the container's retention, so files already in the container keep their original one.
+            long retentionSeconds = (long)retentionPeriod.TotalSeconds;
+
+            if (existing.RetentionPeriodSeconds != retentionSeconds)
+            {
+                existing.RetentionPeriodSeconds = retentionSeconds;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
             return existing;
         }
 

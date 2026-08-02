@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MihuBot.DB;
 
@@ -10,9 +11,11 @@ using MihuBot.DB;
 namespace MihuBot.Migrations
 {
     [DbContext(typeof(MihuBotDbContext))]
-    partial class MihuBotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802233141_CoreRootZStandard")]
+    partial class CoreRootZStandard
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

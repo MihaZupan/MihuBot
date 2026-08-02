@@ -993,8 +993,8 @@ public abstract class JobBase
             export APT_OPTS="-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
             apt-get $APT_OPTS update || apt-get $APT_OPTS update
             apt-get $APT_OPTS install -y git || apt-get $APT_OPTS install -y git
-            apt-get $APT_OPTS install -y dotnet-sdk-8.0 || apt-get $APT_OPTS install -y dotnet-sdk-8.0
-            command -v dotnet || wget -qO- https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/dotnet
+            apt-get $APT_OPTS install -y dotnet-sdk-11.0 || apt-get $APT_OPTS install -y dotnet-sdk-11.0
+            dotnet --list-sdks 2>/dev/null | grep -q "^11\." || wget -qO- https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 11.0 --quality daily --install-dir /usr/local/dotnet
             export PATH=/usr/local/dotnet:$PATH
             {(useHelix ? "" : "cd /home")}
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
@@ -1011,8 +1011,8 @@ public abstract class JobBase
             cd runtime-utils/Runner
 
             Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile 'dotnet-install.ps1'
-            ./dotnet-install.ps1 -Verbose -Channel '8.0' -InstallDir dotnet-install
             ./dotnet-install.ps1 -Verbose -Channel '9.0' -InstallDir dotnet-install
+            ./dotnet-install.ps1 -Verbose -Channel '11.0' -Quality daily -InstallDir dotnet-install
 
             $env:JOB_ID = '{JobId}';
             dotnet-install/dotnet run -c Release

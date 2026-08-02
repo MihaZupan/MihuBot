@@ -57,18 +57,26 @@ public sealed partial class CoreRootController : ControllerBase
     }
 
     [HttpGet("Save")]
-    public async Task<IActionResult> Save(string jobId, string sha, string arch, string os, string type, string blobName)
+    public async Task<IActionResult> Save(string jobId, string sha, string arch, string os, string type, string blobName, long commitTime, string prefixBlobName = null)
     {
         try
         {
+            // Unix seconds, so that the timestamp needs no escaping in the query string.
+            if (commitTime <= 0 || commitTime > DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds())
+            {
+                return BadRequest();
+            }
+
             if (!CoreRootService.TryValidate(ref arch, ref os, ref type) ||
                 string.IsNullOrEmpty(sha) || !ShaRegex().IsMatch(sha) ||
+                string.IsNullOrEmpty(blobName) || !BlobNameRegex().IsMatch(blobName) ||
+                (!string.IsNullOrEmpty(prefixBlobName) && !BlobNameRegex().IsMatch(prefixBlobName)) ||
                 !_runtimeUtils.TryGetJob(jobId, publicId: false, out JobBase job) || job is not CoreRootGenerationJob)
             {
                 return BadRequest();
             }
 
-            if (!await _coreRoot.SaveAsync(sha, arch, os, type, blobName))
+            if (!await _coreRoot.SaveAsync(sha, arch, os, type, blobName, prefixBlobName, DateTimeOffset.FromUnixTimeSeconds(commitTime).UtcDateTime))
             {
                 return BadRequest();
             }
@@ -84,6 +92,9 @@ public sealed partial class CoreRootController : ControllerBase
 
     [GeneratedRegex(@"^[a-f0-9]{40}$")]
     private static partial Regex ShaRegex();
+
+    [GeneratedRegex(@"^[a-f0-9]{40}_[a-z0-9]{1,10}_[a-z]{1,10}_[a-z]{1,10}\.tar\.zst$")]
+    private static partial Regex BlobNameRegex();
 
     [GeneratedRegex(@"^([a-f0-9]{40})\.\.\.([a-f0-9]{40})$")]
     private static partial Regex GitRangeRegex();
