@@ -992,7 +992,8 @@ public abstract class JobBase
             export DEBIAN_FRONTEND=noninteractive
             export APT_OPTS="-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
             apt-get $APT_OPTS update || apt-get $APT_OPTS update
-            apt-get $APT_OPTS install -y dotnet-sdk-8.0 git || apt-get $APT_OPTS install -y dotnet-sdk-8.0 git
+            apt-get $APT_OPTS install -y git || apt-get $APT_OPTS install -y git
+            apt-get $APT_OPTS install -y dotnet-sdk-8.0 || apt-get $APT_OPTS install -y dotnet-sdk-8.0
             command -v dotnet || wget -qO- https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/dotnet
             export PATH=/usr/local/dotnet:$PATH
             {(useHelix ? "" : "cd /home")}
@@ -1244,7 +1245,10 @@ public abstract class JobBase
                 .WithProperty("StartTime", StartTime.ToISODateTime())
                 .WithProperty("MaxJobDuration", MaxJobDuration.ToElapsedTime())
                 .WithProperty("Trigger", GitHubComment?.HtmlUrl ?? GithubCommenterLogin ?? "N/A")
-                .WithProperty("TestedPROrBranch", TestedPROrBranchLink);
+                .WithProperty("TestedPROrBranch", TestedPROrBranchLink)
+                .WithMaxRetryCount(0);
+
+            Metadata["HelixQueue"] = queueId;
 
             if (TrackingIssue is not null)
             {

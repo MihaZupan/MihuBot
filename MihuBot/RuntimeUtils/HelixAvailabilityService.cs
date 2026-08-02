@@ -249,16 +249,18 @@ public sealed class HelixAvailabilityService : PeriodicBackgroundService
     private static string[] GetCandidateQueues(bool useWindows, bool useArm) => (useWindows, useArm) switch
     {
         // Besides git and the dotnet install script, the runner needs an image new enough to build dotnet/runtime.
-        // Note that non-Ubuntu Linux images are excluded as our startup script relies on apt, that
-        // Ubuntu 26.04 is excluded as it no longer carries the dotnet-sdk-8.0 package the script installs, and that
+        // Note that non-Ubuntu Linux images are excluded as our startup script relies on apt, and that
         // Ubuntu 22.04 is excluded as it only ships CMake 3.22 while the CoreCLR build requires 3.26 or higher.
         (false, false) =>
         [
+            "ubuntu.2604.amd64.open",
+            "ubuntu.2604.amd64.open.rt",
             "ubuntu.2404.amd64.open",
             "ubuntu.2404.amd64.open.rt",
         ],
         (false, true) =>
         [
+            "ubuntu.2604.armarch.open",
             "ubuntu.2404.armarch.open",
         ],
         // Plain Windows Server images are excluded as the startup script needs winget to install git.
