@@ -12,7 +12,7 @@ namespace MihuBot.RuntimeUtils;
 /// Queued/Started timestamps of their work items. A work item that is still waiting tells us how backed up
 /// the queue is right now, and one that already started tells us what delay the queue is handing out.
 /// </remarks>
-public sealed class HelixAvailabilityService : BackgroundService
+public sealed class HelixAvailabilityService : PeriodicBackgroundService
 {
     private const string ApiVersion = "api-version=2019-06-17";
     private const string QueueInfoUrl = $"https://helix.dot.net/api/info/queues?{ApiVersion}";
@@ -52,55 +52,26 @@ public sealed class HelixAvailabilityService : BackgroundService
     private volatile Dictionary<string, TimeSpan> _estimatedDelays = [];
 
     public HelixAvailabilityService(HttpClient http, Logger logger)
+        : base(new PeriodicTaskOptions
+        {
+            Interval = RefreshInterval,
+            RunImmediately = true,
+            FailureBackoff = TimeSpan.Zero,
+        }, logger)
     {
         _http = http;
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        try
-        {
-            using var timer = new PeriodicTimer(RefreshInterval);
+        Dictionary<string, TimeSpan> delays = await GetEstimatedDelaysAsync(cancellationToken);
 
-            int consecutiveFailureCount = 0;
+        _estimatedDelays = delays;
 
-            do
-            {
-                try
-                {
-                    Dictionary<string, TimeSpan> delays = await GetEstimatedDelaysAsync(stoppingToken);
-
-                    _estimatedDelays = delays;
-
-                    _logger.DebugLog($"{nameof(HelixAvailabilityService)}: {(delays.Count == 0
-                        ? "no recent work seen on any queue"
-                        : string.Join(", ", delays.OrderBy(delay => delay.Value).Select(delay => $"{delay.Key}=~{delay.Value.ToElapsedTime()}")))}");
-
-                    consecutiveFailureCount = 0;
-                }
-                catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
-                {
-                    consecutiveFailureCount++;
-
-                    string errorMessage = $"{nameof(HelixAvailabilityService)}: ({consecutiveFailureCount}): {ex}";
-                    _logger.DebugLog(errorMessage);
-
-                    if (consecutiveFailureCount == 5)
-                    {
-                        await _logger.DebugAsync(errorMessage);
-                    }
-                }
-            }
-            while (await timer.WaitForNextTickAsync(stoppingToken));
-        }
-        catch (Exception ex)
-        {
-            if (!stoppingToken.IsCancellationRequested)
-            {
-                Console.WriteLine($"Unexpected exception: {ex}");
-            }
-        }
+        _logger.DebugLog($"{nameof(HelixAvailabilityService)}: {(delays.Count == 0
+            ? "no recent work seen on any queue"
+            : string.Join(", ", delays.OrderBy(delay => delay.Value).Select(delay => $"{delay.Key}=~{delay.Value.ToElapsedTime()}")))}");
     }
 
     private async Task<Dictionary<string, TimeSpan>> GetEstimatedDelaysAsync(CancellationToken cancellationToken)

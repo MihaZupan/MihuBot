@@ -41,7 +41,7 @@ public sealed class StorageService
     [InlineArray(32)]
     private struct SHA256Buffer { private byte _b; }
 
-    public StorageService(IDbContextFactory<StorageDbContext> dbContextFactory, ILogger<StorageService> logger)
+    public StorageService(IDbContextFactory<StorageDbContext> dbContextFactory, ILogger<StorageService> logger, Logger discordLogger)
     {
         _db = dbContextFactory;
         _logger = logger;
@@ -49,69 +49,57 @@ public sealed class StorageService
 
         Directory.CreateDirectory(_storageDirectory);
 
-        using (ExecutionContext.SuppressFlow())
+        PeriodicTask.Start("DeleteExpiredFiles",
+            new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(15), FailureBackoff = TimeSpan.Zero },
+            discordLogger, DeleteExpiredFilesAsync);
+    }
+
+    private async Task DeleteExpiredFilesAsync(CancellationToken cancellationToken)
+    {
+        while (true)
         {
-            _ = Task.Run(async () =>
+            await using StorageDbContext db = _db.CreateDbContext();
+
+            DateTime now = DateTime.UtcNow;
+            FileDbEntry[] expiredFiles = await db.Files
+                .Where(f => f.ExpiresAt < now)
+                .OrderBy(f => f.ExpiresAt)
+                .Take(1000)
+                .ToArrayAsync(CancellationToken.None);
+
+            foreach (FileDbEntry file in expiredFiles)
             {
-                using var timer = new PeriodicTimer(TimeSpan.FromMinutes(15));
-
-                while (await timer.WaitForNextTickAsync())
+                if (!_locks.TryAdd(file.Id, 0))
                 {
-                    try
-                    {
-                        while (true)
-                        {
-                            await using StorageDbContext db = _db.CreateDbContext();
-
-                            DateTime now = DateTime.UtcNow;
-                            FileDbEntry[] expiredFiles = await db.Files
-                                .Where(f => f.ExpiresAt < now)
-                                .OrderBy(f => f.ExpiresAt)
-                                .Take(1000)
-                                .ToArrayAsync(CancellationToken.None);
-
-                            foreach (FileDbEntry file in expiredFiles)
-                            {
-                                if (!_locks.TryAdd(file.Id, 0))
-                                {
-                                    continue;
-                                }
-
-                                db.Files.Remove(file);
-
-                                try
-                                {
-                                    File.Delete(GetFullPathForId(file.ContainerId, file.Id));
-
-                                    _logger.LogDebug("Deleted expired file {Path} in {Container}", file.Path, file.ContainerId);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogWarning(ex, "Failed to delete expired file {Id}", file.Id);
-                                }
-                                finally
-                                {
-                                    _locks.TryRemove(file.Id, out _);
-                                }
-                            }
-
-                            await db.SaveChangesAsync();
-
-                            if (expiredFiles.Length == 0)
-                            {
-                                break;
-                            }
-
-                            await Task.Delay(1000);
-                        }
-
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Failed to clean up expired files");
-                    }
+                    continue;
                 }
-            });
+
+                db.Files.Remove(file);
+
+                try
+                {
+                    File.Delete(GetFullPathForId(file.ContainerId, file.Id));
+
+                    _logger.LogDebug("Deleted expired file {Path} in {Container}", file.Path, file.ContainerId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete expired file {Id}", file.Id);
+                }
+                finally
+                {
+                    _locks.TryRemove(file.Id, out _);
+                }
+            }
+
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            if (expiredFiles.Length == 0)
+            {
+                break;
+            }
+
+            await Task.Delay(1000, cancellationToken);
         }
     }
 

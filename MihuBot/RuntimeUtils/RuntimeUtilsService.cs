@@ -166,6 +166,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     private readonly IDbContextFactory<GitHubDbContext> _gitHubDataDb;
 
     private bool _shuttingDown;
+    private readonly CancellationTokenSource _shutdownCts = new();
 
     public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<HetznerClient> hetznerClients, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage, HelixAvailabilityService helixAvailability)
     {
@@ -211,13 +212,21 @@ public sealed partial class RuntimeUtilsService : IHostedService
     {
         if (OperatingSystem.IsLinux())
         {
-            using (ExecutionContext.SuppressFlow())
-            {
-                _ = Task.Run(WatchForGitHubMentionsAsync, CancellationToken.None);
-                _ = Task.Run(StartCoreRootGenerationJobsAsync, CancellationToken.None);
-                _ = Task.Run(StartNuGetExtraAssembliesJobsAsync, CancellationToken.None);
-                _ = Task.Run(WatchForNegativeMihuBotCommentSentimentAsync, CancellationToken.None);
-            }
+            PeriodicTask.Start(nameof(WatchForGitHubMentionsAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromSeconds(1), FailureBackoff = TimeSpan.Zero },
+                Logger, WatchForGitHubMentionsAsync, _shutdownCts.Token);
+
+            PeriodicTask.Start(nameof(StartCoreRootGenerationJobsAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(24), FailureBackoff = TimeSpan.Zero },
+                Logger, StartCoreRootGenerationJobsAsync, _shutdownCts.Token);
+
+            PeriodicTask.Start(nameof(StartNuGetExtraAssembliesJobsAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromDays(7), FailureBackoff = TimeSpan.Zero },
+                Logger, StartNuGetExtraAssembliesJobsAsync, _shutdownCts.Token);
+
+            PeriodicTask.Start(nameof(WatchForNegativeMihuBotCommentSentimentAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(4), FailureBackoff = TimeSpan.Zero },
+                Logger, WatchForNegativeMihuBotCommentSentimentAsync, _shutdownCts.Token);
         }
 
         return Task.CompletedTask;
@@ -235,6 +244,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
     {
         _shuttingDown = true;
 
+        await _shutdownCts.CancelAsync();
+
         JobBase[] activeJobs = GetAllActiveJobs();
 
         foreach (JobBase job in activeJobs)
@@ -249,109 +260,80 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    private async Task StartCoreRootGenerationJobsAsync()
+    private async Task StartCoreRootGenerationJobsAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromHours(24));
-
-        while (await timer.WaitForNextTickAsync())
-        {
-            foreach (bool isArm in new[] { true, false })
-            {
-                try
-                {
-                    if (GetAllActiveJobs().Any(j => j is CoreRootGenerationJob job && job.UseArm == isArm))
-                    {
-                        Logger.DebugLog($"Skipping CoreRoot generation job {nameof(isArm)}={isArm}, one is already running");
-                    }
-                    else
-                    {
-                        StartCoreRootGenerationJob("MihuBot", $"{(isArm ? "-arm" : "")} -automated");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    await Logger.DebugAsync(nameof(StartCoreRootGenerationJobsAsync), ex);
-                }
-            }
-        }
-    }
-
-    private async Task StartNuGetExtraAssembliesJobsAsync()
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromDays(7));
-
-        while (await timer.WaitForNextTickAsync())
+        foreach (bool isArm in new[] { true, false })
         {
             try
             {
-                if (GetAllActiveJobs().Any(j => j is NuGetExtraAssembliesJob))
+                if (GetAllActiveJobs().Any(j => j is CoreRootGenerationJob job && job.UseArm == isArm))
                 {
-                    Logger.DebugLog("Skipping NuGetExtraAssemblies job, one is already running");
+                    Logger.DebugLog($"Skipping CoreRoot generation job {nameof(isArm)}={isArm}, one is already running");
                 }
                 else
                 {
-                    StartNuGetExtraAssembliesJob("MihuBot", "-automated");
+                    StartCoreRootGenerationJob("MihuBot", $"{(isArm ? "-arm" : "")} -automated");
                 }
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync(nameof(StartNuGetExtraAssembliesJobsAsync), ex);
+                await Logger.DebugAsync(nameof(StartCoreRootGenerationJobsAsync), ex);
             }
         }
     }
 
-    private async Task WatchForGitHubMentionsAsync()
+    private Task StartNuGetExtraAssembliesJobsAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        if (GetAllActiveJobs().Any(j => j is NuGetExtraAssembliesJob))
+        {
+            Logger.DebugLog("Skipping NuGetExtraAssemblies job, one is already running");
+        }
+        else
+        {
+            StartNuGetExtraAssembliesJob("MihuBot", "-automated");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task WatchForGitHubMentionsAsync(CancellationToken cancellationToken)
+    {
+        if (_shuttingDown)
+        {
+            return;
+        }
+
+        await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
 
         DateTime lastScan = DateTime.UtcNow;
 
-        while (await timer.WaitForNextTickAsync())
-        {
-            if (_shuttingDown)
-            {
-                break;
-            }
-
-            try
-            {
-                await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
-
-                lastScan = DateTime.UtcNow;
-
-                Stopwatch queryStopwatch = Stopwatch.StartNew();
+        Stopwatch queryStopwatch = Stopwatch.StartNew();
 
 #pragma warning disable CA1847 // Use char literal for a single character lookup -- EF doesn't support that
-                var comments = await db.Comments
-                    .AsNoTracking()
-                    .Where(c => c.UpdatedAt >= lastScan - TimeSpan.FromMinutes(5))
-                    .OrderByDescending(c => c.UpdatedAt)
-                    .Where(c => c.Body.Contains("@"))
-                    .Where(c => c.Issue.IssueType != IssueType.Discussion)
-                    .Include(c => c.Issue)
-                        .ThenInclude(i => i.Repository)
-                            .ThenInclude(r => r.Owner)
-                    .Include(c => c.Issue)
-                        .ThenInclude(i => i.PullRequest)
-                    .Include(c => c.User)
-                    .Take(25)
-                    .AsSplitQuery()
-                    .ToListAsync();
+        var comments = await db.Comments
+            .AsNoTracking()
+            .Where(c => c.UpdatedAt >= lastScan - TimeSpan.FromMinutes(5))
+            .OrderByDescending(c => c.UpdatedAt)
+            .Where(c => c.Body.Contains("@"))
+            .Where(c => c.Issue.IssueType != IssueType.Discussion)
+            .Include(c => c.Issue)
+                .ThenInclude(i => i.Repository)
+                    .ThenInclude(r => r.Owner)
+            .Include(c => c.Issue)
+                .ThenInclude(i => i.PullRequest)
+            .Include(c => c.User)
+            .Take(25)
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
 #pragma warning restore CA1847
 
-                ServiceInfo.LastGitHubCommentMentionsQueryTime = queryStopwatch.Elapsed;
+        ServiceInfo.LastGitHubCommentMentionsQueryTime = queryStopwatch.Elapsed;
 
-                foreach (CommentInfo comment in comments)
-                {
-                    if (IsDotnetRuntimeRepo(comment) || IsDotnetYarpRepo(comment))
-                    {
-                        await ProcessCommentAsync(comment);
-                    }
-                }
-            }
-            catch (Exception ex)
+        foreach (CommentInfo comment in comments)
+        {
+            if (IsDotnetRuntimeRepo(comment) || IsDotnetYarpRepo(comment))
             {
-                Logger.DebugLog($"Failure while polling for mentions: {ex}");
+                await ProcessCommentAsync(comment);
             }
         }
 
@@ -589,77 +571,65 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    private async Task WatchForNegativeMihuBotCommentSentimentAsync()
+    private User _sentimentCheckUser;
+    private readonly Dictionary<string, int> _seenNegativeSentimentComments = [];
+
+    private async Task WatchForNegativeMihuBotCommentSentimentAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromHours(4));
-
-        User currentUser = null;
-        Dictionary<string, int> seenComments = [];
-
-        while (await timer.WaitForNextTickAsync())
+        if (_shuttingDown ||
+            ConfigurationService.GetOrDefault(null, $"{nameof(WatchForNegativeMihuBotCommentSentimentAsync)}.Pause", false) ||
+            ServiceConfiguration.PauseGitHubPolling)
         {
-            if (_shuttingDown ||
-                ConfigurationService.GetOrDefault(null, $"{nameof(WatchForNegativeMihuBotCommentSentimentAsync)}.Pause", false) ||
-                ServiceConfiguration.PauseGitHubPolling)
-            {
-                continue;
-            }
+            return;
+        }
 
+        User currentUser = _sentimentCheckUser ??= await Github.User.Current();
+        Dictionary<string, int> seenComments = _seenNegativeSentimentComments;
+
+        await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
+
+        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(2));
+
+        var comments = await db.Comments
+            .AsNoTracking()
+            .Where(c => c.UpdatedAt >= startDate)
+            .Where(c => c.UserId == currentUser.Id)
+            .OrderByDescending(i => i.UpdatedAt)
+            .Take(100)
+            .Select(c => new { c.Id, c.GitHubIdentifier, c.Issue.RepositoryId, c.HtmlUrl })
+            .ToArrayAsync(cancellationToken);
+
+        foreach (var comment in comments)
+        {
             try
             {
-                currentUser ??= await Github.User.Current();
+                IssueComment updatedInfo = await Github.Issue.Comment.Get(comment.RepositoryId, comment.GitHubIdentifier);
 
-                await using GitHubDbContext db = _gitHubDataDb.CreateDbContext();
+                int newCount = updatedInfo.Reactions.Minus1 + updatedInfo.Reactions.Confused + updatedInfo.Reactions.Laugh;
 
-                DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromDays(2));
-
-                var comments = await db.Comments
-                    .AsNoTracking()
-                    .Where(c => c.UpdatedAt >= startDate)
-                    .Where(c => c.UserId == currentUser.Id)
-                    .OrderByDescending(i => i.UpdatedAt)
-                    .Take(100)
-                    .Select(c => new { c.Id, c.GitHubIdentifier, c.Issue.RepositoryId, c.HtmlUrl })
-                    .ToArrayAsync();
-
-                foreach (var comment in comments)
+                if (newCount == 0)
                 {
-                    try
-                    {
-                        IssueComment updatedInfo = await Github.Issue.Comment.Get(comment.RepositoryId, comment.GitHubIdentifier);
-
-                        int newCount = updatedInfo.Reactions.Minus1 + updatedInfo.Reactions.Confused + updatedInfo.Reactions.Laugh;
-
-                        if (newCount == 0)
-                        {
-                            continue;
-                        }
-
-                        if (!seenComments.TryGetValue(comment.Id, out int previousCount) ||
-                            previousCount < newCount)
-                        {
-                            seenComments[comment.Id] = newCount;
-
-                            await Logger.DebugAsync($"Negative sentiment of {newCount} for <{updatedInfo.HtmlUrl}>");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Could have been transferred/deleted
-                        if (ex is not NotFoundException)
-                        {
-                            await Logger.DebugAsync($"Failed to get updated info for <{comment.HtmlUrl}>", ex);
-                        }
-                    }
-
-                    await Task.Delay(1_000);
+                    continue;
                 }
 
+                if (!seenComments.TryGetValue(comment.Id, out int previousCount) ||
+                    previousCount < newCount)
+                {
+                    seenComments[comment.Id] = newCount;
+
+                    await Logger.DebugAsync($"Negative sentiment of {newCount} for <{updatedInfo.HtmlUrl}>");
+                }
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync(nameof(WatchForNegativeMihuBotCommentSentimentAsync), ex);
+                // Could have been transferred/deleted
+                if (ex is not NotFoundException)
+                {
+                    await Logger.DebugAsync($"Failed to get updated info for <{comment.HtmlUrl}>", ex);
+                }
             }
+
+            await Task.Delay(1_000, cancellationToken);
         }
     }
 

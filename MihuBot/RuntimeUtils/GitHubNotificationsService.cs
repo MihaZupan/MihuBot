@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Markdig.Extensions.Tables;
 using Markdig.Syntax;
@@ -25,8 +25,9 @@ public sealed partial class GitHubNotificationsService
         public string[] Teams { get; set; }
     }
 
-    private readonly FileBackedHashSet _processedMentions = new("ProcessedNotificationMentionIssues.txt", StringComparer.OrdinalIgnoreCase);
-    private readonly SynchronizedLocalJsonStore<Dictionary<string, UserRecord>> _users = new("GitHubNotificationUsers.json",
+    private static readonly TimeSpan MaxTimeFromLabelToMention = TimeSpan.FromMinutes(10);
+
+    private readonly FileBackedHashSet _processedMentions = new("ProcessedNotificationMentionIssues.txt", StringComparer.OrdinalIgnoreCase);    private readonly SynchronizedLocalJsonStore<Dictionary<string, UserRecord>> _users = new("GitHubNotificationUsers.json",
         init: (_, d) => new Dictionary<string, UserRecord>(d, StringComparer.OrdinalIgnoreCase));
 
     // "dotnet/ncl" => [area-System.Net.Http, area-System.Net.Security, ...]
@@ -49,77 +50,57 @@ public sealed partial class GitHubNotificationsService
 
         if (!OperatingSystem.IsWindows())
         {
-            using (ExecutionContext.SuppressFlow())
-            {
-                _ = Task.Run(ParseDotnetRuntimeAreaOwnersTableAsync);
-                _ = Task.Run(RescanOldRuntimeIssuesAsync);
-                _ = Task.Run(MonitorNetworkingIssuesWithoutNclMentionAsync);
-            }
+            PeriodicTask.Start(nameof(ParseDotnetRuntimeAreaOwnersTableAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(1), RunImmediately = true, FailureBackoff = TimeSpan.Zero },
+                _logger, ParseDotnetRuntimeAreaOwnersTableAsync);
+
+            PeriodicTask.Start(nameof(RescanOldRuntimeIssuesAsync),
+                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(6), FailureBackoff = TimeSpan.Zero },
+                _logger, RescanOldRuntimeIssuesAsync);
+
+            PeriodicTask.Start(nameof(MonitorNetworkingIssuesWithoutNclMentionAsync),
+                new PeriodicTaskOptions { Interval = MaxTimeFromLabelToMention / 4 },
+                _logger, MonitorNetworkingIssuesWithoutNclMentionAsync);
         }
     }
 
-    private async Task ParseDotnetRuntimeAreaOwnersTableAsync()
+    private async Task ParseDotnetRuntimeAreaOwnersTableAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
+        string source = await _http.GetStringAsync("https://raw.githubusercontent.com/dotnet/runtime/refs/heads/main/docs/area-owners.md", cancellationToken);
+        MarkdownDocument document = MarkdownHelper.ParseAdvanced(source);
+        Table table = document.Descendants<Table>().MaxBy(t => t.Span.Length);
 
-        int consecutiveFailureCount = 0;
+        Dictionary<string, HashSet<string>> dotnetTeamToAreaLabels = new(StringComparer.OrdinalIgnoreCase);
 
-        do
+        foreach (TableRow row in table.Descendants<TableRow>())
         {
-            try
+            TableCell[] columns = [.. row.Descendants<TableCell>()];
+
+            // | area-System.Net.Http | @karelz | @dotnet/ncl | Notes |
+            if (columns.Length < 4 || columns[0].Count != 1 || columns[2].Count != 1 ||
+                columns[0][0] is not ParagraphBlock areaPara ||
+                areaPara.Inline?.FirstChild is not LiteralInline areaLiteral ||
+                !areaLiteral.Content.AsSpan().StartsWith("area-", StringComparison.OrdinalIgnoreCase) ||
+                columns[2][0] is not ParagraphBlock teamMentionsPara ||
+                teamMentionsPara.Inline?.FirstChild is not LiteralInline teamMentionsLiteral ||
+                !teamMentionsLiteral.Content.AsSpan().Contains('@'))
             {
-                string source = await _http.GetStringAsync("https://raw.githubusercontent.com/dotnet/runtime/refs/heads/main/docs/area-owners.md");
-                MarkdownDocument document = MarkdownHelper.ParseAdvanced(source);
-                Table table = document.Descendants<Table>().MaxBy(t => t.Span.Length);
-
-                Dictionary<string, HashSet<string>> dotnetTeamToAreaLabels = new(StringComparer.OrdinalIgnoreCase);
-
-                foreach (TableRow row in table.Descendants<TableRow>())
-                {
-                    TableCell[] columns = [.. row.Descendants<TableCell>()];
-
-                    // | area-System.Net.Http | @karelz | @dotnet/ncl | Notes |
-                    if (columns.Length < 4 || columns[0].Count != 1 || columns[2].Count != 1 ||
-                        columns[0][0] is not ParagraphBlock areaPara ||
-                        areaPara.Inline?.FirstChild is not LiteralInline areaLiteral ||
-                        !areaLiteral.Content.AsSpan().StartsWith("area-", StringComparison.OrdinalIgnoreCase) ||
-                        columns[2][0] is not ParagraphBlock teamMentionsPara ||
-                        teamMentionsPara.Inline?.FirstChild is not LiteralInline teamMentionsLiteral ||
-                        !teamMentionsLiteral.Content.AsSpan().Contains('@'))
-                    {
-                        continue;
-                    }
-
-                    string areaLabel = areaLiteral.Content.ToString().Trim();
-
-                    foreach (string owner in teamMentionsLiteral.Content.ToString().Split(' ', StringSplitOptions.TrimEntries))
-                    {
-                        if (owner.StartsWith("@dotnet/", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var areas = CollectionsMarshal.GetValueRefOrAddDefault(dotnetTeamToAreaLabels, owner.TrimStart('@'), out _) ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                            areas.Add(areaLabel);
-                        }
-                    }
-                }
-
-                DotnetTeamToAreaLabel = dotnetTeamToAreaLabels.ToDictionary(p => p.Key, p => p.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
-
-                consecutiveFailureCount = 0;
+                continue;
             }
-            catch (Exception ex)
+
+            string areaLabel = areaLiteral.Content.ToString().Trim();
+
+            foreach (string owner in teamMentionsLiteral.Content.ToString().Split(' ', StringSplitOptions.TrimEntries))
             {
-                consecutiveFailureCount++;
-
-                string errorMessage = $"{nameof(ParseDotnetRuntimeAreaOwnersTableAsync)}: ({consecutiveFailureCount}): {ex}";
-                _logger.DebugLog(errorMessage);
-
-                if (consecutiveFailureCount == 2)
+                if (owner.StartsWith("@dotnet/", StringComparison.OrdinalIgnoreCase))
                 {
-                    await _logger.DebugAsync(errorMessage);
+                    var areas = CollectionsMarshal.GetValueRefOrAddDefault(dotnetTeamToAreaLabels, owner.TrimStart('@'), out _) ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    areas.Add(areaLabel);
                 }
             }
         }
-        while (await timer.WaitForNextTickAsync());
+
+        DotnetTeamToAreaLabel = dotnetTeamToAreaLabels.ToDictionary(p => p.Key, p => p.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<bool> ProcessGitHubMentionAsync(CommentInfo comment)
@@ -300,41 +281,29 @@ public sealed partial class GitHubNotificationsService
         }
     }
 
-    private async Task RescanOldRuntimeIssuesAsync()
+    private async Task RescanOldRuntimeIssuesAsync(CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromHours(6));
-
-        while (await timer.WaitForNextTickAsync())
+        HashSet<string> teams = await _users.QueryAsync(users =>
         {
-            try
+            var teams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (UserRecord user in users.Values)
             {
-                HashSet<string> teams = await _users.QueryAsync(users =>
+                if (user.SubscribeToExistingIssues)
                 {
-                    var teams = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                    foreach (UserRecord user in users.Values)
-                    {
-                        if (user.SubscribeToExistingIssues)
-                        {
-                            teams.AddRange(user.Teams ?? []);
-                        }
-                    }
-
-                    return teams;
-                });
-
-                string[] areas = teams
-                    .SelectMany(t => DotnetTeamToAreaLabel.TryGetValue(t, out string[] areas) ? areas : [])
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-
-                await RescanOldRuntimeIssuesAsync(areas, new DateTime(2000, 1, 1, 1, 1, 1, DateTimeKind.Utc));
+                    teams.AddRange(user.Teams ?? []);
+                }
             }
-            catch (Exception ex)
-            {
-                await _logger.DebugAsync(nameof(RescanOldRuntimeIssuesAsync), ex);
-            }
-        }
+
+            return teams;
+        });
+
+        string[] areas = teams
+            .SelectMany(t => DotnetTeamToAreaLabel.TryGetValue(t, out string[] areas) ? areas : [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        await RescanOldRuntimeIssuesAsync(areas, new DateTime(2000, 1, 1, 1, 1, 1, DateTimeKind.Utc), cancellationToken);
     }
 
     public async Task RescanOldRuntimeIssuesAsync(string[] areaLabels, DateTime since, CancellationToken cancellationToken = default)
@@ -415,132 +384,97 @@ public sealed partial class GitHubNotificationsService
         }
     }
 
-    private async Task MonitorNetworkingIssuesWithoutNclMentionAsync()
+    private async Task MonitorNetworkingIssuesWithoutNclMentionAsync(CancellationToken cancellationToken)
     {
-        try
+        if (_serviceConfiguration.PauseGitHubNCLMentionPolling || _serviceConfiguration.PauseGitHubPolling)
         {
-            TimeSpan maxTimeFromLabelToMention = TimeSpan.FromMinutes(10);
+            return;
+        }
 
-            using var timer = new PeriodicTimer(maxTimeFromLabelToMention / 4);
+        await using GitHubDbContext db = _db.CreateDbContext();
 
-            int consecutiveFailureCount = 0;
+        DateTime onlyCreatedInLastMonth = DateTime.UtcNow - TimeSpan.FromDays(30);
+        DateTime skipRecentlyCreated = DateTime.UtcNow - MaxTimeFromLabelToMention;
 
-            while (await timer.WaitForNextTickAsync())
+        Stopwatch queryStopwatch = Stopwatch.StartNew();
+
+        IssueInfo[] networkingIssues = await db.Issues
+            .AsNoTracking()
+            .Where(i => i.CreatedAt >= onlyCreatedInLastMonth && i.CreatedAt <= skipRecentlyCreated)
+            .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
+            .Where(i => i.IssueType == IssueType.Issue)
+            .Where(i => i.State == ItemState.Open)
+            .FromDotnetRuntime()
+            .Include(i => i.Comments)
+            .OrderByDescending(i => i.CreatedAt)
+            .Take(1000)
+            .AsSplitQuery()
+            .ToArrayAsync(cancellationToken);
+
+        ServiceInfo.LastGitHubNCLMentionsQueryTime = queryStopwatch.Elapsed;
+
+        foreach (IssueInfo issue in networkingIssues)
+        {
+            string dupeKey = $"NoNCLMention/{issue.HtmlUrl}";
+
+            if (_processedMentions.Contains(dupeKey))
             {
-                try
+                continue;
+            }
+
+            if (issue.Comments.Count >= 10 ||
+                issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            try
+            {
+                IReadOnlyList<IssueEvent> events = await Github.Issue.Events.GetAllForIssue(issue.RepositoryId, issue.Number);
+
+                bool areaLabelIsRecent = false;
+
+                foreach (IssueEvent e in events)
                 {
-                    if (_serviceConfiguration.PauseGitHubNCLMentionPolling || _serviceConfiguration.PauseGitHubPolling)
+                    if (e.Event.TryParse(out EventInfoState eventState) &&
+                        eventState == EventInfoState.Labeled &&
+                        e.Label?.Name is { } labelName &&
+                        Constants.NetworkingLabels.Contains(labelName) &&
+                        (DateTime.UtcNow - e.CreatedAt) < MaxTimeFromLabelToMention)
                     {
-                        continue;
+                        areaLabelIsRecent = true;
+                        break;
                     }
-
-                    await using GitHubDbContext db = _db.CreateDbContext();
-
-                    DateTime onlyCreatedInLastMonth = DateTime.UtcNow - TimeSpan.FromDays(30);
-                    DateTime skipRecentlyCreated = DateTime.UtcNow - maxTimeFromLabelToMention;
-
-                    Stopwatch queryStopwatch = Stopwatch.StartNew();
-
-                    IssueInfo[] networkingIssues = await db.Issues
-                        .AsNoTracking()
-                        .Where(i => i.CreatedAt >= onlyCreatedInLastMonth && i.CreatedAt <= skipRecentlyCreated)
-                        .Where(i => i.Labels.Any(l => Constants.NetworkingLabels.Any(nl => nl == l.Name)))
-                        .Where(i => i.IssueType == IssueType.Issue)
-                        .Where(i => i.State == ItemState.Open)
-                        .FromDotnetRuntime()
-                        .Include(i => i.Comments)
-                        .OrderByDescending(i => i.CreatedAt)
-                        .Take(1000)
-                        .AsSplitQuery()
-                        .ToArrayAsync();
-
-                    ServiceInfo.LastGitHubNCLMentionsQueryTime = queryStopwatch.Elapsed;
-
-                    foreach (IssueInfo issue in networkingIssues)
-                    {
-                        string dupeKey = $"NoNCLMention/{issue.HtmlUrl}";
-
-                        if (_processedMentions.Contains(dupeKey))
-                        {
-                            continue;
-                        }
-
-                        if (issue.Comments.Count >= 10 ||
-                            issue.Comments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            continue;
-                        }
-
-                        try
-                        {
-                            IReadOnlyList<IssueEvent> events = await Github.Issue.Events.GetAllForIssue(issue.RepositoryId, issue.Number);
-
-                            bool areaLabelIsRecent = false;
-
-                            foreach (IssueEvent e in events)
-                            {
-                                if (e.Event.TryParse(out EventInfoState eventState) &&
-                                    eventState == EventInfoState.Labeled &&
-                                    e.Label?.Name is { } labelName &&
-                                    Constants.NetworkingLabels.Contains(labelName) &&
-                                    (DateTime.UtcNow - e.CreatedAt) < maxTimeFromLabelToMention)
-                                {
-                                    areaLabelIsRecent = true;
-                                    break;
-                                }
-                            }
-
-                            if (areaLabelIsRecent)
-                            {
-                                // Give the default policy bot some time to comment.
-                                // We'll check later in case it hasn't.
-                                continue;
-                            }
-
-                            IReadOnlyList<IssueComment> updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
-
-                            if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
-                            {
-                                continue;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.DebugLog($"Failed to get updated issue info for <{issue.HtmlUrl}>: {ex}");
-                            continue;
-                        }
-
-                        if (!_processedMentions.TryAdd(dupeKey))
-                        {
-                            continue;
-                        }
-
-                        _logger.DebugLog($"[{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}]: No NCL mention in {issue.HtmlUrl}");
-
-                        await Github.Issue.Comment.Create(issue.RepositoryId, issue.Number, "cc: @dotnet/ncl");
-                    }
-
-                    consecutiveFailureCount = 0;
                 }
-                catch (Exception ex)
+
+                if (areaLabelIsRecent)
                 {
-                    consecutiveFailureCount++;
+                    // Give the default policy bot some time to comment.
+                    // We'll check later in case it hasn't.
+                    continue;
+                }
 
-                    string errorMessage = $"{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}: ({consecutiveFailureCount}): {ex}";
-                    _logger.DebugLog(errorMessage);
+                IReadOnlyList<IssueComment> updatedComments = await Github.Issue.Comment.GetAllForIssue(issue.RepositoryId, issue.Number);
 
-                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount);
-
-                    if (consecutiveFailureCount == 2)
-                    {
-                        await _logger.DebugAsync(errorMessage);
-                    }
+                if (updatedComments.Any(c => c.Body.Contains("@dotnet/ncl", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unexpected exception: {ex}");
+            catch (Exception ex)
+            {
+                _logger.DebugLog($"Failed to get updated issue info for <{issue.HtmlUrl}>: {ex}");
+                continue;
+            }
+
+            if (!_processedMentions.TryAdd(dupeKey))
+            {
+                continue;
+            }
+
+            _logger.DebugLog($"[{nameof(MonitorNetworkingIssuesWithoutNclMentionAsync)}]: No NCL mention in {issue.HtmlUrl}");
+
+            await Github.Issue.Comment.Create(issue.RepositoryId, issue.Number, "cc: @dotnet/ncl");
         }
     }
 

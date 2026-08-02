@@ -3,16 +3,16 @@ namespace MihuBot.Configuration;
 /// <summary>
 /// Reports which optional integrations are disabled due to missing configuration.
 /// </summary>
-public sealed class OptionalFeatureReportService(IConfiguration configuration, IConfigurationService configurationService, InitializedDiscordClient discord, Logger logger) : IHostedService
+public sealed class OptionalFeatureReportService(IConfiguration configuration, IConfigurationService configurationService, InitializedDiscordClient discord, Logger logger) : BackgroundService
 {
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         OptionalFeature[] missing = OptionalFeatures.GetMissingFeatures(configuration, configurationService);
 
         if (missing.Length == 0)
         {
             Console.WriteLine("All optional integrations are configured.");
-            return Task.CompletedTask;
+            return;
         }
 
         var report = new StringBuilder();
@@ -27,22 +27,15 @@ public sealed class OptionalFeatureReportService(IConfiguration configuration, I
 
         Console.WriteLine(message);
 
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                await discord.WaitUntilInitializedAsync();
+            await discord.WaitUntilInitializedAsync();
 
-                await logger.DebugAsync(message, truncateToFile: true);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Couldn't post the missing configuration report to Discord: {ex.Message}");
-            }
-        }, CancellationToken.None);
-
-        return Task.CompletedTask;
+            await logger.DebugAsync(message, truncateToFile: true);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Couldn't post the missing configuration report to Discord: {ex.Message}");
+        }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

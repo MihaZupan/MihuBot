@@ -10,7 +10,7 @@ namespace MihuBot.RuntimeUtils;
 // detected, invokes the local build script (deploy/build-latest.sh) to produce
 // next_update/artifacts.tar.gz and signals shutdown so the external runner loop
 // applies the update. Failures are surfaced via the debug logger.
-public sealed class SelfUpdateService : IHostedService
+public sealed class SelfUpdateService : PeriodicBackgroundService
 {
     // Defaults; overridable via ConfigurationService keys under "SelfUpdate.".
     private const string DefaultOwner = "MihaZupan";
@@ -25,14 +25,18 @@ public sealed class SelfUpdateService : IHostedService
     private readonly IConfigurationService _configuration;
     private readonly ServiceConfiguration _serviceConfiguration;
 
-    private CancellationTokenSource? _stoppingCts;
-    private Task? _pollTask;
-
     // Last SHA we attempted to build. Used to avoid retrying a failing SHA on
     // every poll; we only reattempt once main has moved past it.
     private string? _lastAttemptedSha;
 
     public SelfUpdateService(Logger logger, GitHubClient github, IConfigurationService configuration, ServiceConfiguration serviceConfiguration)
+        : base(new PeriodicTaskOptions
+        {
+            // The first poll only happens after a full interval so we don't race host startup / immediately
+            // rebuild if we come up on a slightly stale build (e.g. right after a manual deploy).
+            Interval = TimeSpan.FromSeconds(DefaultPollIntervalSeconds),
+            FailureBackoff = TimeSpan.Zero,
+        }, logger)
     {
         _logger = logger;
         _github = github;
@@ -43,90 +47,16 @@ public sealed class SelfUpdateService : IHostedService
     private string GetString(string key, string defaultValue) =>
         _configuration.TryGet(null, key, out string value) && !string.IsNullOrWhiteSpace(value) ? value : defaultValue;
 
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        // Only auto-update in production (Linux containers). On dev boxes we do
-        // not want the service polling GitHub or shelling out to build scripts.
-        if (!OperatingSystem.IsLinux())
-        {
-            return Task.CompletedTask;
-        }
-
-        _stoppingCts = new CancellationTokenSource();
-
-        using (ExecutionContext.SuppressFlow())
-        {
-            _pollTask = Task.Run(() => PollLoopAsync(_stoppingCts.Token), CancellationToken.None);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        if (_stoppingCts is null)
-        {
-            return;
-        }
-
-        try
-        {
-            _stoppingCts.Cancel();
-        }
-        catch { }
-
-        if (_pollTask is not null)
-        {
-            try
-            {
-                await _pollTask.WaitAsync(cancellationToken);
-            }
-            catch { }
-        }
-    }
-
-    private async Task PollLoopAsync(CancellationToken cancellationToken)
-    {
-        // Delay initial poll so we don't race host startup / immediately rebuild
-        // if we come up on a slightly stale build (e.g. right after a manual
-        // deploy).
-        try
-        {
-            await Task.Delay(TimeSpan.FromMinutes(2), cancellationToken);
-        }
-        catch (OperationCanceledException) { return; }
-
-        // This loop is the whole feature; nothing except an explicit stop signal
-        // may exit it. Every exception (network, GitHub API, build script,
-        // etc.) is swallowed so a bad build can never disable the update
-        // mechanism. Logger.DebugAsync swallows its own exceptions.
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await PollOnceAsync(cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                await _logger.DebugAsync($"SelfUpdate poll failed: {ex}", truncateToFile: true);
-            }
-
-            int pollSeconds = _configuration.GetOrDefault(null, "SelfUpdate.PollIntervalSeconds", DefaultPollIntervalSeconds);
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(pollSeconds), cancellationToken);
-            }
-            catch (OperationCanceledException) { return; }
-        }
-    }
+    // Nothing except an explicit stop signal may exit this loop. Every exception (network,
+    // GitHub API, build script, etc.) only fails a single poll, so a bad build can never
+    // disable the update mechanism.
+    protected override Task RunIterationAsync(CancellationToken cancellationToken) => PollOnceAsync(cancellationToken);
 
     private async Task PollOnceAsync(CancellationToken cancellationToken)
     {
-        if (_serviceConfiguration.PauseSelfUpdate)
+        // Only auto-update in production (Linux containers). On dev boxes we do
+        // not want the service polling GitHub or shelling out to build scripts.
+        if (!OperatingSystem.IsLinux() || _serviceConfiguration.PauseSelfUpdate)
         {
             return;
         }

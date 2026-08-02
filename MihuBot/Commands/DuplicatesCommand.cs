@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
@@ -124,98 +124,84 @@ public sealed class DuplicatesCommand : CommandBase
 
     public override Task InitAsync()
     {
-        _ = Task.Run(async () =>
+        if (!OperatingSystem.IsWindows())
         {
-            if (OperatingSystem.IsWindows())
-            {
-                return;
-            }
-
-            try
-            {
-                using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-
-                while (await timer.WaitForNextTickAsync())
-                {
-                    try
-                    {
-                        if (_serviceConfiguration.PauseAutoDuplicateDetection)
-                        {
-                            continue;
-                        }
-
-                        await using GitHubDbContext db = _db.CreateDbContext();
-
-                        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromHours(1));
-
-                        IQueryable<IssueInfo> query = db.Issues
-                            .AsNoTracking()
-                            .Where(i => i.CreatedAt >= startDate)
-                            .Where(i => i.State == ItemState.Open)
-                            .Where(i => i.IssueType == IssueType.Issue)
-                            .Where(i => !i.Repository.InitialIngestionInProgress)
-                            .OrderByDescending(i => i.CreatedAt);
-
-                        query = IssueTriageHelper.AddIssueInfoIncludes(query);
-
-                        IssueInfo[] issues = await query
-                            .Take(100)
-                            .AsSplitQuery()
-                            .ToArrayAsync();
-
-                        foreach (IssueInfo issue in issues)
-                        {
-                            if (!issue.User.IsLikelyARealUser() ||
-                                !_configuration.GetOrDefault(null, $"{Command}.Enabled.{issue.RepoName()}", false))
-                            {
-                                continue;
-                            }
-
-                            if (DateTime.UtcNow.Subtract(issue.CreatedAt).TotalMinutes < 3)
-                            {
-                                // Give it 3 minutes before processing in case the author references the duplicate in a comment.
-                                continue;
-                            }
-
-                            if (string.IsNullOrWhiteSpace(issue.Body))
-                            {
-                                continue;
-                            }
-
-                            if (!_processedIssuesForDuplicateDetection.TryAdd(issue.Id))
-                            {
-                                continue;
-                            }
-
-                            if (IsPublicAnnouncementIssue(issue))
-                            {
-                                continue;
-                            }
-
-                            if (await IsLikelySpamOrUnfilledIssueAsync(issue, CancellationToken.None))
-                            {
-                                _logger.DebugLog($"{nameof(DuplicatesCommand)}: Skipping likely spam/unfilled issue <{issue.HtmlUrl}>");
-                                continue;
-                            }
-
-                            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Running duplicate detection for issue <{issue.HtmlUrl}>");
-
-                            _ = Task.Run(async () =>
-                            {
-                                await RunDuplicateDetectionAsync(issue, automated: true, message: null);
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection", ex);
-                    }
-                }
-            }
-            catch { }
-        });
+            PeriodicTask.Start($"{nameof(DuplicatesCommand)}.AutoDetection",
+                new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(1), FailureBackoff = TimeSpan.Zero },
+                _logger, RunAutomatedDuplicateDetectionAsync);
+        }
 
         return Task.CompletedTask;
+    }
+
+    private async Task RunAutomatedDuplicateDetectionAsync(CancellationToken cancellationToken)
+    {
+        if (_serviceConfiguration.PauseAutoDuplicateDetection)
+        {
+            return;
+        }
+
+        await using GitHubDbContext db = _db.CreateDbContext();
+
+        DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromHours(1));
+
+        IQueryable<IssueInfo> query = db.Issues
+            .AsNoTracking()
+            .Where(i => i.CreatedAt >= startDate)
+            .Where(i => i.State == ItemState.Open)
+            .Where(i => i.IssueType == IssueType.Issue)
+            .Where(i => !i.Repository.InitialIngestionInProgress)
+            .OrderByDescending(i => i.CreatedAt);
+
+        query = IssueTriageHelper.AddIssueInfoIncludes(query);
+
+        IssueInfo[] issues = await query
+            .Take(100)
+            .AsSplitQuery()
+            .ToArrayAsync(cancellationToken);
+
+        foreach (IssueInfo issue in issues)
+        {
+            if (!issue.User.IsLikelyARealUser() ||
+                !_configuration.GetOrDefault(null, $"{Command}.Enabled.{issue.RepoName()}", false))
+            {
+                continue;
+            }
+
+            if (DateTime.UtcNow.Subtract(issue.CreatedAt).TotalMinutes < 3)
+            {
+                // Give it 3 minutes before processing in case the author references the duplicate in a comment.
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(issue.Body))
+            {
+                continue;
+            }
+
+            if (!_processedIssuesForDuplicateDetection.TryAdd(issue.Id))
+            {
+                continue;
+            }
+
+            if (IsPublicAnnouncementIssue(issue))
+            {
+                continue;
+            }
+
+            if (await IsLikelySpamOrUnfilledIssueAsync(issue, CancellationToken.None))
+            {
+                _logger.DebugLog($"{nameof(DuplicatesCommand)}: Skipping likely spam/unfilled issue <{issue.HtmlUrl}>");
+                continue;
+            }
+
+            _logger.DebugLog($"{nameof(DuplicatesCommand)}: Running duplicate detection for issue <{issue.HtmlUrl}>");
+
+            _ = Task.Run(async () =>
+            {
+                await RunDuplicateDetectionAsync(issue, automated: true, message: null);
+            }, CancellationToken.None);
+        }
     }
 
     private async Task RunDuplicateDetectionAsync(IssueInfo issue, bool automated, MessageContext message)

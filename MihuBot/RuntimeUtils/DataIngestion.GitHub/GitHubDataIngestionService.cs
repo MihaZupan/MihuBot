@@ -41,7 +41,7 @@ public sealed record GitHubDataIngestionStats(
     int SearchVectorCount,
     RepositoryIngestionStats[] TrackedRepos);
 
-public sealed class GitHubDataIngestionService : BackgroundService
+public sealed class GitHubDataIngestionService : PeriodicBackgroundService
 {
     public const long GhostUserId = 10137;
     public const long CopilotUserId = 198982749;
@@ -81,7 +81,13 @@ public sealed class GitHubDataIngestionService : BackgroundService
 
     public GitHubDataIngestionStats Stats { get; private set; } = new(0, 0, 0, []);
 
-    public GitHubDataIngestionService(ILogger<GitHubDataIngestionService> logger, IDbContextFactory<GitHubDbContext> db, GitHubClient github, IOptions<GitHubClientOptions> githubOptions, ServiceConfiguration serviceConfiguration)
+    public GitHubDataIngestionService(ILogger<GitHubDataIngestionService> logger, Logger discordLogger, IDbContextFactory<GitHubDbContext> db, GitHubClient github, IOptions<GitHubClientOptions> githubOptions, ServiceConfiguration serviceConfiguration)
+        : base(new PeriodicTaskOptions
+        {
+            Interval = TimeSpan.FromSeconds(10),
+            FailureBackoff = TimeSpan.FromSeconds(1),
+            AdditionalFailureDelay = GetRateLimitDelay,
+        }, discordLogger)
     {
         _logger = logger;
         _db = db;
@@ -167,104 +173,80 @@ public sealed class GitHubDataIngestionService : BackgroundService
         return id;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private readonly Stopwatch _knownUsersRefreshTime = Stopwatch.StartNew();
+    private readonly Stopwatch _lastStatsRefreshTime = new();
+
+    /// <summary>Back off for as long as GitHub tells us to (capped), on top of the usual failure backoff.</summary>
+    private static TimeSpan GetRateLimitDelay(Exception exception)
     {
+        if ((exception as RateLimitExceededException ?? exception.InnerException as RateLimitExceededException) is not { } rateLimitEx)
+        {
+            return TimeSpan.Zero;
+        }
+
+        TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
+
+        if (toWait.TotalSeconds <= 1)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return toWait > TimeSpan.FromMinutes(5) ? TimeSpan.FromMinutes(5) : toWait;
+    }
+
+    protected override async Task RunIterationAsync(CancellationToken stoppingToken)
+    {
+        RepositoryInfo? currentRepo = null;
+
         try
         {
-            await Task.Yield();
-
-            Stopwatch knownUsersRefreshTime = Stopwatch.StartNew();
-            Stopwatch lastStatsRefreshTime = new();
-
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
-
-            int consecutiveFailureCount = 0;
-
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            if (!_lastStatsRefreshTime.IsRunning || _lastStatsRefreshTime.Elapsed.TotalMinutes > 5)
             {
-                RepositoryInfo? currentRepo = null;
+                await RefreshStatsAsync(stoppingToken);
+                _lastStatsRefreshTime.Restart();
+            }
 
-                try
+            if (!OperatingSystem.IsLinux() || _serviceConfiguration.PauseGitHubPolling)
+            {
+                return;
+            }
+
+            List<RepositoryInfo> repositories;
+
+            await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
+            {
+                repositories = await db.Repositories
+                    .AsNoTracking()
+                    .ToListAsync(stoppingToken);
+            }
+
+            // Refresh known users list every so often. If any repo is still doing initial ingestion we do it more often to avoid wasted DB fetches.
+            if (_knownUsers.Count == 0 || _knownUsersRefreshTime.Elapsed.TotalMinutes > (repositories.Any(r => r.InitialIngestionInProgress) ? 2 : 15))
+            {
+                await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
                 {
-                    if (!lastStatsRefreshTime.IsRunning || lastStatsRefreshTime.Elapsed.TotalMinutes > 5)
-                    {
-                        await RefreshStatsAsync(stoppingToken);
-                        lastStatsRefreshTime.Restart();
-                    }
+                    DateTime staleUserCutoff = DateTime.UtcNow - UserInfoRefreshInterval;
 
-                    if (!OperatingSystem.IsLinux())
-                    {
-                        continue;
-                    }
-
-                    if (_serviceConfiguration.PauseGitHubPolling)
-                    {
-                        continue;
-                    }
-
-                    List<RepositoryInfo> repositories;
-
-                    await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
-                    {
-                        repositories = await db.Repositories
-                            .AsNoTracking()
-                            .ToListAsync(stoppingToken);
-                    }
-
-                    // Refresh known users list every so often. If any repo is still doing initial ingestion we do it more often to avoid wasted DB fetches.
-                    if (_knownUsers.Count == 0 || knownUsersRefreshTime.Elapsed.TotalMinutes > (repositories.Any(r => r.InitialIngestionInProgress) ? 2 : 15))
-                    {
-                        await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
-                        {
-                            DateTime staleUserCutoff = DateTime.UtcNow - UserInfoRefreshInterval;
-
-                            _knownUsers = (await db.Users
-                                .Where(u => u.EntryUpdatedAt >= staleUserCutoff)
-                                .Select(u => u.Id)
-                                .ToListAsync(stoppingToken))
-                                .ToHashSet();
-                        }
-
-                        knownUsersRefreshTime.Restart();
-                    }
-
-                    foreach (RepositoryInfo repo in repositories)
-                    {
-                        stoppingToken.ThrowIfCancellationRequested();
-                        currentRepo = repo;
-                        await UpdateRepositoryDataAsync(repo, stoppingToken);
-                    }
-
-                    consecutiveFailureCount = 0;
+                    _knownUsers = (await db.Users
+                        .Where(u => u.EntryUpdatedAt >= staleUserCutoff)
+                        .Select(u => u.Id)
+                        .ToListAsync(stoppingToken))
+                        .ToHashSet();
                 }
-                catch (Exception ex)
-                {
-                    consecutiveFailureCount++;
 
-                    _logger.LogError(ex, "Update failed for '{RepoName}' ({FailureCount})", currentRepo?.FullName, consecutiveFailureCount);
+                _knownUsersRefreshTime.Restart();
+            }
 
-                    if (ex is RateLimitExceededException rateLimitEx)
-                    {
-                        TimeSpan toWait = rateLimitEx.GetRetryAfterTimeSpan();
-                        if (toWait.TotalSeconds > 1)
-                        {
-                            _logger.LogDebug("GitHub polling toWait={ToWait}", toWait);
-                            if (toWait > TimeSpan.FromMinutes(5))
-                            {
-                                toWait = TimeSpan.FromMinutes(5);
-                            }
-                            await Task.Delay(toWait, stoppingToken);
-                        }
-                    }
-
-                    await Task.Delay(TimeSpan.FromSeconds(consecutiveFailureCount), stoppingToken);
-                }
+            foreach (RepositoryInfo repo in repositories)
+            {
+                stoppingToken.ThrowIfCancellationRequested();
+                currentRepo = repo;
+                await UpdateRepositoryDataAsync(repo, stoppingToken);
             }
         }
-        catch when (stoppingToken.IsCancellationRequested) { }
-        catch (Exception ex)
+        catch (Exception ex) when (currentRepo is not null && !stoppingToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Unexpected exception during GH data polling");
+            throw new InvalidOperationException($"Update failed for '{currentRepo.FullName}'", ex);
         }
     }
 

@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -45,7 +45,7 @@ public sealed class GitHubSearchService
     [ImmutableObject(true)]
     private sealed record RawSearchResult(double Score, long RepositoryId, string IssueId, string SubIdentifier);
 
-    public GitHubSearchService(ILogger<GitHubSearchService> logger, IDbContextFactory<GitHubDbContext> db, GitHubDataIngestionService ingestionService, OpenAIService openAi, HybridCache cache, IConfigurationService configuration, ServiceConfiguration serviceConfiguration, IEnumerable<VectorStore> vectorStores)
+    public GitHubSearchService(ILogger<GitHubSearchService> logger, Logger discordLogger, IDbContextFactory<GitHubDbContext> db, GitHubDataIngestionService ingestionService, OpenAIService openAi, HybridCache cache, IConfigurationService configuration, ServiceConfiguration serviceConfiguration, IEnumerable<VectorStore> vectorStores)
     {
         _logger = logger;
         _db = db;
@@ -58,21 +58,17 @@ public sealed class GitHubSearchService
         _configuration = configuration;
         _serviceConfiguration = serviceConfiguration;
 
-        Task.Run(async () =>
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
-            while (await timer.WaitForNextTickAsync())
+        // Keeps the search path (embeddings, vector store, DB queries) warm.
+        PeriodicTask.Start("GitHubSearchKeepAlive",
+            new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(5), FailureBackoff = TimeSpan.Zero },
+            discordLogger,
+            async _ =>
             {
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-                    var filters = new IssueSearchFilters();
-                    var options = new IssueSearchResponseOptions { IncludeIssueComments = true };
-                    await SearchIssuesAndCommentsAsync($"Keep-alive query {Environment.TickCount64}", filters, options, cts.Token);
-                }
-                catch { }
-            }
-        }, CancellationToken.None);
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+                var filters = new IssueSearchFilters();
+                var options = new IssueSearchResponseOptions { IncludeIssueComments = true };
+                await SearchIssuesAndCommentsAsync($"Keep-alive query {Environment.TickCount64}", filters, options, cts.Token);
+            });
     }
 
     public async Task<GitHubSearchResponse> SearchIssuesAndCommentsAsync(

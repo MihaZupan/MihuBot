@@ -17,7 +17,7 @@ using Qdrant.Client.Grpc;
 namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 // Background service that periodically checks the GitHub DB and updates embeddings and FTS as needed.
-public sealed class GitHubSemanticSearchIngestionService : BackgroundService
+public sealed class GitHubSemanticSearchIngestionService : PeriodicBackgroundService
 {
     private const int SmallSectionTokenThreshold = 200;
 
@@ -36,7 +36,12 @@ public sealed class GitHubSemanticSearchIngestionService : BackgroundService
 
     private string UpdateCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSemanticSearchIngestionService)}.UpdateCollection", out string name) ? name : "MihuBotGhSearch";
 
-    public GitHubSemanticSearchIngestionService(IDbContextFactory<GitHubDbContext> db, OpenAIService openAi, ILogger<GitHubSemanticSearchIngestionService> logger, IConfigurationService configurationService, QdrantClient qdrantClient, VectorStore vectorStore, ServiceConfiguration serviceConfiguration)
+    public GitHubSemanticSearchIngestionService(IDbContextFactory<GitHubDbContext> db, OpenAIService openAi, ILogger<GitHubSemanticSearchIngestionService> logger, Logger discordLogger, IConfigurationService configurationService, QdrantClient qdrantClient, VectorStore vectorStore, ServiceConfiguration serviceConfiguration)
+        : base(new PeriodicTaskOptions
+        {
+            Interval = TimeSpan.FromMilliseconds(IngestionPeriodMs),
+            FailureBackoff = TimeSpan.FromSeconds(1),
+        }, discordLogger)
     {
         _db = db;
         _logger = logger;
@@ -47,58 +52,23 @@ public sealed class GitHubSemanticSearchIngestionService : BackgroundService
         _serviceConfiguration = serviceConfiguration;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        try
+        if (!OperatingSystem.IsLinux() || _serviceConfiguration.PauseSemanticIngestion)
         {
-            await Task.Yield();
-
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(IngestionPeriodMs));
-
-            int consecutiveFailureCount = 0;
-
-            while (await timer.WaitForNextTickAsync(stoppingToken))
-            {
-                if (!OperatingSystem.IsLinux())
-                {
-                    continue;
-                }
-
-                if (_serviceConfiguration.PauseSemanticIngestion)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    (int updates, int tokens) = await UpdateIngestedEmbeddingsAndFtsAsync(stoppingToken);
-                    if (updates > 0)
-                    {
-                        _logger.LogTrace("Performed {Updates} DB updates, consumed {Tokens} tokens", updates, tokens);
-                    }
-
-                    if (tokens > 1_000)
-                    {
-                        const int TokenLimitPerMinute = 750_000;
-                        await Task.Delay(TimeSpan.FromMinutes((double)tokens / TokenLimitPerMinute), stoppingToken);
-                    }
-
-                    consecutiveFailureCount = 0;
-                }
-                catch (Exception ex)
-                {
-                    consecutiveFailureCount++;
-
-                    _logger.LogError(ex, "Update failed ({FailureCount})", consecutiveFailureCount);
-
-                    await Task.Delay(TimeSpan.FromSeconds(consecutiveFailureCount), stoppingToken);
-                }
-            }
+            return;
         }
-        catch when (stoppingToken.IsCancellationRequested) { }
-        catch (Exception ex)
+
+        (int updates, int tokens) = await UpdateIngestedEmbeddingsAndFtsAsync(cancellationToken);
+        if (updates > 0)
         {
-            _logger.LogError(ex, "Unexpected exception during GH data polling");
+            _logger.LogTrace("Performed {Updates} DB updates, consumed {Tokens} tokens", updates, tokens);
+        }
+
+        if (tokens > 1_000)
+        {
+            const int TokenLimitPerMinute = 750_000;
+            await Task.Delay(TimeSpan.FromMinutes((double)tokens / TokenLimitPerMinute), cancellationToken);
         }
     }
 

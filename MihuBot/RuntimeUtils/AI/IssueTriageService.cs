@@ -16,8 +16,10 @@ public sealed class IssueTriageService(
     Logger Logger,
     IDbContextFactory<GitHubDbContext> GitHubDb,
     ServiceConfiguration ServiceConfiguration)
-    : IHostedService
+    : PeriodicBackgroundService(new PeriodicTaskOptions { Interval = TimeSpan.FromSeconds(15) }, Logger)
 {
+    private readonly Logger _logger = Logger;
+
     private const string TriageRepositoryOwner = "MihuBot";
     private const string TriageRepositoryName = "dotnet-triage";
 
@@ -27,9 +29,6 @@ public sealed class IssueTriageService(
         "<!-- BEGIN: Github workflow runs test report -->",
         "Fill the error message using [step by step known issues guidance]",
     ], StringComparison.OrdinalIgnoreCase);
-
-    private readonly CancellationTokenSource _updateCts = new();
-    private Task _updatesTask;
 
     private sealed record RepoConfig(string RepoName, Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> Filter, string FilterDescription);
 
@@ -44,73 +43,14 @@ public sealed class IssueTriageService(
             "[`area-dashboard`](https://github.com/dotnet/aspire/issues?q=state%3Aopen%20label%3A%22area-dashboard%22) issues"),
     ];
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() || ServiceConfiguration.PauseAutoTriage)
         {
-            using AsyncFlowControl _ = ExecutionContext.SuppressFlow();
-
-            _updatesTask = Task.Run(async () => await RunUpdateLoopAsync(cancellationToken), CancellationToken.None);
+            return;
         }
 
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        await _updateCts.CancelAsync();
-
-        if (_updatesTask is not null)
-        {
-            await _updatesTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        }
-    }
-
-    private async Task RunUpdateLoopAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _updateCts.Token);
-            cancellationToken = linkedCts.Token;
-
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
-
-            int consecutiveFailureCount = 0;
-
-            while (await timer.WaitForNextTickAsync(cancellationToken))
-            {
-                try
-                {
-                    if (ServiceConfiguration.PauseAutoTriage)
-                    {
-                        continue;
-                    }
-
-                    await TriageIssuesAsync(cancellationToken);
-
-                    consecutiveFailureCount = 0;
-                }
-                catch (Exception ex)
-                {
-                    consecutiveFailureCount++;
-
-                    string errorMessage = $"{nameof(IssueTriageService)}: Update failed ({consecutiveFailureCount}): {ex}";
-                    Logger.DebugLog(errorMessage);
-
-                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount, cancellationToken);
-
-                    if (consecutiveFailureCount == 2)
-                    {
-                        await Logger.DebugAsync(errorMessage);
-                    }
-                }
-            }
-        }
-        catch when (cancellationToken.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Unexpected exception: {ex}");
-        }
+        await TriageIssuesAsync(cancellationToken);
     }
 
     private async Task TriageIssuesAsync(CancellationToken cancellationToken)
@@ -147,7 +87,7 @@ public sealed class IssueTriageService(
 
             queryTimer.Stop();
 
-            Logger.TraceLog($"[{nameof(IssueTriageService)}] Query for {repoConfig.RepoName} took {queryTimer.ElapsedMilliseconds:F2} ms, got {issues.Length} issues.");
+            _logger.TraceLog($"[{nameof(IssueTriageService)}] Query for {repoConfig.RepoName} took {queryTimer.ElapsedMilliseconds:F2} ms, got {issues.Length} issues.");
 
             int triaged = 0;
 
@@ -186,7 +126,7 @@ public sealed class IssueTriageService(
 
             if (triaged > 0)
             {
-                Logger.DebugLog($"[{nameof(IssueTriageService)}]: {triaged} issues triaged for {repoConfig.RepoName}.");
+                _logger.DebugLog($"[{nameof(IssueTriageService)}]: {triaged} issues triaged for {repoConfig.RepoName}.");
             }
         }
     }
@@ -267,7 +207,7 @@ public sealed class IssueTriageService(
             }
             catch (Exception ex)
             {
-                Logger.DebugLog($"Failed to update existing triage report for <{issue.HtmlUrl}>: {ex}");
+                _logger.DebugLog($"Failed to update existing triage report for <{issue.HtmlUrl}>: {ex}");
             }
         }
     }

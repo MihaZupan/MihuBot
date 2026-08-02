@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
@@ -16,59 +16,19 @@ public sealed class DetectIssueAreaLabelsService(
     ServiceConfiguration ServiceConfiguration,
     OpenAIService OpenAI,
     GitHubSearchService Search)
-    : BackgroundService
+    : PeriodicBackgroundService(new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(1) }, Logger)
 {
+    private readonly Logger _logger = Logger;
     private readonly FileBackedHashSet _processedIssues = new("ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase);
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() || ServiceConfiguration.PauseGitHubPolling)
         {
             return;
         }
 
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-
-            int consecutiveFailureCount = 0;
-
-            while (await timer.WaitForNextTickAsync(stoppingToken))
-            {
-                try
-                {
-                    if (ServiceConfiguration.PauseGitHubPolling)
-                    {
-                        continue;
-                    }
-
-                    await DoDetectionAsync(stoppingToken);
-
-                    consecutiveFailureCount = 0;
-                }
-                catch (Exception ex)
-                {
-                    consecutiveFailureCount++;
-
-                    string errorMessage = $"{nameof(DetectIssueAreaLabelsService)}: ({consecutiveFailureCount}): {ex}";
-                    Logger.DebugLog(errorMessage);
-
-                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount, stoppingToken);
-
-                    if (consecutiveFailureCount == 2)
-                    {
-                        await Logger.DebugAsync(errorMessage);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!stoppingToken.IsCancellationRequested)
-            {
-                Console.WriteLine($"Unexpected exception: {ex}");
-            }
-        }
+        await DoDetectionAsync(cancellationToken);
     }
 
     private async Task DoDetectionAsync(CancellationToken cancellationToken)
@@ -132,7 +92,7 @@ public sealed class DetectIssueAreaLabelsService(
             }
             catch (Exception ex)
             {
-                await Logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
+                await _logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }
     }

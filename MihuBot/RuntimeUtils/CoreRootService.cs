@@ -6,7 +6,7 @@ using Octokit;
 
 namespace MihuBot.RuntimeUtils;
 
-public sealed class CoreRootService : BackgroundService
+public sealed class CoreRootService : PeriodicBackgroundService
 {
     public const string ContainerName = "coreroot";
 
@@ -20,6 +20,7 @@ public sealed class CoreRootService : BackgroundService
     public StorageClient Storage => _storage.Value;
 
     public CoreRootService(GitHubClient github, HttpClient http, IDbContextFactory<MihuBotDbContext> dbContextFactory, Logger logger, StorageService storage)
+        : base(new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(10) }, logger)
     {
         _github = github;
         _dbContextFactory = dbContextFactory;
@@ -32,51 +33,15 @@ public sealed class CoreRootService : BackgroundService
         });
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
+        await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
 
-            int consecutiveFailureCount = 0;
+        DateTime maxAge = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
 
-            while (await timer.WaitForNextTickAsync(stoppingToken))
-            {
-                try
-                {
-                    await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
-
-                    DateTime maxAge = DateTime.UtcNow - TimeSpan.FromDays(RetentionDays);
-
-                    await context.CoreRoot
-                        .Where(e => e.CreatedOn < maxAge)
-                        .ExecuteDeleteAsync(stoppingToken);
-
-                    consecutiveFailureCount = 0;
-                }
-                catch (Exception ex)
-                {
-                    consecutiveFailureCount++;
-
-                    string errorMessage = $"{nameof(CoreRootService)}: ({consecutiveFailureCount}): {ex}";
-                    _logger.DebugLog(errorMessage);
-
-                    await Task.Delay(TimeSpan.FromMinutes(5) * consecutiveFailureCount, stoppingToken);
-
-                    if (consecutiveFailureCount == 2)
-                    {
-                        await _logger.DebugAsync(errorMessage);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!stoppingToken.IsCancellationRequested)
-            {
-                Console.WriteLine($"Unexpected exception: {ex}");
-            }
-        }
+        await context.CoreRoot
+            .Where(e => e.CreatedOn < maxAge)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     public static bool TryValidate(ref string arch, ref string os, ref string type)

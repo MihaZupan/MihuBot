@@ -131,22 +131,14 @@ public sealed partial class Logger
             e.SetObserved();
         };
 
-        _ = Task.Run(async () =>
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
-            while (await timer.WaitForNextTickAsync())
+        PeriodicTask.Start("DeleteOldDebugLogs",
+            new PeriodicTaskOptions { Interval = TimeSpan.FromHours(1), FailureBackoff = TimeSpan.Zero },
+            this,
+            async _ =>
             {
-                try
-                {
-                    int rowsDeleted = await DeleteDebugLogsAsync(90, 92);
-                    DebugLog($"Deleted {rowsDeleted} older debug messages");
-                }
-                catch (Exception ex)
-                {
-                    await DebugAsync("Failed to delete old logs", ex);
-                }
-            }
-        });
+                int rowsDeleted = await DeleteDebugLogsAsync(90, 92);
+                DebugLog($"Deleted {rowsDeleted} older debug messages");
+            });
     }
 
     public async Task<int> DeleteDebugLogsAsync(int minAgeDays, int maxAgeDays)
