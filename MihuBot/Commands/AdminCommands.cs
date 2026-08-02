@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.Search;
 using MihuBot.Storage;
 
@@ -140,8 +141,19 @@ public sealed class AdminCommands : CommandBase
                 return;
             }
 
+            // CoreRoot blobs are tracked by database entries, which would be left pointing at files that no
+            // longer exist. Clear those first so we never hand out a link to a deleted blob.
+            int? deletedCoreRoots = null;
+
+            if (container.Equals(CoreRootService.ContainerName, StringComparison.OrdinalIgnoreCase))
+            {
+                await using MihuBotDbContext db = _dbMihuBot.CreateDbContext();
+                deletedCoreRoots = await db.CoreRoot.ExecuteDeleteAsync();
+            }
+
             int deleted = await _storage.DeleteAllFilesAsync(container);
-            await ctx.ReplyAsync($"Deleted {deleted} entries from the '{container}' container.");
+
+            await ctx.ReplyAsync($"Deleted {deleted} entries from the '{container}' container.{(deletedCoreRoots.HasValue ? $" Deleted {deletedCoreRoots} CoreRoot database entries." : "")}");
         }
     }
 }

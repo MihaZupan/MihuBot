@@ -8,6 +8,8 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed class CoreRootService : BackgroundService
 {
+    public const string ContainerName = "coreroot";
+
     private const int RetentionDays = 180;
 
     private readonly GitHubClient _github;
@@ -25,7 +27,7 @@ public sealed class CoreRootService : BackgroundService
 
         _storage = new Lazy<StorageClient>(() =>
         {
-            ContainerDbEntry entry = storage.EnsureContainerAsync("coreroot", "runtime-utils", isPublic: true, TimeSpan.FromDays(RetentionDays)).GetAwaiter().GetResult();
+            ContainerDbEntry entry = storage.EnsureContainerAsync(ContainerName, "runtime-utils", isPublic: true, TimeSpan.FromDays(RetentionDays)).GetAwaiter().GetResult();
             return new StorageClient(http, entry.Name, entry.SasKey, entry.IsPublic);
         });
     }
