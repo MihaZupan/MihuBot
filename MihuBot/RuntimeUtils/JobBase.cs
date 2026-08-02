@@ -969,11 +969,17 @@ public abstract class JobBase
     protected async Task RunOnNewVirtualMachineAsync(int defaultAzureCoreCount, CancellationToken jobTimeout)
     {
         bool useIntelCpu = CustomArguments.Contains("-intel", StringComparison.OrdinalIgnoreCase);
-        bool useHetzner = GetConfigFlag("ForceHetzner", false) || UseHetzner;
+        bool forceHetzner = GetConfigFlag("ForceHetzner", false);
+        bool useHetzner = forceHetzner || UseHetzner;
         bool useHelix = UseHelix || UseWindows;
 
         if (useHetzner && Hetzner is null)
         {
+            if (forceHetzner && !useHelix)
+            {
+                throw new InvalidOperationException("Hetzner is not configured");
+            }
+
             Log("Hetzner is not configured, falling back to an Azure VM");
             useHetzner = false;
         }
