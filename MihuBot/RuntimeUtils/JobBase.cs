@@ -984,11 +984,17 @@ public abstract class JobBase
             useHetzner = false;
         }
 
+        // Every line is also emitted as a separate cloud-init runcmd entry, so avoid YAML-hostile
+        // constructs like a leading '-' or a ': ' sequence.
         string linuxStartupScript =
             $"""
             wget https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} &
-            apt-get update
-            apt-get install -y dotnet-sdk-8.0
+            export DEBIAN_FRONTEND=noninteractive
+            export APT_OPTS="-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+            apt-get $APT_OPTS update || apt-get $APT_OPTS update
+            apt-get $APT_OPTS install -y dotnet-sdk-8.0 git || apt-get $APT_OPTS install -y dotnet-sdk-8.0 git
+            command -v dotnet || wget -qO- https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/dotnet
+            export PATH=/usr/local/dotnet:$PATH
             {(useHelix ? "" : "cd /home")}
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             cd runtime-utils/Runner
