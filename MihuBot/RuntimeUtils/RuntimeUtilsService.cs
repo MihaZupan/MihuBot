@@ -35,6 +35,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
             -hetzner              Run on a Hetzner VM instead of Azure.
             -helix                Run on a public Helix queue instead.
             -queue <queueId>      Run on a specific Helix queue (requires that -helix also be set).
+                                  Defaults to whichever known queue is expected to become available soonest.
 
         Example:
             @MihuBot -arm -hetzner -combineWith #1000,#1001
@@ -146,6 +147,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public readonly HetznerClient Hetzner;
     public readonly UrlShortenerService UrlShortener;
     public readonly CoreRootService CoreRoot;
+    public readonly HelixAvailabilityService HelixAvailability;
 
     public readonly StorageService Storage;
     public StorageClient LogsStorage => _logsStorage.Value;
@@ -165,7 +167,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private bool _shuttingDown;
 
-    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<HetznerClient> hetznerClients, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage)
+    public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<HetznerClient> hetznerClients, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage, HelixAvailabilityService helixAvailability)
     {
         Logger = logger;
         Github = github;
@@ -177,6 +179,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Hetzner = hetznerClients.FirstOrDefault();
         UrlShortener = urlShortener;
         CoreRoot = coreRoot;
+        HelixAvailability = helixAvailability;
         Storage = storage;
 
         _mihuBotDb = mihuBotDb;

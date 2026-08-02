@@ -6,6 +6,9 @@ public sealed class CoreRootGenerationJob : JobBase
 {
     public override string JobTitlePrefix => $"CoreRootGen {Architecture}";
 
+    // Generating past entries is compute heavy, so prefer free Helix machines over paying for our own VMs.
+    protected override bool UseHelix => base.UseHelix || GetConfigFlag("CoreRootGenerationUseHelix", true);
+
     public CoreRootGenerationJob(RuntimeUtilsService parent, string githubCommenterLogin, string arguments)
         : base(parent, githubCommenterLogin, arguments)
     {
@@ -25,7 +28,6 @@ public sealed class CoreRootGenerationJob : JobBase
 
     protected override async Task RunJobAsyncCore(CancellationToken jobTimeout)
     {
-        // TODO: Run on a spot VM?
         await RunOnNewVirtualMachineAsync(defaultAzureCoreCount: 4, jobTimeout);
     }
 }

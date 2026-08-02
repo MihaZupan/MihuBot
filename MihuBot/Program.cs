@@ -328,6 +328,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     if (runtimeUtilsEnabled)
     {
         services.AddSingleton<GitHubNotificationsService>();
+
+        services.AddSingleton<HelixAvailabilityService>();
+        services.AddHostedService(s => s.GetRequiredService<HelixAvailabilityService>());
     }
 
     if (builder.Configuration.IsConfigured(OptionalFeatures.Qdrant))

@@ -192,7 +192,7 @@ public abstract class JobBase
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected virtual bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
     protected bool UseHetzner => CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
-    protected bool UseHelix => CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
+    protected virtual bool UseHelix => CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
     protected virtual bool RunUsingGitHubActions => false;
     protected virtual bool RunUsingAzurePipelines => false;
 
@@ -1210,9 +1210,9 @@ public abstract class JobBase
         {
             if (!TryGetArgument("queue", out string queueId))
             {
-                queueId = UseWindows
-                    ? (UseArm ? "windows.11.arm64.open" : "windows.amd64.vs2022.pre.open")
-                    : (UseArm ? "ubuntu.2404.armarch.open" : "ubuntu.2404.amd64.open");
+                queueId = Parent.HelixAvailability.SelectQueue(UseWindows, UseArm, out string explanation);
+
+                Log($"Selected Helix queue '{queueId}': {explanation}");
             }
 
             bool useWindows = queueId.Contains("win", StringComparison.OrdinalIgnoreCase);
