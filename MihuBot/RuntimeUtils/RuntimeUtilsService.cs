@@ -217,7 +217,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 Logger, WatchForGitHubMentionsAsync, _shutdownCts.Token);
 
             PeriodicTask.Start(nameof(StartCoreRootGenerationJobsAsync),
-                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(24), FailureBackoff = TimeSpan.Zero },
+                new PeriodicTaskOptions { Interval = TimeSpan.FromHours(8), FailureBackoff = TimeSpan.Zero },
                 Logger, StartCoreRootGenerationJobsAsync, _shutdownCts.Token);
 
             PeriodicTask.Start(nameof(StartNuGetExtraAssembliesJobsAsync),
