@@ -2,6 +2,7 @@
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using MihuBot.Storage;
 
 namespace MihuBot.Commands;
 
@@ -13,6 +14,7 @@ public sealed class AdminCommands : CommandBase
         "clearbodyedithistorytable",
         "clearhybridcache-search",
         "deleteolddebuglogs",
+        "clearstoragecontainer",
     ];
 
     private readonly IDbContextFactory<GitHubDbContext> _db;
@@ -20,14 +22,16 @@ public sealed class AdminCommands : CommandBase
     private readonly IDbContextFactory<LogsDbContext> _dbLogs;
     private readonly HybridCache _cache;
     private readonly Logger _logger;
+    private readonly StorageService _storage;
 
-    public AdminCommands(IEnumerable<IDbContextFactory<GitHubDbContext>> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, Logger logger)
+    public AdminCommands(IEnumerable<IDbContextFactory<GitHubDbContext>> db, IDbContextFactory<MihuBotDbContext> dbMihuBot, IDbContextFactory<LogsDbContext> dbLogs, HybridCache cache, Logger logger, StorageService storage)
     {
         _db = db.FirstOrDefault();
         _dbMihuBot = dbMihuBot;
         _dbLogs = dbLogs;
         _cache = cache;
         _logger = logger;
+        _storage = storage;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -118,6 +122,26 @@ public sealed class AdminCommands : CommandBase
         {
             int deleted = await _logger.DeleteDebugLogsAsync(int.Parse(ctx.Arguments[0]), int.Parse(ctx.Arguments[1]));
             await ctx.ReplyAsync($"Deleted {deleted} old debug log entries.");
+        }
+
+        if (ctx.Command == "clearstoragecontainer")
+        {
+            if (ctx.Arguments.Length != 1)
+            {
+                await ctx.ReplyAsync($"Usage: `!{ctx.Command} <container>`");
+                return;
+            }
+
+            string container = ctx.Arguments[0];
+
+            if (await _storage.GetContainerAsync(container) is null)
+            {
+                await ctx.ReplyAsync($"Container '{container}' does not exist.");
+                return;
+            }
+
+            int deleted = await _storage.DeleteAllFilesAsync(container);
+            await ctx.ReplyAsync($"Deleted {deleted} entries from the '{container}' container.");
         }
     }
 }

@@ -189,7 +189,7 @@ public sealed class StorageService
         ArgumentOutOfRangeException.ThrowIfNotEqual(id.Length, SHA256.HashSizeInBytes * 2);
 
         // Try to keep number of files per directory low. This isn't a security measure (trivial to generate collisions).
-        return Path.GetFullPath(Path.Combine(_storageDirectory, container, $"{id[0]}{id[1]}", $"{id[2]}{id[3]}", $"{id[4]}{id[5]}", id));
+        return Path.GetFullPath(Path.Combine(_storageDirectory, container, $"{id[0]}{id[1]}", $"{id[2]}{id[3]}", id));
     }
 
     public async Task<bool> HasValidAuthorization(HttpContext context, string container)
@@ -558,6 +558,71 @@ public sealed class StorageService
         {
             _locks.TryRemove(id, out _);
         }
+    }
+
+    /// <summary>Deletes every file in the container. The container itself is preserved.</summary>
+    public async Task<int> DeleteAllFilesAsync(string container, CancellationToken cancellationToken = default)
+    {
+        if (!ValidateContainerName(container))
+        {
+            throw new ArgumentException("Invalid container name", nameof(container));
+        }
+
+        int deleted = 0;
+
+        while (true)
+        {
+            await using StorageDbContext db = _db.CreateDbContext();
+
+            FileDbEntry[] files = await db.Files
+                .Where(f => f.ContainerId == container)
+                .Take(1000)
+                .ToArrayAsync(cancellationToken);
+
+            if (files.Length == 0)
+            {
+                break;
+            }
+
+            int removed = 0;
+
+            foreach (FileDbEntry file in files)
+            {
+                if (!_locks.TryAdd(file.Id, 0))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    try { File.Delete(GetFullPathForId(file.ContainerId, file.Id)); } catch { }
+
+                    db.Files.Remove(file);
+                    removed++;
+                }
+                finally
+                {
+                    _locks.TryRemove(file.Id, out _);
+                }
+            }
+
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            deleted += removed;
+
+            if (removed == 0)
+            {
+                // Every remaining file is currently locked by another operation.
+                await Task.Delay(100, cancellationToken);
+            }
+        }
+
+        string containerDirectory = Path.GetFullPath(Path.Combine(_storageDirectory, container));
+        try { Directory.Delete(containerDirectory, recursive: true); } catch { }
+
+        _logger.LogInformation("Deleted {Count} files from container {Container}", deleted, container);
+
+        return deleted;
     }
 
     public async Task UploadFileAsync(HttpContext context, string container, string path)
