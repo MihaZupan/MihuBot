@@ -242,31 +242,24 @@ public sealed class HelixAvailabilityService : PeriodicBackgroundService
 
     /// <summary>The queues a job may run on, in order of preference.</summary>
     /// <remarks>
-    /// The '.rt', '.svc' and '.xl' variants run the same image as the queue they're named after, just on a
-    /// different scaleset, so anything that works on the base queue works on them. Some of them are a lot larger
-    /// (the '.open.rt' Ubuntu queues scale to 1200 machines instead of 200), which makes them less likely to be busy.
+    /// The '.rt' and '.svc' variants run the same image as the queue they're named after, just on a different
+    /// scaleset, so anything that works on the base queue works on them. Some of them are a lot larger (the
+    /// '.open.rt' Ubuntu queues scale to 1200 machines instead of 200), which makes them less likely to be busy.
     /// </remarks>
     private static string[] GetCandidateQueues(bool useWindows, bool useArm) => (useWindows, useArm) switch
     {
-        // The runner only needs git and the dotnet install script, so any recent image will do.
-        // Note that non-Ubuntu Linux images are excluded as our startup script relies on apt, and that
-        // Ubuntu 26.04 is excluded as it no longer carries the dotnet-sdk-8.0 package the script installs.
-        // The 'xl' queues run on larger machines, which is worth more to us than a faster start.
+        // Besides git and the dotnet install script, the runner needs an image new enough to build dotnet/runtime.
+        // Note that non-Ubuntu Linux images are excluded as our startup script relies on apt, that
+        // Ubuntu 26.04 is excluded as it no longer carries the dotnet-sdk-8.0 package the script installs, and that
+        // Ubuntu 22.04 is excluded as it only ships CMake 3.22 while the CoreCLR build requires 3.26 or higher.
         (false, false) =>
         [
-            "ubuntu.2204.amd64.xl.open",
-            "ubuntu.2204.amd64.xl.open.rt",
             "ubuntu.2404.amd64.open",
             "ubuntu.2404.amd64.open.rt",
-            "ubuntu.2204.amd64.open.rt",
-            "ubuntu.2204.amd64.open",
-            "ubuntu.2204.amd64.open.svc",
         ],
         (false, true) =>
         [
             "ubuntu.2404.armarch.open",
-            "ubuntu.2204.armarch.open",
-            "ubuntu.2204.armarch.ampere.open",
         ],
         // Plain Windows Server images are excluded as the startup script needs winget to install git.
         (true, false) =>
