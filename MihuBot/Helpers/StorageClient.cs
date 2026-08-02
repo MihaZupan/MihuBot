@@ -14,6 +14,8 @@ public sealed class StorageClient
     private readonly byte[] _sasKey;
     private readonly bool _isPublic;
 
+    public string ContainerName => _containerName;
+
     public StorageClient(HttpClient httpClient, string containerName, string sasKey, bool isPublic)
     {
         _http = httpClient;

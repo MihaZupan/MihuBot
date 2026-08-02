@@ -20,7 +20,9 @@ namespace MihuBot.RuntimeUtils;
 
 public abstract class JobBase
 {
-    private const string ArtifactsContainer = "artifacts";
+    // Accessing the StorageClient ensures the underlying container has been created.
+    private string ArtifactsContainer => Parent.ArtifactsStorage.ContainerName;
+    private string LogsContainer => Parent.LogsStorage.ContainerName;
 
     protected TimeSpan MaxJobDuration { get; set; } = TimeSpan.FromHours(5);
 
@@ -451,7 +453,7 @@ public abstract class JobBase
             try
             {
                 string path = $"{ExternalId}.txt";
-                await Parent.Storage.UploadAsync("runtimeutils-logs", path, stream, CancellationToken.None);
+                await Parent.Storage.UploadAsync(LogsContainer, path, stream, CancellationToken.None);
                 logsArtifactPath = path;
             }
             catch (Exception ex)

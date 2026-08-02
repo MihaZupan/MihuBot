@@ -9,7 +9,8 @@ namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class FuzzLibrariesJob : JobBase
 {
-    private const string RunnerPersistentContainer = "runner-persistent";
+    // Accessing the StorageClient ensures the underlying container has been created.
+    private string RunnerPersistentContainer => Parent.RunnerPersistentStorage.ContainerName;
     public override string JobTitlePrefix => $"Fuzzing {Architecture}";
 
     protected override bool PostErrorAsGitHubComment => ShouldLinkToPROrBranch;
