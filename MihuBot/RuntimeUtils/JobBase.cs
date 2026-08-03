@@ -986,6 +986,11 @@ public abstract class JobBase
 
         // Every line is also emitted as a separate cloud-init runcmd entry, so avoid YAML-hostile
         // constructs like a leading '-' or a ': ' sequence.
+        //
+        // The runner treats the directory it starts in as its scratch space (it clones dotnet/runtime,
+        // writes artifact directories, and so on into it), so it is given a sibling of the source clone
+        // rather than the project directory itself. Keeping the two apart means the runner's own build can
+        // never see that tree - globbing a dotnet/runtime clone into Runner.csproj breaks the build outright.
         string linuxStartupScript =
             $"""
             wget https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} &
@@ -998,8 +1003,9 @@ public abstract class JobBase
             export PATH=/usr/local/dotnet:$PATH
             {(useHelix ? "" : "cd /home")}
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-            cd runtime-utils/Runner
-            {(useHelix ? "" : "HOME=/root")} JOB_ID={JobId} dotnet run -c Release
+            mkdir -p runner-work
+            cd runner-work
+            {(useHelix ? "" : "HOME=/root")} JOB_ID={JobId} dotnet run -c Release --project ../runtime-utils/Runner
             """;
 
         string windowsStartupScript =
@@ -1008,14 +1014,16 @@ public abstract class JobBase
             $Env:PATH += ";C:\Program Files\Git\cmd"
 
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
-            cd runtime-utils/Runner
 
             Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile 'dotnet-install.ps1'
             ./dotnet-install.ps1 -Verbose -Channel '9.0' -InstallDir dotnet-install
             ./dotnet-install.ps1 -Verbose -Channel '11.0' -Quality daily -InstallDir dotnet-install
 
+            New-Item -ItemType Directory -Force -Path runner-work
+            cd runner-work
+
             $env:JOB_ID = '{JobId}';
-            dotnet-install/dotnet run -c Release
+            ../dotnet-install/dotnet run -c Release --project ../runtime-utils/Runner
             """;
 
         string cloudInitScript =
