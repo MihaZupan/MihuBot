@@ -63,20 +63,35 @@ public sealed class CoreRootService : PeriodicBackgroundService
 
     public async Task<IEnumerable<CoreRootEntry>> ListAsync(string @base, string head, string arch, string os, string type)
     {
-        CompareResult result = await _github.Repository.Commit.Compare("dotnet", "runtime", @base, head,
-            new ApiOptions { PageCount = 1, PageSize = 100 });
+        Task<DateTime> baseTask = GetCommitTimeAsync(@base);
+        Task<DateTime> headTask = GetCommitTimeAsync(head);
+        await Task.WhenAll(baseTask, headTask);
 
-        List<CoreRootEntry> entries = new(result.Commits.Count);
+        DateTime baseTime = await baseTask;
+        DateTime headTime = await headTask;
 
-        foreach (GitHubCommit commit in result.Commits)
+        if (baseTime > headTime)
         {
-            if (await GetAsync(commit.Sha, arch, os, type) is { } entry)
-            {
-                entries.Add(entry);
-            }
+            (baseTime, headTime) = (headTime, baseTime);
         }
 
-        return entries;
+        await using MihuBotDbContext context = _dbContextFactory.CreateDbContext();
+
+        List<CoreRootDbEntry> entries = await context.CoreRoot.AsNoTracking()
+            .Where(e => e.Arch == arch && e.Os == os && e.Type == type)
+            .Where(e => e.CommitTime > baseTime && e.CommitTime <= headTime)
+            .OrderBy(e => e.CommitTime)
+            .ToListAsync();
+
+        return entries
+            .Select(Remap)
+            .ToArray();
+
+        async Task<DateTime> GetCommitTimeAsync(string sha)
+        {
+            GitHubCommit commit = await _github.Repository.Commit.Get("dotnet", "runtime", sha);
+            return commit.Commit.Committer.Date.UtcDateTime;
+        }
     }
 
     public async Task<bool> SaveAsync(string sha, string arch, string os, string type, string blobName, string prefixBlobName, DateTime commitTime)
