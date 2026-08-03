@@ -1094,7 +1094,9 @@ public abstract class JobBase
                 }
                 catch (RequestFailedException ex) when (!deploymentComplete && locationIndex < locations.Length - 1)
                 {
-                    Log($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode} {ex.Message}. Retrying ...");
+                    Logger.DebugLog($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode} {ex.Message}.");
+
+                    Log($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode}. Retrying ...");
                 }
             }
 
