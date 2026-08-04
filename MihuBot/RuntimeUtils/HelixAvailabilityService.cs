@@ -248,22 +248,20 @@ public sealed class HelixAvailabilityService : PeriodicBackgroundService
     /// </remarks>
     private static string[] GetCandidateQueues(bool useWindows, bool useArm) => (useWindows, useArm) switch
     {
-        // Besides git and the dotnet install script, the runner needs an image new enough to build dotnet/runtime.
-        // Note that non-Ubuntu Linux images are excluded as our startup script relies on apt, and that
-        // Ubuntu 22.04 is excluded as it only ships CMake 3.22 while the CoreCLR build requires 3.26 or higher.
-        // Ubuntu 26.04 is excluded for the opposite reason: its toolchain is ahead of the product. Under C23
-        // glibc defines the <string.h> search functions as const-generic macros, so 'strrchr' on a
-        // 'const char *' now yields a 'const char *' and dotnet/runtime's vendored libunwind stops compiling
-        // under -Werror. Current main is affected just as much as older commits, so a job scheduled there
-        // fails every single build rather than only some.
-        // Restore these once dotnet/runtime builds on 26.04 (see also dotnet/runtime#127334 for its build.sh).
+        // Linux work items run inside a container (see JobBase.GetHelixDockerImage), so the queue only has to
+        // be a machine with Docker on it - what the host image itself ships doesn't matter. Azure Linux comes
+        // first as that's what dotnet/runtime's own builds run on.
         (false, false) =>
         [
+            "azurelinux.3.amd64.open",
+            "azurelinux.3.amd64.open.rt",
+            "azurelinux.3.amd64.open.svc",
             "ubuntu.2404.amd64.open",
             "ubuntu.2404.amd64.open.rt",
         ],
         (false, true) =>
         [
+            "azurelinux.3.arm64.open",
             "ubuntu.2404.armarch.open",
         ],
         // Plain Windows Server images are excluded as the startup script needs winget to install git.

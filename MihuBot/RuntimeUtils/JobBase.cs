@@ -210,6 +210,22 @@ public abstract class JobBase
 
     protected bool ShouldMentionJobInitiator { get; set; }
 
+    /// <summary>
+    /// The container Linux Helix work items run in. Overridable with '-docker &lt;image&gt;'.
+    /// </summary>
+    private string GetHelixDockerImage(string queueId)
+    {
+        if (TryGetArgument("docker", out string image))
+        {
+            return image;
+        }
+
+        // The queue may not be the one we asked for, so go by what it says rather than by UseArm.
+        string architecture = queueId.Contains("arm", StringComparison.OrdinalIgnoreCase) ? "arm64" : "amd64";
+
+        return GetConfigFlag($"HelixDockerImage{architecture}", $"mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-{architecture}");
+    }
+
     protected bool GetConfigFlag(string name, bool @default)
     {
         if (ConfigurationService.TryGet(null, $"RuntimeUtils.{name}", out string flagStr) &&
@@ -984,8 +1000,9 @@ public abstract class JobBase
             useHetzner = false;
         }
 
-        // Every line is also emitted as a separate cloud-init runcmd entry, so avoid YAML-hostile
-        // constructs like a leading '-' or a ': ' sequence.
+        // Every Linux job runs on Ubuntu - the VMs use its cloud image, and Helix work items run in a container
+        // (see GetHelixDockerImage) rather than on the queue's own machine - so apt-get is always available.
+        // curl is present on both, wget is not, so it's installed before anything reaches for it.
         //
         // The runner treats the directory it starts in as its scratch space (it clones dotnet/runtime,
         // writes artifact directories, and so on into it), so it is given a sibling of the source clone
@@ -993,20 +1010,38 @@ public abstract class JobBase
         // never see that tree - globbing a dotnet/runtime clone into Runner.csproj breaks the build outright.
         string linuxStartupScript =
             $"""
-            wget https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} &
             export DEBIAN_FRONTEND=noninteractive
             export APT_OPTS="-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
-            apt-get $APT_OPTS update || apt-get $APT_OPTS update
-            apt-get $APT_OPTS install -y git || apt-get $APT_OPTS install -y git
-            apt-get $APT_OPTS install -y dotnet-sdk-11.0 || apt-get $APT_OPTS install -y dotnet-sdk-11.0
-            dotnet --list-sdks 2>/dev/null | grep -q "^11\." || wget -qO- https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 11.0 --quality daily --install-dir /usr/local/dotnet
             export PATH=/usr/local/dotnet:$PATH
+
+            curl -fsSL https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} >/dev/null &
+
+            apt-get $APT_OPTS update || apt-get $APT_OPTS update
+            apt-get $APT_OPTS install -y git wget || apt-get $APT_OPTS install -y git wget
+            apt-get $APT_OPTS install -y dotnet-sdk-11.0 || apt-get $APT_OPTS install -y dotnet-sdk-11.0
+
+            if ! dotnet --list-sdks 2>/dev/null | grep -q "^11\."; then
+                curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 11.0 --quality daily --install-dir /usr/local/dotnet
+            fi
+
             {(useHelix ? "" : "cd /home")}
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             mkdir -p runner-work
             cd runner-work
             {(useHelix ? "" : "HOME=/root")} JOB_ID={JobId} dotnet run -c Release --project ../runtime-utils/Runner
             """;
+
+        if (useHelix)
+        {
+            // Helix machines are reused for other work items, so don't leave the (potentially huge) scratch space behind.
+            linuxStartupScript =
+                $"""
+                {linuxStartupScript}
+
+                cd ..
+                rm -rf runner-work runtime-utils
+                """;
+        }
 
         string windowsStartupScript =
             $"""
@@ -1024,14 +1059,20 @@ public abstract class JobBase
 
             $env:JOB_ID = '{JobId}';
             ../dotnet-install/dotnet run -c Release --project ../runtime-utils/Runner
+
+            cd ..
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue runner-work, runtime-utils, dotnet-install
             """;
 
+        // cloud-init concatenates every runcmd entry into one script before running it, so the whole
+        // startup script is passed as a single literal block scalar.
         string cloudInitScript =
             $"""
             #cloud-config
-                runcmd:
+            runcmd:
+              - |
             """;
-        cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', linuxStartupScript.SplitLines().Select(line => $"        - {line}"))}";
+        cloudInitScript = $"{cloudInitScript}\n{string.Join('\n', linuxStartupScript.SplitLines().Select(line => $"      {line}"))}";
 
         if (useHelix)
         {
@@ -1239,13 +1280,28 @@ public abstract class JobBase
                 Log($"WARNING: Expected UseWindows={UseWindows}, but queue '{queueId}' indicates UseWindows={useWindows}. Adjusting ...");
             }
 
-            Log($"Submitting a Helix job ({queueId}) ...");
+            // Linux work items run inside a container so that the job doesn't depend on whatever the queue's
+            // own image happens to ship. The image runs as root and already carries the dotnet/runtime build
+            // prerequisites, which is what dotnet/runtime itself builds in. Helix takes the container to use
+            // as part of the queue id, in the form 'queue@image'.
+            string targetQueue = queueId;
+            string dockerImage = null;
+
+            if (!useWindows)
+            {
+                dockerImage = GetHelixDockerImage(queueId);
+                targetQueue = $"{queueId}@{dockerImage}";
+
+                Log($"Running the work item inside '{dockerImage}'");
+            }
+
+            Log($"Submitting a Helix job ({targetQueue}) ...");
 
             IHelixApi api = ApiFactory.GetAnonymous();
 
             IJobDefinition jobDefinition = api.Job.Define()
                 .WithType($"MihuBot/runtime-utils/{JobType}")
-                .WithTargetQueue(queueId)
+                .WithTargetQueue(targetQueue)
                 .WithCreator("MihuBot")
                 .WithSource($"MihuBot/{Snowflake.FromString(ExternalId)}/{GithubCommenterLogin}")
                 .WithProperty("DashboardUrl", ProgressDashboardUrl)
@@ -1260,6 +1316,11 @@ public abstract class JobBase
 
             Metadata["HelixQueue"] = queueId;
 
+            if (dockerImage is not null)
+            {
+                Metadata["HelixDockerImage"] = dockerImage;
+            }
+
             if (TrackingIssue is not null)
             {
                 jobDefinition = jobDefinition.WithProperty("TrackingIssue", TrackingIssue.HtmlUrl);
@@ -1267,7 +1328,7 @@ public abstract class JobBase
 
             ISentJob job = await jobDefinition
                 .DefineWorkItem("runner")
-                .WithCommand(useWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "sudo -s bash ./start-runner.sh")
+                .WithCommand(useWindows ? "PowerShell -NoProfile -ExecutionPolicy Bypass -Command \"& './start-runner.ps1'\"" : "bash ./start-runner.sh")
                 .WithSingleFilePayload(useWindows ? "start-runner.ps1" : "start-runner.sh", useWindows ? windowsStartupScript : linuxStartupScript)
                 .WithTimeout(MaxJobDuration + TimeSpan.FromMinutes(5))
                 .AttachToJob()
