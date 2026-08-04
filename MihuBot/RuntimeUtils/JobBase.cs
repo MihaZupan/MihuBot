@@ -132,7 +132,7 @@ public abstract class JobBase
         GitHubComment = comment;
         GithubCommenterLogin = githubCommenterLogin ?? comment?.User?.Login;
 
-        IdleTimeoutMs = Parent.ConfigurationService.GetOrDefault(null, $"{nameof(RuntimeUtilsService)}.{nameof(IdleTimeoutMs)}", 5 * 60 * 1000);
+        IdleTimeoutMs = Parent.ConfigurationService.GetOrDefault(null, $"{nameof(RuntimeUtilsService)}.{nameof(IdleTimeoutMs)}", 6 * 60 * 1000);
 
         Metadata.Add("JobId", JobId);
         Metadata.Add("ExternalId", ExternalId);
@@ -1376,7 +1376,37 @@ public abstract class JobBase
                             continue;
                         }
 
-                        if (details.WorkItems.Running == 0 && details.WorkItems.Finished > 0)
+                        if (details.WorkItems.Running > 0)
+                        {
+                            continue;
+                        }
+
+                        // Nothing is running, which doesn't necessarily mean the job is over.
+                        // Helix silently retries the work item (regardless of MaxRetryCount) when the machine it
+                        // landed on can't start the container - a broken Docker daemon, for example. Retries are
+                        // attempts of the same work item rather than new ones, and the API reports them oddly:
+                        // 'workitems' returns one row per attempt, all with the work item's current state, while
+                        // 'workitems/runner' returns the record of the last attempt that finished. A job on its
+                        // third attempt therefore lists three identical 'Running' rows next to details claiming
+                        // it failed with the second attempt's exit code.
+                        // A retry also spends a couple of minutes in none of the states above, so treating the
+                        // first sighting of that as the end of the job kills one that is about to run just fine.
+                        // The 'Finished' count is no help in telling the two apart either, as it also covers
+                        // Helix's own 'HelixController Work Queueing' item, which completes right after the job
+                        // is submitted.
+
+                        // Once the runner has checked in, it reports its own progress, so the idle timeout is what
+                        // decides whether it's still alive - what Helix thinks of the work item no longer matters.
+                        if (InitialRemoteRunnerContact.HasValue)
+                        {
+                            continue;
+                        }
+
+                        // Until then, this is indistinguishable from still waiting for a machine, so it's treated
+                        // as such - the log line doubles as the idle timeout heartbeat.
+                        Log($"No Helix work items are running yet ({(int)jobDelayStopwatch.Elapsed.TotalSeconds} sec) ...");
+
+                        if (jobDelayStopwatch.ElapsedMilliseconds > IdleTimeoutMs * 10)
                         {
                             Log("No more running Helix work items.");
                             _idleTimeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
@@ -1396,19 +1426,22 @@ public abstract class JobBase
 
                     IImmutableList<WorkItemSummary> workItems = await api.WorkItem.ListAsync(job.CorrelationId, shortCts.Token);
 
-                    foreach (WorkItemSummary workItem in workItems)
+                    // Every attempt Helix made at the work item is listed separately under the same name and
+                    // points at the same details, which describe the last attempt that finished - so save the
+                    // console output once, and keep in mind it may be from an earlier attempt than the one
+                    // that actually failed the job.
+                    foreach (WorkItemSummary workItem in workItems
+                        .Where(w => w.Name == "runner")
+                        .DistinctBy(w => w.DetailsUrl))
                     {
-                        if (workItem.Name == "runner")
+                        JsonDocument json = JsonDocument.Parse(await Http.GetStringAsync(workItem.DetailsUrl, shortCts.Token));
+                        if (json.RootElement.TryGetProperty("ConsoleOutputUri", out JsonElement consoleOutputUriProp))
                         {
-                            JsonDocument json = JsonDocument.Parse(await Http.GetStringAsync(workItem.DetailsUrl, shortCts.Token));
-                            if (json.RootElement.TryGetProperty("ConsoleOutputUri", out JsonElement consoleOutputUriProp))
-                            {
-                                string consoleOutputUri = consoleOutputUriProp.GetString();
-                                Log($"Work item '{workItem.Name}' console output: {consoleOutputUri}");
+                            string consoleOutputUri = consoleOutputUriProp.GetString();
+                            Log($"Work item '{workItem.Name}' console output: {consoleOutputUri}");
 
-                                using Stream consoleOutput = await Http.GetStreamAsync(consoleOutputUri, shortCts.Token);
-                                await ArtifactReceivedAsync("HelixConsole.log", consoleOutput, shortCts.Token);
-                            }
+                            using Stream consoleOutput = await Http.GetStreamAsync(consoleOutputUri, shortCts.Token);
+                            await ArtifactReceivedAsync("HelixConsole.log", consoleOutput, shortCts.Token);
                         }
                     }
                 }
