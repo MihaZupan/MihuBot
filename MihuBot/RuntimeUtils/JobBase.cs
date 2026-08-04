@@ -220,9 +220,17 @@ public abstract class JobBase
         }
 
         // The queue may not be the one we asked for, so go by what it says rather than by UseArm.
-        string architecture = queueId.Contains("arm", StringComparison.OrdinalIgnoreCase) ? "arm64" : "amd64";
+        bool arm = queueId.Contains("arm", StringComparison.OrdinalIgnoreCase);
+        string architecture = arm ? "arm64" : "amd64";
 
-        return GetConfigFlag($"HelixDockerImage{architecture}", $"mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-{architecture}");
+        // It has to be one of the '-helix-' images. Those carry the helix-scripts Python package and a
+        // 'helixbot' user (uid 1000) that Helix runs the container as, and they chmod 755 '/root' so that
+        // the work item scripts Helix mounts under it are readable. A plain build image fails immediately
+        // with "cannot open /root/commands/helix_docker_work.sh: Permission denied".
+        // Note that these images tag arm64 as 'arm64v8'.
+        string imageArchitecture = arm ? "arm64v8" : "amd64";
+
+        return GetConfigFlag($"HelixDockerImage{architecture}", $"mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-helix-{imageArchitecture}");
     }
 
     protected bool GetConfigFlag(string name, bool @default)
@@ -1003,15 +1011,22 @@ public abstract class JobBase
         // (see GetHelixDockerImage) rather than on the queue's own machine - so apt-get is always available.
         // curl is present on both, wget is not, so it's installed before anything reaches for it.
         //
+        // Helix runs the container as the non-root 'helixbot' user, but everything below (and the runner
+        // itself, which apt-get installs dotnet/runtime's build dependencies) expects to be root, so the
+        // script re-execs itself through helixbot's passwordless sudo first.
+        //
         // The runner treats the directory it starts in as its scratch space (it clones dotnet/runtime,
         // writes artifact directories, and so on into it), so it is given a sibling of the source clone
         // rather than the project directory itself. Keeping the two apart means the runner's own build can
         // never see that tree - globbing a dotnet/runtime clone into Runner.csproj breaks the build outright.
         string linuxStartupScript =
             $"""
+            if [ "$(id -u)" -ne 0 ]; then exec sudo bash "$0"; fi
+
             export DEBIAN_FRONTEND=noninteractive
             export APT_OPTS="-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
             export PATH=/usr/local/dotnet:$PATH
+            export HOME=/root
 
             curl -fsSL https://mihubot.xyz/api/RuntimeUtils/Jobs/Metadata/{JobId} >/dev/null &
 
@@ -1027,7 +1042,7 @@ public abstract class JobBase
             git clone --no-tags --single-branch --progress https://github.com/MihaZupan/runtime-utils
             mkdir -p runner-work
             cd runner-work
-            {(useHelix ? "" : "HOME=/root")} JOB_ID={JobId} dotnet run -c Release --project ../runtime-utils/Runner
+            JOB_ID={JobId} dotnet run -c Release --project ../runtime-utils/Runner
             """;
 
         if (useHelix)
@@ -1280,9 +1295,10 @@ public abstract class JobBase
             }
 
             // Linux work items run inside a container so that the job doesn't depend on whatever the queue's
-            // own image happens to ship. The image runs as root and already carries the dotnet/runtime build
-            // prerequisites, which is what dotnet/runtime itself builds in. Helix takes the container to use
-            // as part of the queue id, in the form 'queue@image'.
+            // own image happens to ship (Azure Linux, Ubuntu, ...) - the runner only ever sees Ubuntu.
+            // Helix runs the container as the non-root 'helixbot' user, which has passwordless sudo
+            // (see the startup script).
+            // Helix takes the container to use as part of the queue id, in the form 'queue@image'.
             string targetQueue = queueId;
             string dockerImage = null;
 
