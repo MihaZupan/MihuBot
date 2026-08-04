@@ -1,4 +1,6 @@
-﻿namespace MihuBot;
+﻿using MihuBot.Discord;
+
+namespace MihuBot;
 
 public sealed class LoggerOptions
 {

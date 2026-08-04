@@ -1,7 +1,6 @@
 ﻿@page "/debug-logs"
 @attribute [Authorize("Admin")]
-@using MihuBot.RuntimeUtils;
-@using System.Collections.Concurrent;
+@using MihuBot.Discord
 @inject Logger Logger
 @inject InitializedDiscordClient Discord
 @implements IDisposable

@@ -1,3 +1,5 @@
+using MihuBot.Discord;
+
 namespace MihuBot.Configuration;
 
 /// <summary>

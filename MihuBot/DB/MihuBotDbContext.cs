@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using MihuBot.Location;
-using MihuBot.Reminders;
+using MihuBot.Discord.Location;
+using MihuBot.Discord.Reminders;
 using MihuBot.RuntimeUtils;
 
 namespace MihuBot.DB;

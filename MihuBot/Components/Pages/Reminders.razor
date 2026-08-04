@@ -1,6 +1,6 @@
 ﻿@page "/reminders"
 @attribute [Authorize(Policy = "Discord")]
-@using MihuBot.Reminders
+@using MihuBot.Discord.Reminders
 @inject DiscordSocketClient discord
 @inject ReminderService reminderService
 @inject Logger logger

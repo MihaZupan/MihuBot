@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using MihuBot.Data;
+using MihuBot.Discord;
 using Newtonsoft.Json;
 using System.Security.Cryptography;
 using Telegram.Bot.Types;

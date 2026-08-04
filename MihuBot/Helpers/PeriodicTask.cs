@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Logging;
-
 #nullable enable
 
 namespace MihuBot.Helpers;

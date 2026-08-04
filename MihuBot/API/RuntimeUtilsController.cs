@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
-using MihuBot.Data;
 using MihuBot.RuntimeUtils;
 
 namespace MihuBot.API;

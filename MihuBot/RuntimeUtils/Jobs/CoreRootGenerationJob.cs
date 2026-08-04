@@ -1,6 +1,4 @@
-﻿using MihuBot.Configuration;
-
-namespace MihuBot.RuntimeUtils.Jobs;
+﻿namespace MihuBot.RuntimeUtils.Jobs;
 
 public sealed class CoreRootGenerationJob : JobBase
 {

@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.Discord;
 using MihuBot.RuntimeUtils.Search;
 using Octokit;
 
