@@ -18,6 +18,7 @@ using MihuBot;
 using MihuBot.Audio;
 using MihuBot.Components;
 using MihuBot.Configuration;
+using MihuBot.Helpers.Diagnostics;
 using MihuBot.Location;
 using MihuBot.Permissions;
 using MihuBot.Reminders;
@@ -119,6 +120,13 @@ try
     Console.WriteLine("Starting host.RunAsync ...");
 
     Task hostTask = app.RunAsync(cts.Token);
+
+    _ = Task.Run(async () =>
+    {
+        // Post-startup cleanup
+        await Task.Delay(TimeSpan.FromSeconds(30));
+        GC.Collect();
+    });
 
     if (await Task.WhenAny(hostTask, ProgramState.BotStopTCS.Task) != hostTask)
     {
@@ -278,6 +286,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
         ServiceDescriptor.Singleton<ILoggerProvider, LoggerAdapterLoggerProvider>());
 
     services.AddSingleton<IPermissionsService, PermissionsService>();
+
+    services.AddSingleton<SystemUsageService>();
+    services.AddHostedService(s => s.GetRequiredService<SystemUsageService>());
 
     // Everything AI-related needs at least the primary AzureOpenAI endpoint.
     bool openAIEnabled = builder.Configuration.IsConfigured(OptionalFeatures.AzureOpenAI);

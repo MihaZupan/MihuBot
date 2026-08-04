@@ -1,0 +1,68 @@
+@using MihuBot.Helpers.Diagnostics
+@inject SystemUsageService systemUsage
+@implements IDisposable
+@rendermode InteractiveServer
+
+@if (_info is { } info)
+{
+    <div class="system-usage px-3">
+        @RenderMetric("CPU",
+            $"{info.MachineCpuCoresUsed ?? info.ProcessCpuCoresUsed:N1} / {info.CpuCoresAvailable:N0} cores", info.MachineCpuPercentage,
+            $"{info.ProcessCpuCoresUsed:N2} cores", info.ProcessCpuPercentage)
+
+        @RenderMetric("Memory",
+            $"{info.MachineMemoryUsageGB ?? info.ProcessMemoryUsageGB:N1} / {info.MemoryAvailableGB:N1} GB", info.MachineMemoryPercentage,
+            $"{info.ProcessMemoryUsageGB:N2} GB", info.ProcessMemoryPercentage)
+    </div>
+}
+
+@code
+{
+    private readonly CancellationTokenSource _cts = new();
+    private SystemUsageInfo _info;
+
+    /// <summary>The machine's usage, with our own share of it highlighted inside the same bar.</summary>
+    private RenderFragment RenderMetric(string name, string machineText, int machinePercentage, string processText, int processPercentage) => __builder =>
+    {
+        int otherPercentage = Math.Max(0, machinePercentage - processPercentage);
+
+        <div class="usage-metric">
+            <div class="usage-caption">@name: @machineText (@machinePercentage%)</div>
+            <div class="progress">
+                <div class="progress-bar usage-bar-process" role="progressbar" style="width: @(processPercentage)%"></div>
+                <div class="progress-bar usage-bar-other" role="progressbar" style="width: @(otherPercentage)%"></div>
+            </div>
+            <div class="usage-caption usage-process">MihuBot: @processText (@processPercentage%)</div>
+        </div>
+    };
+
+    protected override void OnInitialized()
+    {
+        _info = systemUsage.Current;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+                while (await timer.WaitForNextTickAsync(_cts.Token))
+                {
+                    SystemUsageInfo current = systemUsage.Current;
+
+                    if (!ReferenceEquals(_info, current))
+                    {
+                        _info = current;
+                        _ = InvokeAsync(StateHasChanged);
+                    }
+                }
+            }
+            catch { }
+        });
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+    }
+}

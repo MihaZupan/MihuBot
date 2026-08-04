@@ -140,6 +140,12 @@
             </Authorized>
         </AuthorizeView>
     </nav>
+
+    <AuthorizeView Policy="Admin">
+        <Authorized>
+            <SystemUsage />
+        </Authorized>
+    </AuthorizeView>
 </div>
 
 @code {

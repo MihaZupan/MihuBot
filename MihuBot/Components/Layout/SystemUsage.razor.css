@@ -1,0 +1,34 @@
+.system-usage {
+    padding-bottom: 1rem;
+    color: #d7d7d7;
+    font-size: 0.75rem;
+}
+
+.usage-metric {
+    margin-top: 0.5rem;
+}
+
+.usage-caption {
+    margin-bottom: 0.15rem;
+    white-space: nowrap;
+}
+
+.usage-process {
+    margin-top: 0.15rem;
+    margin-bottom: 0;
+    color: #6fb5ff;
+}
+
+.progress {
+    height: 0.4rem;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Our own usage, highlighted inside the machine's total usage. */
+.usage-bar-process {
+    background-color: #1b6ec2;
+}
+
+.usage-bar-other {
+    background-color: rgba(255, 255, 255, 0.35);
+}

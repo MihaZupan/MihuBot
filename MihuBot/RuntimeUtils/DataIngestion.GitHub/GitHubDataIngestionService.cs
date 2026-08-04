@@ -200,13 +200,18 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
 
         try
         {
+            if (!OperatingSystem.IsLinux())
+            {
+                return;
+            }
+
             if (!_lastStatsRefreshTime.IsRunning || _lastStatsRefreshTime.Elapsed.TotalMinutes > 5)
             {
                 await RefreshStatsAsync(stoppingToken);
                 _lastStatsRefreshTime.Restart();
             }
 
-            if (!OperatingSystem.IsLinux() || _serviceConfiguration.PauseGitHubPolling)
+            if (_serviceConfiguration.PauseGitHubPolling)
             {
                 return;
             }
