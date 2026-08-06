@@ -500,6 +500,25 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
+    public async Task Delete_RemovesTheEntryAndItsAlerts()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        await Molly.AssociateAsync(login.ProtectedId, "deleted-user", default);
+        await Molly.SubmitAlertAsync(login.ProtectedId, Encoding.UTF8.GetBytes("""{"type":"test"}"""), default);
+
+        Assert.Equal(1, await _fixture.CountAlertsAsync(IdOf(login)));
+
+        await Molly.DeleteEntryAsync(IdOf(login));
+
+        Assert.False(await _fixture.EntryExistsAsync(IdOf(login)));
+        Assert.Equal(0, await _fixture.CountAlertsAsync(IdOf(login)));
+
+        // Nothing is left to serve a command from, so the device just registers again.
+        Assert.Equal(MollyCommand.None, (await Molly.LoginAsync(keyHash, default)).Command);
+    }
+
+    [Fact]
     public async Task TamperedNickname_IsRejectedRatherThanDecryptedToGarbage()
     {
         MollyLoginResult login = await RegisterAsync();

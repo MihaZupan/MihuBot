@@ -1,0 +1,243 @@
+@using MihuBot.Molly
+@using MihuBot.Molly.Alerts
+@inject MollyService molly
+
+<p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
+
+@if (_users.Length == 0)
+{
+    <div class="alert alert-secondary" role="alert">
+        No registered users yet.
+    </div>
+}
+else
+{
+    <table class="table table-dark">
+        <thead>
+            <tr>
+                <th scope="col">Nickname</th>
+                <th scope="col">Registered</th>
+                <th scope="col">Last seen</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (MollyUserInfo user in _users)
+            {
+                <tr>
+                    <td scope="row">@user.Nickname</td>
+                    <td>@user.CreatedDay.ToString("yyyy-MM-dd")</td>
+                    <td>@user.LastSeenDay.ToString("yyyy-MM-dd")</td>
+                    <td>
+                        @if (user.WipeRequested)
+                        {
+                            <span class="badge bg-danger">Wipe requested</span>
+                        }
+                        else if (user.LockRequested)
+                        {
+                            <span class="badge bg-warning text-dark">Locked</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success">Active</span>
+                        }
+
+                        @if (user.AlertsMuted)
+                        {
+                            <span class="badge bg-secondary ml-1">Muted</span>
+                        }
+                    </td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-light mr-2" disabled="@_busy"
+                                @onclick="() => SetAlertsMutedAsync(user, !user.AlertsMuted)">
+                            @(user.AlertsMuted ? "Unmute alerts" : "Mute alerts")
+                        </button>
+
+                        @if (!user.WipeRequested)
+                        {
+                            <button type="button" class="btn btn-sm btn-warning mr-2" disabled="@_busy"
+                                    @onclick="() => SetLockRequestedAsync(user, !user.LockRequested)">
+                                @(user.LockRequested ? "Unlock" : "Lock")
+                            </button>
+
+                            @if (_pendingWipeId == user.Id)
+                            {
+                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                        @onclick="() => WipeAsync(user)">
+                                    Confirm wipe
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingWipeId = null">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingWipeId = user.Id">
+                                    Wipe
+                                </button>
+                            }
+                        }
+
+                        @if (CanDelete)
+                        {
+                            @if (_pendingDeleteId == user.Id)
+                            {
+                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                        @onclick="() => DeleteAsync(user)">
+                                    Confirm delete
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingDeleteId = null">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingDeleteId = user.Id">
+                                    Delete
+                                </button>
+                            }
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<h2>Recent alerts</h2>
+
+@if (_alerts.Length == 0)
+{
+    <div class="alert alert-secondary" role="alert">
+        No alerts have been reported.
+    </div>
+}
+else
+{
+    <table class="table table-dark">
+        <thead>
+            <tr>
+                <th scope="col">Nickname</th>
+                <th scope="col">Received</th>
+                <th scope="col">Type</th>
+                <th scope="col">Details</th>
+                <th scope="col">Payload</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (MollyAlertInfo alert in _alerts)
+            {
+                <tr>
+                    <td scope="row">@alert.Nickname</td>
+                    <td>@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
+                    <td>
+                        @if (alert.Type != MollyAlertType.Unknown)
+                        {
+                            <span class="badge bg-secondary">@alert.Type</span>
+                        }
+                    </td>
+                    <td>
+                        @if (alert.Summary is { } summary)
+                        {
+                            @if (alert.MapUrl is { } mapUrl)
+                            {
+                                <a class="badge bg-info text-dark" href="@mapUrl" target="_blank" rel="noopener noreferrer">@summary</a>
+                            }
+                            else
+                            {
+                                <span class="badge bg-info text-dark">@summary</span>
+                            }
+                        }
+                    </td>
+                    <td><small style="font-size:12px">@alert.Payload</small></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code
+{
+#nullable enable
+
+    /// <summary>Deleting an entry is admin-only - knowing the dashboard password isn't enough.</summary>
+    [Parameter]
+    public bool CanDelete { get; set; }
+
+    private MollyUserInfo[] _users = [];
+    private MollyAlertInfo[] _alerts = [];
+    private Guid? _pendingWipeId;
+    private Guid? _pendingDeleteId;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Mirrors the runtime-utils dashboard: seed a throw-away entry so there's something to look
+        // at when developing locally. Linux is the real deployment.
+        if (OperatingSystem.IsWindows() && (await molly.GetRegisteredUsersAsync()).Length == 0)
+        {
+            await molly.CreateFakeEntryAsync("Dummy");
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _users = await molly.GetRegisteredUsersAsync();
+        _alerts = await molly.GetRecentAlertsAsync();
+    }
+
+    private async Task SetLockRequestedAsync(MollyUserInfo user, bool lockRequested)
+    {
+        await RunAsync(() => molly.SetLockRequestedAsync(user.Id, lockRequested));
+    }
+
+    private async Task SetAlertsMutedAsync(MollyUserInfo user, bool muted)
+    {
+        await RunAsync(() => molly.SetAlertsMutedAsync(user.Id, muted));
+    }
+
+    private async Task WipeAsync(MollyUserInfo user)
+    {
+        await RunAsync(() => molly.RequestWipeAsync(user.Id));
+    }
+
+    private async Task DeleteAsync(MollyUserInfo user)
+    {
+        // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
+        if (!CanDelete)
+        {
+            return;
+        }
+
+        await RunAsync(() => molly.DeleteEntryAsync(user.Id));
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            await action();
+            _pendingWipeId = null;
+            _pendingDeleteId = null;
+            await RefreshAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

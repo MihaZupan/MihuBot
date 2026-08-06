@@ -1,211 +1,79 @@
 @page "/molly"
+@using System.Security.Cryptography
+@using MihuBot.Configuration
 @using MihuBot.Molly
-@using MihuBot.Molly.Alerts
-@attribute [Authorize("Admin")]
+@* Injected (and otherwise unused) so the router shows the FeatureUnavailable page when Molly is disabled. *@
 @inject MollyService molly
+@inject IConfigurationService configuration
 @rendermode InteractiveServer
 
 <PageTitle>Molly</PageTitle>
 
 <h1>Molly</h1>
 
-<p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
-
-@if (_users.Length == 0)
+@if (_unlocked)
 {
-    <div class="alert alert-secondary" role="alert">
-        No registered users yet.
-    </div>
+    <MollyDashboard CanDelete="_isAdmin" />
 }
 else
 {
-    <table class="table table-dark">
-        <thead>
-            <tr>
-                <th scope="col">Nickname</th>
-                <th scope="col">Registered</th>
-                <th scope="col">Last seen</th>
-                <th scope="col">Status</th>
-                <th scope="col">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (MollyUserInfo user in _users)
-            {
-                <tr>
-                    <td scope="row">@user.Nickname</td>
-                    <td>@user.CreatedDay.ToString("yyyy-MM-dd")</td>
-                    <td>@user.LastSeenDay.ToString("yyyy-MM-dd")</td>
-                    <td>
-                        @if (user.WipeRequested)
-                        {
-                            <span class="badge bg-danger">Wipe requested</span>
-                        }
-                        else if (user.LockRequested)
-                        {
-                            <span class="badge bg-warning text-dark">Locked</span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-success">Active</span>
-                        }
+    @* Nothing about the registered devices is rendered until the password checks out. *@
+    <EditForm Model="Login" OnValidSubmit="Unlock">
+        <div class="mb-2" style="max-width: 20rem;">
+            <InputText type="password" class="form-control" @bind-Value="Login.Password" placeholder="Password" />
+        </div>
 
-                        @if (user.AlertsMuted)
-                        {
-                            <span class="badge bg-secondary ml-1">Muted</span>
-                        }
-                    </td>
-                    <td>
-                        <button type="button" class="btn btn-sm btn-outline-light mr-2" disabled="@_busy"
-                                @onclick="() => SetAlertsMutedAsync(user, !user.AlertsMuted)">
-                            @(user.AlertsMuted ? "Unmute" : "Mute")
-                        </button>
+        @if (_loginFailed)
+        {
+            <div class="alert alert-danger" role="alert">
+                Incorrect password.
+            </div>
+        }
 
-                        @if (!user.WipeRequested)
-                        {
-                            <button type="button" class="btn btn-sm btn-warning mr-2" disabled="@_busy"
-                                    @onclick="() => SetLockRequestedAsync(user, !user.LockRequested)">
-                                @(user.LockRequested ? "Unlock" : "Lock")
-                            </button>
-
-                            @if (_pendingWipeId == user.Id)
-                            {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
-                                        @onclick="() => WipeAsync(user)">
-                                    Confirm wipe
-                                </button>
-                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingWipeId = null">
-                                    Cancel
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingWipeId = user.Id">
-                                    Wipe
-                                </button>
-                            }
-                        }
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-}
-
-<h2>Recent alerts</h2>
-
-@if (_alerts.Length == 0)
-{
-    <div class="alert alert-secondary" role="alert">
-        No alerts have been reported.
-    </div>
-}
-else
-{
-    <table class="table table-dark">
-        <thead>
-            <tr>
-                <th scope="col">Nickname</th>
-                <th scope="col">Received</th>
-                <th scope="col">Type</th>
-                <th scope="col">Details</th>
-                <th scope="col">Payload</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (MollyAlertInfo alert in _alerts)
-            {
-                <tr>
-                    <td scope="row">@alert.Nickname</td>
-                    <td>@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
-                    <td>
-                        @if (alert.Type != MollyAlertType.Unknown)
-                        {
-                            <span class="badge bg-secondary">@alert.Type</span>
-                        }
-                    </td>
-                    <td>
-                        @if (alert.Summary is { } summary)
-                        {
-                            @if (alert.MapUrl is { } mapUrl)
-                            {
-                                <a class="badge bg-info text-dark" href="@mapUrl" target="_blank" rel="noopener noreferrer">@summary</a>
-                            }
-                            else
-                            {
-                                <span class="badge bg-info text-dark">@summary</span>
-                            }
-                        }
-                    </td>
-                    <td><small style="font-size:12px">@alert.Payload</small></td>
-                </tr>
-            }
-        </tbody>
-    </table>
+        <button type="submit" class="btn btn-primary">Log in</button>
+    </EditForm>
 }
 
 @code
 {
 #nullable enable
 
-    private MollyUserInfo[] _users = [];
-    private MollyAlertInfo[] _alerts = [];
-    private Guid? _pendingWipeId;
-    private bool _busy;
+    /// <summary>Lets a non-admin open the dashboard. Unset means only admins can.</summary>
+    private const string PasswordConfigurationKey = "Molly.DashboardPassword";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private readonly LoginModel Login = new();
+
+    private bool _isAdmin;
+    private bool _unlocked;
+    private bool _loginFailed;
 
     protected override async Task OnInitializedAsync()
     {
-        // Mirrors the runtime-utils dashboard: seed a throw-away entry so there's something to look
-        // at when developing locally. Linux is the real deployment.
-        if (OperatingSystem.IsWindows() && (await molly.GetRegisteredUsersAsync()).Length == 0)
+        if (AuthenticationState is not null)
         {
-            await molly.CreateFakeEntryAsync("Dummy");
+            _isAdmin = (await AuthenticationState).User.IsAdmin();
         }
 
-        await RefreshAsync();
+        _unlocked = _isAdmin;
     }
 
-    private async Task RefreshAsync()
+    private void Unlock()
     {
-        _users = await molly.GetRegisteredUsersAsync();
-        _alerts = await molly.GetRecentAlertsAsync();
+        _unlocked = CheckPassword(Login.Password);
+        _loginFailed = !_unlocked;
+        Login.Password = null;
     }
 
-    private async Task SetLockRequestedAsync(MollyUserInfo user, bool lockRequested)
+    private bool CheckPassword(string? password) =>
+        !string.IsNullOrEmpty(password) &&
+        configuration.TryGet(null, PasswordConfigurationKey, out string expected) &&
+        CryptographicOperations.FixedTimeEquals(expected, password);
+
+    private sealed class LoginModel
     {
-        await RunAsync(() => molly.SetLockRequestedAsync(user.Id, lockRequested));
-    }
-
-    private async Task SetAlertsMutedAsync(MollyUserInfo user, bool muted)
-    {
-        await RunAsync(() => molly.SetAlertsMutedAsync(user.Id, muted));
-    }
-
-    private async Task WipeAsync(MollyUserInfo user)
-    {
-        await RunAsync(() => molly.RequestWipeAsync(user.Id));
-    }
-
-    private async Task RunAsync(Func<Task> action)
-    {
-        if (_busy)
-        {
-            return;
-        }
-
-        _busy = true;
-
-        try
-        {
-            await action();
-            _pendingWipeId = null;
-            await RefreshAsync();
-        }
-        finally
-        {
-            _busy = false;
-        }
+        public string? Password { get; set; }
     }
 }

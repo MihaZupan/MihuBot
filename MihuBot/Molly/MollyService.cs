@@ -691,6 +691,25 @@ public sealed class MollyService
         _logger.LogInformation("Molly entry {Id} was marked for a wipe", id);
     }
 
+    /// <summary>
+    /// Deletes the entry and its alerts outright. Unlike a wipe this leaves nothing behind, so the
+    /// device could register again from scratch and no pending command is ever delivered to it.
+    /// </summary>
+    public async Task DeleteEntryAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        // Alerts are cascade deleted along with the entry.
+        int deleted = await db.Entries
+            .Where(e => e.Id == id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation("Molly entry {Id} was deleted", id);
+        }
+    }
+
     /// <summary>The command the entry currently has pending, if any.</summary>
     private static MollyCommand GetPendingCommand(MollyDbEntry entry) =>
         entry.WipeRequested ? MollyCommand.Wipe :
