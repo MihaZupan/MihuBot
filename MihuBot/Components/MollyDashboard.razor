@@ -1,6 +1,7 @@
 @using MihuBot.Molly
 @using MihuBot.Molly.Alerts
 @inject MollyService molly
+@implements IDisposable
 
 <p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
 
@@ -175,6 +176,10 @@ else
     private Guid? _pendingDeleteId;
     private bool _busy;
 
+    /// <summary>Keeps the device list and alerts current without a manual reload.</summary>
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+    private readonly CancellationTokenSource _cts = new();
+
     protected override async Task OnInitializedAsync()
     {
         // Mirrors the runtime-utils dashboard: seed a throw-away entry so there's something to look
@@ -185,6 +190,30 @@ else
         }
 
         await RefreshAsync();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(RefreshInterval);
+
+                while (await timer.WaitForNextTickAsync(_cts.Token))
+                {
+                    // Skip a tick mid-action so the refresh can't disturb a pending confirm.
+                    await InvokeAsync(async () =>
+                    {
+                        if (_busy)
+                        {
+                            return;
+                        }
+
+                        await RefreshAsync();
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch { }
+        });
     }
 
     private async Task RefreshAsync()
@@ -240,4 +269,6 @@ else
             _busy = false;
         }
     }
+
+    public void Dispose() => _cts.Cancel();
 }
