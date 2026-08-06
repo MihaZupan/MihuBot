@@ -23,6 +23,7 @@ using MihuBot.Discord.Location;
 using MihuBot.Discord.Permissions;
 using MihuBot.Discord.Reminders;
 using MihuBot.Helpers.Diagnostics;
+using MihuBot.Molly;
 using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
@@ -329,6 +330,11 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddStorageServices();
 
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Molly))
+    {
+        services.AddMollyServices();
+    }
+
     if (gitHubEnabled)
     {
         services.AddSingleton<CoreRootService>();
@@ -593,6 +599,11 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
         .Add(ConfigureYarpTunnelAuth);
 
     app.MapGroup("/s").MapStorageApis();
+
+    if (app.Services.GetService<MollyService>() is not null)
+    {
+        app.MapGroup("/api/molly").MapMollyApis();
+    }
 
     app.MapReverseProxy();
 

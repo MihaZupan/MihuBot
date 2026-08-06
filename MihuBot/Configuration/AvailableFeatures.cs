@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
+using MihuBot.Molly;
 using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
@@ -13,6 +14,7 @@ namespace MihuBot.Configuration;
 public sealed class AvailableFeatures(IServiceProvider services, IConfiguration configuration)
 {
     public bool Minecraft => Has<MinecraftRCON>();
+    public bool Molly => Has<MollyService>();
     public bool RuntimeUtils => Has<RuntimeUtilsService>();
     public bool GitHubData => Has<IDbContextFactory<GitHubDbContext>>();
     public bool GitHubIngestion => Has<GitHubDataIngestionService>();

@@ -11,6 +11,7 @@ public static class DbServiceCollectionExtensions
         typeof(TDBContext) == typeof(LogsDbContext) ? $"{Constants.StateDirectory}/MihuBot-logs.db" :
         typeof(TDBContext) == typeof(MihuBotDbContext) ? $"{Constants.StateDirectory}/MihuBot.db" :
         typeof(TDBContext) == typeof(StorageDbContext) ? $"{Constants.StateDirectory}/MihuBot-storage.db" :
+        typeof(TDBContext) == typeof(MollyDbContext) ? $"{Constants.StateDirectory}/MihuBot-molly.db" :
         throw new NotSupportedException();
 
 
@@ -19,6 +20,7 @@ public static class DbServiceCollectionExtensions
         DatabaseSetupHelper.AddPooledDbContextFactory<LogsDbContext>(services, GetDatabasePath<LogsDbContext>());
         DatabaseSetupHelper.AddPooledDbContextFactory<MihuBotDbContext>(services, GetDatabasePath<MihuBotDbContext>());
         DatabaseSetupHelper.AddPooledDbContextFactory<StorageDbContext>(services, GetDatabasePath<StorageDbContext>());
+        DatabaseSetupHelper.AddPooledDbContextFactory<MollyDbContext>(services, GetDatabasePath<MollyDbContext>());
 
         if (configuration.IsConfigured(OptionalFeatures.GitHubDatabase))
         {
@@ -41,6 +43,7 @@ public static class DbServiceCollectionExtensions
             await DatabaseSetupHelper.MigrateAsync<LogsDbContext>(host, GetDatabasePath<LogsDbContext>());
             await DatabaseSetupHelper.MigrateAsync<MihuBotDbContext>(host, GetDatabasePath<MihuBotDbContext>());
             await DatabaseSetupHelper.MigrateAsync<StorageDbContext>(host, GetDatabasePath<StorageDbContext>());
+            await DatabaseSetupHelper.MigrateAsync<MollyDbContext>(host, GetDatabasePath<MollyDbContext>());
 
             if (OperatingSystem.IsLinux() &&
                 host.Services.GetService<IDbContextFactory<GitHubDbContext>>() is not null)

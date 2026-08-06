@@ -32,6 +32,17 @@ public static class OptionalFeatures
     public static readonly OptionalFeature Jellyfin = new("Jellyfin integration (!pirate)", "Jellyfin:Host", "Jellyfin:ApiKey");
     public static readonly OptionalFeature GoogleMaps = new("Map images for Telegram location updates", "GoogleMaps:ApiKey");
     public static readonly OptionalFeature Minecraft = new("Minecraft RCON (!mc, minecraft-remote page)", "Minecraft:Host", "Minecraft:RconPassword");
+
+    /// <summary>Mixed into the stored key hashes. Never leaves the server. Base64 encoded key material.</summary>
+    public const string MollyServerKeyName = "Molly:ServerKey";
+
+    /// <summary>
+    /// Shared with (and hardcoded into) the closed-source Molly client, which signs its requests with it.
+    /// Base64 encoded key material.
+    /// </summary>
+    public const string MollyAppSecretName = "Molly:AppSecret";
+
+    public static readonly OptionalFeature Molly = new("Molly remote lockout support (api/Molly, molly page)", MollyServerKeyName, MollyAppSecretName);
     public static readonly OptionalFeature OpenWeather = new("Weather and location lookups (!weather)", "OpenWeather:ApiKey");
     public static readonly OptionalFeature QBittorrent = new("Torrent downloads (!pirate)", "QBittorrent:Host", "QBittorrent:Username", "QBittorrent:Password");
     public static readonly OptionalFeature Qdrant = new("Vector search and semantic ingestion", "Qdrant:Host");
@@ -57,6 +68,7 @@ public static class OptionalFeatures
         Hetzner,
         Jellyfin,
         Minecraft,
+        Molly,
         OpenWeather,
         QBittorrent,
         Qdrant,

@@ -15,4 +15,5 @@
     <File Path="deploy/run.sh" />
   </Folder>
   <Project Path="MihuBot/MihuBot.csproj" />
+  <Project Path="MihuBot.Tests/MihuBot.Tests.csproj" />
 </Solution>
