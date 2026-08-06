@@ -6,6 +6,19 @@ in `next_update/` and then exits. A **runner loop** applies the pending update
 and relaunches the app. `run.sh` is that loop, and this directory packages it
 into a container so the bot can be hosted anywhere (not just on the Azure VM).
 
+A new commit is only built if it passes verification: it must carry a signature
+GitHub reports as verified, its committer must be `MihaZupan` and the signature
+must have been made with one of the trusted SSH signing keys (the committer is
+hardcoded in `SelfUpdateService`; the keys default to a hardcoded value but can be
+overridden at runtime via the `SelfUpdate.TrustedSigningKeys` config key - a
+comma-separated list of `ssh-...`/`sk-ssh-...` public keys, to allow key rotation.
+Note that commits created through the GitHub web UI are signed by `web-flow` and
+are therefore rejected),
+and it must be a strict descendant of the commit currently running, so downgrades
+and rewritten history are never deployed. The verified SHA is passed to
+`build-latest.sh` as `MIHUBOT_COMMIT` so the build can't pick up a newer,
+unverified branch tip.
+
 ## How it works
 
 Everything lives under `/data` (a persistent volume), except the bulk file

@@ -1,12 +1,14 @@
 using MihuBot.Configuration;
 using Octokit;
+using System.Buffers.Binary;
 
 #nullable enable
 
 namespace MihuBot;
 
-// Polls GitHub for new commits on the deployment branch. When a new commit is
-// detected, invokes the local build script (deploy/build-latest.sh) to produce
+// Polls GitHub for new commits on the deployment branch. A new commit is only built
+// if it's signed by a trusted key and is a strict descendant of what we're running.
+// If so, invokes the local build script (deploy/build-latest.sh) to produce
 // next_update/artifacts.tar.gz and signals shutdown so the external runner loop
 // applies the update. Failures are surfaced via the debug logger.
 public sealed class SelfUpdateService : PeriodicBackgroundService
@@ -16,6 +18,13 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
     private const string DefaultRepo = "MihuBot";
     private const string DefaultBranch = "main";
     private const string DefaultBuildScript = "/usr/local/bin/build-latest.sh";
+    // Not configurable. Excludes "web-flow", so web UI commits aren't auto-deployed.
+    private const string TrustedCommitter = "MihaZupan";
+
+    // SSH public key blobs the signature must have been made with. GitHub's own
+    // verification would accept any key on the account, including a newly added one.
+    // Overridable (comma-separated) via "SelfUpdate.TrustedSigningKeys" for rotation.
+    private const string DefaultTrustedSigningKeys = "AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIPBDYKbB0EY+xYLyaRCHjyRyBUfwt8yyxWYyNhUgYD8qAAAABHNzaDo=";
     private const int DefaultPollIntervalSeconds = 1 * 60;
     private const int DefaultBuildTimeoutSeconds = 30 * 60;
 
@@ -27,6 +36,9 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
     // Last SHA we attempted to build. Used to avoid retrying a failing SHA on
     // every poll; we only reattempt once main has moved past it.
     private string? _lastAttemptedSha;
+
+    // Only used to avoid logging the same rejection on every poll.
+    private string? _lastRejectedSha;
 
     public SelfUpdateService(Logger logger, GitHubClient github, IConfigurationService configuration, ServiceConfiguration serviceConfiguration)
         : base(new PeriodicTaskOptions
@@ -80,6 +92,16 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
             return;
         }
 
+        if (await VerifyCommitAsync(owner, repo, latestSha, currentSha) is { } rejectionReason)
+        {
+            if (!string.Equals(latestSha, _lastRejectedSha, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastRejectedSha = latestSha;
+                await _logger.DebugAsync($"SelfUpdate: refusing to build {owner}/{repo}@{branch} ({latestSha}): {rejectionReason}");
+            }
+            return;
+        }
+
         // Record the attempt BEFORE running the build so that even if the build
         // throws unexpectedly we won't keep retrying the same broken SHA on
         // every poll.
@@ -91,7 +113,7 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
         string output;
         try
         {
-            (success, output) = await RunBuildAsync(owner, repo, branch, cancellationToken);
+            (success, output) = await RunBuildAsync(owner, repo, branch, latestSha, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -110,7 +132,126 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
         }
     }
 
-    private async Task<(bool Success, string Output)> RunBuildAsync(string owner, string repo, string branch, CancellationToken cancellationToken)
+    // Returns null if the commit is safe to build, otherwise the reason it was
+    // rejected. Anything we can't positively verify counts as a rejection.
+    private async Task<string?> VerifyCommitAsync(string owner, string repo, string latestSha, string currentSha)
+    {
+        try
+        {
+            GitHubCommit commit = await _github.Repository.Commit.Get(owner, repo, latestSha);
+
+            if (commit.Commit?.Verification is not { Verified: true } verification)
+            {
+                string reason = commit.Commit?.Verification?.Reason.StringValue ?? "no verification information";
+                return $"the commit signature is not verified ({reason}).";
+            }
+
+            // Verified: true means the signature matches a key on the committer's account.
+            string? committer = commit.Committer?.Login;
+            if (!string.Equals(committer, TrustedCommitter, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"it was committed by an untrusted account ('{committer ?? "unknown"}', signature reason: {verification.Reason}).";
+            }
+
+            string? signingKey = TryGetSshSignaturePublicKey(verification.Signature);
+            if (signingKey is null || !GetTrustedSigningKeys().Contains(signingKey, StringComparer.Ordinal))
+            {
+                return $"it was not signed with a trusted SSH key (got '{signingKey ?? "an unrecognized signature format"}').";
+            }
+
+            if (string.IsNullOrEmpty(currentSha) || currentSha == "unknown")
+            {
+                return "the currently running build doesn't report a commit id, so we can't tell whether this would be a downgrade.";
+            }
+
+            // "ahead" is the only status that means we're moving forward - "behind" is a
+            // downgrade and "diverged" means history was rewritten.
+            CompareResult comparison = await _github.Repository.Commit.Compare(owner, repo, currentSha, latestSha);
+
+            if (!string.Equals(comparison.Status, "ahead", StringComparison.OrdinalIgnoreCase) || comparison.AheadBy <= 0)
+            {
+                return $"it is not newer than the current build {currentSha} (status: {comparison.Status}, ahead by {comparison.AheadBy}, behind by {comparison.BehindBy}).";
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"verification failed: {ex.Message}";
+        }
+    }
+
+    // Accepts a bare base64 blob or a full "sk-ssh-ed25519@openssh.com AAAA... comment" line.
+    private string[] GetTrustedSigningKeys() =>
+        GetString("SelfUpdate.TrustedSigningKeys", DefaultTrustedSigningKeys)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static key => key.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [_, string blob, ..] ? blob : key)
+            .ToArray();
+
+    // Per PROTOCOL.sshsig, the armored blob is "SSHSIG" || uint32 version || string publickey || ...
+    // Returns the key in the same base64 format GitHub/authorized_keys use, or null if malformed.
+    public static string? TryGetSshSignaturePublicKey(string? signature)
+    {
+        const string Begin = "-----BEGIN SSH SIGNATURE-----";
+        const string End = "-----END SSH SIGNATURE-----";
+
+        if (signature is null)
+        {
+            return null;
+        }
+
+        int start = signature.IndexOf(Begin, StringComparison.Ordinal);
+        int end = signature.IndexOf(End, StringComparison.Ordinal);
+        if (start < 0 || end <= start)
+        {
+            return null;
+        }
+
+        start += Begin.Length;
+
+        byte[] blob;
+        try
+        {
+            blob = Convert.FromBase64String(signature.AsSpan(start, end - start).ToString().Replace("\r", "").Replace("\n", "").Trim());
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<byte> remaining = blob;
+
+        if (!remaining.StartsWith("SSHSIG"u8))
+        {
+            return null;
+        }
+
+        remaining = remaining.Slice("SSHSIG"u8.Length);
+
+        // uint32 version
+        if (remaining.Length < 4)
+        {
+            return null;
+        }
+        remaining = remaining.Slice(4);
+
+        // string publickey
+        if (remaining.Length < 4)
+        {
+            return null;
+        }
+        uint keyLength = BinaryPrimitives.ReadUInt32BigEndian(remaining);
+        remaining = remaining.Slice(4);
+
+        if (keyLength == 0 || keyLength > (uint)remaining.Length)
+        {
+            return null;
+        }
+
+        return Convert.ToBase64String(remaining.Slice(0, (int)keyLength));
+    }
+
+    private async Task<(bool Success, string Output)> RunBuildAsync(string owner, string repo, string branch, string sha, CancellationToken cancellationToken)
     {
         string script = GetString("SelfUpdate.BuildScript", DefaultBuildScript);
         int timeoutSeconds = _configuration.GetOrDefault(null, "SelfUpdate.BuildTimeoutSeconds", DefaultBuildTimeoutSeconds);
@@ -145,6 +286,8 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
         psi.ArgumentList.Add(outTarball);
         psi.Environment["MIHUBOT_REPO_URL"] = $"https://github.com/{owner}/{repo}";
         psi.Environment["MIHUBOT_BRANCH"] = branch;
+        // Pin the build to the commit we verified - the branch may have moved since.
+        psi.Environment["MIHUBOT_COMMIT"] = sha;
 
         using var process = new Process { StartInfo = psi };
         process.OutputDataReceived += (_, e) => Append(e.Data);

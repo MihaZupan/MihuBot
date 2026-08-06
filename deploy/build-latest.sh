@@ -18,6 +18,9 @@ OUT_TARBALL="${1:-$MIHUBOT_HOME/State/artifacts.tar.gz}"
 
 REPO_URL="${MIHUBOT_REPO_URL:-https://github.com/MihaZupan/MihuBot}"
 BRANCH="${MIHUBOT_BRANCH:-main}"
+# Exact commit to build. When set (the app sets it after verifying the signature),
+# the branch tip is ignored.
+COMMIT="${MIHUBOT_COMMIT:-}"
 PROJECT="${MIHUBOT_PROJECT:-MihuBot}"
 RID="${MIHUBOT_RID:-linux-x64}"
 DOTNET_CHANNEL="${MIHUBOT_DOTNET_CHANNEL:-11.0}"
@@ -39,9 +42,22 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export DOTNET_NOLOGO=1
 export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
-echo "[build] Cloning $REPO_URL ($BRANCH) ..."
-git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$WORKDIR/src"
+if [ -n "$COMMIT" ]; then
+    echo "[build] Fetching $REPO_URL @ $COMMIT ..."
+    git init -q "$WORKDIR/src"
+    git -C "$WORKDIR/src" remote add origin "$REPO_URL"
+    git -C "$WORKDIR/src" fetch -q --depth 1 origin "$COMMIT"
+    git -C "$WORKDIR/src" checkout -q --detach FETCH_HEAD
+else
+    echo "[build] Cloning $REPO_URL ($BRANCH) ..."
+    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$WORKDIR/src"
+fi
 SHA="$(git -C "$WORKDIR/src" rev-parse HEAD)"
+
+if [ -n "$COMMIT" ] && [ "$SHA" != "$COMMIT" ]; then
+    echo "[build] Checked out $SHA but expected $COMMIT" >&2
+    exit 1
+fi
 
 echo "[build] Installing the .NET SDK ..."
 curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$WORKDIR/dotnet-install.sh"
