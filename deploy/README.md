@@ -14,8 +14,9 @@ overridden at runtime via the `SelfUpdate.TrustedSigningKeys` config key - a
 comma-separated list of `ssh-...`/`sk-ssh-...` public keys, to allow key rotation.
 Note that commits created through the GitHub web UI are signed by `web-flow` and
 are therefore rejected),
-and it must be a strict descendant of the commit currently running, so downgrades
-and rewritten history are never deployed. The verified SHA is passed to
+and it must be newer than the commit currently running - either a descendant of it,
+or, if history was rewritten (force push), a commit with a newer commit date - so
+downgrades are never deployed. The verified SHA is passed to
 `build-latest.sh` as `MIHUBOT_COMMIT` so the build can't pick up a newer,
 unverified branch tip.
 

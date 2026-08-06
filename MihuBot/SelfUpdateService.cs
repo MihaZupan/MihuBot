@@ -7,7 +7,7 @@ using System.Buffers.Binary;
 namespace MihuBot;
 
 // Polls GitHub for new commits on the deployment branch. A new commit is only built
-// if it's signed by a trusted key and is a strict descendant of what we're running.
+// if it's signed by a trusted key and is newer than what we're running.
 // If so, invokes the local build script (deploy/build-latest.sh) to produce
 // next_update/artifacts.tar.gz and signals shutdown so the external runner loop
 // applies the update. Failures are surfaced via the debug logger.
@@ -164,11 +164,25 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
                 return "the currently running build doesn't report a commit id, so we can't tell whether this would be a downgrade.";
             }
 
-            // "ahead" is the only status that means we're moving forward - "behind" is a
-            // downgrade and "diverged" means history was rewritten.
             CompareResult comparison = await _github.Repository.Commit.Compare(owner, repo, currentSha, latestSha);
 
-            if (!string.Equals(comparison.Status, "ahead", StringComparison.OrdinalIgnoreCase) || comparison.AheadBy <= 0)
+            // "ahead" means the new commit descends from what we're running. "diverged"
+            // means history was rewritten (force push), which is fine as long as the new
+            // commit is actually newer - it's signed by us either way. "behind" and
+            // "identical" are downgrades / no-ops.
+            if (string.Equals(comparison.Status, "diverged", StringComparison.OrdinalIgnoreCase))
+            {
+                GitHubCommit current = await _github.Repository.Commit.Get(owner, repo, currentSha);
+
+                DateTimeOffset? latestDate = commit.Commit?.Committer?.Date;
+                DateTimeOffset? currentDate = current.Commit?.Committer?.Date;
+
+                if (latestDate is null || currentDate is null || latestDate <= currentDate)
+                {
+                    return $"history diverged from the current build {currentSha} and it is not newer ({latestDate?.ToString("u") ?? "unknown"} vs {currentDate?.ToString("u") ?? "unknown"}).";
+                }
+            }
+            else if (!string.Equals(comparison.Status, "ahead", StringComparison.OrdinalIgnoreCase) || comparison.AheadBy <= 0)
             {
                 return $"it is not newer than the current build {currentSha} (status: {comparison.Status}, ahead by {comparison.AheadBy}, behind by {comparison.BehindBy}).";
             }
