@@ -27,6 +27,7 @@ public static class MollyServiceExtensions
     {
         services.TryAddSingleton<MollyRateLimiter>();
         services.TryAddSingleton<MollyIdProtector>();
+        services.TryAddSingleton<ProtonMailEncryptor>();
         services.TryAddSingleton<MollyService>();
 
         return services;

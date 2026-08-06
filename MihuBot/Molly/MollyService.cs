@@ -4,6 +4,8 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Azure;
+using Azure.Communication.Email;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MihuBot.Configuration;
@@ -63,16 +65,37 @@ public sealed class MollyService
     /// </summary>
     private readonly Logger? _discordLogger;
 
+    /// <summary>Null in tests. Without it the alert email recipients can't be resolved.</summary>
+    private readonly IConfigurationService? _runtimeConfiguration;
+
+    /// <summary>The sender the alert emails go out as, and the client to send them with.</summary>
+    private readonly EmailClient? _emailClient;
+    private readonly string? _emailFrom;
+
+    /// <summary>Null in tests. Encrypts alert bodies for Proton recipients so Azure can't read them.</summary>
+    private readonly ProtonMailEncryptor? _protonEncryptor;
+
+    /// <summary>One alert email every 30 minutes, across all devices.</summary>
+    private readonly SimpleRateLimiter _emailRateLimiter = new(TimeSpan.FromMinutes(30), maxTolerance: 1);
+
     private readonly MollyIdProtector _idProtector;
     private readonly byte[] _serverKey;
     private readonly byte[] _appSecret;
 
-    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, IConfiguration configuration, Logger? discordLogger)
+    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null)
     {
         _db = db;
         _logger = logger;
         _discordLogger = discordLogger;
+        _runtimeConfiguration = runtimeConfiguration;
         _idProtector = idProtector;
+
+        if (configuration.IsConfigured(OptionalFeatures.MollyAlertEmail))
+        {
+            _emailClient = new EmailClient(configuration[OptionalFeatures.MollyAlertEmailConnectionStringName]);
+            _emailFrom = configuration[OptionalFeatures.MollyAlertEmailFromName];
+            _protonEncryptor = protonEncryptor;
+        }
 
         // Trusted configuration, so a malformed value can just throw on startup.
         _serverKey = Convert.FromBase64String(configuration[OptionalFeatures.MollyServerKeyName]!);
@@ -217,7 +240,7 @@ public sealed class MollyService
 
         await db.SaveChangesAsync(cancellationToken);
 
-        await HandleAlertPayloadAsync(entry, stored);
+        HandleAlertPayload(entry, stored);
 
         MollyCommand command = GetPendingCommand(entry);
 
@@ -251,61 +274,112 @@ public sealed class MollyService
     /// Reacts to the alert types the server knows about, after the alert has already been stored.
     /// Adding support for a new type means adding a case here and a data class under Molly/Alerts.
     /// </summary>
-    private async Task HandleAlertPayloadAsync(MollyDbEntry entry, ReadOnlyMemory<byte> payload)
+    private void HandleAlertPayload(MollyDbEntry entry, byte[] payload)
     {
-        MollyAlertEnvelope? envelope = MollyAlertEnvelope.TryParse(payload.Span);
+        MollyAlertEnvelope? envelope = MollyAlertEnvelope.TryParse(payload);
 
         if (envelope is null)
         {
             return;
         }
 
-        switch (envelope.AlertType)
+        _ = Task.Run(async () =>
         {
-            case MollyAlertType.Location:
-                if (envelope.TryGetData<MollyLocationAlert>() is { IsValid: true } location)
+            try
+            {
+                switch (envelope.AlertType)
                 {
-                    await ReportLocationAlertAsync(entry, location);
-                }
-                break;
+                    case MollyAlertType.Location:
+                        if (envelope.TryGetData<MollyLocationAlert>() is { IsValid: true } location)
+                        {
+                            await ReportLocationAlertAsync(entry, location);
+                        }
+                        break;
 
-            case MollyAlertType.Unknown:
-            default:
-                // Unrecognized alerts are still stored and shown on the dashboard.
-                break;
-        }
+                    case MollyAlertType.Unknown:
+                    default:
+                        // Unrecognized alerts are still stored and shown on the dashboard.
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to handle a Molly alert");
+            }
+        });
     }
 
     /// <summary>Pings Discord for alerts that are worth a human looking at.</summary>
     private async Task ReportLocationAlertAsync(MollyDbEntry entry, MollyLocationAlert location)
     {
-        // Masked link, with the angle brackets stopping Discord from unfurling a preview.
-        string description = location.MapUrl is { } mapUrl
-            ? $"[{location}](<{mapUrl}>)"
-            : $"`{location}`";
+        string nickname = TryDecryptNickname(entry);
 
-        await ReportAlertAsync(entry, $"Molly location alert from `{TryDecryptNickname(entry)}`: {description}");
+        await ReportAlertAsync(entry,
+            subject: "Molly location alert",
+            emailBody:
+                $"""
+                # Molly location alert from `{Uri.EscapeDataString(nickname).Replace("%20", " ", StringComparison.Ordinal)}`
+
+                {location}
+
+                {location.MapUrl}
+                """);
     }
 
     /// <summary>
-    /// Notifies Discord about an alert, unless the device has been muted or there's no Discord
-    /// connection. Muting only silences the notification - the alert is still stored and shown
-    /// on the dashboard.
+    /// Notifies Discord (and email, if configured) about an alert, unless the device has been muted
+    /// or there's no Discord connection. Muting only silences the notification - the alert is still
+    /// stored and shown on the dashboard.
     /// </summary>
-    private async Task ReportAlertAsync(MollyDbEntry entry, string message)
+    private async Task ReportAlertAsync(MollyDbEntry entry, string subject, string emailBody)
     {
-        if (entry.AlertsMuted || _discordLogger is null)
+        if (entry.AlertsMuted)
         {
             return;
         }
 
-        try
+        if (_discordLogger is not null)
         {
-            await _discordLogger.DebugAsync(message);
+            await _discordLogger.DebugAsync(subject);
         }
-        catch (Exception ex)
+
+        // The recipients are runtime configuration, so they can be changed without a restart.
+        if (_emailClient is not null &&
+            _runtimeConfiguration is not null &&
+            _runtimeConfiguration.TryGet(null, OptionalFeatures.MollyAlertEmailToName, out string to))
         {
-            _logger.LogWarning(ex, "Failed to report a Molly alert for {Id}", entry.Id);
+            // Emails are throttled across every device, so a chatty (or hostile) one can't flood the
+            // inbox. Discord is still notified about every alert.
+            if (!_emailRateLimiter.TryEnter())
+            {
+                _logger.LogInformation("Skipping the Molly alert email, one was sent too recently");
+                return;
+            }
+
+            // One message per recipient, so that they don't see who else is being notified.
+            foreach (string address in to.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                try
+                {
+                    // Alerts are only ever sent encrypted, so a recipient without a Proton key is
+                    // skipped rather than mailed in the clear. Inline PGP can't hide the subject, so
+                    // it's kept generic to avoid leaking the device nickname.
+                    if (_protonEncryptor is null ||
+                        await _protonEncryptor.TryEncryptAsync(address, emailBody, CancellationToken.None) is not { } encryptedBody)
+                    {
+                        _logger.LogWarning("Skipping the Molly alert email, no Proton key for the recipient");
+                        continue;
+                    }
+
+                    // Not waiting for delivery - the alert is already stored either way.
+                    await _emailClient.SendAsync(WaitUntil.Started, _emailFrom, address, subject, htmlContent: null, plainTextContent: encryptedBody);
+                }
+                catch (Exception ex)
+                {
+                    // A mail failure must not fail the device's request, or stop the other recipients.
+                    _logger.LogError(ex, "Failed to send a Molly alert email");
+                }
+            }
         }
     }
 

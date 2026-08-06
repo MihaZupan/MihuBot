@@ -43,6 +43,24 @@ public static class OptionalFeatures
     public const string MollyAppSecretName = "Molly:AppSecret";
 
     public static readonly OptionalFeature Molly = new("Molly remote lockout support (api/Molly, molly page)", MollyServerKeyName, MollyAppSecretName);
+
+    /// <summary>Azure Communication Services connection string used to send Molly alert emails.</summary>
+    public const string MollyAlertEmailConnectionStringName = "Molly:AlertEmailConnectionString";
+
+    /// <summary>The verified sender address the alert emails are sent from.</summary>
+    public const string MollyAlertEmailFromName = "Molly:AlertEmailFrom";
+
+    /// <summary>
+    /// Who the alert emails go to - a comma-separated list. Runtime configuration
+    /// (<see cref="IConfigurationService"/>), so recipients can be changed without a redeploy.
+    /// Unset means no emails are sent.
+    /// </summary>
+    public const string MollyAlertEmailToName = "Molly.AlertEmailTo";
+
+    public static readonly OptionalFeature MollyAlertEmail = new(
+        $"Molly alert emails, in addition to the Discord notification (recipients come from the runtime '{MollyAlertEmailToName}')",
+        MollyAlertEmailConnectionStringName, MollyAlertEmailFromName);
+
     public static readonly OptionalFeature OpenWeather = new("Weather and location lookups (!weather)", "OpenWeather:ApiKey");
     public static readonly OptionalFeature QBittorrent = new("Torrent downloads (!pirate)", "QBittorrent:Host", "QBittorrent:Username", "QBittorrent:Password");
     public static readonly OptionalFeature Qdrant = new("Vector search and semantic ingestion", "Qdrant:Host");
@@ -69,6 +87,7 @@ public static class OptionalFeatures
         Jellyfin,
         Minecraft,
         Molly,
+        MollyAlertEmail,
         OpenWeather,
         QBittorrent,
         Qdrant,

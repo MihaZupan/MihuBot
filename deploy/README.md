@@ -117,6 +117,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Qdrant:Host` (+`:Port`) | Vector search + semantic ingestion (FTS still works) |
 | `Hetzner:ApiKey` | Hetzner runner VMs → jobs fall back to Azure VMs |
 | `GoogleMaps:ApiKey` | Static map image on relayed Telegram locations |
+| `Molly:AlertEmailConnectionString`+`:AlertEmailFrom` | Emails Molly alerts via Azure Communication Services. Recipients come from the runtime `Molly.AlertEmailTo` config key (comma-separated). Every recipient must have a Proton Mail key |
 | `Youtube:ApiKey` | YouTube API search/playlists (scraping fallback remains) |
 | `Spotify:ClientId`+`ClientSecret` | Spotify links in `!play` |
 | `TelegramBot:ApiKey` | Telegram relay + webhook endpoint (404) |

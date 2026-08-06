@@ -31,6 +31,20 @@ public sealed class MollyServiceRegistrationTests
         Assert.True(isService.IsService(typeof(MollyService)));
     }
 
+    [Theory]
+    [InlineData("Molly:AlertEmailConnectionString")]
+    [InlineData("Molly:AlertEmailFrom")]
+    public void TheEmailFeature_IsDisabled_WhenAKeyIsMissing(string missingKey)
+    {
+        (string, string)[] values = [.. new[]
+        {
+            ("Molly:AlertEmailConnectionString", "connection-string"),
+            ("Molly:AlertEmailFrom", "molly@example.com"),
+        }.Where(v => v.Item1 != missingKey)];
+
+        Assert.False(Configuration(values).IsConfigured(OptionalFeatures.MollyAlertEmail));
+    }
+
     [Fact]
     public void TheFeature_IsEnabled_WhenBothKeysAreConfigured()
     {
