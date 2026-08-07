@@ -1,7 +1,7 @@
 ﻿using System.Collections.Specialized;
 using System.Web;
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Torrent;
 
 public sealed class MagnetUri
 {

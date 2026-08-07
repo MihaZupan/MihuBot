@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MihuBot.Configuration;
 using MihuBot.DB;
+using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Alerts;
 
 #nullable enable

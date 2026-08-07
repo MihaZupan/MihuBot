@@ -9,7 +9,7 @@ using MihuBot.DB.GitHub;
 
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.AI;
 
 public static class SemanticMarkdownChunker
 {

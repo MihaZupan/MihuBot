@@ -8,6 +8,7 @@ using Microsoft.ML.Tokenizers;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Qdrant.Client;
 

@@ -1,6 +1,7 @@
 ﻿using Discord.Rest;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
+using MihuBot.Helpers.AI;
 using System.Runtime.InteropServices;
 
 namespace MihuBot.Discord.Commands;

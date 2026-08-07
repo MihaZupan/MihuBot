@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using MihuBot.Helpers;
+using MihuBot.Helpers.Crypto;
 
 namespace MihuBot.Tests.Helpers;
 

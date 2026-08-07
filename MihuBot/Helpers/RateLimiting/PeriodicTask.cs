@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.RateLimiting;
 
 /// <summary>
 /// Controls how <see cref="PeriodicTask"/> runs a periodic loop.

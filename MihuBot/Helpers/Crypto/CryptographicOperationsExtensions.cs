@@ -1,6 +1,7 @@
 ﻿using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 
-namespace System.Security.Cryptography;
+namespace MihuBot.Helpers.Crypto;
 
 internal static class CryptographicOperationsExtensions
 {

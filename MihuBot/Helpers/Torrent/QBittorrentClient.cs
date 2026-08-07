@@ -1,7 +1,7 @@
 ﻿using System.Net.Http.Json;
 using System.Text.Json;
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Torrent;
 
 public sealed class QBittorrentClient
 {

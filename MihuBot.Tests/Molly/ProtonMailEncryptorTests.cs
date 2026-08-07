@@ -1,5 +1,5 @@
 using System.Text;
-using MihuBot.Molly;
+using MihuBot.Helpers.Crypto;
 using Org.BouncyCastle.Bcpg.OpenPgp;
 
 namespace MihuBot.Tests.Molly;

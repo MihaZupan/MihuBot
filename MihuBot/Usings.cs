@@ -18,6 +18,7 @@ global using System.Threading;
 global using System.Threading.Tasks;
 
 global using MihuBot.Helpers;
+global using MihuBot.Helpers.RateLimiting;
 
 global using Discord;
 global using Discord.WebSocket;

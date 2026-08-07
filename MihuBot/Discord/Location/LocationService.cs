@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MihuBot.DB;
+using MihuBot.Helpers.AI;
 using System.ComponentModel.DataAnnotations;
 
 #nullable enable

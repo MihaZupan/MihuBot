@@ -1,4 +1,4 @@
-using MihuBot.Helpers;
+using MihuBot.Helpers.RateLimiting;
 
 namespace MihuBot.Tests.Helpers;
 

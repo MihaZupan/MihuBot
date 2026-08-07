@@ -12,8 +12,9 @@ using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.Cloud;
 using Octokit;
-using static MihuBot.Helpers.HetznerClient;
+using static MihuBot.Helpers.Cloud.HetznerClient;
 
 namespace MihuBot.RuntimeUtils;
 

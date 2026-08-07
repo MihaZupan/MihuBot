@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;

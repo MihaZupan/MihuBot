@@ -6,7 +6,7 @@ using Org.BouncyCastle.Security;
 
 #nullable enable
 
-namespace MihuBot.Molly;
+namespace MihuBot.Helpers.Crypto;
 
 /// <summary>
 /// Encrypts alert bodies for Proton Mail recipients using their published OpenPGP key, so the body

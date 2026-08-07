@@ -6,7 +6,7 @@ using Microsoft.Extensions.AI;
 
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.AI;
 
 public sealed record ModelInfo(string Name, int ContextSize);
 

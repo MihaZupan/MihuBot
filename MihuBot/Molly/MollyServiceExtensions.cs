@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MihuBot.Configuration;
+using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Api;
 
 #nullable enable

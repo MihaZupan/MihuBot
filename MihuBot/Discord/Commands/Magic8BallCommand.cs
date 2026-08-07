@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 

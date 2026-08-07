@@ -4,6 +4,7 @@ using Markdig.Syntax;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.Search;
 using OpenAI.Chat;
 

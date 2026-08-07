@@ -1,6 +1,6 @@
 ﻿using System.Security.Cryptography;
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Cloud;
 
 public static class AzurePipelinesHelper
 {

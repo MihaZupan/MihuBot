@@ -2,6 +2,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 #nullable enable

@@ -1,9 +1,10 @@
 ﻿@page "/triage"
+@using System.Collections.Concurrent
 @using MihuBot.DB.GitHub
+@using MihuBot.Helpers.AI
 @using MihuBot.RuntimeUtils.AI
 @using MihuBot.RuntimeUtils.DataIngestion.GitHub
 @using Octokit
-@using System.Collections.Concurrent
 @rendermode InteractiveServer
 @inject IssueTriageHelper TriageHelper
 @inject GitHubClient GitHubClient

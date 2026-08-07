@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Discord.Rest;
 using MihuBot.Discord;
+using MihuBot.Helpers.Torrent;
 
 #nullable enable
 

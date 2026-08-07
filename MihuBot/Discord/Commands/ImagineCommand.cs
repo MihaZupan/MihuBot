@@ -1,4 +1,5 @@
 ﻿using MihuBot.Configuration;
+using MihuBot.Helpers.AI;
 using OpenAI.Images;
 
 namespace MihuBot.Discord.Commands;

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.Cloud;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Jobs;
 using MihuBot.Storage;

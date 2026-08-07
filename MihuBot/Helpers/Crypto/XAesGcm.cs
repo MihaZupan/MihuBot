@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Crypto;
 
 /// <summary>
 /// XAES-256-GCM: AES-256-GCM extended to a 192-bit nonce, as specified by https://c2sp.org/XAES-256-GCM.

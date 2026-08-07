@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Primitives;
 using System.Security.Cryptography;
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Crypto;
 
 public static class TokenHelper
 {

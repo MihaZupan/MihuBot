@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.Cloud;
 
 public sealed class HetznerClient
 {

@@ -5,7 +5,7 @@ using MihuBot.Configuration;
 
 #nullable enable
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.AI;
 
 // Based on https://github.com/dotnet/extensions/blob/main/src/Libraries/Microsoft.Extensions.AI/ChatCompletion/LoggingChatClient.cs
 public sealed class LoggingChatClient : DelegatingChatClient

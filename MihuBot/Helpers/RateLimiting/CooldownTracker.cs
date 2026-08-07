@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
 
-namespace MihuBot.Helpers;
+namespace MihuBot.Helpers.RateLimiting;
 
 public class CooldownTracker
 {

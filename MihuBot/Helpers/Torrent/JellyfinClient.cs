@@ -1,4 +1,4 @@
-﻿namespace MihuBot.Helpers;
+﻿namespace MihuBot.Helpers.Torrent;
 
 public sealed class JellyfinClient
 {
