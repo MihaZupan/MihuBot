@@ -135,7 +135,7 @@ else
             {
                 <tr>
                     <td scope="row">@alert.Nickname</td>
-                    <td>@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td>
+                    <td>@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC (@((DateTime.UtcNow - alert.CreatedAt).ToElapsedTime()) ago)</td>
                     <td>
                         @if (alert.Type != MollyAlertType.Unknown)
                         {

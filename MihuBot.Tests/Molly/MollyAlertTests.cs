@@ -105,11 +105,11 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
-    public async Task LocationAlert_DoesNotLosePrecision()
+    public async Task LocationAlert_RoundsTheTextButKeepsTheLinkPrecise()
     {
         (string token, Guid id) = await RegisterAsync();
 
-        // More decimals than any GPS actually resolves, to prove nothing is silently rounded away.
+        // More decimals than any GPS actually resolves.
         const double Latitude = 51.50073456789;
         const double Longitude = -0.12345678901234;
 
@@ -117,8 +117,8 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
 
         MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
 
-        Assert.Contains(Latitude.ToString(CultureInfo.InvariantCulture), alert.Summary);
-        Assert.Contains(Longitude.ToString(CultureInfo.InvariantCulture), alert.Summary);
+        // The displayed text is rounded to five decimals, the map link keeps every digit.
+        Assert.Equal("51.50073, -0.12346", alert.Summary);
         Assert.Contains($"mlat={Latitude.ToString(CultureInfo.InvariantCulture)}", alert.MapUrl);
         Assert.Contains($"mlon={Longitude.ToString(CultureInfo.InvariantCulture)}", alert.MapUrl);
     }

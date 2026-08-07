@@ -42,6 +42,9 @@ public sealed class MollyService
     /// <summary>Only the newest alerts are kept per device.</summary>
     private const int MaxAlertsPerEntry = 100;
 
+    /// <summary>The admin dashboard, linked from alert emails.</summary>
+    private const string DashboardUrl = "https://mihubot.xyz/molly";
+
     private const int ServerHmacLength = 64;
     private const int AesKeyLength = XAesGcm.KeySizeInBytes; // 32, AES256
     private const int NonceLength = XAesGcm.NonceSizeInBytes; // 24
@@ -363,6 +366,13 @@ public sealed class MollyService
                 return;
             }
 
+            string body =
+                $"""
+                {emailBody}
+
+                See {DashboardUrl} for the full history.
+                """;
+
             // One message per recipient, so that they don't see who else is being notified.
             foreach (string address in to.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
@@ -372,7 +382,7 @@ public sealed class MollyService
                     // skipped rather than mailed in the clear. Inline PGP can't hide the subject, so
                     // it's kept generic to avoid leaking the device nickname.
                     if (_protonEncryptor is null ||
-                        await _protonEncryptor.TryEncryptAsync(address, emailBody, CancellationToken.None) is not { } encryptedBody)
+                        await _protonEncryptor.TryEncryptAsync(address, body, CancellationToken.None) is not { } encryptedBody)
                     {
                         _logger.LogWarning("Skipping the Molly alert email, no Proton key for the recipient");
                         continue;

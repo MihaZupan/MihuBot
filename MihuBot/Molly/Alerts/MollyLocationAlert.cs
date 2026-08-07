@@ -30,10 +30,9 @@ public sealed class MollyLocationAlert
 
     public override string ToString()
     {
-        // Coordinates are written out in full: the payload has whatever precision the device reported,
-        // and rounding here would move the marker away from where it actually was. The accuracy radius
-        // is only ever an estimate, so it's rounded to keep the summary readable.
-        string location = string.Create(CultureInfo.InvariantCulture, $"{Latitude}, {Longitude}");
+        // The link keeps full precision; the text is rounded to keep the summary readable. Five
+        // decimals is roughly metre-level, well under the accuracy any phone GPS actually reports.
+        string location = string.Create(CultureInfo.InvariantCulture, $"{Latitude:0.#####}, {Longitude:0.#####}");
 
         return Accuracy is { } accuracy
             ? string.Create(CultureInfo.InvariantCulture, $"{location} (±{accuracy:0.#}m)")
