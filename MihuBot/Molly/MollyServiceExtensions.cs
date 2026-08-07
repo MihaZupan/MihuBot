@@ -1,5 +1,5 @@
+using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,9 +16,7 @@ public static class MollyServiceExtensions
     /// <summary>Requests larger than this are rejected by the server while the body is being read.</summary>
     private const int MaxRequestBodyLength = 8 * 1024;
 
-    public const string AppSignatureHeader = "X-App-Signature";
-
-    private const string RequestBodyKey = "MollyRequestBody";
+    private const string EncryptedContentType = "application/octet-stream";
 
     /// <summary>
     /// Registers the Molly services. The caller is responsible for checking
@@ -28,100 +26,167 @@ public static class MollyServiceExtensions
     {
         services.TryAddSingleton<MollyRateLimiter>();
         services.TryAddSingleton<MollyIdProtector>();
+        services.TryAddSingleton<MollyRequestProtector>();
         services.TryAddSingleton<ProtonMailEncryptor>();
         services.TryAddSingleton<MollyService>();
 
         return services;
     }
 
+    /// <summary>
+    /// Maps the single Molly endpoint. Everything - which operation to run and what came of it -
+    /// travels inside an encrypted body (see <see cref="MollyRequestProtector"/>), so there is
+    /// nothing left to distinguish by path or status code.
+    /// </summary>
     public static RouteGroupBuilder MapMollyApis(this RouteGroupBuilder group)
     {
-        // Rate limiting and the app signature check apply to every endpoint in the group.
-        group.AddEndpointFilter(ValidateRequestAsync);
-
-        group.MapPost("login", static async (HttpContext context, MollyService molly, CancellationToken cancellationToken) =>
-        {
-            if (GetRequest<MollyLoginRequest>(context) is not { } request)
-            {
-                return Results.BadRequest();
-            }
-
-            MollyLoginResult result = await molly.LoginAsync(request.KeyHash, cancellationToken);
-
-            return result.Status switch
-            {
-                // A non-blocking command rides along with the normal payload.
-                MollyResultStatus.Ok => Results.Ok(new MollyLoginResponse
-                {
-                    ServerHmac = Convert.ToBase64String(result.ServerHmac!),
-                    Id = result.ProtectedId,
-                    Command = result.Command.ToWireValue(),
-                }),
-                MollyResultStatus.Command => Results.Ok(new MollyLoginResponse { Command = result.Command.ToWireValue() }),
-                _ => Results.BadRequest(),
-            };
-        });
-
-        group.MapPost("associate", static async (HttpContext context, MollyService molly, CancellationToken cancellationToken) =>
-        {
-            if (GetRequest<MollyAssociateRequest>(context) is not { } request)
-            {
-                return Results.BadRequest();
-            }
-
-            MollyCommandResult result = await molly.AssociateAsync(request.Id, request.Nickname, cancellationToken);
-
-            return ToResult(result, static command => new MollyCommandResponse { Command = command });
-        });
-
-        group.MapPost("ping", static async (HttpContext context, MollyService molly, CancellationToken cancellationToken) =>
-        {
-            if (GetRequest<MollyPingRequest>(context) is not { } request)
-            {
-                return Results.BadRequest();
-            }
-
-            MollyCommandResult result = await molly.PingAsync(request.Id, cancellationToken);
-
-            return ToResult(result, static command => new MollyPingResponse { Command = command });
-        });
-
-        group.MapPost("alert", static async (HttpContext context, MollyService molly, CancellationToken cancellationToken) =>
-        {
-            // The payload is arbitrary beyond the id, so the raw body is stored as-is.
-            if (GetRequest<MollyAlertRequest>(context) is not { } request)
-            {
-                return Results.BadRequest();
-            }
-
-            MollyCommandResult result = await molly.SubmitAlertAsync(request.Id, GetRequestBody(context), cancellationToken);
-
-            return ToResult(result, static command => new MollyCommandResponse { Command = command });
-        });
+        group.MapPost("", HandleRequestAsync);
 
         return group;
     }
 
-    /// <summary>The raw bytes that <see cref="ValidateRequestAsync"/> read and verified.</summary>
-    private static byte[] GetRequestBody(HttpContext context) => (byte[])context.Items[RequestBodyKey]!;
+    private static async Task<IResult> HandleRequestAsync(HttpContext context, MollyService molly, MollyRequestProtector protector, CancellationToken cancellationToken)
+    {
+        var rateLimiter = context.RequestServices.GetRequiredService<MollyRateLimiter>();
+
+        if (!rateLimiter.TryEnter(context, out TimeSpan retryAfter))
+        {
+            context.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+            return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        if (await TryReadBodyAsync(context) is not { } body)
+        {
+            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+        }
+
+        // A body that isn't sealed to our public key (or is a stale/replayed request) didn't come from
+        // the app, so there's nobody to hand a meaningful (and encryptable) answer to.
+        if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey))
+        {
+            return Results.BadRequest();
+        }
+
+        MollyApiResponse response = await ExecuteAsync(molly, request, cancellationToken);
+
+        return Results.Bytes(protector.EncryptResponse(response, sessionKey), EncryptedContentType);
+    }
+
+    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, CancellationToken cancellationToken)
+    {
+        switch (request.Action)
+        {
+            case MollyApiActions.Login:
+            {
+                if (GetData<MollyLoginRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                MollyLoginResult result = await molly.LoginAsync(data.KeyHash, cancellationToken);
+
+                return new MollyApiResponse
+                {
+                    Status = result.Status.ToWireValue(),
+                    Data = result.Status switch
+                    {
+                        // A non-blocking command rides along with the normal payload.
+                        MollyResultStatus.Ok => new MollyLoginResponse
+                        {
+                            ServerHmac = Convert.ToBase64String(result.ServerHmac!),
+                            Id = result.ProtectedId,
+                            Command = result.Command.ToWireValue(),
+                        },
+                        MollyResultStatus.Command => new MollyLoginResponse { Command = result.Command.ToWireValue() },
+                        _ => null,
+                    },
+                };
+            }
+
+            case MollyApiActions.Associate:
+            {
+                if (GetData<MollyAssociateRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                MollyCommandResult result = await molly.AssociateAsync(data.Id, data.Nickname, cancellationToken);
+
+                return ToResponse(result, static command => new MollyCommandResponse { Command = command });
+            }
+
+            case MollyApiActions.Ping:
+            {
+                if (GetData<MollyPingRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                MollyCommandResult result = await molly.PingAsync(data.Id, cancellationToken);
+
+                return ToResponse(result, static command => new MollyPingResponse { Command = command });
+            }
+
+            case MollyApiActions.Alert:
+            {
+                // The payload is arbitrary beyond the id, so the raw data object is stored as-is.
+                if (GetData<MollyAlertRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                byte[] payload = Encoding.UTF8.GetBytes(request.Data.GetRawText());
+
+                MollyCommandResult result = await molly.SubmitAlertAsync(data.Id, payload, cancellationToken);
+
+                return ToResponse(result, static command => new MollyCommandResponse { Command = command });
+            }
+
+            default:
+                return Invalid();
+        }
+    }
 
     /// <summary>
-    /// Deserializes the body that <see cref="ValidateRequestAsync"/> already read and verified.
-    /// The endpoints can't bind it directly: minimal API filters run after model binding, so the
-    /// signature check would otherwise see an already-consumed stream.
+    /// Reads the body, letting the server enforce the size limit while it does instead of counting bytes here.
     /// </summary>
-    /// <returns>
-    /// Null if the body isn't valid JSON for <typeparamref name="T"/>, or is the literal <c>null</c>,
-    /// which the endpoints turn into a 400.
-    /// </returns>
-    private static T? GetRequest<T>(HttpContext context) where T : class
+    /// <returns>Null if the body was over-sized or otherwise malformed.</returns>
+    private static async Task<byte[]?> TryReadBodyAsync(HttpContext context)
     {
-        // The filter runs for every endpoint in the group, so the body is always present by this point.
-        byte[] body = GetRequestBody(context);
+        // Failing closed: without the limit an unbounded body would be buffered into memory.
+        if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is not { IsReadOnly: false } maxBodySize)
+        {
+            throw new InvalidOperationException(
+                $"Can't set the request body size limit. The server must support " +
+                $"{nameof(IHttpMaxRequestBodySizeFeature)} and the body must not have been read yet.");
+        }
+
+        maxBodySize.MaxRequestBodySize = MaxRequestBodyLength;
 
         try
         {
-            return JsonSerializer.Deserialize<T>(body);
+            using var buffer = new MemoryStream();
+            await context.Request.Body.CopyToAsync(buffer, context.RequestAborted);
+            return buffer.ToArray();
+        }
+        catch (BadHttpRequestException)
+        {
+            // Thrown for an over-sized or otherwise malformed body.
+            return null;
+        }
+    }
+
+    /// <returns>Null if <see cref="MollyApiRequest.Data"/> isn't a JSON object for <typeparamref name="T"/>.</returns>
+    private static T? GetData<T>(MollyApiRequest request) where T : class
+    {
+        if (request.Data.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        try
+        {
+            return request.Data.Deserialize<T>();
         }
         catch (JsonException)
         {
@@ -129,67 +194,18 @@ public static class MollyServiceExtensions
         }
     }
 
-    /// <summary>
-    /// Applies the per-IP rate limit and verifies the app signature over the raw request bytes,
-    /// which are then stashed for the endpoint to deserialize.
-    /// </summary>
-    private static async ValueTask<object?> ValidateRequestAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    private static MollyApiResponse Invalid() => new() { Status = MollyResultStatus.InvalidRequest.ToWireValue() };
+
+    private static MollyApiResponse ToResponse<TResponse>(MollyCommandResult result, Func<string?, TResponse> createResponse)
     {
-        HttpContext httpContext = context.HttpContext;
-        HttpRequest request = httpContext.Request;
-
-        var rateLimiter = httpContext.RequestServices.GetRequiredService<MollyRateLimiter>();
-
-        if (!rateLimiter.TryEnter(httpContext, out TimeSpan retryAfter))
+        return new MollyApiResponse
         {
-            httpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
-            return Results.StatusCode(StatusCodes.Status429TooManyRequests);
-        }
+            Status = result.Status.ToWireValue(),
 
-        // Let the server enforce the size limit while the body is read, instead of counting bytes here.
-        // Failing closed: without the limit an unbounded body would be buffered into memory.
-        if (httpContext.Features.Get<IHttpMaxRequestBodySizeFeature>() is not { IsReadOnly: false } maxBodySize)
-        {
-            throw new InvalidOperationException(
-                $"Can't set the request body size limit for '{request.GetEncodedPathAndQuery()}'. " +
-                $"The server must support {nameof(IHttpMaxRequestBodySizeFeature)} and the body must not have been read yet.");
-        }
-
-        maxBodySize.MaxRequestBodySize = MaxRequestBodyLength;
-
-        byte[] body;
-        try
-        {
-            using var buffer = new MemoryStream();
-            await request.Body.CopyToAsync(buffer, httpContext.RequestAborted);
-            body = buffer.ToArray();
-        }
-        catch (BadHttpRequestException ex)
-        {
-            // Thrown for an over-sized or otherwise malformed body.
-            return Results.StatusCode(ex.StatusCode);
-        }
-
-        var molly = httpContext.RequestServices.GetRequiredService<MollyService>();
-
-        if (request.Headers[AppSignatureHeader] is not [{ Length: > 0 } signature] ||
-            !molly.VerifyAppSignature(signature, request.GetEncodedPathAndQuery(), body))
-        {
-            return Results.Unauthorized();
-        }
-
-        httpContext.Items[RequestBodyKey] = body;
-
-        return await next(context);
-    }
-
-    private static IResult ToResult<TResponse>(MollyCommandResult result, Func<string?, TResponse> createResponse)
-    {
-        return result.Status switch
-        {
             // Ok may still carry a non-blocking command, so both cases report it.
-            MollyResultStatus.Ok or MollyResultStatus.Command => Results.Ok(createResponse(result.Command.ToWireValue())),
-            _ => Results.BadRequest(),
+            Data = result.Status is MollyResultStatus.Ok or MollyResultStatus.Command
+                ? createResponse(result.Command.ToWireValue())
+                : null,
         };
     }
 }

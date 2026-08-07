@@ -122,28 +122,13 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         string tooShort = Convert.ToBase64String(new byte[16]);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => _fixture.CreateService(tooShort, MollyTestKeys.AppSecret));
-    }
-
-    [Theory]
-    [InlineData(16)]
-    [InlineData(32)]
-    [InlineData(63)]
-    [InlineData(65)]
-    [InlineData(128)]
-    public void Configuration_RejectsAnAppSecretOfTheWrongLength(int length)
-    {
-        // The app secret is a full HMAC-SHA512 key, so anything but exactly 64 bytes is a misconfiguration.
-        string wrongLength = Convert.ToBase64String(new byte[length]);
-
-        Assert.Throws<ArgumentOutOfRangeException>(() => _fixture.CreateService(MollyTestKeys.ServerKey, wrongLength));
+        Assert.Throws<ArgumentOutOfRangeException>(() => _fixture.CreateService(tooShort, MollyTestKeys.TransportPrivateKey));
     }
 
     [Fact]
     public void Configuration_RejectsSecretsThatArentBase64()
     {
-        Assert.Throws<FormatException>(() => _fixture.CreateService("not base64!", MollyTestKeys.AppSecret));
-        Assert.Throws<FormatException>(() => _fixture.CreateService(MollyTestKeys.ServerKey, "not base64!"));
+        Assert.Throws<FormatException>(() => _fixture.CreateService("not base64!", MollyTestKeys.TransportPrivateKey));
     }
 
     [Fact]
@@ -152,7 +137,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         string keyHash = MollyTestKeys.NewKeyHash();
         MollyLoginResult original = await RegisterAsync(keyHash);
 
-        MollyService otherServer = _fixture.CreateService(MollyTestKeys.OtherServerKey, MollyTestKeys.AppSecret);
+        MollyService otherServer = _fixture.CreateService(MollyTestKeys.OtherDatabaseKey, MollyTestKeys.TransportPrivateKey);
         MollyLoginResult result = await otherServer.LoginAsync(keyHash, default);
 
         Assert.NotEqual(IdOf(original), IdOf(result));
@@ -353,15 +338,44 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
-    public async Task Associate_TokenForADeletedEntry_IsRejected()
+    public async Task Associate_TokenForADeletedEntry_ReturnsWipe()
     {
         MollyLoginResult login = await RegisterAsync();
 
         await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
-        // Tokens outlive the entries they point at, so a stale one is just an invalid request.
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.AssociateAsync(login.ProtectedId, "mihu", default)).Status);
+        // The token still decrypts, but its entry - and the key material needed to recover the
+        // device's data - is gone, so the device is told to wipe rather than left on a dead token.
+        MollyCommandResult result = await Molly.AssociateAsync(login.ProtectedId, "mihu", default);
+        Assert.Equal(MollyResultStatus.Command, result.Status);
+        Assert.Equal(MollyCommand.Wipe, result.Command);
+    }
+
+    [Fact]
+    public async Task Ping_TokenForADeletedEntry_ReturnsWipe()
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await Molly.DeleteUnassociatedEntriesAsync();
+
+        MollyCommandResult result = await Molly.PingAsync(login.ProtectedId, default);
+        Assert.Equal(MollyResultStatus.Command, result.Status);
+        Assert.Equal(MollyCommand.Wipe, result.Command);
+    }
+
+    [Fact]
+    public async Task Alert_TokenForADeletedEntry_ReturnsWipe()
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await Molly.DeleteUnassociatedEntriesAsync();
+
+        MollyCommandResult result = await Molly.SubmitAlertAsync(login.ProtectedId, Encoding.UTF8.GetBytes("""{"type":"test"}"""), default);
+        Assert.Equal(MollyResultStatus.Command, result.Status);
+        Assert.Equal(MollyCommand.Wipe, result.Command);
     }
 
     [Fact]
@@ -390,7 +404,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task Ping_TokenFromAnotherServerKey_IsRejected()
     {
         // Tokens are bound to the server key, so one issued under a different key can't be unprotected.
-        string foreignToken = new MollyIdProtector(MollyTestKeys.OtherServerKeyBytes).Protect(Guid.NewGuid());
+        string foreignToken = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
 
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(foreignToken, default)).Status);
     }

@@ -33,16 +33,22 @@ public static class OptionalFeatures
     public static readonly OptionalFeature GoogleMaps = new("Map images for Telegram location updates", "GoogleMaps:ApiKey");
     public static readonly OptionalFeature Minecraft = new("Minecraft RCON (!mc, minecraft-remote page)", "Minecraft:Host", "Minecraft:RconPassword");
 
-    /// <summary>Mixed into the stored key hashes. Never leaves the server. Base64 encoded key material.</summary>
-    public const string MollyServerKeyName = "Molly:ServerKey";
+    /// <summary>
+    /// The database key: mixed into stored key hashes and used to derive the at-rest encryption keys
+    /// for entry fields and id tokens (<see cref="MihuBot.Molly.MollyIdProtector"/>). Protects data at
+    /// rest; unrelated to the wire transport. Never leaves the server. Base64 encoded key material.
+    /// </summary>
+    public const string MollyDatabaseKeyName = "Molly:DatabaseKey";
 
     /// <summary>
-    /// Shared with (and hardcoded into) the closed-source Molly client, which signs its requests with it.
-    /// Base64 encoded key material.
+    /// The transport key: the server's static X25519 private key. Its public half is hardcoded into
+    /// the closed-source Molly client, which seals its requests to it (X25519 + HKDF + XAES-256-GCM).
+    /// Protects requests/responses on the wire; unrelated to the database. Never leaves the server.
+    /// Base64 encoded raw 32-byte key.
     /// </summary>
-    public const string MollyAppSecretName = "Molly:AppSecret";
+    public const string MollyTransportPrivateKeyName = "Molly:TransportPrivateKey";
 
-    public static readonly OptionalFeature Molly = new("Molly remote lockout support (api/Molly, molly page)", MollyServerKeyName, MollyAppSecretName);
+    public static readonly OptionalFeature Molly = new("Molly remote lockout support (api/Molly, molly page)", MollyDatabaseKeyName, MollyTransportPrivateKeyName);
 
     /// <summary>Azure Communication Services connection string used to send Molly alert emails.</summary>
     public const string MollyAlertEmailConnectionStringName = "Molly:AlertEmailConnectionString";

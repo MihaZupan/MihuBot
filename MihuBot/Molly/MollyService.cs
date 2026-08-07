@@ -21,8 +21,8 @@ namespace MihuBot.Molly;
 /// Backend for the remote lockout support in the Molly Android app.
 /// </summary>
 /// <remarks>
-/// The server never sees the user's key, only a hash of it. That hash is mixed with a static server key
-/// (<c>HMAC-SHA512(keyHash, serverKey)</c>) before it's stored or compared, so a database leak alone
+/// The server never sees the user's key, only a hash of it. That hash is mixed with the static database
+/// key (<c>HMAC-SHA512(keyHash, databaseKey)</c>) before it's stored or compared, so a database leak alone
 /// can't be used to brute-force weak client keys.
 /// </remarks>
 public sealed class MollyService
@@ -46,13 +46,11 @@ public sealed class MollyService
     private const string DashboardUrl = "https://mihubot.xyz/molly";
 
     private const int ServerHmacLength = 64;
-    private const int AesKeyLength = XAesGcm.KeySizeInBytes; // 32, AES256
     private const int NonceLength = XAesGcm.NonceSizeInBytes; // 24
     private const int TagLength = XAesGcm.TagSizeInBytes; // 16
     private const int IdLength = 16; // Guid
     private const int MinKeyHashLength = 32;
     private const int MaxKeyHashLength = 256;
-    private const int AppSecretLength = 64;
 
     /// <summary>
     /// Nicknames are padded to a fixed size before they're encrypted. GCM is a stream cipher, so
@@ -83,8 +81,7 @@ public sealed class MollyService
     private readonly SimpleRateLimiter _emailRateLimiter = new(TimeSpan.FromMinutes(30), maxTolerance: 1);
 
     private readonly MollyIdProtector _idProtector;
-    private readonly byte[] _serverKey;
-    private readonly byte[] _appSecret;
+    private readonly byte[] _databaseKey;
 
     public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null)
     {
@@ -102,52 +99,15 @@ public sealed class MollyService
         }
 
         // Trusted configuration, so a malformed value can just throw on startup.
-        _serverKey = Convert.FromBase64String(configuration[OptionalFeatures.MollyServerKeyName]!);
-        _appSecret = Convert.FromBase64String(configuration[OptionalFeatures.MollyAppSecretName]!);
+        _databaseKey = Convert.FromBase64String(configuration[OptionalFeatures.MollyDatabaseKeyName]!);
 
-        ArgumentOutOfRangeException.ThrowIfLessThan(_serverKey.Length, MinKeyHashLength, OptionalFeatures.MollyServerKeyName);
-        ArgumentOutOfRangeException.ThrowIfNotEqual(_appSecret.Length, AppSecretLength, OptionalFeatures.MollyAppSecretName);
+        ArgumentOutOfRangeException.ThrowIfLessThan(_databaseKey.Length, MinKeyHashLength, OptionalFeatures.MollyDatabaseKeyName);
 
         if (discordLogger is not null)
         {
             PeriodicTask.Start("MollyMaintenance",
                 new PeriodicTaskOptions { Interval = TimeSpan.FromHours(1), RunImmediately = true },
                 discordLogger, RunMaintenanceAsync);
-        }
-    }
-
-    /// <summary>
-    /// Checks the <c>X-App-Signature</c> header, which the client computes as
-    /// <c>HMAC-SHA512(utf8(requestUri) || body, appSecret)</c> using a secret baked into the (closed source) app,
-    /// and sends as base64.
-    /// </summary>
-    /// <remarks>
-    /// This is spam protection, not authentication - the secret is extractable from the app and the signature
-    /// is replayable. It only exists so that random internet traffic can't create junk entries.
-    /// </remarks>
-    /// <param name="requestUri">The encoded path and query of the request, e.g. <c>/api/molly/login</c>.</param>
-    public bool VerifyAppSignature(string? signature, string requestUri, ReadOnlySpan<byte> body)
-    {
-        if (!TryDecodeBase64(signature, HMACSHA512.HashSizeInBytes, HMACSHA512.HashSizeInBytes, out byte[] provided))
-        {
-            return false;
-        }
-
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(requestUri.Length) + body.Length);
-
-        try
-        {
-            int uriLength = Encoding.UTF8.GetBytes(requestUri, buffer);
-            body.CopyTo(buffer.AsSpan(uriLength));
-
-            Span<byte> expected = stackalloc byte[HMACSHA512.HashSizeInBytes];
-            HMACSHA512.HashData(_appSecret, buffer.AsSpan(0, uriLength + body.Length), expected);
-
-            return CryptographicOperations.FixedTimeEquals(expected, provided);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
@@ -225,8 +185,10 @@ public sealed class MollyService
 
         if (entry is null)
         {
-            // The entry was deleted, so the token is stale - same as any other unusable token.
-            return MollyCommandResult.Invalid;
+            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
+            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
+            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
+            return MollyCommandResult.Blocked(MollyCommand.Wipe);
         }
 
         // The id is the caller's session token rather than part of the alert, and the row is already
@@ -300,8 +262,8 @@ public sealed class MollyService
                         }
                         break;
 
-                    case MollyAlertType.CommandAck:
-                        // Deliberately not notified - the ack is only ever reviewed on the dashboard.
+                    case MollyAlertType.Status:
+                        // Status reports are only reviewed on the dashboard, not announced.
                         break;
 
                     case MollyAlertType.Unknown:
@@ -416,11 +378,9 @@ public sealed class MollyService
                 MollyLocationAlert? location = envelope.TryGetData<MollyLocationAlert>();
                 return (MollyAlertType.Location, location?.ToString(), location?.MapUrl);
 
-            case MollyAlertType.CommandAck:
-                MollyCommandAckAlert? ack = envelope.TryGetData<MollyCommandAckAlert>();
-                return (MollyAlertType.CommandAck,
-                    ack is { IsValid: true } ? $"Acknowledged {ack.AcknowledgedCommand.ToWireValue()}" : null,
-                    null);
+            case MollyAlertType.Status:
+                MollyStatusAlert? status = envelope.TryGetData<MollyStatusAlert>();
+                return (MollyAlertType.Status, status?.Summary, null);
 
             case MollyAlertType.Unknown:
             default:
@@ -523,7 +483,7 @@ public sealed class MollyService
             return MollyLoginResult.Invalid;
         }
 
-        byte[] derivedHash = HMACSHA512.HashData(_serverKey, keyHashBytes);
+        byte[] derivedHash = HMACSHA512.HashData(_databaseKey, keyHashBytes);
         int hashPrefix = derivedHash[0];
 
         await using MollyDbContext db = _db.CreateDbContext();
@@ -616,8 +576,10 @@ public sealed class MollyService
 
         if (entry is null)
         {
-            // The entry was deleted, so the token is stale - same as any other unusable token.
-            return MollyCommandResult.Invalid;
+            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
+            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
+            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
+            return MollyCommandResult.Blocked(MollyCommand.Wipe);
         }
 
         MollyCommand command = GetPendingCommand(entry);
@@ -656,8 +618,10 @@ public sealed class MollyService
 
         if (entry is null)
         {
-            // The entry was deleted, so the token is stale - same as any other unusable token.
-            return MollyCommandResult.Invalid;
+            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
+            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
+            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
+            return MollyCommandResult.Blocked(MollyCommand.Wipe);
         }
 
         MollyCommand command = GetPendingCommand(entry);
@@ -870,9 +834,9 @@ public sealed class MollyService
         Debug.Assert(wrote);
 
         Span<byte> hash = stackalloc byte[HMACSHA512.HashSizeInBytes];
-        HMACSHA512.HashData(_serverKey, idBytes, hash);
+        HMACSHA512.HashData(_databaseKey, idBytes, hash);
 
-        return hash[..AesKeyLength].ToArray();
+        return hash.Slice(0, XAesGcm.KeySizeInBytes).ToArray();
     }
 
     private XAesGcm CreateAead(Guid id)
@@ -940,9 +904,9 @@ public sealed class MollyService
 
         using XAesGcm aead = CreateAead(id);
         aead.Decrypt(
-            nonceCiphertextAndTag[..NonceLength],
+            nonceCiphertextAndTag.Slice(0, NonceLength),
             nonceCiphertextAndTag.Slice(NonceLength, plaintextLength),
-            nonceCiphertextAndTag[(NonceLength + plaintextLength)..],
+            nonceCiphertextAndTag.Slice(NonceLength + plaintextLength),
             plaintext,
             idBytes);
 

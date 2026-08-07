@@ -12,35 +12,41 @@ namespace MihuBot.Tests.Molly;
 
 /// <summary>
 /// Test keys. These only ever exist in tests - the real ones come from configuration.
-/// Secrets are base64 encoded key material: the server key decodes to 32 bytes, the app
-/// secret to the exact 64 bytes <see cref="MollyService"/> requires.
+/// The database key is base64 32-byte key material for <see cref="MollyIdProtector"/> and the at-rest
+/// encryption; the transport private key is a raw 32-byte X25519 private key for
+/// <see cref="MollyRequestProtector"/>, and the client seals requests to its matching public key.
 /// </summary>
 public static class MollyTestKeys
 {
-    public const string ServerKey = "bW9sbHktdGVzdC1zZXJ2ZXIta2V5LTAxMjM0NTY3ODk=";
-    public const string AppSecret = "bW9sbHktdGVzdC1hcHAtc2VjcmV0LTAxMjM0NTY3ODktbW9sbHktdGVzdC1hcHAtc2VjcmV0LTAxMjM0NTY3OA==";
+    public const string DatabaseKey = "bW9sbHktdGVzdC1zZXJ2ZXIta2V5LTAxMjM0NTY3ODk=";
+    public const string TransportPrivateKey = "bW9sbHktdGVzdC1hcHAtc2VjcmV0LTAxMjM0NTY3ODk=";
 
-    /// <summary>A second set, for checking that a different secret doesn't validate.</summary>
-    public const string OtherServerKey = "bW9sbHktb3RoZXItc2VydmVyLWtleS0wMTIzNDU2Nzg=";
-    public const string OtherAppSecret = "bW9sbHktb3RoZXItYXBwLXNlY3JldC0wMTIzNDU2Nzg5LW1vbGx5LW90aGVyLWFwcC1zZWNyZXQtMDEyMzQ1Ng==";
-
-    /// <summary>Computes the <c>X-App-Signature</c> value the client is expected to send.</summary>
-    public static string Sign(string requestUri, ReadOnlySpan<byte> body, string appSecret = AppSecret)
-    {
-        byte[] data = [.. Encoding.UTF8.GetBytes(requestUri), .. body];
-
-        return Convert.ToBase64String(HMACSHA512.HashData(Convert.FromBase64String(appSecret), data));
-    }
-
-    public static string Sign(string requestUri, string body, string appSecret = AppSecret) =>
-        Sign(requestUri, Encoding.UTF8.GetBytes(body), appSecret);
+    /// <summary>A second set, for checking that a mismatched key doesn't validate.</summary>
+    public const string OtherDatabaseKey = "bW9sbHktb3RoZXItc2VydmVyLWtleS0wMTIzNDU2Nzg=";
+    public const string OtherTransportPrivateKey = "bW9sbHktb3RoZXItYXBwLXNlY3JldC0wMTIzNDU2Nzg=";
 
     /// <summary>A random, correctly encoded client key hash.</summary>
     public static string NewKeyHash() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
-    public static byte[] ServerKeyBytes => Convert.FromBase64String(ServerKey);
+    public static byte[] DatabaseKeyBytes => Convert.FromBase64String(DatabaseKey);
 
-    public static byte[] OtherServerKeyBytes => Convert.FromBase64String(OtherServerKey);
+    public static byte[] OtherDatabaseKeyBytes => Convert.FromBase64String(OtherDatabaseKey);
+
+    public static byte[] TransportPrivateKeyBytes => Convert.FromBase64String(TransportPrivateKey);
+
+    public static byte[] OtherTransportPrivateKeyBytes => Convert.FromBase64String(OtherTransportPrivateKey);
+
+    /// <summary>The public half of <see cref="TransportPrivateKey"/>, which the client seals requests to.</summary>
+    public static byte[] TransportPublicKeyBytes => PublicKeyOf(TransportPrivateKeyBytes);
+
+    /// <summary>The public half of <see cref="OtherTransportPrivateKey"/>.</summary>
+    public static byte[] OtherTransportPublicKeyBytes => PublicKeyOf(OtherTransportPrivateKeyBytes);
+
+    private static byte[] PublicKeyOf(byte[] privateKey)
+    {
+        using X25519DiffieHellman key = X25519DiffieHellman.ImportPrivateKey(privateKey);
+        return key.ExportPublicKey();
+    }
 }
 
 /// <summary>
@@ -53,7 +59,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
     public MollyService Service { get; private set; } = null!;
 
-    public MollyIdProtector IdProtector { get; } = new(MollyTestKeys.ServerKeyBytes);
+    public MollyIdProtector IdProtector { get; } = new(MollyTestKeys.DatabaseKeyBytes);
 
     public IDbContextFactory<MollyDbContext> DbFactory { get; private set; } = null!;
 
@@ -82,17 +88,17 @@ public sealed class MollyServiceFixture : IAsyncLifetime
             await db.Database.MigrateAsync();
         }
 
-        Service = CreateService(MollyTestKeys.ServerKey, MollyTestKeys.AppSecret);
+        Service = CreateService(MollyTestKeys.DatabaseKey, MollyTestKeys.TransportPrivateKey);
     }
 
-    /// <summary>Creates another service over the same database, e.g. to test a different secret.</summary>
-    public MollyService CreateService(string serverKey, string appSecret)
+    /// <summary>Creates another service over the same database, e.g. to test a different key.</summary>
+    public MollyService CreateService(string databaseKey, string transportPrivateKey)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Molly:ServerKey"] = serverKey,
-                ["Molly:AppSecret"] = appSecret,
+                ["Molly:DatabaseKey"] = databaseKey,
+                ["Molly:TransportPrivateKey"] = transportPrivateKey,
             })
             .Build();
 

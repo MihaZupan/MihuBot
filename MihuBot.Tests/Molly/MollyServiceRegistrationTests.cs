@@ -17,8 +17,8 @@ public sealed class MollyServiceRegistrationTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(Configuration(
-            ("Molly:ServerKey", MollyTestKeys.ServerKey),
-            ("Molly:AppSecret", MollyTestKeys.AppSecret)));
+            ("Molly:DatabaseKey", MollyTestKeys.DatabaseKey),
+            ("Molly:TransportPrivateKey", MollyTestKeys.TransportPrivateKey)));
         services.AddMollyServices();
 
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -49,8 +49,8 @@ public sealed class MollyServiceRegistrationTests
     public void TheFeature_IsEnabled_WhenBothKeysAreConfigured()
     {
         IConfiguration configuration = Configuration(
-            ("Molly:ServerKey", "key"),
-            ("Molly:AppSecret", "secret"));
+            ("Molly:DatabaseKey", "key"),
+            ("Molly:TransportPrivateKey", "secret"));
 
         Assert.True(configuration.IsConfigured(OptionalFeatures.Molly));
     }
@@ -62,8 +62,8 @@ public sealed class MollyServiceRegistrationTests
     }
 
     [Theory]
-    [InlineData("Molly:ServerKey")]
-    [InlineData("Molly:AppSecret")]
+    [InlineData("Molly:DatabaseKey")]
+    [InlineData("Molly:TransportPrivateKey")]
     public void TheFeature_IsDisabled_WhenAKeyIsMissing(string configuredKey)
     {
         // Both keys are required - a half configured deployment must not serve the API.
@@ -76,8 +76,8 @@ public sealed class MollyServiceRegistrationTests
     public void TheFeature_IsDisabled_WhenAKeyIsBlank(string value)
     {
         IConfiguration configuration = Configuration(
-            ("Molly:ServerKey", "key"),
-            ("Molly:AppSecret", value));
+            ("Molly:DatabaseKey", "key"),
+            ("Molly:TransportPrivateKey", value));
 
         Assert.False(configuration.IsConfigured(OptionalFeatures.Molly));
     }

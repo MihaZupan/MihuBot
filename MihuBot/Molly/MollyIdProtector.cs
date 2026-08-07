@@ -11,9 +11,9 @@ namespace MihuBot.Molly;
 /// Wraps entry ids in an opaque, authenticated token so the database identifier is never handed to a client.
 /// </summary>
 /// <remarks>
-/// The key is derived from the static server key, so tokens stay valid across restarts. Clients that are
-/// already running but not currently logged in can keep pinging instead of being forced through a new login
-/// every time the service is redeployed. XAES-256-GCM is used so the token is both encrypted and
+/// The key is derived from the static database key, so tokens stay valid across restarts. Clients that
+/// are already running but not currently logged in can keep pinging instead of being forced through a new
+/// login every time the service is redeployed. XAES-256-GCM is used so the token is both encrypted and
 /// authenticated - a client can neither read an id out of a token nor forge or tamper with one.
 /// <para>
 /// XAES-256-GCM rather than plain AES-GCM because its 192-bit nonce can be randomly generated without a
@@ -23,16 +23,14 @@ namespace MihuBot.Molly;
 /// </remarks>
 public sealed class MollyIdProtector
 {
-    private const int NonceLength = XAesGcm.NonceSizeInBytes; // 24
-    private const int TagLength = XAesGcm.TagSizeInBytes; // 16
     private const int IdLength = 16; // Guid
 
-    private const int TokenLength = NonceLength + IdLength + TagLength;
+    private const int TokenLength = XAesGcm.NonceSizeInBytes + IdLength + XAesGcm.TagSizeInBytes;
 
-    /// <summary>Matches the minimum <see cref="MollyService"/> enforces for the server key.</summary>
-    private const int MinServerKeyLength = 32;
+    /// <summary>Matches the minimum <see cref="MollyService"/> enforces for the database key.</summary>
+    private const int MinDatabaseKeyLength = 32;
 
-    /// <summary>Domain separation so this key can never coincide with another use of the server key.</summary>
+    /// <summary>Domain separation so this key can never coincide with another use of the database key.</summary>
     private static ReadOnlySpan<byte> DerivationInfo => "MihuBot.Molly.MollyIdProtector.v1"u8;
 
     /// <summary>Length of <see cref="TokenLength"/> bytes once base64 encoded.</summary>
@@ -41,16 +39,16 @@ public sealed class MollyIdProtector
     private readonly XAesGcm _aead;
 
     public MollyIdProtector(IConfiguration configuration)
-        : this(Convert.FromBase64String(configuration[OptionalFeatures.MollyServerKeyName]!))
+        : this(Convert.FromBase64String(configuration[OptionalFeatures.MollyDatabaseKeyName]!))
     { }
 
     /// <summary>Exists so tests can supply key material directly.</summary>
-    public MollyIdProtector(ReadOnlySpan<byte> serverKey)
+    public MollyIdProtector(ReadOnlySpan<byte> databaseKey)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(serverKey.Length, MinServerKeyLength, OptionalFeatures.MollyServerKeyName);
+        ArgumentOutOfRangeException.ThrowIfLessThan(databaseKey.Length, MinDatabaseKeyLength, OptionalFeatures.MollyDatabaseKeyName);
 
         Span<byte> key = stackalloc byte[XAesGcm.KeySizeInBytes];
-        HKDF.DeriveKey(HashAlgorithmName.SHA512, serverKey, key, salt: default, DerivationInfo);
+        HKDF.DeriveKey(HashAlgorithmName.SHA512, databaseKey, key, salt: default, DerivationInfo);
 
         try
         {
@@ -65,21 +63,11 @@ public sealed class MollyIdProtector
     /// <summary>Returns <c>base64(nonce || encrypted id || tag)</c>.</summary>
     public string Protect(Guid id)
     {
-        Span<byte> token = stackalloc byte[TokenLength];
-
-        Span<byte> nonce = token[..NonceLength];
-        Span<byte> ciphertext = token.Slice(NonceLength, IdLength);
-        Span<byte> tag = token[(NonceLength + IdLength)..];
-
-        RandomNumberGenerator.Fill(nonce);
-
         Span<byte> idBytes = stackalloc byte[IdLength];
         bool wrote = id.TryWriteBytes(idBytes);
         Debug.Assert(wrote);
 
-        _aead.Encrypt(nonce, idBytes, ciphertext, tag);
-
-        return Convert.ToBase64String(token);
+        return Convert.ToBase64String(_aead.Encrypt(idBytes));
     }
 
     /// <summary>
@@ -100,13 +88,7 @@ public sealed class MollyIdProtector
             return false;
         }
 
-        Span<byte> idBytes = stackalloc byte[IdLength];
-
-        try
-        {
-            _aead.Decrypt(bytes[..NonceLength], bytes.Slice(NonceLength, IdLength), bytes[(NonceLength + IdLength)..], idBytes);
-        }
-        catch (CryptographicException)
+        if (!_aead.TryDecrypt(bytes, out byte[]? idBytes))
         {
             // Forged, tampered with, or issued under a different server key.
             return false;

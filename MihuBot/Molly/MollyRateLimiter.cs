@@ -9,8 +9,8 @@ namespace MihuBot.Molly;
 /// token bucket: a burst allowance to cover normal usage, refilling at one request per cooldown.
 /// </summary>
 /// <remarks>
-/// Requests are also gated on a valid app signature, so this only has to keep a misbehaving
-/// (or compromised) real client in check rather than block arbitrary internet traffic.
+/// Requests are also gated on being decryptable with the app secret, so this only has to keep a
+/// misbehaving (or compromised) real client in check rather than block arbitrary internet traffic.
 /// </remarks>
 public sealed class MollyRateLimiter
 {
@@ -45,7 +45,7 @@ public sealed class MollyRateLimiter
     /// The connection address is deliberately not charged when X-Real-IP is present: behind a reverse
     /// proxy it identifies the shared proxy rather than the caller, so limiting on it would let one
     /// noisy device throttle everyone. The limit is therefore only as trustworthy as the proxy setting
-    /// the header - a client connecting directly can spoof it, which the app signature guards against.
+    /// the header - a client connecting directly can spoof it, which the request encryption guards against.
     /// </remarks>
     public bool TryEnter(HttpContext context, out TimeSpan retryAfter)
     {

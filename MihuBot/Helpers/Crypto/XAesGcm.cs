@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics.Tensors;
 using System.Security.Cryptography;
 
@@ -33,6 +34,12 @@ public sealed class XAesGcm : IDisposable
     public const int KeySizeInBytes = 32;
     public const int NonceSizeInBytes = 24;
     public const int TagSizeInBytes = 16;
+
+    /// <summary>
+    /// Bytes a <see cref="Encrypt(ReadOnlySpan{byte}, ReadOnlySpan{byte})"/> message adds on top of the
+    /// plaintext: the prepended nonce and the appended tag.
+    /// </summary>
+    public const int CombinedOverheadInBytes = NonceSizeInBytes + TagSizeInBytes;
 
     private const int BlockSize = 16;
     /// <summary>The first half of the nonce feeds the KDF, the second half is the AES-GCM nonce.</summary>
@@ -86,7 +93,7 @@ public sealed class XAesGcm : IDisposable
             DeriveSubkey(nonce, subkey);
 
             using var aesGcm = new AesGcm(subkey, TagSizeInBytes);
-            aesGcm.Encrypt(nonce[DerivationNonceSize..], plaintext, ciphertext, tag, associatedData);
+            aesGcm.Encrypt(nonce.Slice(DerivationNonceSize), plaintext, ciphertext, tag, associatedData);
         }
         finally
         {
@@ -103,12 +110,68 @@ public sealed class XAesGcm : IDisposable
             DeriveSubkey(nonce, subkey);
 
             using var aesGcm = new AesGcm(subkey, TagSizeInBytes);
-            aesGcm.Decrypt(nonce[DerivationNonceSize..], ciphertext, tag, plaintext, associatedData);
+            aesGcm.Decrypt(nonce.Slice(DerivationNonceSize), ciphertext, tag, plaintext, associatedData);
         }
         finally
         {
             CryptographicOperations.ZeroMemory(subkey);
         }
+    }
+
+    /// <summary>
+    /// Encrypts into a single self-contained message laid out as
+    /// <c>nonce (24) || ciphertext || tag (16)</c>, with a fresh random nonce.
+    /// </summary>
+    /// <remarks>
+    /// The 192-bit nonce is what makes random generation safe here, see the type-level remarks.
+    /// Pair with <see cref="TryDecrypt"/>.
+    /// </remarks>
+    public byte[] Encrypt(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> associatedData = default)
+    {
+        byte[] message = new byte[NonceSizeInBytes + plaintext.Length + TagSizeInBytes];
+        Span<byte> span = message;
+
+        Span<byte> nonce = span.Slice(0, NonceSizeInBytes);
+        RandomNumberGenerator.Fill(nonce);
+
+        Encrypt(nonce, plaintext, span.Slice(NonceSizeInBytes, plaintext.Length), span.Slice(NonceSizeInBytes + plaintext.Length), associatedData);
+
+        return message;
+    }
+
+    /// <summary>
+    /// Decrypts a message produced by <see cref="Encrypt(ReadOnlySpan{byte}, ReadOnlySpan{byte})"/>.
+    /// Fails - rather than throwing - for anything too short to hold a nonce and tag, and for a tag
+    /// that doesn't match (tampered, or encrypted under a different key).
+    /// </summary>
+    public bool TryDecrypt(ReadOnlySpan<byte> message, [NotNullWhen(true)] out byte[]? plaintext, ReadOnlySpan<byte> associatedData = default)
+    {
+        plaintext = null;
+
+        if (message.Length < CombinedOverheadInBytes)
+        {
+            return false;
+        }
+
+        int plaintextLength = message.Length - CombinedOverheadInBytes;
+        byte[] result = new byte[plaintextLength];
+
+        try
+        {
+            Decrypt(
+                message.Slice(0, NonceSizeInBytes),
+                message.Slice(NonceSizeInBytes, plaintextLength),
+                message.Slice(NonceSizeInBytes + plaintextLength),
+                result,
+                associatedData);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+
+        plaintext = result;
+        return true;
     }
 
     /// <summary>Kₓ = AES-256(K, M1 ^ K1) || AES-256(K, M2 ^ K1), where Mᵢ = 0x00 || i || 'X' || 0x00 || nonce[..12].</summary>
@@ -119,7 +182,7 @@ public sealed class XAesGcm : IDisposable
             throw new ArgumentException($"Nonce must be {NonceSizeInBytes} bytes.", nameof(nonce));
         }
 
-        ReadOnlySpan<byte> context = nonce[..DerivationNonceSize];
+        ReadOnlySpan<byte> context = nonce.Slice(0, DerivationNonceSize);
 
         Span<byte> message = stackalloc byte[BlockSize];
 
@@ -131,7 +194,7 @@ public sealed class XAesGcm : IDisposable
             message[1] = (byte)counter;
             message[2] = Label;
             message[3] = 0x00;
-            context.CopyTo(message[4..]);
+            context.CopyTo(message.Slice(4));
 
             TensorPrimitives.Xor(message, _cmacSubkey, message);
 

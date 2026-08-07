@@ -27,35 +27,50 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     }
 
     [Theory]
-    [InlineData("lock")]
-    [InlineData("wipe")]
-    public async Task CommandAck_IsStoredAndSummarisedOnTheDashboard(string command)
+    [InlineData("locked")]
+    [InlineData("wiped")]
+    public async Task StatusAlert_IsStoredAndSummarisedOnTheDashboard(string status)
     {
         (string token, Guid id) = await RegisterAsync();
 
         byte[] payload = Payload(
-            $$$"""{"id":"{{{token}}}","type":"commandAck","data":{"command":"{{{command}}}"}}""");
+            $$$"""{"id":"{{{token}}}","type":"status","data":{"status":"{{{status}}}"}}""");
 
         Assert.Equal(MollyResultStatus.Ok, (await Molly.SubmitAlertAsync(token, payload, default)).Status);
 
         MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
-        Assert.Equal(MollyAlertType.CommandAck, alert.Type);
-        Assert.Equal($"Acknowledged {command}", alert.Summary);
+        Assert.Equal(MollyAlertType.Status, alert.Type);
+        Assert.Equal(status, alert.Summary);
         Assert.Null(alert.MapUrl);
     }
 
     [Fact]
-    public async Task CommandAck_WithAnUnknownCommand_IsStoredButNotSummarised()
+    public async Task StatusAlert_WithDetail_IncludesItInTheSummary()
     {
         (string token, Guid id) = await RegisterAsync();
 
         byte[] payload = Payload(
-            $$$"""{"id":"{{{token}}}","type":"commandAck","data":{"command":"self-destruct"}}""");
+            $$$"""{"id":"{{{token}}}","type":"status","data":{"status":"battery","detail":"low"}}""");
 
         Assert.Equal(MollyResultStatus.Ok, (await Molly.SubmitAlertAsync(token, payload, default)).Status);
 
         MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
-        Assert.Equal(MollyAlertType.CommandAck, alert.Type);
+        Assert.Equal(MollyAlertType.Status, alert.Type);
+        Assert.Equal("battery - low", alert.Summary);
+    }
+
+    [Fact]
+    public async Task StatusAlert_WithoutAStatus_IsStoredButNotSummarised()
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        byte[] payload = Payload(
+            $$$"""{"id":"{{{token}}}","type":"status","data":{"detail":"no status token"}}""");
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.SubmitAlertAsync(token, payload, default)).Status);
+
+        MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
+        Assert.Equal(MollyAlertType.Status, alert.Type);
         Assert.Null(alert.Summary);
     }
 
@@ -374,7 +389,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Alert_ForAnUnknownEntry_IsRejected()
     {
-        string token = new MollyIdProtector(MollyTestKeys.OtherServerKeyBytes).Protect(Guid.NewGuid());
+        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
 
         // A token issued under a different server key can't even be unprotected.
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.SubmitAlertAsync(token, Payload("{}"), default)).Status);

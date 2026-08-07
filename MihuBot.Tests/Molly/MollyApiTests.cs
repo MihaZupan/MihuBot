@@ -1,7 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,7 +19,7 @@ using MihuBot.Molly.Alerts;
 namespace MihuBot.Tests.Molly;
 
 /// <summary>
-/// Hosts the real Molly endpoint group over loopback HTTP.
+/// Hosts the real Molly endpoint over loopback HTTP.
 /// </summary>
 public sealed class MollyApiFixture : IAsyncLifetime
 {
@@ -56,8 +54,8 @@ public sealed class MollyApiFixture : IAsyncLifetime
 
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Molly:ServerKey"] = MollyTestKeys.ServerKey,
-            ["Molly:AppSecret"] = MollyTestKeys.AppSecret,
+            ["Molly:DatabaseKey"] = MollyTestKeys.DatabaseKey,
+            ["Molly:TransportPrivateKey"] = MollyTestKeys.TransportPrivateKey,
         });
 
         builder.Services.AddPooledDbContextFactory<MollyDbContext>(options => options.UseSqlite($"Data Source={_databasePath}"));
@@ -125,6 +123,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     internal const string RemoveSizeLimitFeatureHeader = "X-Test-Remove-Size-Limit-Feature";
 
     private readonly MollyApiFixture _fixture;
+    private readonly MollyTestEnvelope _envelope = new();
 
     public MollyApiTests(MollyApiFixture fixture) => _fixture = fixture;
 
@@ -134,20 +133,13 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     /// </summary>
     private static string NewClientIp() => $"203.0.{Random.Shared.Next(1, 250)}.{Random.Shared.Next(1, 250)}";
 
-    private async Task<HttpResponseMessage> PostAsync(string path, string json, string? signature, string? clientIp = null, string? extraHeader = null)
+    private async Task<HttpResponseMessage> PostRawAsync(byte[] body, string? clientIp = null, string? extraHeader = null)
     {
-        byte[] body = Encoding.UTF8.GetBytes(json);
-
         var content = new ByteArrayContent(body);
-        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+        var request = new HttpRequestMessage(HttpMethod.Post, Group) { Content = content };
         request.Headers.TryAddWithoutValidation("X-Real-IP", clientIp ?? NewClientIp());
-
-        if (signature is not null)
-        {
-            request.Headers.TryAddWithoutValidation(MollyServiceExtensions.AppSignatureHeader, signature);
-        }
 
         if (extraHeader is not null)
         {
@@ -157,22 +149,34 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
         return await _fixture.Client.SendAsync(request);
     }
 
-    private Task<HttpResponseMessage> SignedPostAsync(string path, string json, string? clientIp = null) =>
-        PostAsync(path, json, MollyTestKeys.Sign(path, json), clientIp);
+    /// <summary>Sends an encrypted request and returns the decrypted response envelope.</summary>
+    private async Task<JsonElement> PostAsync(string action, string? data = null, string? clientIp = null)
+    {
+        byte[] body = _envelope.EncryptRequest(action, data);
 
-    private static string LoginBody(string keyHash) => $$"""{"keyHash":"{{keyHash}}"}""";
+        HttpResponseMessage response = await PostRawAsync(body, clientIp);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        return _envelope.DecryptResponse(await response.Content.ReadAsByteArrayAsync());
+    }
+
+    private static string Status(JsonElement response) => response.GetProperty("status").GetString()!;
+
+    private static JsonElement Data(JsonElement response) => response.GetProperty("data");
+
+    private static string LoginData(string keyHash) => $$"""{"keyHash":"{{keyHash}}"}""";
 
     private async Task<(string Id, string ServerHmac)> RegisterAsync()
     {
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/login", LoginBody(MollyTestKeys.NewKeyHash()));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonElement response = await PostAsync("login", LoginData(MollyTestKeys.NewKeyHash()));
+        Assert.Equal("ok", Status(response));
 
-        JsonElement json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        return (json.GetProperty("id").GetString()!, json.GetProperty("serverHmac").GetString()!);
+        JsonElement data = Data(response);
+        return (data.GetProperty("id").GetString()!, data.GetProperty("serverHmac").GetString()!);
     }
 
     [Fact]
-    public async Task Login_Signed_ReturnsOpaqueTokenAndBase64ServerHmac()
+    public async Task Login_ReturnsOpaqueTokenAndBase64ServerHmac()
     {
         (string id, string serverHmac) = await RegisterAsync();
 
@@ -185,118 +189,141 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     }
 
     [Fact]
-    public async Task Login_Unsigned_IsUnauthorizedAndCreatesNoEntry()
+    public async Task Request_SealedToADifferentServerKey_IsBadRequest()
     {
-        var dbFactory = _fixture.Service;
-        string keyHash = MollyTestKeys.NewKeyHash();
+        var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
+        byte[] body = wrongKey.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()));
 
-        HttpResponseMessage response = await PostAsync($"{Group}/login", LoginBody(keyHash), signature: null);
+        HttpResponseMessage response = await PostRawAsync(body);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-
-        // The same key hash must still be unknown, i.e. logging in properly registers it now.
-        MollyLoginResult result = await _fixture.Service.LoginAsync(keyHash, default);
-        Assert.Equal(MollyResultStatus.Ok, result.Status);
-        Assert.Equal(1, await CountEntriesWithKeyHashAsync(keyHash));
-    }
-
-    private async Task<int> CountEntriesWithKeyHashAsync(string keyHash)
-    {
-        // Logging in twice must resolve to the same entry, proving only one was ever created.
-        MollyLoginResult first = await _fixture.Service.LoginAsync(keyHash, default);
-        MollyLoginResult second = await _fixture.Service.LoginAsync(keyHash, default);
-
-        _fixture.IdProtector.TryUnprotect(first.ProtectedId, out Guid firstId);
-        _fixture.IdProtector.TryUnprotect(second.ProtectedId, out Guid secondId);
-
-        return firstId == secondId ? 1 : 2;
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task Login_BadSignature_IsUnauthorized()
+    public async Task Request_ThatIsNotEvenAnEnvelope_IsBadRequest()
     {
-        string signature = Convert.ToBase64String(new byte[64]);
+        HttpResponseMessage response = await PostRawAsync(new byte[8]);
 
-        HttpResponseMessage response = await PostAsync($"{Group}/login", LoginBody(MollyTestKeys.NewKeyHash()), signature);
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task SignatureFromAnotherEndpoint_CannotBeReplayed()
+    public async Task Request_WithAStaleTimestamp_IsBadRequest()
     {
-        string json = LoginBody(MollyTestKeys.NewKeyHash());
-        string signature = MollyTestKeys.Sign($"{Group}/login", json);
+        long stale = MollyTestEnvelope.Now() - (long)MollyRequestProtector.TimestampTolerance.TotalSeconds - 30;
+        byte[] body = _envelope.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()), timestamp: stale);
 
-        HttpResponseMessage response = await PostAsync($"{Group}/ping", json, signature);
+        HttpResponseMessage response = await PostRawAsync(body);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task Associate_Signed_ReturnsOk()
+    public async Task Request_WithAFutureTimestamp_IsBadRequest()
+    {
+        long future = MollyTestEnvelope.Now() + (long)MollyRequestProtector.TimestampTolerance.TotalSeconds + 30;
+        byte[] body = _envelope.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()), timestamp: future);
+
+        HttpResponseMessage response = await PostRawAsync(body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Request_WithAReplayedNonce_IsBadRequest()
+    {
+        string nonce = MollyTestEnvelope.NewNonce();
+
+        // First use is accepted. A byte-for-byte replay reuses the recorded nonce, which is rejected.
+        byte[] first = _envelope.EncryptRequest("ping", $$"""{"id":"{{Guid.NewGuid()}}"}""", nonce);
+        Assert.Equal(HttpStatusCode.OK, (await PostRawAsync(first)).StatusCode);
+
+        byte[] replay = _envelope.EncryptRequest("ping", $$"""{"id":"{{Guid.NewGuid()}}"}""", nonce);
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostRawAsync(replay)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Request_WithALowOrderEphemeralKey_IsBadRequestNotServerError()
+    {
+        // An all-zero ephemeral key forces an all-zero ECDH agreement, which the platform throws on.
+        // The endpoint must translate that to a rejection, never a 500.
+        // 32-byte ephemeral public key + 24-byte nonce + 16-byte tag, minimum-length body.
+        byte[] body = new byte[32 + 24 + 16];
+
+        HttpResponseMessage response = await PostRawAsync(body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnknownAction_ReturnsInvalidStatus()
+    {
+        JsonElement response = await PostAsync("teleport", "{}");
+
+        Assert.Equal("invalid", Status(response));
+    }
+
+    [Fact]
+    public async Task Associate_ReturnsOk()
     {
         (string id, _) = await RegisterAsync();
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/associate", $$"""{"id":"{{id}}","nickname":"api-user"}""");
+        JsonElement response = await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"api-user"}""");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("ok", Status(response));
     }
 
     [Fact]
-    public async Task Associate_TooLongNickname_IsBadRequest()
+    public async Task Associate_TooLongNickname_ReturnsInvalid()
     {
         (string id, _) = await RegisterAsync();
         string nickname = new('a', MollyService.MaxNicknameLengthInBytes + 1);
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/associate", $$"""{"id":"{{id}}","nickname":"{{nickname}}"}""");
+        JsonElement response = await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"{{nickname}}"}""");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]
-    public async Task Ping_Signed_ReturnsPong()
+    public async Task Ping_ReturnsPong()
     {
         (string id, _) = await RegisterAsync();
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/ping", $$"""{"id":"{{id}}"}""");
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("pong", (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("response").GetString());
+        Assert.Equal("ok", Status(response));
+        Assert.Equal("pong", Data(response).GetProperty("response").GetString());
     }
 
     [Fact]
-    public async Task Ping_UnknownToken_IsBadRequest()
+    public async Task Ping_UnknownToken_ReturnsInvalid()
     {
         // A raw guid isn't a token this process issued, so it's rejected before any lookup.
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/ping", $$"""{"id":"{{Guid.NewGuid()}}"}""");
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{Guid.NewGuid()}}"}""");
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid", Status(response));
     }
 
     [Theory]
-    [InlineData("not json")]
-    [InlineData("")]
+    [InlineData("null")]
     [InlineData("{}")]
     [InlineData("""{"keyHash":null}""")]
-    [InlineData("null")]        // Valid JSON that deserializes to a null request.
-    [InlineData("[]")]          // Valid JSON of the wrong shape.
+    [InlineData("[]")]
     [InlineData("123")]
     [InlineData("\"string\"")]
-    [InlineData("{\"keyHash\":")] // Truncated.
-    public async Task Login_InvalidBody_IsBadRequest(string json)
+    public async Task Login_InvalidData_ReturnsInvalid(string data)
     {
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/login", json);
+        JsonElement response = await PostAsync("login", data);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]
     public async Task OversizedBody_IsRejectedByTheServer()
     {
-        string json = LoginBody(new string('A', 20_000));
+        byte[] body = _envelope.EncryptRequest("login", LoginData(new string('A', 20_000)));
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/login", json);
+        HttpResponseMessage response = await PostRawAsync(body);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -305,25 +332,19 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     public async Task BodyAtTheSizeLimit_IsStillProcessed()
     {
         // Comfortably under the 8 KB limit, but far larger than a real request.
-        string json = LoginBody(new string('A', 4_000));
+        JsonElement response = await PostAsync("login", LoginData(new string('A', 4_000)));
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/login", json);
-
-        // The key hash is too long to be valid, but the body was read and signature-checked.
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        // The key hash is too long to be valid, but the body was read and decrypted.
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]
     public async Task WhenTheSizeLimitCannotBeSet_TheRequestFails()
     {
-        string json = LoginBody(MollyTestKeys.NewKeyHash());
+        byte[] body = _envelope.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()));
 
-        // Rather than reading an unbounded body into memory, the filter has to fail closed.
-        HttpResponseMessage response = await PostAsync(
-            $"{Group}/login",
-            json,
-            MollyTestKeys.Sign($"{Group}/login", json),
-            extraHeader: RemoveSizeLimitFeatureHeader);
+        // Rather than reading an unbounded body into memory, the endpoint has to fail closed.
+        HttpResponseMessage response = await PostRawAsync(body, extraHeader: RemoveSizeLimitFeatureHeader);
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
     }
@@ -332,15 +353,13 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     public async Task LockedEntry_ReceivesLockCommandInsteadOfSecrets()
     {
         (string id, _) = await RegisterAsync();
-        string clientIp = NewClientIp();
 
         await _fixture.Service.SetLockRequestedAsync(_fixture.Unprotect(id), lockRequested: true);
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/ping", $$"""{"id":"{{id}}"}""", clientIp);
-        JsonElement json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("lock", json.GetProperty("command").GetString());
+        Assert.Equal("command", Status(response));
+        Assert.Equal("lock", Data(response).GetProperty("command").GetString());
     }
 
     [Fact]
@@ -350,24 +369,39 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
 
         await _fixture.Service.RequestWipeAsync(_fixture.Unprotect(id));
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/ping", $$"""{"id":"{{id}}"}""");
-        JsonElement json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
+        JsonElement data = Data(response);
 
-        Assert.Equal("wipe", json.GetProperty("command").GetString());
-        Assert.False(json.TryGetProperty("serverHmac", out _));
+        Assert.Equal("wipe", data.GetProperty("command").GetString());
+        Assert.False(data.TryGetProperty("serverHmac", out _));
+    }
+
+    [Fact]
+    public async Task DeletedEntry_ReceivesWipeCommand()
+    {
+        (string id, _) = await RegisterAsync();
+
+        await _fixture.Service.DeleteEntryAsync(_fixture.Unprotect(id));
+
+        // The token still decrypts, but the entry is gone and its data is unrecoverable, so the
+        // device is told to wipe instead of getting a bare "invalid".
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
+
+        Assert.Equal("command", Status(response));
+        Assert.Equal("wipe", Data(response).GetProperty("command").GetString());
     }
 
     [Fact]
     public async Task ExcessiveRequests_AreRateLimitedWithRetryAfter()
     {
         string clientIp = NewClientIp();
-        string json = $$"""{"id":"{{Guid.NewGuid()}}"}""";
 
         HttpResponseMessage? limited = null;
 
         for (int i = 0; i < 60 && limited is null; i++)
         {
-            HttpResponseMessage response = await SignedPostAsync($"{Group}/ping", json, clientIp);
+            byte[] body = _envelope.EncryptRequest("ping", $$"""{"id":"{{Guid.NewGuid()}}"}""");
+            HttpResponseMessage response = await PostRawAsync(body, clientIp);
 
             if (response.StatusCode == HttpStatusCode.TooManyRequests)
             {
@@ -380,15 +414,15 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     }
 
     [Fact]
-    public async Task Alert_Signed_IsAccepted()
+    public async Task Alert_IsAccepted()
     {
         (string id, _) = await RegisterAsync();
 
-        string json = $$$"""{"id":"{{{id}}}","type":"location","data":{"latitude":1.5,"longitude":2.5}}""";
+        string data = $$$"""{"id":"{{{id}}}","type":"location","data":{"latitude":1.5,"longitude":2.5}}""";
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/alert", json);
+        JsonElement response = await PostAsync("alert", data);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("ok", Status(response));
 
         MollyAlertInfo alert = Assert.Single(
             await _fixture.Service.GetRecentAlertsAsync(),
@@ -399,40 +433,30 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     }
 
     [Fact]
-    public async Task Alert_Unsigned_IsUnauthorized()
+    public async Task Alert_WithAnUnknownToken_ReturnsInvalid()
     {
-        (string id, _) = await RegisterAsync();
+        JsonElement response = await PostAsync("alert", $$"""{"id":"{{Guid.NewGuid()}}"}""");
 
-        HttpResponseMessage response = await PostAsync($"{Group}/alert", $$"""{"id":"{{id}}"}""", signature: null);
-
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]
-    public async Task Alert_WithAnUnknownToken_IsBadRequest()
-    {
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/alert", $$"""{"id":"{{Guid.NewGuid()}}"}""");
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Alert_ThatIsTooLarge_IsBadRequest()
+    public async Task Alert_ThatIsTooLarge_ReturnsInvalid()
     {
         (string id, _) = await RegisterAsync();
 
         // Under the 8 KB request limit, but over the alert specific one.
-        string json = $$"""{"id":"{{id}}","data":"{{new string('a', MollyService.MaxAlertLength)}}"}""";
+        string data = $$"""{"id":"{{id}}","data":"{{new string('a', MollyService.MaxAlertLength)}}"}""";
 
-        HttpResponseMessage response = await SignedPostAsync($"{Group}/alert", json);
+        JsonElement response = await PostAsync("alert", data);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]
     public async Task GetRequests_AreNotRouted()
     {
-        HttpResponseMessage response = await _fixture.Client.GetAsync($"{Group}/ping");
+        HttpResponseMessage response = await _fixture.Client.GetAsync(Group);
 
         Assert.Contains(response.StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed });
     }

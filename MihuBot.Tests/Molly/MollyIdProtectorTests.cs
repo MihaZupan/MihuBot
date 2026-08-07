@@ -5,7 +5,7 @@ namespace MihuBot.Tests.Molly;
 
 public sealed class MollyIdProtectorTests
 {
-    private readonly MollyIdProtector _protector = new(MollyTestKeys.ServerKeyBytes);
+    private readonly MollyIdProtector _protector = new(MollyTestKeys.DatabaseKeyBytes);
 
     [Fact]
     public void ProtectedIds_RoundTrip()
@@ -46,7 +46,7 @@ public sealed class MollyIdProtectorTests
     public void TokensFromAnotherServerKey_AreRejected()
     {
         // The key is derived from the server key, so tokens don't cross deployments with different keys.
-        string token = new MollyIdProtector(MollyTestKeys.OtherServerKeyBytes).Protect(Guid.NewGuid());
+        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
 
         Assert.False(_protector.TryUnprotect(token, out _));
     }
@@ -57,7 +57,7 @@ public sealed class MollyIdProtectorTests
         // A new process with the same server key has to keep accepting already issued tokens,
         // so clients that aren't logged in can keep pinging across a restart.
         Guid id = Guid.NewGuid();
-        string token = new MollyIdProtector(MollyTestKeys.ServerKeyBytes).Protect(id);
+        string token = new MollyIdProtector(MollyTestKeys.DatabaseKeyBytes).Protect(id);
 
         Assert.True(_protector.TryUnprotect(token, out Guid unprotected));
         Assert.Equal(id, unprotected);

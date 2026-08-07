@@ -102,6 +102,90 @@ public sealed class XAesGcmTests
         }
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(16)]
+    [InlineData(1024)]
+    public void Combined_RoundTrips(int plaintextLength)
+    {
+        using var aead = NewAead();
+
+        byte[] plaintext = RandomNumberGenerator.GetBytes(plaintextLength);
+
+        byte[] message = aead.Encrypt(plaintext);
+
+        // The message carries its own nonce and tag on top of the plaintext.
+        Assert.Equal(plaintextLength + XAesGcm.CombinedOverheadInBytes, message.Length);
+
+        Assert.True(aead.TryDecrypt(message, out byte[]? roundTripped));
+        Assert.Equal(plaintext, roundTripped);
+    }
+
+    [Fact]
+    public void Combined_RoundTripsWithAssociatedData()
+    {
+        using var aead = NewAead();
+
+        byte[] message = aead.Encrypt(s_specPlaintext, "context"u8);
+
+        Assert.True(aead.TryDecrypt(message, out byte[]? roundTripped, "context"u8));
+        Assert.Equal(s_specPlaintext, roundTripped);
+
+        // The same message must not open under different associated data.
+        Assert.False(aead.TryDecrypt(message, out _, "other"u8));
+    }
+
+    [Fact]
+    public void Combined_EncryptUsesAFreshNonceEachTime()
+    {
+        using var aead = NewAead();
+
+        byte[] first = aead.Encrypt(s_specPlaintext);
+        byte[] second = aead.Encrypt(s_specPlaintext);
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void Combined_TryDecryptRejectsTamperedMessages()
+    {
+        using var aead = NewAead();
+
+        byte[] message = aead.Encrypt(s_specPlaintext);
+
+        for (int i = 0; i < message.Length; i++)
+        {
+            byte[] tampered = (byte[])message.Clone();
+            tampered[i] ^= 0x01;
+
+            Assert.False(aead.TryDecrypt(tampered, out _));
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(XAesGcm.NonceSizeInBytes)]
+    [InlineData(XAesGcm.CombinedOverheadInBytes - 1)]
+    public void Combined_TryDecryptRejectsMessagesTooShortToHoldANonceAndTag(int length)
+    {
+        using var aead = NewAead();
+
+        Assert.False(aead.TryDecrypt(new byte[length], out _));
+    }
+
+    [Fact]
+    public void Combined_TryDecryptRejectsMessagesFromAnotherKey()
+    {
+        using var aead = NewAead();
+        using var other = NewAead();
+
+        byte[] message = aead.Encrypt(s_specPlaintext);
+
+        Assert.False(other.TryDecrypt(message, out _));
+    }
+
     [Fact]
     public void NoncesOfTheWrongLength_AreRejected()
     {
