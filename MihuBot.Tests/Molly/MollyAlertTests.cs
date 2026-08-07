@@ -26,6 +26,39 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         return (login.ProtectedId!, _fixture.Unprotect(login.ProtectedId));
     }
 
+    [Theory]
+    [InlineData("lock")]
+    [InlineData("wipe")]
+    public async Task CommandAck_IsStoredAndSummarisedOnTheDashboard(string command)
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        byte[] payload = Payload(
+            $$$"""{"id":"{{{token}}}","type":"commandAck","data":{"command":"{{{command}}}"}}""");
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.SubmitAlertAsync(token, payload, default)).Status);
+
+        MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
+        Assert.Equal(MollyAlertType.CommandAck, alert.Type);
+        Assert.Equal($"Acknowledged {command}", alert.Summary);
+        Assert.Null(alert.MapUrl);
+    }
+
+    [Fact]
+    public async Task CommandAck_WithAnUnknownCommand_IsStoredButNotSummarised()
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        byte[] payload = Payload(
+            $$$"""{"id":"{{{token}}}","type":"commandAck","data":{"command":"self-destruct"}}""");
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.SubmitAlertAsync(token, payload, default)).Status);
+
+        MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
+        Assert.Equal(MollyAlertType.CommandAck, alert.Type);
+        Assert.Null(alert.Summary);
+    }
+
     [Fact]
     public async Task LocationAlert_IsStoredAndSummarisedOnTheDashboard()
     {

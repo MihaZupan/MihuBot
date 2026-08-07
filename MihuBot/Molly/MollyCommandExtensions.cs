@@ -17,4 +17,12 @@ public static class MollyCommandExtensions
         MollyCommand.Wipe => "wipe",
         _ => null,
     };
+
+    /// <summary>The command a client wire value maps to, or <see cref="MollyCommand.None"/> if unrecognized.</summary>
+    public static MollyCommand FromWireValue(string? value) => value switch
+    {
+        "lock" => MollyCommand.Lock,
+        "wipe" => MollyCommand.Wipe,
+        _ => MollyCommand.None,
+    };
 }

@@ -10,4 +10,7 @@ public enum MollyAlertType
 {
     Unknown = 0,
     Location,
+
+    /// <summary>The device confirming a lock/wipe command right before it carries it out.</summary>
+    CommandAck,
 }

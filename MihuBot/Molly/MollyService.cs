@@ -297,6 +297,10 @@ public sealed class MollyService
                         }
                         break;
 
+                    case MollyAlertType.CommandAck:
+                        // Deliberately not notified - the ack is only ever reviewed on the dashboard.
+                        break;
+
                     case MollyAlertType.Unknown:
                     default:
                         // Unrecognized alerts are still stored and shown on the dashboard.
@@ -313,19 +317,21 @@ public sealed class MollyService
     /// <summary>Pings Discord for alerts that are worth a human looking at.</summary>
     private async Task ReportLocationAlertAsync(MollyDbEntry entry, MollyLocationAlert location)
     {
-        string nickname = TryDecryptNickname(entry);
-
         await ReportAlertAsync(entry,
             subject: "Molly location alert",
             emailBody:
                 $"""
-                # Molly location alert from `{Uri.EscapeDataString(nickname).Replace("%20", " ", StringComparison.Ordinal)}`
+                # Molly location alert from `{FormatNickname(entry)}`
 
                 {location}
 
                 {location.MapUrl}
                 """);
     }
+
+    /// <summary>Percent-escapes a nickname so it can't break out of the Markdown code span it's shown in.</summary>
+    private string FormatNickname(MollyDbEntry entry) =>
+        Uri.EscapeDataString(TryDecryptNickname(entry)).Replace("%20", " ", StringComparison.Ordinal);
 
     /// <summary>
     /// Notifies Discord (and email, if configured) about an alert, unless the device has been muted
@@ -399,6 +405,12 @@ public sealed class MollyService
             case MollyAlertType.Location:
                 MollyLocationAlert? location = envelope.TryGetData<MollyLocationAlert>();
                 return (MollyAlertType.Location, location?.ToString(), location?.MapUrl);
+
+            case MollyAlertType.CommandAck:
+                MollyCommandAckAlert? ack = envelope.TryGetData<MollyCommandAckAlert>();
+                return (MollyAlertType.CommandAck,
+                    ack is { IsValid: true } ? $"Acknowledged {ack.AcknowledgedCommand.ToWireValue()}" : null,
+                    null);
 
             case MollyAlertType.Unknown:
             default:
