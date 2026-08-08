@@ -624,6 +624,47 @@ public sealed class StorageService
         return deleted;
     }
 
+    /// <summary>Deletes all files in the container and then the container itself.</summary>
+    public async Task<string?> TryDeleteContainerAsync(string container, CancellationToken cancellationToken = default)
+    {
+        if (!ValidateContainerName(container))
+        {
+            return "Invalid container name";
+        }
+
+        await using (StorageDbContext db = _db.CreateDbContext())
+        {
+            if (await db.Containers.AsNoTracking().FirstOrDefaultAsync(c => c.Name == container, cancellationToken) is null)
+            {
+                return "Container does not exist";
+            }
+        }
+
+        await DeleteAllFilesAsync(container, cancellationToken);
+
+        await using (StorageDbContext db = _db.CreateDbContext())
+        {
+            if (await db.Containers.FirstOrDefaultAsync(c => c.Name == container, cancellationToken) is { } entry)
+            {
+                db.Containers.Remove(entry);
+
+                try
+                {
+                    await db.SaveChangesAsync(CancellationToken.None);
+                }
+                catch (DbUpdateException ex)
+                {
+                    _logger.LogError(ex, "Failed to delete container {Container}", container);
+                    return "Failed to delete the container";
+                }
+            }
+        }
+
+        _logger.LogInformation("Deleted container {Container}", container);
+
+        return null;
+    }
+
     public async Task UploadFileAsync(HttpContext context, string container, string path)
     {
         Debug.Assert(await HasValidAuthorization(context, container));
@@ -747,6 +788,13 @@ public sealed class StorageService
 
     public async Task<IResult> DeleteFile(HttpContext context, string container, string path)
     {
+        Debug.Assert(await HasValidAuthorization(context, container));
+
+        if (!ValidateFilePath(path))
+        {
+            return Results.BadRequest("Invalid path name");
+        }
+
         string fullPath = GetFullPath(container, path, out string id);
 
         if (!File.Exists(fullPath))

@@ -14,6 +14,7 @@
             <th scope="col">Owner</th>
             <th scope="col">Public</th>
             <th scope="col">Retention period</th>
+            <th scope="col"></th>
         </tr>
     </thead>
     @foreach (var container in _containers)
@@ -23,6 +24,11 @@
             <td>@container.Owner</td>
             <td>@container.IsPublic</td>
             <td>@TimeSpan.FromSeconds(container.RetentionPeriodSeconds).ToElapsedTime()</td>
+            <td>
+                <button type="button" class="btn btn-sm btn-danger" @onclick="() => PromptDeleteContainer(container)" disabled="@_deleteInProgress">
+                    Delete
+                </button>
+            </td>
         </tr>
     }
 </table>
@@ -81,6 +87,42 @@
     </div>
 </div>
 
+@if (_containerPendingDelete is not null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete container</h5>
+                    <button type="button" class="close" aria-label="Close" @onclick="CancelDeleteContainer" disabled="@_deleteInProgress">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrEmpty(_deleteContainerError))
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            Failed to delete the container: @_deleteContainerError
+                        </div>
+                    }
+
+                    <p>
+                        Permanently delete <strong>@_containerPendingDelete.Name</strong> and every file it contains?
+                        This can not be undone.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CancelDeleteContainer" disabled="@_deleteInProgress">Cancel</button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteContainerAsync" disabled="@_deleteInProgress">
+                        @(_deleteInProgress ? "Deleting ..." : "Delete")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code
 {
 #nullable enable
@@ -93,6 +135,10 @@
 
     private string? _newContainerSasKey;
     private string? _newContainerError;
+
+    private ContainerDbEntry? _containerPendingDelete;
+    private string? _deleteContainerError;
+    private bool _deleteInProgress;
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,6 +156,44 @@
         if (_newContainerError is null)
         {
             await OnInitializedAsync();
+        }
+    }
+
+    private void PromptDeleteContainer(ContainerDbEntry container)
+    {
+        _containerPendingDelete = container;
+        _deleteContainerError = null;
+    }
+
+    private void CancelDeleteContainer()
+    {
+        _containerPendingDelete = null;
+        _deleteContainerError = null;
+    }
+
+    private async Task DeleteContainerAsync()
+    {
+        if (_containerPendingDelete is not { } container || _deleteInProgress)
+        {
+            return;
+        }
+
+        _deleteInProgress = true;
+        _deleteContainerError = null;
+
+        try
+        {
+            _deleteContainerError = await storage.TryDeleteContainerAsync(container.Name);
+
+            if (_deleteContainerError is null)
+            {
+                _containerPendingDelete = null;
+                _containers = await storage.GetAllContainersAsync();
+            }
+        }
+        finally
+        {
+            _deleteInProgress = false;
         }
     }
 
