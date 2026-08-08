@@ -665,6 +665,8 @@ public sealed class StorageService
         return null;
     }
 
+    // Client-side upload. Upserts: an existing file with the same path is replaced
+    // atomically, so readers see either the old or the new contents, never a partial file.
     public async Task UploadFileAsync(HttpContext context, string container, string path)
     {
         Debug.Assert(await HasValidAuthorization(context, container));
@@ -676,12 +678,6 @@ public sealed class StorageService
         }
 
         string fullPath = GetFullPath(container, path, out string id);
-
-        if (File.Exists(fullPath))
-        {
-            context.Response.StatusCode = StatusCodes.Status409Conflict;
-            return;
-        }
 
         long contentLength = context.Request.ContentLength ?? 0;
         if (contentLength > MaxFileSize)
@@ -702,6 +698,8 @@ public sealed class StorageService
             return;
         }
 
+        string? tempPath = null;
+
         try
         {
             var bodySizeFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -712,7 +710,13 @@ public sealed class StorageService
 
             Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
-            await using (FileStream fs = File.Open(fullPath, new FileStreamOptions
+            // Upload to a temporary file first so that an existing file is only
+            // replaced once the new contents have been fully written to disk.
+            tempPath = $"{fullPath}.tmp";
+
+            try { File.Delete(tempPath); } catch { }
+
+            await using (FileStream fs = File.Open(tempPath, new FileStreamOptions
             {
                 Mode = FileMode.CreateNew,
                 Access = FileAccess.Write,
@@ -723,6 +727,9 @@ public sealed class StorageService
             {
                 await context.Request.BodyReader.CopyToAsync(fs, context.RequestAborted);
             }
+
+            File.Move(tempPath, fullPath, overwrite: true);
+            tempPath = null;
 
             DateTime now = DateTime.UtcNow;
             contentLength = new FileInfo(fullPath).Length;
@@ -754,11 +761,16 @@ public sealed class StorageService
                 context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             }
 
-            try
+            // Only the partially written temp file is discarded, so a failed
+            // replace leaves any previously existing file intact.
+            if (tempPath is not null)
             {
-                File.Delete(fullPath);
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch { }
             }
-            catch { }
         }
         finally
         {
