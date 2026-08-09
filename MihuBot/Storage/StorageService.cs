@@ -117,46 +117,59 @@ public sealed class StorageService
             return false;
         }
 
-        if (path.StartsWith('/') || path.EndsWith('/') || path.Contains("//", StringComparison.Ordinal))
+        foreach (Range range in path.AsSpan().Split('/'))
         {
-            return false;
+            if (!ValidatePathSegment(path.AsSpan(range)))
+            {
+                return false;
+            }
         }
 
-        int firstDot = path.IndexOf('.');
-        if (firstDot < 0)
-        {
-            return true;
-        }
+        return true;
 
-        // Dot may not be leading (path start or right after '/').
-        if (firstDot == 0 || path[firstDot - 1] == '/')
+        static bool ValidatePathSegment(ReadOnlySpan<char> segment)
         {
-            return false;
-        }
-
-        // The extension portion is up to MaxFileNameDotCount dot-separated
-        // segments (e.g., `tar.gz`), each all alphanumeric and non-empty.
-        ReadOnlySpan<char> remaining = path.AsSpan(firstDot + 1);
-        for (int i = 0; i < MaxFileNameDotCount; i++)
-        {
-            int nextDot = remaining.IndexOf('.');
-            ReadOnlySpan<char> segment = nextDot < 0 ? remaining : remaining[..nextDot];
-
-            if (segment.IsEmpty || segment.ContainsAnyExcept(s_fileNameExtensionValidChars))
+            if (segment.IsEmpty)
             {
                 return false;
             }
 
-            if (nextDot < 0)
+            int firstDot = segment.IndexOf('.');
+            if (firstDot < 0)
             {
                 return true;
             }
 
-            remaining = remaining[(nextDot + 1)..];
-        }
+            // Dot may not be leading.
+            if (firstDot == 0)
+            {
+                return false;
+            }
 
-        // More dots than allowed.
-        return false;
+            // The extension portion is up to MaxFileNameDotCount dot-separated
+            // parts (e.g., `tar.gz`), each all alphanumeric and non-empty.
+            ReadOnlySpan<char> remaining = segment[(firstDot + 1)..];
+            for (int i = 0; i < MaxFileNameDotCount; i++)
+            {
+                int nextDot = remaining.IndexOf('.');
+                ReadOnlySpan<char> part = nextDot < 0 ? remaining : remaining[..nextDot];
+
+                if (part.IsEmpty || part.ContainsAnyExcept(s_fileNameExtensionValidChars))
+                {
+                    return false;
+                }
+
+                if (nextDot < 0)
+                {
+                    return true;
+                }
+
+                remaining = remaining[(nextDot + 1)..];
+            }
+
+            // More dots than allowed.
+            return false;
+        }
     }
 
     private static string GenerateNewSasKey()
