@@ -398,6 +398,13 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
+    public async Task ReportPasswordDashboardAction_WithoutDiscord_DoesNothing()
+    {
+        // The fixture has no Discord connection, and a dashboard action must not fail because of it.
+        await Molly.ReportPasswordDashboardActionAsync("wipe");
+    }
+
+    [Fact]
     public async Task Ping_ReportsDeviceStatus()
     {
         MollyLoginResult login = await RegisterAsync();

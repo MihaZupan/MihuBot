@@ -98,7 +98,7 @@ else
                             }
                         }
 
-                        @if (CanDelete)
+                        @if (IsAdmin)
                         {
                             @if (_pendingClearAlertsId == user.Id)
                             {
@@ -200,9 +200,12 @@ else
 {
 #nullable enable
 
-    /// <summary>Deleting an entry is admin-only - knowing the dashboard password isn't enough.</summary>
+    /// <summary>
+    /// Whether the viewer is an actual admin rather than someone who only knew the dashboard password.
+    /// Deleting is admin-only, and everything else an admin does is trusted without being announced.
+    /// </summary>
     [Parameter]
-    public bool CanDelete { get; set; }
+    public bool IsAdmin { get; set; }
 
     /// <summary>Bootstrap only ships four battery icons, so the level is bucketed to the nearest one.</summary>
     private static string BatteryIcon(int level) => level switch
@@ -268,42 +271,42 @@ else
 
     private async Task SetLockRequestedAsync(MollyUserInfo user, bool lockRequested)
     {
-        await RunAsync(() => molly.SetLockRequestedAsync(user.Id, lockRequested));
+        await RunAsync(lockRequested ? "lock" : "unlock", () => molly.SetLockRequestedAsync(user.Id, lockRequested));
     }
 
     private async Task SetAlertsMutedAsync(MollyUserInfo user, bool muted)
     {
-        await RunAsync(() => molly.SetAlertsMutedAsync(user.Id, muted));
+        await RunAsync(muted ? "mute alerts" : "unmute alerts", () => molly.SetAlertsMutedAsync(user.Id, muted));
     }
 
     private async Task WipeAsync(MollyUserInfo user)
     {
-        await RunAsync(() => molly.RequestWipeAsync(user.Id));
+        await RunAsync("wipe", () => molly.RequestWipeAsync(user.Id));
     }
 
     private async Task DeleteAsync(MollyUserInfo user)
     {
         // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
-        if (!CanDelete)
+        if (!IsAdmin)
         {
             return;
         }
 
-        await RunAsync(() => molly.DeleteEntryAsync(user.Id));
+        await RunAsync("delete", () => molly.DeleteEntryAsync(user.Id));
     }
 
     private async Task ClearAlertsAsync(MollyUserInfo user)
     {
         // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
-        if (!CanDelete)
+        if (!IsAdmin)
         {
             return;
         }
 
-        await RunAsync(() => molly.DeleteAlertsAsync(user.Id));
+        await RunAsync("clear alerts", () => molly.DeleteAlertsAsync(user.Id));
     }
 
-    private async Task RunAsync(Func<Task> action)
+    private async Task RunAsync(string action, Func<Task> operation)
     {
         if (_busy)
         {
@@ -314,7 +317,15 @@ else
 
         try
         {
-            await action();
+            await operation();
+
+            // Only an admin is trusted implicitly. Anything done with just the dashboard password is
+            // announced, so a leaked password can't be used to quietly lock or wipe someone's device.
+            if (!IsAdmin)
+            {
+                await molly.ReportPasswordDashboardActionAsync(action);
+            }
+
             _pendingWipeId = null;
             _pendingDeleteId = null;
             _pendingClearAlertsId = null;

@@ -14,7 +14,7 @@
 
 @if (_unlocked)
 {
-    <MollyDashboard CanDelete="_isAdmin" />
+    <MollyDashboard IsAdmin="_isAdmin" />
 }
 else
 {
@@ -40,6 +40,10 @@ else
 #nullable enable
 
     /// <summary>Lets a non-admin open the dashboard. Unset means only admins can.</summary>
+    /// <remarks>
+    /// The value is a comma separated list, so a password can be rotated (or handed out to more than
+    /// one person) without invalidating the others.
+    /// </remarks>
     private const string PasswordConfigurationKey = "Molly.DashboardPassword";
 
     [CascadingParameter]
@@ -68,10 +72,23 @@ else
         Login.Password = null;
     }
 
-    private bool CheckPassword(string? password) =>
-        !string.IsNullOrEmpty(password) &&
-        configuration.TryGet(null, PasswordConfigurationKey, out string expected) &&
-        CryptographicOperations.FixedTimeEquals(expected, password);
+    private bool CheckPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password) ||
+            !configuration.TryGet(null, PasswordConfigurationKey, out string configured))
+        {
+            return false;
+        }
+
+        bool matched = false;
+
+        foreach (Range range in configured.AsSpan().Split(','))
+        {
+            matched |= CryptographicOperations.FixedTimeEquals(configured.AsSpan(range).Trim(), password);
+        }
+
+        return matched;
+    }
 
     private sealed class LoginModel
     {

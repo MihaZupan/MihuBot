@@ -788,6 +788,21 @@ public sealed class MollyService
         }
     }
 
+    /// <summary>
+    /// Announces a dashboard action taken by someone who only had the dashboard password rather than
+    /// by an admin. Which device it was is deliberately left out - Discord learns no more than it does
+    /// from an alert notification.
+    /// </summary>
+    public async Task ReportPasswordDashboardActionAsync(string action, CancellationToken cancellationToken = default)
+    {
+        if (_discordLogger is null)
+        {
+            return;
+        }
+
+        await _discordLogger.DebugAsync($"Molly dashboard: `{action}` performed");
+    }
+
     /// <summary>Deletes the stored alerts for a single device. The entry itself is left untouched.</summary>
     public async Task DeleteAlertsAsync(Guid id, CancellationToken cancellationToken = default)
     {
