@@ -28,7 +28,7 @@ public sealed class StorageService
         "abcdefghijklmnopqrstuvwxyz0123456789" + "-_");
 
     private static readonly SearchValues<char> s_fileNameValidChars = SearchValues.Create(
-        AlphaNumeric + "-_./");
+        AlphaNumeric + "-_=./");
 
     private static readonly SearchValues<char> s_fileNameExtensionValidChars = SearchValues.Create(
         AlphaNumeric);
