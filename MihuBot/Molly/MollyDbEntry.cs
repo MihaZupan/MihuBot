@@ -31,9 +31,9 @@ public sealed class MollyDbEntry
     /// <summary>The associated nickname, stored as <c>nonce || ciphertext || tag</c>.</summary>
     public byte[]? EncryptedNickname { get; set; }
 
-    public DateOnly CreatedDay { get; set; }
+    public DateTime CreatedAt { get; set; }
 
-    public DateOnly LastSeenDay { get; set; }
+    public DateTime LastSeenAt { get; set; }
 
     public bool LockRequested { get; set; }
 

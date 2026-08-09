@@ -133,10 +133,10 @@ public sealed class MollyServiceFixture : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
-    public async Task SetLastSeenAsync(Guid id, DateOnly lastSeen)
+    public async Task SetLastSeenAsync(Guid id, DateTime lastSeen)
     {
         await using MollyDbContext db = DbFactory.CreateDbContext();
-        (await db.Entries.FirstAsync(e => e.Id == id)).LastSeenDay = lastSeen;
+        (await db.Entries.FirstAsync(e => e.Id == id)).LastSeenAt = lastSeen;
         await db.SaveChangesAsync();
     }
 

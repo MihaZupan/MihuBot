@@ -122,12 +122,12 @@ public sealed class MollyService
         // The table doesn't exist until migrations have run.
         await DatabaseSetupHelper.MigrationsCompleted;
 
-        DateOnly cutoff = DateOnly.FromDateTime(DateTime.UtcNow - UnassociatedEntryRetention);
+        DateTime cutoff = DateTime.UtcNow - UnassociatedEntryRetention;
 
         await using MollyDbContext db = _db.CreateDbContext();
 
         int deleted = await db.Entries
-            .Where(e => e.EncryptedNickname == null && e.LastSeenDay < cutoff)
+            .Where(e => e.EncryptedNickname == null && e.LastSeenAt < cutoff)
             .ExecuteDeleteAsync(cancellationToken);
 
         if (deleted > 0)
@@ -146,12 +146,12 @@ public sealed class MollyService
         // The table doesn't exist until migrations have run.
         await DatabaseSetupHelper.MigrationsCompleted;
 
-        DateOnly cutoff = DateOnly.FromDateTime(DateTime.UtcNow - InactivityLockThreshold);
+        DateTime cutoff = DateTime.UtcNow - InactivityLockThreshold;
 
         await using MollyDbContext db = _db.CreateDbContext();
 
         int locked = await db.Entries
-            .Where(e => !e.LockRequested && e.LastSeenDay < cutoff)
+            .Where(e => !e.LockRequested && e.LastSeenAt < cutoff)
             .ExecuteUpdateAsync(e => e.SetProperty(entry => entry.LockRequested, true), cancellationToken);
 
         if (locked > 0)
@@ -202,7 +202,7 @@ public sealed class MollyService
             EncryptedPayload = Encrypt(entry.Id, stored, EncryptedField.Alert),
         });
 
-        entry.LastSeenDay = DateOnly.FromDateTime(DateTime.UtcNow);
+        entry.LastSeenAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -505,19 +505,19 @@ public sealed class MollyService
             }
         }
 
-        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
-
         if (matchId is null)
         {
             byte[] newServerHmac = RandomNumberGenerator.GetBytes(ServerHmacLength);
+
+            DateTime now = DateTime.UtcNow;
 
             var entry = new MollyDbEntry
             {
                 Id = Guid.NewGuid(),
                 HashPrefix = hashPrefix,
                 DerivedHash = derivedHash,
-                CreatedDay = today,
-                LastSeenDay = today,
+                CreatedAt = now,
+                LastSeenAt = now,
             };
 
             entry.EncryptedServerHmac = Encrypt(entry.Id, newServerHmac, EncryptedField.ServerHmac);
@@ -591,7 +591,7 @@ public sealed class MollyService
         }
 
         entry.EncryptedNickname = Encrypt(entry.Id, PadNickname(nickname), EncryptedField.Nickname);
-        entry.LastSeenDay = DateOnly.FromDateTime(DateTime.UtcNow);
+        entry.LastSeenAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -634,19 +634,14 @@ public sealed class MollyService
     }
 
     /// <summary>
-    /// Records that the device checked in today. This happens even when the entry is locked or wiped,
+    /// Records that the device just checked in. This happens even when the entry is locked or wiped,
     /// so the dashboard shows whether the device is still reachable and the cleanup doesn't drop it
     /// while it is still asking for its command.
     /// </summary>
     private static async Task MarkSeenAsync(MollyDbContext db, MollyDbEntry entry, CancellationToken cancellationToken)
     {
-        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
-
-        if (entry.LastSeenDay != today)
-        {
-            entry.LastSeenDay = today;
-            await db.SaveChangesAsync(cancellationToken);
-        }
+        entry.LastSeenAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>Lists every entry that has completed an association, for the admin dashboard.</summary>
@@ -656,12 +651,11 @@ public sealed class MollyService
 
         MollyDbEntry[] entries = await db.Entries
             .Where(e => e.EncryptedNickname != null)
-            .OrderByDescending(e => e.LastSeenDay)
             .ToArrayAsync(cancellationToken);
 
         return [.. entries
-            .Select(e => new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedDay, e.LastSeenDay, e.LockRequested, e.WipeRequested, e.AlertsMuted))
-            .OrderByDescending(u => u.CreatedDay)];
+            .Select(e => new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LockRequested, e.WipeRequested, e.AlertsMuted))
+            .OrderByDescending(u => u.CreatedAt)];
     }
 
     /// <summary>
@@ -720,7 +714,7 @@ public sealed class MollyService
         if (!lockRequested)
         {
             // Otherwise the inactivity sweep would just re-lock it before the device can check in.
-            entry.LastSeenDay = DateOnly.FromDateTime(DateTime.UtcNow);
+            entry.LastSeenAt = DateTime.UtcNow;
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -768,6 +762,21 @@ public sealed class MollyService
         if (deleted > 0)
         {
             _logger.LogInformation("Molly entry {Id} was deleted", id);
+        }
+    }
+
+    /// <summary>Deletes the stored alerts for a single device. The entry itself is left untouched.</summary>
+    public async Task DeleteAlertsAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        int deleted = await db.Alerts
+            .Where(a => a.EntryId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation("Deleted {Count} Molly alerts for entry {Id}", deleted, id);
         }
     }
 

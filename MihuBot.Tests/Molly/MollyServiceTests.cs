@@ -18,6 +18,10 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     /// <summary>The real entry id behind the opaque token a login hands out.</summary>
     private Guid IdOf(MollyLoginResult result) => _fixture.Unprotect(result.ProtectedId);
 
+    /// <summary>A check-in is recorded as the time it happened.</summary>
+    private static void AssertSeenJustNow(DateTime lastSeen) =>
+        Assert.InRange(lastSeen, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow);
+
     [Fact]
     public async Task Login_UnknownKeyHash_RegistersNewEntry()
     {
@@ -342,7 +346,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         MollyLoginResult login = await RegisterAsync();
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
         // The token still decrypts, but its entry - and the key material needed to recover the
@@ -357,7 +361,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         MollyLoginResult login = await RegisterAsync();
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
         MollyCommandResult result = await Molly.PingAsync(login.ProtectedId, default);
@@ -370,7 +374,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         MollyLoginResult login = await RegisterAsync();
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
         MollyCommandResult result = await Molly.SubmitAlertAsync(login.ProtectedId, Encoding.UTF8.GetBytes("""{"type":"test"}"""), default);
@@ -433,8 +437,6 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [InlineData(true)]
     public async Task BlockedEndpoints_StillRecordThatTheDeviceCheckedIn(bool wipe)
     {
-        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
-
         string keyHash = MollyTestKeys.NewKeyHash();
         MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
         Guid id = IdOf(login);
@@ -452,7 +454,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         MollyCommand expected = wipe ? MollyCommand.Wipe : MollyCommand.Lock;
 
-        // Each blocked endpoint has to refresh LastSeenDay even though it returns a command.
+        // Each blocked endpoint has to refresh LastSeen even though it returns a command.
         foreach (Func<Task<MollyCommand>> checkIn in (Func<Task<MollyCommand>>[])
         [
             async () => (await Molly.LoginAsync(keyHash, default)).Command,
@@ -460,10 +462,10 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
             async () => (await Molly.PingAsync(login.ProtectedId, default)).Command,
         ])
         {
-            await _fixture.SetLastSeenAsync(id, today.AddDays(-10));
+            await _fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-10));
 
             Assert.Equal(expected, await checkIn());
-            Assert.Equal(today, (await _fixture.GetEntryAsync(id)).LastSeenDay);
+            AssertSeenJustNow((await _fixture.GetEntryAsync(id)).LastSeenAt);
         }
     }
 
@@ -608,7 +610,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         // It has to be a normal, fully usable entry rather than a special case.
         Assert.False(user.LockRequested);
         Assert.False(user.WipeRequested);
-        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), user.CreatedDay);
+        Assert.InRange(user.CreatedAt, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow);
     }
 
     [Fact]
@@ -655,7 +657,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task DeleteUnassociatedEntries_OnlyRemovesStaleUnassociatedEntries()
     {
-        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
+        DateTime now = DateTime.UtcNow;
 
         MollyLoginResult stale = await RegisterAsync();
         MollyLoginResult seenToday = await RegisterAsync();
@@ -665,10 +667,10 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.AssociateAsync(oldButAssociated.ProtectedId, "kept-user", default);
 
         // Entries are dropped once they haven't been seen for MollyService.UnassociatedEntryRetention (2 days).
-        await _fixture.SetLastSeenAsync(IdOf(stale), today.AddDays(-3));
-        await _fixture.SetLastSeenAsync(IdOf(seenToday), today);
-        await _fixture.SetLastSeenAsync(IdOf(onTheThreshold), today.AddDays(-2));
-        await _fixture.SetLastSeenAsync(IdOf(oldButAssociated), today.AddDays(-400));
+        await _fixture.SetLastSeenAsync(IdOf(stale), now.AddDays(-3));
+        await _fixture.SetLastSeenAsync(IdOf(seenToday), now);
+        await _fixture.SetLastSeenAsync(IdOf(onTheThreshold), now.AddDays(-2).AddMinutes(1));
+        await _fixture.SetLastSeenAsync(IdOf(oldButAssociated), now.AddDays(-400));
 
         await Molly.DeleteUnassociatedEntriesAsync();
 
@@ -681,7 +683,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task LockInactiveEntries_LocksEntriesPastTheThreshold()
     {
-        DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
+        DateTime now = DateTime.UtcNow;
 
         MollyLoginResult inactive = await RegisterAsync();
         MollyLoginResult onTheThreshold = await RegisterAsync();
@@ -692,9 +694,9 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.AssociateAsync(recent.ProtectedId, "recent-user", default);
 
         // Entries are locked once they haven't been seen for MollyService.InactivityLockThreshold (7 days).
-        await _fixture.SetLastSeenAsync(IdOf(inactive), today.AddDays(-8));
-        await _fixture.SetLastSeenAsync(IdOf(onTheThreshold), today.AddDays(-7));
-        await _fixture.SetLastSeenAsync(IdOf(recent), today.AddDays(-6));
+        await _fixture.SetLastSeenAsync(IdOf(inactive), now.AddDays(-8));
+        await _fixture.SetLastSeenAsync(IdOf(onTheThreshold), now.AddDays(-7).AddMinutes(1));
+        await _fixture.SetLastSeenAsync(IdOf(recent), now.AddDays(-6));
 
         await Molly.LockInactiveEntriesAsync();
 
@@ -710,7 +712,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
         await Molly.AssociateAsync(login.ProtectedId, "gone-quiet", default);
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
 
         MollyLoginResult locked = await Molly.LoginAsync(keyHash, default);
@@ -726,7 +728,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.AssociateAsync(login.ProtectedId, "wiped-and-inactive", default);
         await Molly.RequestWipeAsync(IdOf(login));
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
 
         MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(login));
@@ -761,7 +763,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
         await Molly.AssociateAsync(login.ProtectedId, "back-again", default);
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
 
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: false);
@@ -778,13 +780,13 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         await Molly.AssociateAsync(login.ProtectedId, "unlocked-user", default);
 
-        await _fixture.SetLastSeenAsync(id, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30));
+        await _fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
         Assert.True((await _fixture.GetEntryAsync(id)).LockRequested);
 
         await Molly.SetLockRequestedAsync(id, lockRequested: false);
 
-        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), (await _fixture.GetEntryAsync(id)).LastSeenDay);
+        AssertSeenJustNow((await _fixture.GetEntryAsync(id)).LastSeenAt);
 
         // The device now gets a full window to check in rather than being locked again straight away.
         await Molly.LockInactiveEntriesAsync();
@@ -796,7 +798,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Lock_DoesNotChangeLastSeen()
     {
-        DateOnly lastSeen = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-3);
+        DateTime lastSeen = DateTime.UtcNow.AddDays(-3);
 
         MollyLoginResult login = await RegisterAsync();
         await Molly.AssociateAsync(login.ProtectedId, "locked-user", default);
@@ -805,7 +807,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: true);
 
         // Locking is not a check-in, so the dashboard keeps showing when the device was last heard from.
-        Assert.Equal(lastSeen, (await _fixture.GetEntryAsync(IdOf(login))).LastSeenDay);
+        Assert.Equal(lastSeen, (await _fixture.GetEntryAsync(IdOf(login))).LastSeenAt);
     }
 
     [Fact]
@@ -815,7 +817,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.AssociateAsync(login.ProtectedId, "wiped-but-kept", default);
         await Molly.RequestWipeAsync(IdOf(login));
 
-        await _fixture.SetLastSeenAsync(IdOf(login), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-365));
+        await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-365));
 
         await Molly.DeleteUnassociatedEntriesAsync();
 
@@ -828,7 +830,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         string keyHash = MollyTestKeys.NewKeyHash();
         MollyLoginResult original = await Molly.LoginAsync(keyHash, default);
 
-        await _fixture.SetLastSeenAsync(IdOf(original), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-90));
+        await _fixture.SetLastSeenAsync(IdOf(original), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
         MollyLoginResult reRegistered = await Molly.LoginAsync(keyHash, default);

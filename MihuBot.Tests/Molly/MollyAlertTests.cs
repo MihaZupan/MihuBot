@@ -351,11 +351,13 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     {
         (string token, Guid id) = await RegisterAsync();
 
-        await _fixture.SetLastSeenAsync(id, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-5));
+        await _fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-5));
 
         await Molly.SubmitAlertAsync(token, LocationPayload(token), default);
 
-        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow), (await _fixture.GetEntryAsync(id)).LastSeenDay);
+        DateTime lastSeen = (await _fixture.GetEntryAsync(id)).LastSeenAt;
+
+        Assert.InRange(lastSeen, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow);
     }
 
     [Theory]
@@ -469,7 +471,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         Assert.Equal(1, await _fixture.CountAlertsAsync(id));
 
         // The entry never associated a nickname, so the cleanup drops it - and its alerts with it.
-        await _fixture.SetLastSeenAsync(id, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30));
+        await _fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-30));
         await Molly.DeleteUnassociatedEntriesAsync();
 
         Assert.False(await _fixture.EntryExistsAsync(id));

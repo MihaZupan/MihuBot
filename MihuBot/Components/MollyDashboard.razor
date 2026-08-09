@@ -28,8 +28,8 @@ else
             {
                 <tr>
                     <td scope="row">@user.Nickname</td>
-                    <td>@user.CreatedDay.ToString("yyyy-MM-dd")</td>
-                    <td>@user.LastSeenDay.ToString("yyyy-MM-dd")</td>
+                    <td>@user.CreatedAt.ToString("yyyy-MM-dd")</td>
+                    <td title="@user.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">@((DateTime.UtcNow - user.LastSeenAt).ToElapsedTime()) ago</td>
                     <td>
                         @if (user.WipeRequested)
                         {
@@ -84,6 +84,25 @@ else
 
                         @if (CanDelete)
                         {
+                            @if (_pendingClearAlertsId == user.Id)
+                            {
+                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                        @onclick="() => ClearAlertsAsync(user)">
+                                    Confirm clear alerts
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingClearAlertsId = null">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingClearAlertsId = user.Id">
+                                    Clear alerts
+                                </button>
+                            }
+
                             @if (_pendingDeleteId == user.Id)
                             {
                                 <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
@@ -127,7 +146,6 @@ else
                 <th scope="col">Received</th>
                 <th scope="col">Type</th>
                 <th scope="col">Details</th>
-                <th scope="col">Payload</th>
             </tr>
         </thead>
         <tbody>
@@ -135,14 +153,15 @@ else
             {
                 <tr>
                     <td scope="row">@alert.Nickname</td>
-                    <td>@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC (@((DateTime.UtcNow - alert.CreatedAt).ToElapsedTime()) ago)</td>
+                    <td title="@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">@((DateTime.UtcNow - alert.CreatedAt).ToElapsedTime()) ago</td>
                     <td>
                         @if (alert.Type != MollyAlertType.Unknown)
                         {
                             <span class="badge bg-secondary">@alert.Type</span>
                         }
                     </td>
-                    <td>
+                    @* The raw payload is only a hover away - it's noisy, and the summary covers the common case. *@
+                    <td title="@alert.Payload">
                         @if (alert.Summary is { } summary)
                         {
                             @if (alert.MapUrl is { } mapUrl)
@@ -155,7 +174,6 @@ else
                             }
                         }
                     </td>
-                    <td><small style="font-size:12px">@alert.Payload</small></td>
                 </tr>
             }
         </tbody>
@@ -174,10 +192,11 @@ else
     private MollyAlertInfo[] _alerts = [];
     private Guid? _pendingWipeId;
     private Guid? _pendingDeleteId;
+    private Guid? _pendingClearAlertsId;
     private bool _busy;
 
     /// <summary>Keeps the device list and alerts current without a manual reload.</summary>
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
     private readonly CancellationTokenSource _cts = new();
 
     protected override async Task OnInitializedAsync()
@@ -248,6 +267,17 @@ else
         await RunAsync(() => molly.DeleteEntryAsync(user.Id));
     }
 
+    private async Task ClearAlertsAsync(MollyUserInfo user)
+    {
+        // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
+        if (!CanDelete)
+        {
+            return;
+        }
+
+        await RunAsync(() => molly.DeleteAlertsAsync(user.Id));
+    }
+
     private async Task RunAsync(Func<Task> action)
     {
         if (_busy)
@@ -262,6 +292,7 @@ else
             await action();
             _pendingWipeId = null;
             _pendingDeleteId = null;
+            _pendingClearAlertsId = null;
             await RefreshAsync();
         }
         finally

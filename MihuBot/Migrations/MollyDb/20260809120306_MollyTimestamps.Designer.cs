@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MihuBot.DB;
 
@@ -10,9 +11,11 @@ using MihuBot.DB;
 namespace MihuBot.Migrations.MollyDb
 {
     [DbContext(typeof(MollyDbContext))]
-    partial class MollyDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809120306_MollyTimestamps")]
+    partial class MollyTimestamps
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
