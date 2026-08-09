@@ -364,7 +364,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
-        MollyCommandResult result = await Molly.PingAsync(login.ProtectedId, default);
+        MollyCommandResult result = await Molly.PingAsync(login.ProtectedId, null, null, default);
         Assert.Equal(MollyResultStatus.Command, result.Status);
         Assert.Equal(MollyCommand.Wipe, result.Command);
     }
@@ -387,21 +387,79 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         MollyLoginResult login = await RegisterAsync();
 
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(login.ProtectedId, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(login.ProtectedId, null, null, default)).Status);
     }
 
     [Fact]
     public async Task Ping_WithoutId_IsStillALivenessCheck()
     {
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(null, default)).Status);
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync("", default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(null, null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync("", null, null, default)).Status);
+    }
+
+    [Fact]
+    public async Task Ping_ReportsDeviceStatus()
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(login.ProtectedId, 42, false, default)).Status);
+
+        MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(login));
+
+        Assert.Equal(42, entry.BatteryLevel);
+        Assert.False(entry.LocationEnabled);
+    }
+
+    [Fact]
+    public async Task Ping_WithoutDeviceStatus_KeepsWhatWasLastReported()
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        await Molly.PingAsync(login.ProtectedId, 42, true, default);
+        await Molly.PingAsync(login.ProtectedId, null, null, default);
+
+        MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(login));
+
+        Assert.Equal(42, entry.BatteryLevel);
+        Assert.True(entry.LocationEnabled);
+    }
+
+    [Fact]
+    public async Task Ping_NewEntry_HasNoDeviceStatusYet()
+    {
+        MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(await RegisterAsync()));
+
+        Assert.Null(entry.BatteryLevel);
+        Assert.Null(entry.LocationEnabled);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public async Task Ping_BatteryLevelOutsideOfRange_IsRejected(int batteryLevel)
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(login.ProtectedId, batteryLevel, null, default)).Status);
+        Assert.Null((await _fixture.GetEntryAsync(IdOf(login))).BatteryLevel);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public async Task Ping_BatteryLevelAtTheEdgeOfTheRange_IsAccepted(int batteryLevel)
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(login.ProtectedId, batteryLevel, null, default)).Status);
+        Assert.Equal(batteryLevel, (await _fixture.GetEntryAsync(IdOf(login))).BatteryLevel);
     }
 
     [Fact]
     public async Task Ping_MalformedToken_IsRejected()
     {
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(Guid.NewGuid().ToString(), default)).Status);
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync("not-a-token", default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(Guid.NewGuid().ToString(), null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync("not-a-token", null, null, default)).Status);
     }
 
     [Fact]
@@ -410,7 +468,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         // Tokens are bound to the server key, so one issued under a different key can't be unprotected.
         string foreignToken = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
 
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(foreignToken, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(foreignToken, null, null, default)).Status);
     }
 
     [Fact]
@@ -429,7 +487,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         Assert.Null(locked.ProtectedId);
 
         Assert.Equal(MollyCommand.Lock, (await Molly.AssociateAsync(login.ProtectedId, "new-name", default)).Command);
-        Assert.Equal(MollyCommand.Lock, (await Molly.PingAsync(login.ProtectedId, default)).Command);
+        Assert.Equal(MollyCommand.Lock, (await Molly.PingAsync(login.ProtectedId, null, null, default)).Command);
     }
 
     [Theory]
@@ -459,7 +517,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         [
             async () => (await Molly.LoginAsync(keyHash, default)).Command,
             async () => (await Molly.AssociateAsync(login.ProtectedId, "new-name", default)).Command,
-            async () => (await Molly.PingAsync(login.ProtectedId, default)).Command,
+            async () => (await Molly.PingAsync(login.ProtectedId, null, null, default)).Command,
         ])
         {
             await _fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-10));
@@ -500,7 +558,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         Assert.NotNull(entry.EncryptedNickname);
 
         Assert.Equal(MollyCommand.Wipe, (await Molly.LoginAsync(keyHash, default)).Command);
-        Assert.Equal(MollyCommand.Wipe, (await Molly.PingAsync(login.ProtectedId, default)).Command);
+        Assert.Equal(MollyCommand.Wipe, (await Molly.PingAsync(login.ProtectedId, null, null, default)).Command);
     }
 
     [Fact]
@@ -611,6 +669,31 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         Assert.False(user.LockRequested);
         Assert.False(user.WipeRequested);
         Assert.InRange(user.CreatedAt, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task CreateFakeEntry_StartsMuted()
+    {
+        string nickname = $"dummy-{Guid.NewGuid():N}"[..24];
+
+        await Molly.CreateFakeEntryAsync(nickname);
+
+        MollyUserInfo user = Assert.Single(await Molly.GetRegisteredUsersAsync(), u => u.Nickname == nickname);
+
+        Assert.True(user.AlertsMuted);
+    }
+
+    [Fact]
+    public async Task CreateFakeEntry_AlsoReportsDeviceStatus()
+    {
+        string nickname = $"dummy-{Guid.NewGuid():N}"[..24];
+
+        await Molly.CreateFakeEntryAsync(nickname);
+
+        MollyUserInfo user = Assert.Single(await Molly.GetRegisteredUsersAsync(), u => u.Nickname == nickname);
+
+        Assert.NotNull(user.LocationEnabled);
+        Assert.InRange(user.BatteryLevel!.Value, 0, 100);
     }
 
     [Fact]
@@ -736,7 +819,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         // A wipe outranks a lock, and must not be downgraded by the maintenance pass.
         Assert.True(entry.WipeRequested);
         Assert.True(entry.LockRequested);
-        Assert.Equal(MollyCommand.Wipe, (await Molly.PingAsync(login.ProtectedId, default)).Command);
+        Assert.Equal(MollyCommand.Wipe, (await Molly.PingAsync(login.ProtectedId, null, null, default)).Command);
     }
 
     [Fact]

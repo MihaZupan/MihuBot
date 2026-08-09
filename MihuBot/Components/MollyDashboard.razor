@@ -19,6 +19,7 @@ else
                 <th scope="col">Nickname</th>
                 <th scope="col">Registered</th>
                 <th scope="col">Last seen</th>
+                <th scope="col">Device</th>
                 <th scope="col">Status</th>
                 <th scope="col">Actions</th>
             </tr>
@@ -30,6 +31,21 @@ else
                     <td scope="row">@user.Nickname</td>
                     <td>@user.CreatedAt.ToString("yyyy-MM-dd")</td>
                     <td title="@user.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">@((DateTime.UtcNow - user.LastSeenAt).ToElapsedTime()) ago</td>
+                    <td>
+                        @* Only ever reported by a ping, so a device that never sent one shows nothing. *@
+                        @if (user.BatteryLevel is { } battery)
+                        {
+                            <span class="@BatteryIcon(battery)" title="Battery @(battery)%" aria-hidden="true"></span>
+                            <small class="mr-2">@(battery)%</small>
+                        }
+
+                        @if (user.LocationEnabled is { } locationEnabled)
+                        {
+                            @* Bootstrap has no crossed-out geo icon, so "off" is the hollow pin in red. *@
+                            <span class="bi @(locationEnabled ? "bi-geo-alt-fill text-info" : "bi-geo-alt text-danger")"
+                                  title="@(locationEnabled ? "Location available" : "No location fix")" aria-hidden="true"></span>
+                        }
+                    </td>
                     <td>
                         @if (user.WipeRequested)
                         {
@@ -187,6 +203,15 @@ else
     /// <summary>Deleting an entry is admin-only - knowing the dashboard password isn't enough.</summary>
     [Parameter]
     public bool CanDelete { get; set; }
+
+    /// <summary>Bootstrap only ships four battery icons, so the level is bucketed to the nearest one.</summary>
+    private static string BatteryIcon(int level) => level switch
+    {
+        <= 10 => "bi bi-battery text-danger",
+        <= 35 => "bi bi-battery-half text-warning",
+        < 95 => "bi bi-battery-half",
+        _ => "bi bi-battery-full text-success",
+    };
 
     private MollyUserInfo[] _users = [];
     private MollyAlertInfo[] _alerts = [];

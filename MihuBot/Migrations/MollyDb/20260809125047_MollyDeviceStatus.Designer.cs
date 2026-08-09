@@ -11,8 +11,8 @@ using MihuBot.DB;
 namespace MihuBot.Migrations.MollyDb
 {
     [DbContext(typeof(MollyDbContext))]
-    [Migration("20260809120306_MollyTimestamps")]
-    partial class MollyTimestamps
+    [Migration("20260809125047_MollyDeviceStatus")]
+    partial class MollyDeviceStatus
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -52,6 +52,9 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<bool>("AlertsMuted")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("BatteryLevel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -70,6 +73,9 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.Property<DateTime>("LastSeenAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("LocationEnabled")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("LockRequested")
                         .HasColumnType("INTEGER");

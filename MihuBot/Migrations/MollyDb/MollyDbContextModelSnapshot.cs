@@ -49,6 +49,9 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<bool>("AlertsMuted")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("BatteryLevel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -67,6 +70,9 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.Property<DateTime>("LastSeenAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("LocationEnabled")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("LockRequested")
                         .HasColumnType("INTEGER");

@@ -599,8 +599,15 @@ public sealed class MollyService
     }
 
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>, if the device has one.</param>
-    public async Task<MollyCommandResult> PingAsync(string? protectedId, CancellationToken cancellationToken)
+    /// <param name="batteryLevel">Optional battery percentage, 0-100.</param>
+    /// <param name="locationEnabled">Optional: whether the device can currently get a location fix.</param>
+    public async Task<MollyCommandResult> PingAsync(string? protectedId, int? batteryLevel, bool? locationEnabled, CancellationToken cancellationToken)
     {
+        if (batteryLevel is < 0 or > 100)
+        {
+            return MollyCommandResult.Invalid;
+        }
+
         // A ping without an id is still a valid liveness check, it just can't carry a command.
         if (string.IsNullOrEmpty(protectedId))
         {
@@ -625,6 +632,10 @@ public sealed class MollyService
         }
 
         MollyCommand command = GetPendingCommand(entry);
+
+        // Both are optional, so a ping that omits one leaves the previously reported value alone.
+        entry.BatteryLevel = batteryLevel ?? entry.BatteryLevel;
+        entry.LocationEnabled = locationEnabled ?? entry.LocationEnabled;
 
         await MarkSeenAsync(db, entry, cancellationToken);
 
@@ -654,7 +665,7 @@ public sealed class MollyService
             .ToArrayAsync(cancellationToken);
 
         return [.. entries
-            .Select(e => new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LockRequested, e.WipeRequested, e.AlertsMuted))
+            .Select(e => new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, e.BatteryLevel, e.LocationEnabled))
             .OrderByDescending(u => u.CreatedAt)];
     }
 
@@ -669,6 +680,18 @@ public sealed class MollyService
         MollyLoginResult login = await LoginAsync(keyHash, cancellationToken);
 
         await AssociateAsync(login.ProtectedId, nickname, cancellationToken);
+
+        // Muted from the start - a local dummy device shouldn't be announcing its seeded alert.
+        if (_idProtector.TryUnprotect(login.ProtectedId, out Guid entryId))
+        {
+            await SetAlertsMutedAsync(entryId, muted: true, cancellationToken);
+        }
+
+        // Random-but-plausible device stats, so the dashboard shows the whole range of states locally.
+        await PingAsync(login.ProtectedId,
+            batteryLevel: Random.Shared.Next(0, 101),
+            locationEnabled: Random.Shared.Next(4) != 0,
+            cancellationToken);
 
         // Populates the alerts table too, and exercises the reporting path end to end.
         byte[] alert = Encoding.UTF8.GetBytes(

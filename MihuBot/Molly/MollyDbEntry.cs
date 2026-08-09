@@ -35,6 +35,15 @@ public sealed class MollyDbEntry
 
     public DateTime LastSeenAt { get; set; }
 
+    /// <summary>Battery percentage as of the last ping that reported one, if any.</summary>
+    public int? BatteryLevel { get; set; }
+
+    /// <summary>
+    /// Whether the device could actually get a location fix as of the last ping that reported it.
+    /// Null means no ping has ever said either way.
+    /// </summary>
+    public bool? LocationEnabled { get; set; }
+
     public bool LockRequested { get; set; }
 
     public bool WipeRequested { get; set; }

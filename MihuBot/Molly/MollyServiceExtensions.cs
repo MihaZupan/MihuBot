@@ -122,7 +122,7 @@ public static class MollyServiceExtensions
                     return Invalid();
                 }
 
-                MollyCommandResult result = await molly.PingAsync(data.Id, cancellationToken);
+                MollyCommandResult result = await molly.PingAsync(data.Id, data.BatteryLevel, data.LocationEnabled, cancellationToken);
 
                 return ToResponse(result, static command => new MollyPingResponse { Command = command });
             }

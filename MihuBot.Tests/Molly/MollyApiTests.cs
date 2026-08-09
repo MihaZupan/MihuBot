@@ -296,6 +296,27 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     }
 
     [Fact]
+    public async Task Ping_CarriesOptionalDeviceStatus()
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","batteryLevel":73,"locationEnabled":false}""");
+
+        Assert.Equal("ok", Status(response));
+        Assert.Equal("pong", Data(response).GetProperty("response").GetString());
+    }
+
+    [Fact]
+    public async Task Ping_WithAnOutOfRangeBatteryLevel_ReturnsInvalid()
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","batteryLevel":101}""");
+
+        Assert.Equal("invalid", Status(response));
+    }
+
+    [Fact]
     public async Task Ping_UnknownToken_ReturnsInvalid()
     {
         // A raw guid isn't a token this process issued, so it's rejected before any lookup.
