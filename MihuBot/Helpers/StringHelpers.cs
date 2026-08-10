@@ -146,4 +146,63 @@ public static class StringHelpers
     {
         return long.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
     }
+
+    public static bool TryGetArgument(ReadOnlySpan<char> arguments, string argument, [NotNullWhen(true)] out string? value)
+    {
+        value = null;
+        argument = $"-{argument} ";
+
+        int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
+        if (offset < 0) return false;
+
+        arguments = arguments.Slice(offset + argument.Length);
+
+        int length = arguments.IndexOf(' ');
+        if (length >= 0)
+        {
+            arguments = arguments.Slice(0, length);
+        }
+
+        value = arguments.Trim().ToString();
+
+        if (value.Length == 0)
+        {
+            value = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    public static bool TryParseSize(ReadOnlySpan<char> text, int defaultScale, out long size)
+    {
+        text = text.Trim();
+
+        if (text.EndsWith('g') || text.EndsWith('G'))
+        {
+            defaultScale = 1024 * 1024 * 1024;
+            text = text.Slice(0, text.Length - 1);
+        }
+        else if (text.EndsWith('m') || text.EndsWith('M'))
+        {
+            defaultScale = 1024 * 1024;
+            text = text.Slice(0, text.Length - 1);
+        }
+        else if (text.EndsWith('k') || text.EndsWith('K'))
+        {
+            defaultScale = 1024;
+            text = text.Slice(0, text.Length - 1);
+        }
+
+        text = text.Trim();
+
+        if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out long value) && value > 0)
+        {
+            size = value * defaultScale;
+            return true;
+        }
+
+        size = 0;
+        return false;
+    }
 }

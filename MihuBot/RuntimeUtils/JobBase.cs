@@ -255,34 +255,8 @@ public abstract class JobBase
         return @default;
     }
 
-    protected bool TryGetArgument(string argument, [NotNullWhen(true)] out string value)
-    {
-        value = null;
-
-        ReadOnlySpan<char> arguments = CustomArguments;
-        argument = $"-{argument} ";
-
-        int offset = arguments.IndexOf(argument, StringComparison.OrdinalIgnoreCase);
-        if (offset < 0) return false;
-
-        arguments = arguments.Slice(offset + argument.Length);
-
-        int length = arguments.IndexOf(' ');
-        if (length >= 0)
-        {
-            arguments = arguments.Slice(0, length);
-        }
-
-        value = arguments.Trim().ToString();
-
-        if (value.Length == 0)
-        {
-            value = null;
-            return false;
-        }
-
-        return true;
-    }
+    protected bool TryGetArgument(string argument, [NotNullWhen(true)] out string value) =>
+        StringHelpers.TryGetArgument(CustomArguments, argument, out value);
 
     public async Task RunJobAsync()
     {

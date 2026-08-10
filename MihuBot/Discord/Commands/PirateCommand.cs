@@ -42,6 +42,20 @@ public sealed partial class PirateCommand : CommandBase
             return;
         }
 
+        if (StringHelpers.TryGetArgument(ctx.ArgumentStringTrimmed, "filter", out string? filter))
+        {
+            query = query.Substring(0, query.IndexOf("-filter", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (StringHelpers.TryGetArgument(ctx.ArgumentStringTrimmed, "maxSize", out string? maxSizeStr))
+        {
+            query = query.Substring(0, query.IndexOf("-maxSize", StringComparison.OrdinalIgnoreCase));
+        }
+        else if (StringHelpers.TryGetArgument(ctx.ArgumentStringTrimmed, "max", out maxSizeStr))
+        {
+            query = query.Substring(0, query.IndexOf("-max", StringComparison.OrdinalIgnoreCase));
+        }
+
         ctx.Message.AddReactionAsync(Emotes.ThumbsUp).IgnoreExceptions();
 
         QBittorrentClient.SearchResult[] results;
@@ -49,13 +63,23 @@ public sealed partial class PirateCommand : CommandBase
         {
             await _qBittorrent.LoginAsync(ctx.CancellationToken);
 
-            results = await _qBittorrent.SearchAsync(query, TimeSpan.FromSeconds(5), ctx.CancellationToken);
+            results = await _qBittorrent.SearchAsync(query, TimeSpan.FromSeconds(6), ctx.CancellationToken);
         }
         catch (Exception ex)
         {
             await ctx.ReplyAsync($"Search for '{query}' failed: {ex.Message}");
             await ctx.DebugAsync(ex);
             return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            results = [.. results.Where(r => r.FileName.Contains(filter, StringComparison.OrdinalIgnoreCase))];
+        }
+
+        if (StringHelpers.TryParseSize(maxSizeStr, 1, out long maxSize))
+        {
+            results = [.. results.Where(r => r.FileSize <= maxSize)];
         }
 
         QBittorrentClient.SearchResult? bestResult = TryGetBestResult(results, query);
@@ -76,10 +100,15 @@ public sealed partial class PirateCommand : CommandBase
         bool error = false;
         try
         {
+            ctx.DebugLog($"Starting download for `{uri.DisplayName}`: <{uri.Url}>");
+
             bool isTvShow = SeasonRegex.IsMatch(uri.DisplayName);
 
             await _qBittorrent.LoginAsync(ctx.CancellationToken);
             await _qBittorrent.AddTorrentAsync(uri.Url, isTvShow ? "/media/Shows" : "/media/Movies", ctx.CancellationToken);
+
+            // Initial wait for the torrent to start downloading.
+            await Task.Delay(3_000, ctx.CancellationToken);
 
             QBittorrentClient.TorrentInfo info;
             RestUserMessage? message = null;
