@@ -1,9 +1,11 @@
 using Microsoft.Extensions.AI;
 using MihuBot.Commands;
 using MihuBot.Configuration;
+using MihuBot.DB;
 using MihuBot.Helpers.AI;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 namespace MihuBot.Discord.Commands;
 
@@ -12,7 +14,6 @@ public sealed class AIOverviewCommand : CommandBase
     private static readonly TimeSpan DefaultDuration = TimeSpan.FromHours(1);
     private static readonly TimeSpan MaxDuration = TimeSpan.FromDays(7);
 
-    private const int MaxMessagesToFetch = 2000;
     private const int MaxTranscriptLength = 500_000;
     private const string FocusMarker = ">>";
 
@@ -56,7 +57,7 @@ public sealed class AIOverviewCommand : CommandBase
                 return;
             }
 
-            if (duration > MaxDuration)
+            if (duration > MaxDuration && !ctx.IsFromAdmin)
             {
                 duration = MaxDuration;
             }
@@ -173,33 +174,54 @@ public sealed class AIOverviewCommand : CommandBase
         await ctx.Channel.SendMessageAsync(embed: embed.Build());
     }
 
-    private static async Task<(string Transcript, int MessageCount, int FocusMessageCount)> GetTranscriptAsync(CommandContext ctx, DateTimeOffset cutoff, ulong? focusUserId, CancellationToken cancellationToken)
+    private async Task<(string Transcript, int MessageCount, int FocusMessageCount)> GetTranscriptAsync(CommandContext ctx, DateTimeOffset cutoff, ulong? focusUserId, CancellationToken cancellationToken)
     {
-        List<IMessage> collected = [];
+        long channelId = (long)ctx.Channel.Id;
 
-        await foreach (IReadOnlyCollection<IMessage> page in ctx.Channel.GetMessagesAsync(MaxMessagesToFetch, options: new RequestOptions { CancelToken = cancellationToken }).WithCancellation(cancellationToken))
+        LogDbEntry[] entries = await _logger.GetLogsAsync(
+            cutoff.UtcDateTime,
+            DateTime.UtcNow - TimeSpan.FromSeconds(2),
+            query => query.Where(log =>
+                log.ChannelId == channelId &&
+                (log.Type == Logger.EventType.MessageReceived ||
+                 log.Type == Logger.EventType.MessageUpdated ||
+                 log.Type == Logger.EventType.FileReceived)),
+            cancellationToken: cancellationToken);
+
+        SortedDictionary<long, LoggedMessage> messages = [];
+
+        foreach (LogDbEntry entry in entries)
         {
-            bool reachedCutoff = false;
-
-            foreach (IMessage message in page)
+            if ((ulong)entry.Snowflake >= ctx.Message.Id)
             {
-                if (message.Timestamp < cutoff)
-                {
-                    reachedCutoff = true;
-                    continue;
-                }
-
-                if (ctx.StartedAt - message.Timestamp < TimeSpan.FromSeconds(1))
-                {
-                    continue;
-                }
-
-                collected.Add(message);
+                continue;
             }
 
-            if (reachedCutoff)
+            if (!messages.TryGetValue(entry.Snowflake, out LoggedMessage message))
             {
-                break;
+                messages[entry.Snowflake] = message = new LoggedMessage();
+            }
+
+            if (entry.UserId != 0)
+            {
+                message.AuthorId = (ulong)entry.UserId;
+            }
+
+            if (entry.Type == Logger.EventType.FileReceived)
+            {
+                if (TryGetAttachmentName(entry, out string filename))
+                {
+                    (message.Attachments ??= []).Add(filename);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(entry.Content))
+            {
+                message.Content = entry.Content;
+
+                if (entry.Type == Logger.EventType.MessageUpdated)
+                {
+                    message.Content += " (edited)";
+                }
             }
         }
 
@@ -207,24 +229,24 @@ public sealed class AIOverviewCommand : CommandBase
         int messageCount = 0;
         int focusMessageCount = 0;
 
-        foreach (IMessage message in collected.OrderBy(m => m.Timestamp))
+        foreach ((long snowflake, LoggedMessage message) in messages)
         {
             string content = message.Content?.Trim();
 
-            if (message.Attachments.Count > 0)
+            if (message.Attachments is not null)
             {
-                string attachments = string.Join(", ", message.Attachments.Select(a => a.Filename));
-                content = string.IsNullOrEmpty(content) ? $"[attachments: {attachments}]" : $"{content} [attachments: {attachments}]";
+                string attachments = $"[attachments: {string.Join(", ", message.Attachments)}]";
+                content = string.IsNullOrEmpty(content) ? attachments : $"{content} {attachments}";
             }
 
-            if (string.IsNullOrEmpty(content))
+            if (string.IsNullOrEmpty(content) || message.AuthorId == 0)
             {
                 continue;
             }
 
             messageCount++;
 
-            bool isFocused = focusUserId.HasValue && message.Author.Id == focusUserId.Value;
+            bool isFocused = focusUserId.HasValue && message.AuthorId == focusUserId.Value;
 
             if (isFocused)
             {
@@ -232,8 +254,8 @@ public sealed class AIOverviewCommand : CommandBase
                 builder.Append(FocusMarker).Append(' ');
             }
 
-            builder.Append('[').Append(message.Timestamp.ToISODateTime()).Append("] ");
-            builder.Append(message.Author.GetName()).Append(": ");
+            builder.Append('[').Append(SnowflakeUtils.FromSnowflake((ulong)snowflake).ToISODateTime()).Append("] ");
+            builder.Append(GetDisplayName(ctx, message.AuthorId)).Append(": ");
             builder.AppendLine(content.NormalizeNewLines().Replace('\n', ' '));
 
             if (builder.Length > MaxTranscriptLength)
@@ -244,6 +266,37 @@ public sealed class AIOverviewCommand : CommandBase
 
         return (builder.ToString(), messageCount, focusMessageCount);
     }
+
+    private sealed class LoggedMessage
+    {
+        public ulong AuthorId;
+        public string Content;
+        public List<string> Attachments;
+    }
+
+    private static bool TryGetAttachmentName(LogDbEntry entry, out string filename)
+    {
+        filename = null;
+
+        if (string.IsNullOrEmpty(entry.ExtraContentJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            filename = JsonSerializer.Deserialize<Logger.AttachmentModel>(entry.ExtraContentJson)?.Filename;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrEmpty(filename);
+    }
+
+    private static string GetDisplayName(CommandContext ctx, ulong userId) =>
+        ctx.Guild.GetUser(userId)?.GetName() ?? ctx.Discord.GetUser(userId)?.GetName() ?? userId.ToString();
 
     /// <summary>Splits the argument into the duration part and the optional person name, e.g. "2 hours from someone".</summary>
     /// <param name="mentionedUserIds">Ids of users mentioned in the message - their mention tags are stripped from the argument.</param>
@@ -273,7 +326,8 @@ public sealed class AIOverviewCommand : CommandBase
 
         int keywordIndex = Array.FindIndex(parts, p =>
             p.Equals("from", StringComparison.OrdinalIgnoreCase) ||
-            p.Equals("by", StringComparison.OrdinalIgnoreCase));
+            p.Equals("by", StringComparison.OrdinalIgnoreCase) ||
+            p.Equals("about", StringComparison.OrdinalIgnoreCase));
 
         if (keywordIndex >= 0)
         {

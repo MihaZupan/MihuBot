@@ -401,9 +401,12 @@ public sealed partial class Logger
     {
         await using var context = _dbContextFactory.CreateDbContext();
 
+        long afterSnowflake = (long)SnowflakeUtils.ToSnowflake(after);
+        long beforeSnowflake = (long)SnowflakeUtils.ToSnowflake(before);
+
         IQueryable<LogDbEntry> logQuery = context.Logs.AsNoTracking()
-            .Where(log => log.Snowflake >= (long)SnowflakeUtils.ToSnowflake(after))
-            .Where(log => log.Snowflake <= (long)SnowflakeUtils.ToSnowflake(before));
+            .Where(log => log.Snowflake >= afterSnowflake)
+            .Where(log => log.Snowflake <= beforeSnowflake);
 
         logQuery = logQuery.OrderBy(log => log.Snowflake);
 
