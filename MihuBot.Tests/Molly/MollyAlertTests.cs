@@ -493,4 +493,24 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         Assert.Equal(3, alerts.Length);
         Assert.Contains("\"seq\":2", alerts[0].Payload);
     }
+
+    [Fact]
+    public async Task DeleteAlert_OnlyRemovesTheOneAlert()
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        for (int i = 0; i < 3; i++)
+        {
+            await Molly.SubmitAlertAsync(token, Payload($$"""{"id":"{{token}}","seq":{{i}}}"""), default);
+        }
+
+        MollyAlertInfo[] alerts = [.. (await Molly.GetRecentAlertsAsync()).Where(a => a.EntryId == id)];
+
+        await Molly.DeleteAlertAsync(alerts[1].Id);
+
+        MollyAlertInfo[] remaining = [.. (await Molly.GetRecentAlertsAsync()).Where(a => a.EntryId == id)];
+
+        Assert.Equal([alerts[0].Id, alerts[2].Id], remaining.Select(a => a.Id));
+        Assert.True(await _fixture.EntryExistsAsync(id));
+    }
 }

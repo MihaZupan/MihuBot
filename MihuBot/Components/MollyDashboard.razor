@@ -30,7 +30,9 @@ else
                 <tr>
                     <td scope="row">@user.Nickname</td>
                     <td>@user.CreatedAt.ToString("yyyy-MM-dd")</td>
-                    <td title="@user.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">@((DateTime.UtcNow - user.LastSeenAt).ToElapsedTime()) ago</td>
+                    <td title="@user.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">
+                        <span class="elapsed">@((DateTime.UtcNow - user.LastSeenAt).ToElapsedTime()) ago</span>
+                    </td>
                     <td>
                         @* Only ever reported by a ping, so a device that never sent one shows nothing. *@
                         @if (user.BatteryLevel is { } battery)
@@ -162,6 +164,10 @@ else
                 <th scope="col">Received</th>
                 <th scope="col">Type</th>
                 <th scope="col">Details</th>
+                @if (IsAdmin)
+                {
+                    <th scope="col">Actions</th>
+                }
             </tr>
         </thead>
         <tbody>
@@ -169,7 +175,9 @@ else
             {
                 <tr>
                     <td scope="row">@alert.Nickname</td>
-                    <td title="@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">@((DateTime.UtcNow - alert.CreatedAt).ToElapsedTime()) ago</td>
+                    <td title="@alert.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">
+                        <span class="elapsed">@((DateTime.UtcNow - alert.CreatedAt).ToElapsedTime()) ago</span>
+                    </td>
                     <td>
                         @if (alert.Type != MollyAlertType.Unknown)
                         {
@@ -190,6 +198,29 @@ else
                             }
                         }
                     </td>
+                    @if (IsAdmin)
+                    {
+                        <td>
+                            @if (_pendingDeleteAlertId == alert.Id)
+                            {
+                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                        @onclick="() => DeleteAlertAsync(alert)">
+                                    Confirm delete
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingDeleteAlertId = null">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                        @onclick="() => _pendingDeleteAlertId = alert.Id">
+                                    Delete
+                                </button>
+                            }
+                        </td>
+                    }
                 </tr>
             }
         </tbody>
@@ -212,7 +243,7 @@ else
     {
         <= 10 => "bi bi-battery text-danger",
         <= 35 => "bi bi-battery-half text-warning",
-        < 95 => "bi bi-battery-half",
+        < 80 => "bi bi-battery-half",
         _ => "bi bi-battery-full text-success",
     };
 
@@ -221,10 +252,11 @@ else
     private Guid? _pendingWipeId;
     private Guid? _pendingDeleteId;
     private Guid? _pendingClearAlertsId;
+    private long? _pendingDeleteAlertId;
     private bool _busy;
 
     /// <summary>Keeps the device list and alerts current without a manual reload.</summary>
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
     private readonly CancellationTokenSource _cts = new();
 
     protected override async Task OnInitializedAsync()
@@ -306,6 +338,17 @@ else
         await RunAsync("clear alerts", () => molly.DeleteAlertsAsync(user.Id));
     }
 
+    private async Task DeleteAlertAsync(MollyAlertInfo alert)
+    {
+        // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
+        if (!IsAdmin)
+        {
+            return;
+        }
+
+        await RunAsync("delete alert", () => molly.DeleteAlertAsync(alert.Id));
+    }
+
     private async Task RunAsync(string action, Func<Task> operation)
     {
         if (_busy)
@@ -329,6 +372,7 @@ else
             _pendingWipeId = null;
             _pendingDeleteId = null;
             _pendingClearAlertsId = null;
+            _pendingDeleteAlertId = null;
             await RefreshAsync();
         }
         finally

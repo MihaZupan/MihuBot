@@ -1,0 +1,10 @@
+/* The elapsed time text changes length as it ticks ("2 seconds" vs "15 minutes 20 seconds"),
+   which would otherwise resize the column and shift everything after it on every refresh. */
+.elapsed {
+    display: inline-block;
+    width: 13rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}

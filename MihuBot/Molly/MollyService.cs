@@ -818,6 +818,21 @@ public sealed class MollyService
         }
     }
 
+    /// <summary>Deletes a single stored alert. The device it came from is left untouched.</summary>
+    public async Task DeleteAlertAsync(long alertId, CancellationToken cancellationToken = default)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        int deleted = await db.Alerts
+            .Where(a => a.Id == alertId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation("Deleted Molly alert {AlertId}", alertId);
+        }
+    }
+
     /// <summary>The command the entry currently has pending, if any.</summary>
     private static MollyCommand GetPendingCommand(MollyDbEntry entry) =>
         entry.WipeRequested ? MollyCommand.Wipe :
