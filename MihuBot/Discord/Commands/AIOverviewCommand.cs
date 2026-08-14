@@ -41,7 +41,8 @@ public sealed class AIOverviewCommand : CommandBase
             return;
         }
 
-        string argument = ctx.ArgumentStringTrimmed;
+        string argument = ctx.ArgumentLines.FirstOrDefault() ?? string.Empty;
+        string extraContext = string.Join('\n', ctx.ArgumentLines.Skip(1)).Trim();
 
         IUser mentionedUser = ctx.Message.MentionedUsers.FirstOrDefault(u => u.Id != ctx.BotId);
 
@@ -117,12 +118,22 @@ public sealed class AIOverviewCommand : CommandBase
             }
         }
 
+        if (!string.IsNullOrEmpty(extraContext))
+        {
+            systemPrompt =
+                $"""
+                {systemPrompt}
+
+                {extraContext}
+                """;
+        }
+
         var options = new ChatOptions
         {
-            MaxOutputTokens = 800,
+            MaxOutputTokens = 50_000,
             RawRepresentationFactory = _ => new OpenAI.Chat.ChatCompletionOptions
             {
-                ReasoningEffortLevel = OpenAI.Chat.ChatReasoningEffortLevel.Medium,
+                ReasoningEffortLevel = OpenAI.Chat.ChatReasoningEffortLevel.High,
             },
         };
 
