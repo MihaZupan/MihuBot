@@ -146,8 +146,10 @@ public sealed class AIOverviewCommand : CommandBase
 
                 if (ctx.StartedAt - message.Timestamp < TimeSpan.FromSeconds(1))
                 {
-                    collected.Add(message);
+                    continue;
                 }
+
+                collected.Add(message);
             }
 
             if (reachedCutoff)
