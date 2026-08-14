@@ -204,10 +204,7 @@ public sealed class AIOverviewCommand : CommandBase
                 messages[entry.Snowflake] = message = new LoggedMessage();
             }
 
-            if (entry.UserId != 0)
-            {
-                message.AuthorId = (ulong)entry.UserId;
-            }
+            message.AuthorId = (ulong)entry.UserId;
 
             if (entry.Type == Logger.EventType.FileReceived)
             {
@@ -258,7 +255,7 @@ public sealed class AIOverviewCommand : CommandBase
 
             builder.Append('[').Append(SnowflakeUtils.FromSnowflake((ulong)snowflake).ToISODateTime()).Append("] ");
             builder.Append(GetDisplayName(ctx, message.AuthorId)).Append(": ");
-            builder.AppendLine(content.NormalizeNewLines().Replace('\n', ' '));
+            builder.AppendLine(content.ReplaceLineEndings("  "));
 
             if (builder.Length > MaxTranscriptLength)
             {
