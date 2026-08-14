@@ -6,6 +6,8 @@ public sealed class CommandContext : MessageContext
 {
     public readonly string Command;
 
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
+
     private readonly IPermissionsService _permissions;
 
     public string[] Arguments

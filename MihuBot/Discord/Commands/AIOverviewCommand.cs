@@ -58,7 +58,7 @@ public sealed class AIOverviewCommand : CommandBase
 
         DateTimeOffset cutoff = DateTimeOffset.UtcNow - duration;
 
-        (string transcript, int messageCount) = await GetTranscriptAsync(ctx.Channel, cutoff, ctx.CancellationToken);
+        (string transcript, int messageCount) = await GetTranscriptAsync(ctx, cutoff, ctx.CancellationToken);
 
         if (messageCount == 0)
         {
@@ -80,7 +80,11 @@ public sealed class AIOverviewCommand : CommandBase
 
         var options = new ChatOptions
         {
-            MaxOutputTokens = 800
+            MaxOutputTokens = 800,
+            RawRepresentationFactory = _ => new OpenAI.Chat.ChatCompletionOptions
+            {
+                ReasoningEffortLevel = OpenAI.Chat.ChatReasoningEffortLevel.Medium,
+            },
         };
 
         List<ChatMessage> messages =
@@ -124,11 +128,11 @@ public sealed class AIOverviewCommand : CommandBase
         await ctx.Channel.SendMessageAsync(embed: embed.Build());
     }
 
-    private static async Task<(string Transcript, int MessageCount)> GetTranscriptAsync(SocketTextChannel channel, DateTimeOffset cutoff, CancellationToken cancellationToken)
+    private static async Task<(string Transcript, int MessageCount)> GetTranscriptAsync(CommandContext ctx, DateTimeOffset cutoff, CancellationToken cancellationToken)
     {
         List<IMessage> collected = [];
 
-        await foreach (IReadOnlyCollection<IMessage> page in channel.GetMessagesAsync(MaxMessagesToFetch, options: new RequestOptions { CancelToken = cancellationToken }).WithCancellation(cancellationToken))
+        await foreach (IReadOnlyCollection<IMessage> page in ctx.Channel.GetMessagesAsync(MaxMessagesToFetch, options: new RequestOptions { CancelToken = cancellationToken }).WithCancellation(cancellationToken))
         {
             bool reachedCutoff = false;
 
@@ -140,7 +144,10 @@ public sealed class AIOverviewCommand : CommandBase
                     continue;
                 }
 
-                collected.Add(message);
+                if (ctx.StartedAt - message.Timestamp < TimeSpan.FromSeconds(1))
+                {
+                    collected.Add(message);
+                }
             }
 
             if (reachedCutoff)

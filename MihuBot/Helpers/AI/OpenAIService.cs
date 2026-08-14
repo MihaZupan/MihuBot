@@ -73,15 +73,19 @@ public sealed class OpenAIService
     {
         _configurationService.TryGet(context, "ChatGPT.Deployment", out string? deployment);
         bool secondary = _configurationService.GetOrDefault(context, "ChatGPT.Secondary", false);
+        bool tertiary = _configurationService.GetOrDefault(context, "ChatGPT.Tertiary", false);
 
-        return GetChat(deployment, secondary);
+        return GetChat(deployment, tertiary ? 3 : secondary ? 2 : 1);
     }
 
-    public IChatClient GetChat(string deployment, bool secondary = false)
+    public IChatClient GetChat(string deployment, bool secondary) =>
+        GetChat(deployment, secondary ? 2 : 1);
+
+    public IChatClient GetChat(string deployment, int deploymentOption = 1)
     {
         deployment ??= DefaultModel;
 
-        AzureOpenAIClient client = (secondary ? _secondaryChatClient : null) ?? _chat;
+        AzureOpenAIClient client = (deploymentOption == 3 ? _image : null) ?? (deploymentOption == 2 ? _secondaryChatClient : null) ?? _chat;
         IChatClient chatClient = client.GetChatClient(deployment).AsIChatClient();
 
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
