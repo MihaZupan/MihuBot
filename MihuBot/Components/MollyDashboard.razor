@@ -94,7 +94,8 @@ else
                             else
                             {
                                 <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingWipeId = user.Id">
+                                        title="Shift+click to skip the confirmation"
+                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingWipeId = user.Id, () => WipeAsync(user))">
                                     Wipe
                                 </button>
                             }
@@ -116,7 +117,8 @@ else
                             else
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingClearAlertsId = user.Id">
+                                        title="Shift+click to skip the confirmation"
+                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingClearAlertsId = user.Id, () => ClearAlertsAsync(user))">
                                     Clear alerts
                                 </button>
                             }
@@ -135,7 +137,8 @@ else
                             else
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingDeleteId = user.Id">
+                                        title="Shift+click to skip the confirmation"
+                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteId = user.Id, () => DeleteAsync(user))">
                                     Delete
                                 </button>
                             }
@@ -215,7 +218,8 @@ else
                             else
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
-                                        @onclick="() => _pendingDeleteAlertId = alert.Id">
+                                        title="Shift+click to skip the confirmation"
+                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteAlertId = alert.Id, () => DeleteAlertAsync(alert))">
                                     Delete
                                 </button>
                             }
@@ -299,6 +303,21 @@ else
     {
         _users = await molly.GetRegisteredUsersAsync();
         _alerts = await molly.GetRecentAlertsAsync();
+    }
+
+    /// <summary>
+    /// Destructive actions normally swap in a confirm button first. Holding shift skips that step
+    /// for anyone who already knows what they're doing.
+    /// </summary>
+    private Task ConfirmOrRunAsync(MouseEventArgs e, Action setPending, Func<Task> operation)
+    {
+        if (e.ShiftKey)
+        {
+            return operation();
+        }
+
+        setPending();
+        return Task.CompletedTask;
     }
 
     private async Task SetLockRequestedAsync(MollyUserInfo user, bool lockRequested)
