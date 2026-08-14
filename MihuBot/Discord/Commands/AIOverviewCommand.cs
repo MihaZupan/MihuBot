@@ -191,6 +191,8 @@ public sealed class AIOverviewCommand : CommandBase
     {
         long channelId = (long)ctx.Channel.Id;
 
+        Task<ulong[]> botsTask = ctx.Guild.GetUsersAsync().Flatten().Where(u => u.IsBot).Select(u => u.Id).ToArrayAsync(cancellationToken).AsTask();
+
         LogDbEntry[] entries = await _logger.GetLogsAsync(
             cutoff.UtcDateTime,
             DateTime.UtcNow - TimeSpan.FromSeconds(2),
@@ -254,6 +256,13 @@ public sealed class AIOverviewCommand : CommandBase
                 continue;
             }
 
+            content = content.ReplaceLineEndings("  ").Trim();
+
+            if (content.Length > 200 && (await botsTask).Contains(message.AuthorId))
+            {
+                content = content.TruncateWithDotDotDot(200);
+            }
+
             messageCount++;
 
             bool isFocused = focusUserId.HasValue && message.AuthorId == focusUserId.Value;
@@ -266,7 +275,7 @@ public sealed class AIOverviewCommand : CommandBase
 
             builder.Append('[').Append(SnowflakeUtils.FromSnowflake((ulong)snowflake).ToISODateTime()).Append("] ");
             builder.Append(GetDisplayName(ctx, message.AuthorId)).Append(": ");
-            builder.AppendLine(content.ReplaceLineEndings("  "));
+            builder.AppendLine(content);
 
             if (builder.Length > MaxTranscriptLength)
             {
