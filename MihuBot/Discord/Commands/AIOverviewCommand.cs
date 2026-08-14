@@ -10,10 +10,10 @@ namespace MihuBot.Discord.Commands;
 public sealed class AIOverviewCommand : CommandBase
 {
     private static readonly TimeSpan DefaultDuration = TimeSpan.FromHours(1);
-    private static readonly TimeSpan MaxDuration = TimeSpan.FromDays(1);
+    private static readonly TimeSpan MaxDuration = TimeSpan.FromDays(7);
 
     private const int MaxMessagesToFetch = 2000;
-    private const int MaxTranscriptLength = 100_000;
+    private const int MaxTranscriptLength = 500_000;
     private const string FocusMarker = ">>";
 
     public override string Command => "aioverview";
@@ -52,7 +52,7 @@ public sealed class AIOverviewCommand : CommandBase
         {
             if (!TryParseDuration(durationArgument, out duration))
             {
-                await ctx.ReplyAsync("Please specify a valid duration like `!aioverview 2 hours` (defaults to 1h, max 1 day). You can also filter by person: `!aioverview 2 hours from @someone`", mention: true);
+                await ctx.ReplyAsync("Please specify a valid duration like `!aioverview 2 hours` (defaults to 1h, max 1 week). You can also filter by person: `!aioverview 2 hours from @someone`", mention: true);
                 return;
             }
 
