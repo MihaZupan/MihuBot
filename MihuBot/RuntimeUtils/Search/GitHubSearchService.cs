@@ -60,16 +60,19 @@ public sealed class GitHubSearchService
         _serviceConfiguration = serviceConfiguration;
 
         // Keeps the search path (embeddings, vector store, DB queries) warm.
-        PeriodicTask.Start("GitHubSearchKeepAlive",
-            new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(5), FailureBackoff = TimeSpan.Zero },
-            discordLogger,
-            async _ =>
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-                var filters = new IssueSearchFilters();
-                var options = new IssueSearchResponseOptions { IncludeIssueComments = true };
-                await SearchIssuesAndCommentsAsync($"Keep-alive query {Environment.TickCount64}", filters, options, cts.Token);
-            });
+        if (OperatingSystem.IsLinux())
+        {
+            PeriodicTask.Start("GitHubSearchKeepAlive",
+                new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(5), FailureBackoff = TimeSpan.Zero },
+                discordLogger,
+                async _ =>
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+                    var filters = new IssueSearchFilters();
+                    var options = new IssueSearchResponseOptions { IncludeIssueComments = true };
+                    await SearchIssuesAndCommentsAsync($"Keep-alive query {Environment.TickCount64}", filters, options, cts.Token);
+                });
+        }
     }
 
     public async Task<GitHubSearchResponse> SearchIssuesAndCommentsAsync(
