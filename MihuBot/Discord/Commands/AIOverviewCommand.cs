@@ -232,7 +232,7 @@ public sealed class AIOverviewCommand : CommandBase
                 builder.Append(FocusMarker).Append(' ');
             }
 
-            builder.Append('[').Append(message.Timestamp.UtcDateTime.ToString("HH:mm")).Append("] ");
+            builder.Append('[').Append(message.Timestamp.ToISODateTime()).Append("] ");
             builder.Append(message.Author.GetName()).Append(": ");
             builder.AppendLine(content.NormalizeNewLines().Replace('\n', ' '));
 
