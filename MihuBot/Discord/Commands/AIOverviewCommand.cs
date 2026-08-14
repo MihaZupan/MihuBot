@@ -63,6 +63,8 @@ public sealed class AIOverviewCommand : CommandBase
             }
         }
 
+        Task.Run(() => ctx.Message.AddReactionAsync(Emotes.Stopwatch)).IgnoreExceptions();
+
         IUser filterUser = mentionedUser;
 
         if (filterUser is null && !string.IsNullOrEmpty(userArgument))
