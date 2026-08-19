@@ -1122,11 +1122,27 @@ public abstract class JobBase
                     await CreateDeploymentAsync(location);
                     break;
                 }
-                catch (RequestFailedException ex) when (!deploymentComplete && locationIndex < locations.Length - 1)
+                catch (Exception ex)
                 {
-                    Logger.DebugLog($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode} {ex.Message}.");
+                    Logger.DebugLog($"Failed to create VM in {location.DisplayName}: {ex}.");
 
-                    Log($"Failed to create VM in {location.DisplayName}: {ex.ErrorCode}. Retrying ...");
+                    bool willRetry = !deploymentComplete && locationIndex < locations.Length - 1;
+
+                    string message = $"Failed to create VM in {location.DisplayName}: {(ex as RequestFailedException)?.ErrorCode ?? "unknown"}.";
+
+                    Log(message + (willRetry ? " Retrying ..." : ""));
+
+                    if (willRetry)
+                    {
+                        continue;
+                    }
+
+                    if (deploymentComplete)
+                    {
+                        throw; // Rethrow full stack
+                    }
+
+                    throw new Exception(message); // Redact Azure error info
                 }
             }
 
