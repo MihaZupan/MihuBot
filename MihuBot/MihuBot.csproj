@@ -67,4 +67,8 @@
     </Content>
   </ItemGroup>
 
+  <PropertyGroup Label="Normalize stack trace file locations">
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=X:\</PathMap>
+  </PropertyGroup>
+
 </Project>
