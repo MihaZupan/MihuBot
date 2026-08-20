@@ -61,7 +61,7 @@ public sealed class TelegramService
     private async Task OnMessageCreatedOrEditedAsync(SocketMessage message, bool update)
     {
         if (message.Author.IsBot ||
-            message.Channel.Id is not (Channels.PrivateGeneral or Channels.TheBoysTgRelay))
+            message.Channel.Id is not Channels.TheBoysTgRelay)
         {
             return;
         }
