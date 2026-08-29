@@ -120,6 +120,8 @@ public sealed partial class PirateCommand : CommandBase
 
         QBittorrentClient.SearchResult[] candidates = FilterOutJunkResults(results);
 
+        ctx.DebugLog($"{nameof(PirateCommand)}: '{query}' - qBittorrent returned {results.Length} results, {candidates.Length} left after filtering:\n{FormatForLog(candidates)}");
+
         if (candidates.Length > 1)
         {
             // Optimistically let the model narrow the list down. If it's unavailable, refuses to answer,
@@ -134,6 +136,7 @@ public sealed partial class PirateCommand : CommandBase
 
         if (await isKnownSeries)
         {
+            ctx.DebugLog($"{nameof(PirateCommand)}: '{query}' was classified as a TV series");
             await ctx.ReplyAsync($"`{query}` looks like a TV series. Only movies are supported.");
             return;
         }
@@ -155,11 +158,17 @@ public sealed partial class PirateCommand : CommandBase
 
         if (selected is null)
         {
+            ctx.DebugLog($"{nameof(PirateCommand)}: No selection was made for '{query}'");
             return;
         }
 
+        ctx.DebugLog($"{nameof(PirateCommand)}: Selected `{selected.FileName}` ({selected.FileSize.GetRoughSizeString()}, {selected.NbSeeders} seeders) out of {candidates.Length} options for '{query}'");
+
         await DownloadAsync(ctx, new MagnetUri(selected.FileUrl));
     }
+
+    private static string FormatForLog(IEnumerable<QBittorrentClient.SearchResult> results) =>
+        string.Join('\n', results.Select((r, i) => $"{i + 1}. {r.FileName} ({r.FileSize.GetRoughSizeString()}, {r.NbSeeders} seeders)"));
 
     private async Task<QBittorrentClient.SearchResult?> PromptForSelectionAsync(CommandContext ctx, QBittorrentClient.SearchResult[] candidates)
     {
@@ -364,7 +373,8 @@ public sealed partial class PirateCommand : CommandBase
 
     /// <summary>
     /// Drops results that can't possibly be what the user wanted (dead torrents, absurd sizes,
-    /// TV series, cam rips, ...). Anything that survives this is a plausible option to offer.
+    /// TV series, cam rips, subtitle/sample packs, ...) and orders what's left best-first.
+    /// Anything that survives this is a plausible option to offer.
     /// </summary>
     private static QBittorrentClient.SearchResult[] FilterOutJunkResults(QBittorrentClient.SearchResult[] results)
     {
@@ -375,9 +385,11 @@ public sealed partial class PirateCommand : CommandBase
             .Where(r => r.FileSize is >= MinTorrentSize and <= MaxTorrentSize)
             .Where(r => !SeriesRegex.IsMatch(r.FileName))
             .Where(r => !LowQualityReleaseRegex.IsMatch(r.FileName))
+            .Where(r => !NonMovieContentRegex.IsMatch(r.FileName))
             .Where(r => !HdrRegex.IsMatch(r.FileName))
             .DistinctBy(r => NormalizeName(r.FileName), StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(r => r.NbSeeders)
+            .OrderByDescending(r => GetResolutionTier(r.FileName))
+            .ThenByDescending(r => r.NbSeeders)
             .Take(MaxCandidatesForAI)];
 
         static string NormalizeName(string name)
@@ -395,6 +407,18 @@ public sealed partial class PirateCommand : CommandBase
                 buffer.Slice(length).Fill(' ');
             }).TrimEnd();
         }
+    }
+
+    /// <summary>
+    /// Rough "how watchable is this" bucket. Within a bucket we prefer whatever is best seeded,
+    /// which tends to surface the well-known, sensibly sized releases.
+    /// </summary>
+    private static int GetResolutionTier(string fileName)
+    {
+        return
+            HighDefinitionRegex.IsMatch(fileName) ? 3 :
+            MidDefinitionRegex.IsMatch(fileName) ? 2 :
+            1;
     }
 
     /// <summary>
@@ -462,39 +486,41 @@ public sealed partial class PirateCommand : CommandBase
 
             string prompt =
                 $"""
-                You are part of an automated system that helps a user download a movie they asked for.
+                A user is looking for the movie "{query}".
 
-                The user asked for: "{query}"
+                Below is a numbered list of torrent names. Identify the ones that are NOT that movie.
 
-                Below is a numbered list of torrent search results.
-                For each result, score from 0 to 1 how likely it is to be the movie the user asked for.
+                A result is NOT the movie if it is:
+                - A different movie, including sequels, prequels, remakes, or "making of" / behind-the-scenes content.
+                - A TV series, a season pack or an individual episode.
+                - Not a single movie at all (a pack of several movies, a soundtrack, a game, software, subtitles only, or a sample).
 
-                Score 0 for:
-                - A different movie, including sequels, prequels, remakes or "making of" content when the user asked for a specific title.
-                - Anything that is a TV series, a season pack or an individual episode. Only movies are supported.
-                - Anything that isn't a single movie (collections/packs of several movies, soundtracks, games, software, subtitles or samples).
+                Different releases of the same movie (different resolutions, codecs, languages or release groups) ARE the movie -
+                the user picks between them afterwards, so do not judge the quality of a release.
 
-                Score close to 1 for results that clearly are the requested movie.
-                Different releases of the same movie (different resolutions, codecs or release groups) should all score high -
-                the user picks between them afterwards, so do not judge the quality of the release.
-                Only return results you scored above 0.5.
+                Only return the numbers you are confident are not the movie. When in doubt, leave a result out.
 
                 Results:
-                {string.Join('\n', candidates.Select((r, i) => $"{i + 1}. {r.FileName} ({r.FileSize.GetRoughSizeString()}, {r.NbSeeders} seeders)"))}
+                {string.Join('\n', candidates.Select((r, i) => $"{i + 1}. {r.FileName}"))}
                 """;
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.CancellationToken);
             cts.CancelAfter(TimeSpan.FromMinutes(1));
 
-            ChatResponse<TorrentRelevance[]> response = await chatClient.GetResponseAsync<TorrentRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+            ChatResponse<int[]> response = await chatClient.GetResponseAsync<int[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
 
-            HashSet<int> relevant = [.. response.Result
-                .Where(r => r.Score > 0.5)
-                .Select(r => r.Number - 1)
-                .Where(i => (uint)i < (uint)candidates.Length)];
+            HashSet<int> rejected = [.. response.Result.Select(number => number - 1)];
 
-            // Preserve our own ordering (most seeders first) instead of trusting the model's.
-            return [.. candidates.Where((_, i) => relevant.Contains(i))];
+            // Subtractive on purpose: anything the model didn't call out is kept, so an incomplete
+            // answer can't silently drop good releases. Our own ordering is preserved.
+            QBittorrentClient.SearchResult[] remaining = [.. candidates.Where((_, i) => !rejected.Contains(i))];
+            QBittorrentClient.SearchResult[] dropped = [.. candidates.Where((_, i) => rejected.Contains(i))];
+
+            ctx.DebugLog(dropped.Length == 0
+                ? $"{nameof(PirateCommand)}: AI kept all {candidates.Length} results for '{query}'"
+                : $"{nameof(PirateCommand)}: AI dropped {dropped.Length}/{candidates.Length} results for '{query}':\n{FormatForLog(dropped)}");
+
+            return remaining;
         }
         catch (Exception ex) when (!ctx.CancellationToken.IsCancellationRequested)
         {
@@ -502,8 +528,6 @@ public sealed partial class PirateCommand : CommandBase
             return null;
         }
     }
-
-    private sealed record TorrentRelevance(int Number, double Score);
 
     private sealed record PendingSelection(ulong AuthorId)
     {
@@ -515,6 +539,15 @@ public sealed partial class PirateCommand : CommandBase
 
     [GeneratedRegex(@"\b(CAM|CAMRIP|HDCAM|HDTS|TELESYNC|TELECINE|SCREENER|DVDSCR|R5|WORKPRINT)\b", RegexOptions.IgnoreCase)]
     private static partial Regex LowQualityReleaseRegex { get; }
+
+    [GeneratedRegex(@"\b(Subtitles?|Sample|Trailer|Soundtrack|OST)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex NonMovieContentRegex { get; }
+
+    [GeneratedRegex(@"\b(1080[pi]|2160p|4K|UHD)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex HighDefinitionRegex { get; }
+
+    [GeneratedRegex(@"\b(720[pi]|BR[- .]?Rip|BluRay|WEB[- .]?DL|WEBRip)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MidDefinitionRegex { get; }
 
     [GeneratedRegex(@"\bHDR(10)?(\+|Plus)?\b", RegexOptions.IgnoreCase)]
     private static partial Regex HdrRegex { get; }
