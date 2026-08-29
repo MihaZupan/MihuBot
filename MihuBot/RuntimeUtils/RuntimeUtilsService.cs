@@ -20,6 +20,13 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed partial class RuntimeUtilsService : IHostedService
 {
+    private enum SubmittedJobSource
+    {
+        Rest,
+        Mcp,
+        Web,
+    }
+
     private const int MaxSubmittedPatchLength = 10 * 1024 * 1024;
     private const int MaxSubmittedArgumentsLength = 10 * 1024;
     private const int MaxConcurrentSubmittedJobs = 100;
@@ -754,18 +761,18 @@ public sealed partial class RuntimeUtilsService : IHostedService
     {
         ThrowIfApiSubmissionsDisabled();
         (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
-        return await StartPatchJobCoreAsync(request, caller, startedViaMcp: false, cancellationToken);
+        return await StartPatchJobCoreAsync(request, caller, SubmittedJobSource.Rest, cancellationToken);
     }
 
     public async Task<PatchJobSubmissionResponse> StartPatchJobFromMcpAsync(PatchJobRequest request, string githubToken, CancellationToken cancellationToken)
     {
         ThrowIfApiSubmissionsDisabled();
         (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
-        return await StartPatchJobCoreAsync(request, caller, startedViaMcp: true, cancellationToken);
+        return await StartPatchJobCoreAsync(request, caller, SubmittedJobSource.Mcp, cancellationToken);
     }
 
     public Task<PatchJobSubmissionResponse> StartPatchJobForGitHubUserAsync(PatchJobRequest request, string login, long id, CancellationToken cancellationToken) =>
-        StartPatchJobCoreAsync(request, (login, id), startedViaMcp: false, cancellationToken);
+        StartPatchJobCoreAsync(request, (login, id), SubmittedJobSource.Web, cancellationToken);
 
     private void ThrowIfApiSubmissionsDisabled()
     {
@@ -775,7 +782,11 @@ public sealed partial class RuntimeUtilsService : IHostedService
         }
     }
 
-    private async Task<PatchJobSubmissionResponse> StartPatchJobCoreAsync(PatchJobRequest request, (string Login, long Id)? caller, bool startedViaMcp, CancellationToken cancellationToken)
+    private async Task<PatchJobSubmissionResponse> StartPatchJobCoreAsync(
+        PatchJobRequest request,
+        (string Login, long Id)? caller,
+        SubmittedJobSource source,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -907,7 +918,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 job.Metadata.Add("TestedCommit", testedCommit);
             }
 
-            if (startedViaMcp)
+            if (source == SubmittedJobSource.Mcp)
             {
                 job.Metadata.Add("StartedViaMcp", bool.TrueString);
             }
@@ -917,6 +928,16 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 job.ReleasePatchContent();
                 reservation.Dispose();
             });
+
+            if (source is SubmittedJobSource.Rest or SubmittedJobSource.Mcp)
+            {
+                Logger.DebugLog(
+                    $"Runtime-utils {source} submission started {job.GetType().Name} for {caller?.Login ?? "anonymous"}: " +
+                    $"{job.ProgressDashboardUrl} (input={(hasCommit ? testedLink : "patch")}, " +
+                    $"baseline={repository}/{baseCommit ?? branch}, patchSize={Encoding.UTF8.GetByteCount(patch)}, " +
+                    $"runnerPolicy={(canUseAzure ? "azure-allowed" : "helix-required")}, " +
+                    $"arguments='{arguments.TruncateWithDotDotDot(1_000)}')");
+            }
 
             return new PatchJobSubmissionResponse(
                 job.ExternalId,
