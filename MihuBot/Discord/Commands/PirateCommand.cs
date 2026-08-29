@@ -1,6 +1,10 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Discord.Rest;
+using Microsoft.Extensions.AI;
 using MihuBot.Discord;
+using MihuBot.Helpers.AI;
 using MihuBot.Helpers.Torrent;
 
 #nullable enable
@@ -9,16 +13,31 @@ namespace MihuBot.Commands;
 
 public sealed partial class PirateCommand : CommandBase
 {
+    private const long GB = 1024L * 1024 * 1024;
+    private const long MinTorrentSize = 10L * 1024 * 1024;
+    private const long MaxTorrentSize = 16 * GB;
+
+    /// <summary>Upper bound on how many results we're willing to describe to the model.</summary>
+    private const int MaxCandidatesForAI = 25;
+
+    /// <summary>Discord select menus allow at most 25 options, but a shorter list is much easier to pick from.</summary>
+    private const int MaxOptionsToPresent = 10;
+
+    private static readonly TimeSpan SelectionTimeout = TimeSpan.FromMinutes(5);
+
     public override string Command => "pirate";
 
     private readonly QBittorrentClient _qBittorrent;
     private readonly JellyfinClient _jellyfin;
+    private readonly OpenAIService? _openAI;
+    private readonly ConcurrentDictionary<string, PendingSelection> _pendingSelections = [];
     private int _activeDownloads;
 
-    public PirateCommand(QBittorrentClient qBittorrent, JellyfinClient jellyfin)
+    public PirateCommand(QBittorrentClient qBittorrent, JellyfinClient jellyfin, OpenAIService? openAI = null)
     {
         _qBittorrent = qBittorrent;
         _jellyfin = jellyfin;
+        _openAI = openAI;
     }
 
     public override async Task ExecuteAsync(CommandContext ctx)
@@ -38,7 +57,15 @@ public sealed partial class PirateCommand : CommandBase
 
         if (query.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
         {
-            await DownloadAsync(ctx, new MagnetUri(query));
+            var magnet = new MagnetUri(query);
+
+            if (!string.IsNullOrEmpty(magnet.DisplayName) && SeriesRegex.IsMatch(magnet.DisplayName))
+            {
+                await ctx.ReplyAsync($"`{magnet.DisplayName}` looks like a TV series. Only movies are supported.");
+                return;
+            }
+
+            await DownloadAsync(ctx, magnet);
             return;
         }
 
@@ -57,6 +84,15 @@ public sealed partial class PirateCommand : CommandBase
         }
 
         ctx.Message.AddReactionAsync(Emotes.ThumbsUp).IgnoreExceptions();
+
+        if (SeriesRegex.IsMatch(query))
+        {
+            await ctx.ReplyAsync($"`{query}` looks like a TV series. Only movies are supported.");
+            return;
+        }
+
+        // Runs alongside the search and the result filtering below, it's only awaited before we act on the results.
+        Task<bool> isKnownSeries = IsKnownSeriesAsync(ctx, query);
 
         QBittorrentClient.SearchResult[] results;
         try
@@ -82,15 +118,129 @@ public sealed partial class PirateCommand : CommandBase
             results = [.. results.Where(r => r.FileSize <= maxSize)];
         }
 
-        QBittorrentClient.SearchResult? bestResult = TryGetBestResult(results, query);
+        QBittorrentClient.SearchResult[] candidates = FilterOutJunkResults(results);
 
-        if (bestResult is null)
+        if (candidates.Length > 1)
+        {
+            // Optimistically let the model narrow the list down. If it's unavailable, refuses to answer,
+            // or doesn't like anything we found, we just present the programmatically filtered list instead.
+            QBittorrentClient.SearchResult[]? relevant = await TryFilterRelevantResultsAsync(ctx, query, candidates);
+
+            if (relevant is { Length: > 0 })
+            {
+                candidates = relevant;
+            }
+        }
+
+        if (await isKnownSeries)
+        {
+            await ctx.ReplyAsync($"`{query}` looks like a TV series. Only movies are supported.");
+            return;
+        }
+
+        if (candidates.Length == 0)
         {
             await ctx.ReplyAsync("No suitable results found.");
             return;
         }
 
-        await DownloadAsync(ctx, new MagnetUri(bestResult.FileUrl));
+        if (candidates.Length > MaxOptionsToPresent)
+        {
+            candidates = [.. candidates.Take(MaxOptionsToPresent)];
+        }
+
+        QBittorrentClient.SearchResult? selected = candidates.Length == 1
+            ? candidates[0]
+            : await PromptForSelectionAsync(ctx, candidates);
+
+        if (selected is null)
+        {
+            return;
+        }
+
+        await DownloadAsync(ctx, new MagnetUri(selected.FileUrl));
+    }
+
+    private async Task<QBittorrentClient.SearchResult?> PromptForSelectionAsync(CommandContext ctx, QBittorrentClient.SearchResult[] candidates)
+    {
+        string id = $"{Command}-{Snowflake.Next()}";
+
+        var menu = new SelectMenuBuilder()
+            .WithCustomId(id)
+            .WithPlaceholder("Pick the release you want")
+            .WithMinValues(1)
+            .WithMaxValues(1);
+
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            QBittorrentClient.SearchResult result = candidates[i];
+
+            string label = string.IsNullOrWhiteSpace(result.FileName) ? $"Result {i + 1}" : result.FileName;
+
+            menu.AddOption(
+                label.TruncateWithDotDotDot(100),
+                i.ToString(CultureInfo.InvariantCulture),
+                $"{result.FileSize.GetRoughSizeString()} - {result.NbSeeders} seeders".TruncateWithDotDotDot(100));
+        }
+
+        MessageComponent components = new ComponentBuilder().WithSelectMenu(menu).Build();
+
+        var pending = new PendingSelection(ctx.AuthorId);
+        _pendingSelections.TryAdd(id, pending);
+
+        RestUserMessage? message = null;
+        try
+        {
+            message = await ctx.Channel.SendMessageAsync(
+                $"{MentionUtils.MentionUser(ctx.AuthorId)} Found {candidates.Length} options, which one do ye want?",
+                components: components);
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ctx.CancellationToken);
+            timeoutCts.CancelAfter(SelectionTimeout);
+
+            int index;
+            try
+            {
+                index = await pending.Selection.Task.WaitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!ctx.CancellationToken.IsCancellationRequested)
+            {
+                await ctx.ReplyAsync("Timed out waiting for a selection.");
+                return null;
+            }
+
+            return (uint)index < (uint)candidates.Length ? candidates[index] : null;
+        }
+        finally
+        {
+            _pendingSelections.TryRemove(id, out _);
+
+            if (message is not null)
+            {
+                message.DeleteAsync().IgnoreExceptions();
+            }
+        }
+    }
+
+    public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
+    {
+        if (!_pendingSelections.TryGetValue(component.Data.CustomId, out PendingSelection? pending))
+        {
+            return;
+        }
+
+        if (component.User.Id != pending.AuthorId && !Constants.Admins.Contains(component.User.Id))
+        {
+            await component.RespondAsync("Ye didn't ask for this one.", ephemeral: true);
+            return;
+        }
+
+        component.DeferAsync().IgnoreExceptions();
+
+        if (int.TryParse(component.Data.Values?.FirstOrDefault(), CultureInfo.InvariantCulture, out int index))
+        {
+            pending.Selection.TrySetResult(index);
+        }
     }
 
     private async Task DownloadAsync(CommandContext ctx, MagnetUri uri)
@@ -103,10 +253,8 @@ public sealed partial class PirateCommand : CommandBase
         {
             ctx.DebugLog($"Starting download for `{uri.DisplayName}`: <{uri.Url}>");
 
-            bool isTvShow = SeasonRegex.IsMatch(uri.DisplayName);
-
             await _qBittorrent.LoginAsync(ctx.CancellationToken);
-            await _qBittorrent.AddTorrentAsync(uri.Url, isTvShow ? "/media/Shows" : "/media/Movies", ctx.CancellationToken);
+            await _qBittorrent.AddTorrentAsync(uri.Url, "/media/Movies", ctx.CancellationToken);
 
             // Initial wait for the torrent to start downloading.
             await Task.Delay(3_000, ctx.CancellationToken);
@@ -214,77 +362,160 @@ public sealed partial class PirateCommand : CommandBase
         }
     }
 
-    private static QBittorrentClient.SearchResult? TryGetBestResult(QBittorrentClient.SearchResult[] results, string name)
+    /// <summary>
+    /// Drops results that can't possibly be what the user wanted (dead torrents, absurd sizes,
+    /// TV series, cam rips, ...). Anything that survives this is a plausible option to offer.
+    /// </summary>
+    private static QBittorrentClient.SearchResult[] FilterOutJunkResults(QBittorrentClient.SearchResult[] results)
     {
-        const long GB = 1024L * 1024 * 1024;
-
-        long minSize = 10L * 1024 * 1024; // 10 MB
-
-        // 50 GB for TV show season, 4 GB for episode, 16 GB for movies
-        long maxSize = SeasonRegex.IsMatch(name)
-            ? (EpisodeRegex.IsMatch(name) ? 4 * GB : 50 * GB)
-            : 16 * GB;
-
-        results = [.. results
-            .Where(r => r.FileUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
-            .Where(r => !IsHdr(r.FileName))
+        return [.. results
+            .Where(r => !string.IsNullOrEmpty(r.FileUrl) && r.FileUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+            .Where(r => !string.IsNullOrWhiteSpace(r.FileName))
             .Where(r => r.NbSeeders >= 3)
-            .Where(r => r.FileSize >= minSize && r.FileSize <= maxSize)
-            .OrderByDescending(r => r.NbSeeders)];
+            .Where(r => r.FileSize is >= MinTorrentSize and <= MaxTorrentSize)
+            .Where(r => !SeriesRegex.IsMatch(r.FileName))
+            .Where(r => !LowQualityReleaseRegex.IsMatch(r.FileName))
+            .Where(r => !HdrRegex.IsMatch(r.FileName))
+            .DistinctBy(r => NormalizeName(r.FileName), StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(r => r.NbSeeders)
+            .Take(MaxCandidatesForAI)];
 
-        return
-            TryGetYtsHevc4k(results) ??
-            TryGetYts4k(results) ??
-            TryGetHevc4k(results) ??
-            TryGet4k(results) ??
-            TryGetHevc(results) ??
-            TryGetYts(results) ??
-            results.FirstOrDefault();
-
-        static QBittorrentClient.SearchResult? TryGetYtsHevc4k(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => IsHevc(r.FileName) && Is4k(r.FileName) && IsYtsMx(r.FileName));
-
-        static QBittorrentClient.SearchResult? TryGetHevc4k(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => IsHevc(r.FileName) && Is4k(r.FileName));
-
-        static QBittorrentClient.SearchResult? TryGetYts4k(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => Is4k(r.FileName) && IsYtsMx(r.FileName));
-
-        static QBittorrentClient.SearchResult? TryGet4k(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => Is4k(r.FileName));
-
-        static QBittorrentClient.SearchResult? TryGetHevc(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => IsHevc(r.FileName));
-
-        static QBittorrentClient.SearchResult? TryGetYts(QBittorrentClient.SearchResult[] results) =>
-            results.FirstOrDefault(r => IsYtsMx(r.FileName));
-
-        static bool IsHevc(string fileName) =>
-            fileName.Contains("HEVC", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains("x265", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains("h265", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(".265", StringComparison.OrdinalIgnoreCase);
-
-        static bool Is4k(string fileName) =>
-            fileName.Contains("[4K]", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(" 4K ", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(".4K", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains("2160p", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(".UHD", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(" UHD", StringComparison.OrdinalIgnoreCase);
-
-        static bool IsYtsMx(string fileName) =>
-            fileName.Contains("YTS.MX", StringComparison.OrdinalIgnoreCase);
-
-        static bool IsHdr(string fileName) =>
-            fileName.Contains(" HDR ", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains(".HDR", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Contains("HDR10", StringComparison.OrdinalIgnoreCase);
+        static string NormalizeName(string name)
+        {
+            return string.Create(name.Length, name, static (buffer, name) =>
+            {
+                int length = 0;
+                foreach (char c in name)
+                {
+                    if (char.IsAsciiLetterOrDigit(c))
+                    {
+                        buffer[length++] = char.ToLowerInvariant(c);
+                    }
+                }
+                buffer.Slice(length).Fill(' ');
+            }).TrimEnd();
+        }
     }
 
-    [GeneratedRegex(@"\WS ?\d{1,3}|Season ?\d{1,3}", RegexOptions.IgnoreCase)]
-    private static partial Regex SeasonRegex { get; }
+    /// <summary>
+    /// Checks whether the title the user asked for is a well-known TV show.
+    /// Obvious season/episode patterns are matched by <see cref="SeriesRegex"/> instead.
+    /// Defaults to false if we can't tell.
+    /// </summary>
+    private async Task<bool> IsKnownSeriesAsync(CommandContext ctx, string query)
+    {
+        if (_openAI is null)
+        {
+            return false;
+        }
 
-    [GeneratedRegex(@"\WEp? ?\d{1,3}|Episode ?\d{1,3}", RegexOptions.IgnoreCase)]
-    private static partial Regex EpisodeRegex { get; }
+        try
+        {
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel);
+
+            string prompt =
+                $"""
+                Is "{query}" a TV series (a show, or a specific season or episode of one), rather than a movie?
+
+                Respond with true if it names a TV show, or asks for a season/episode of one, or if the title is
+                primarily known as a TV show rather than as a movie.
+
+                Respond with false if it names a movie, including movies based on or spun off from a TV series,
+                if you don't recognize the title, or if the title is known as both a movie and a TV show.
+
+                When in doubt, respond with false.
+                """;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.CancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(1));
+
+            ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+
+            return response.Result;
+        }
+        catch (Exception ex)
+        {
+            // Never fail the command over this check -- it may be awaited long after it was started.
+            if (!ctx.CancellationToken.IsCancellationRequested)
+            {
+                ctx.DebugLog($"{nameof(PirateCommand)}: Failed to check if '{query}' is a series: {ex}");
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Asks the model which of the candidates actually match what the user asked for.
+    /// Returns null if we couldn't get a usable answer, in which case the caller keeps the unfiltered list.
+    /// </summary>
+    private async Task<QBittorrentClient.SearchResult[]?> TryFilterRelevantResultsAsync(CommandContext ctx, string query, QBittorrentClient.SearchResult[] candidates)
+    {
+        if (_openAI is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel);
+
+            string prompt =
+                $"""
+                You are part of an automated system that helps a user download a movie they asked for.
+
+                The user asked for: "{query}"
+
+                Below is a numbered list of torrent search results.
+                For each result, score from 0 to 1 how likely it is to be the movie the user asked for.
+
+                Score 0 for:
+                - A different movie, including sequels, prequels, remakes or "making of" content when the user asked for a specific title.
+                - Anything that is a TV series, a season pack or an individual episode. Only movies are supported.
+                - Anything that isn't a single movie (collections/packs of several movies, soundtracks, games, software, subtitles or samples).
+
+                Score close to 1 for results that clearly are the requested movie.
+                Different releases of the same movie (different resolutions, codecs or release groups) should all score high -
+                the user picks between them afterwards, so do not judge the quality of the release.
+                Only return results you scored above 0.5.
+
+                Results:
+                {string.Join('\n', candidates.Select((r, i) => $"{i + 1}. {r.FileName} ({r.FileSize.GetRoughSizeString()}, {r.NbSeeders} seeders)"))}
+                """;
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.CancellationToken);
+            cts.CancelAfter(TimeSpan.FromMinutes(1));
+
+            ChatResponse<TorrentRelevance[]> response = await chatClient.GetResponseAsync<TorrentRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+
+            HashSet<int> relevant = [.. response.Result
+                .Where(r => r.Score > 0.5)
+                .Select(r => r.Number - 1)
+                .Where(i => (uint)i < (uint)candidates.Length)];
+
+            // Preserve our own ordering (most seeders first) instead of trusting the model's.
+            return [.. candidates.Where((_, i) => relevant.Contains(i))];
+        }
+        catch (Exception ex) when (!ctx.CancellationToken.IsCancellationRequested)
+        {
+            ctx.DebugLog($"{nameof(PirateCommand)}: Failed to filter results for '{query}': {ex}");
+            return null;
+        }
+    }
+
+    private sealed record TorrentRelevance(int Number, double Score);
+
+    private sealed record PendingSelection(ulong AuthorId)
+    {
+        public TaskCompletionSource<int> Selection { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    [GeneratedRegex(@"\b(S\d{1,3}[EexX]\d{1,3}|S\d{2,3}|Seasons?[ .]?\d{1,3}|Complete[ .](Series|Season))\b", RegexOptions.IgnoreCase)]
+    private static partial Regex SeriesRegex { get; }
+
+    [GeneratedRegex(@"\b(CAM|CAMRIP|HDCAM|HDTS|TELESYNC|TELECINE|SCREENER|DVDSCR|R5|WORKPRINT)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex LowQualityReleaseRegex { get; }
+
+    [GeneratedRegex(@"\bHDR(10)?(\+|Plus)?\b", RegexOptions.IgnoreCase)]
+    private static partial Regex HdrRegex { get; }
 }

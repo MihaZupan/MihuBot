@@ -249,6 +249,7 @@ public class MihuBotService : IHostedService
         };
 
         _discord.ButtonExecuted += HandleMessageComponentAsync;
+        _discord.SelectMenuExecuted += HandleMessageComponentAsync;
 
         _discord.ReactionAdded += Client_ReactionAdded;
 
