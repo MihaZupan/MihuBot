@@ -55,6 +55,7 @@
             ("duplicate detection",         () => Services.PauseAutoDuplicateDetection,         val => Services.PauseAutoDuplicateDetection = val),
             ("vector search",               () => Services.DisableVectorSearch,                 val => Services.DisableVectorSearch = val),
             ("full text search",            () => Services.DisableFullTextSearch,               val => Services.DisableFullTextSearch = val),
+            ("MCP/API job submissions",      () => Services.DisableRuntimeUtilsApiSubmissions,   val => Services.DisableRuntimeUtilsApiSubmissions = val),
     ];
 
         _serviceInfoTimeSpanFields = typeof(ServiceInfo)

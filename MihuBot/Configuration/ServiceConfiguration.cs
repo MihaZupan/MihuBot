@@ -64,6 +64,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseSelfUpdate), value);
     }
 
+    public bool DisableRuntimeUtilsApiSubmissions
+    {
+        get => Get(nameof(DisableRuntimeUtilsApiSubmissions));
+        set => Set(nameof(DisableRuntimeUtilsApiSubmissions), value);
+    }
+
     private bool Get(string name) => _configuration.GetOrDefault(null, name, false);
 
     private void Set(string name, bool value) => _configuration.Set(null, name, value.ToString());

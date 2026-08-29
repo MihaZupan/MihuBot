@@ -115,6 +115,14 @@ public sealed class RuntimeUtilsController : ControllerBase
                 Detail = ex.Message,
             });
         }
+        catch (RuntimeUtilsSubmissionsDisabledException ex)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+            {
+                Title = "Runtime-utils submissions disabled",
+                Detail = ex.Message,
+            });
+        }
     }
 
     [HttpGet("Jobs/Status")]

@@ -53,3 +53,11 @@ public sealed record RuntimeUtilsJobStatusResponse(
     string[] Logs);
 
 public sealed class RuntimeUtilsCapacityException(string message) : Exception(message);
+
+public sealed class RuntimeUtilsSubmissionsDisabledException : Exception
+{
+    public RuntimeUtilsSubmissionsDisabledException()
+        : base("Runtime-utils API and MCP job submissions are currently disabled.")
+    {
+    }
+}

@@ -752,18 +752,28 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     public async Task<PatchJobSubmissionResponse> StartPatchJobAsync(PatchJobRequest request, string githubToken, CancellationToken cancellationToken)
     {
+        ThrowIfApiSubmissionsDisabled();
         (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
         return await StartPatchJobCoreAsync(request, caller, startedViaMcp: false, cancellationToken);
     }
 
     public async Task<PatchJobSubmissionResponse> StartPatchJobFromMcpAsync(PatchJobRequest request, string githubToken, CancellationToken cancellationToken)
     {
+        ThrowIfApiSubmissionsDisabled();
         (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
         return await StartPatchJobCoreAsync(request, caller, startedViaMcp: true, cancellationToken);
     }
 
     public Task<PatchJobSubmissionResponse> StartPatchJobForGitHubUserAsync(PatchJobRequest request, string login, long id, CancellationToken cancellationToken) =>
         StartPatchJobCoreAsync(request, (login, id), startedViaMcp: false, cancellationToken);
+
+    private void ThrowIfApiSubmissionsDisabled()
+    {
+        if (ServiceConfiguration.DisableRuntimeUtilsApiSubmissions)
+        {
+            throw new RuntimeUtilsSubmissionsDisabledException();
+        }
+    }
 
     private async Task<PatchJobSubmissionResponse> StartPatchJobCoreAsync(PatchJobRequest request, (string Login, long Id)? caller, bool startedViaMcp, CancellationToken cancellationToken)
     {
