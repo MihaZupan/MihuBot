@@ -21,6 +21,10 @@ public sealed partial class RegexDiffJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
+    public RegexDiffJob(RuntimeUtilsService parent, string baseRepository, string baseBranch, string baseCommit, string patchContent, string testedLink, string githubCommenterLogin, string arguments, bool forceHelix)
+        : base(parent, baseRepository, baseBranch, baseCommit, patchContent, testedLink, githubCommenterLogin, arguments, forceHelix)
+    { }
+
     public RegexDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }

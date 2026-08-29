@@ -20,6 +20,10 @@ public sealed class JitDiffJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
+    public JitDiffJob(RuntimeUtilsService parent, string baseRepository, string baseBranch, string baseCommit, string patchContent, string testedLink, string githubCommenterLogin, string arguments, bool forceHelix)
+        : base(parent, baseRepository, baseBranch, baseCommit, patchContent, testedLink, githubCommenterLogin, arguments, forceHelix)
+    { }
+
     public JitDiffJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }

@@ -54,6 +54,23 @@ internal sealed class RollingLog
         }
     }
 
+    public string[] GetTail(int count)
+    {
+        lock (this)
+        {
+            int start = Math.Max(0, _lines.Count - count);
+            return _lines.GetRange(start, _lines.Count - start).ToArray();
+        }
+    }
+
+    public int GetPositionForTail(int count)
+    {
+        lock (this)
+        {
+            return _discarded + Math.Max(0, _lines.Count - count);
+        }
+    }
+
     public override string ToString()
     {
         var builder = new StringBuilder();

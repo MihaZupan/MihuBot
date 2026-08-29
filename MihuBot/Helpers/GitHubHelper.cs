@@ -11,6 +11,11 @@ namespace MihuBot.Helpers;
 public static partial class GitHubHelper
 {
     private const int CopilotUserId = 198982749;
+    private const string AlphaNumeric = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    private static readonly SearchValues<char> s_gitHubRepositoryPartChars = SearchValues.Create(AlphaNumeric + "_.-");
+    private static readonly SearchValues<char> s_gitHubBranchFirstChars = SearchValues.Create(AlphaNumeric);
+    private static readonly SearchValues<char> s_gitHubBranchChars = SearchValues.Create(AlphaNumeric + "._/-");
 
     public static async Task<BranchReference?> TryParseGithubRepoAndBranch(GitHubClient github, string url)
     {
@@ -57,6 +62,24 @@ public static partial class GitHubHelper
 
     [GeneratedRegex(@"^https://github\.com/([A-Za-z\d-_]+)/([A-Za-z\d-_]+)/(?:tree|blob)/([A-Za-z\d-_]+)([\?#/].*)?$")]
     private static partial Regex RepoAndBranchRegex();
+
+    public static bool TryParseGitHubCommit(string input, [NotNullWhen(true)] out string? repository, [NotNullWhen(true)] out string? commit)
+    {
+        Match match = GitHubCommitRegex().Match(input ?? string.Empty);
+        if (!match.Success)
+        {
+            repository = null;
+            commit = null;
+            return false;
+        }
+
+        repository = $"{match.Groups[1].Value}/{match.Groups[2].Value}";
+        commit = match.Groups[3].Value;
+        return true;
+    }
+
+    [GeneratedRegex(@"^https://github\.com/([A-Za-z\d_.-]+)/([A-Za-z\d_.-]+)/commit/([a-f\d]{7,40})(?:[?#/].*)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex GitHubCommitRegex();
 
     [GeneratedRegex(@"\bhttps:\/\/github\.com\/\S*(?:\b|[\]\)\!]|\.\b)", RegexOptions.IgnoreCase)]
     private static partial Regex GitHubUrlRegex { get; }
@@ -179,6 +202,19 @@ public static partial class GitHubHelper
             .SplitFirstTrimmed('\n')
             .Trim('#', '<', '>');
 
+        string[] repositoryParts = input.Split('/');
+        if (repositoryParts is [string owner, string name] &&
+            owner.Length > 0 &&
+            name.Length > 0 &&
+            !owner.AsSpan().ContainsAnyExcept(s_gitHubRepositoryPartChars) &&
+            !name.AsSpan().ContainsAnyExcept(s_gitHubRepositoryPartChars))
+        {
+            repoOwner = owner;
+            repoName = name;
+            extra = [];
+            return true;
+        }
+
         // https://github.com/dotnet/runtime/issues/111492
         // "/", "dotnet/", "runtime/", "issues/", "111492"
         if (Uri.TryCreate(input, UriKind.Absolute, out Uri? uri) &&
@@ -194,6 +230,13 @@ public static partial class GitHubHelper
 
         return false;
     }
+
+    public static bool IsSafeGitHubBranchName(string branch) =>
+        !string.IsNullOrWhiteSpace(branch) &&
+        s_gitHubBranchFirstChars.Contains(branch[0]) &&
+        !branch.AsSpan().ContainsAnyExcept(s_gitHubBranchChars) &&
+        !branch.Contains("..", StringComparison.Ordinal) &&
+        !branch.Contains("//", StringComparison.Ordinal);
 
     private static readonly SearchValues<string> s_botNameChunks = SearchValues.Create(
         ["[bot]", "-service", "-agent", "copilot", "-pipeline", "-action", "-aspnet"],

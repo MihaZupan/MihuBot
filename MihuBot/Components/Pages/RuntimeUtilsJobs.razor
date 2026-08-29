@@ -175,7 +175,7 @@ else
             {
                 try
                 {
-                    await foreach (string line in _job.StreamLogsAsync(_cts.Token))
+                    await foreach (string line in _job.StreamLogsAsync(NumLines, _cts.Token))
                     {
                         if (line is null)
                         {

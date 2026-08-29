@@ -19,6 +19,10 @@ public sealed class BenchmarkLibrariesJob : JobBase
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
 
+    public BenchmarkLibrariesJob(RuntimeUtilsService parent, string baseRepository, string baseBranch, string baseCommit, string patchContent, string testedLink, string githubCommenterLogin, string arguments, bool forceHelix)
+        : base(parent, baseRepository, baseBranch, baseCommit, patchContent, testedLink, githubCommenterLogin, arguments, forceHelix)
+    { }
+
     public BenchmarkLibrariesJob(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : base(parent, pullRequest, githubCommenterLogin, arguments, comment)
     { }

@@ -29,6 +29,8 @@ public sealed class CompletedJobRecord
     public Dictionary<string, string> Metadata { get; set; }
     public Artifact[] Artifacts { get; set; }
     public string LogsArtifactUrl { get; set; }
+    public string ErrorMessage { get; set; }
+    public bool WasCancelled { get; set; }
 
     [JsonIgnore]
     public string CustomArguments => Metadata.TryGetValue("CustomArguments", out var value) ? value : null;

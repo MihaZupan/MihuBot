@@ -59,9 +59,9 @@
                                 }
 
                                 <div class="form-check">
-                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link or branch to test"
+                                    <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link, commit, or branch to test"
                                         data-toggle="tooltip" data-html="true"
-                                        title="88394<br />https://github.com/dotnet/runtime/pull/88394<br />https://github.com/MihaZupan/runtime/tree/main<br />https://github.com/MihaZupan/runtime/blob/main/README.md" />
+                                        title="88394<br />https://github.com/dotnet/runtime/pull/88394<br />https://github.com/dotnet/runtime/commit/abcdef123456<br />https://github.com/MihaZupan/runtime/tree/main<br />https://github.com/MihaZupan/runtime/blob/main/README.md" />
                                 </div>
                                 @if (_selectedJobType == NewJobType.Benchmark)
                                 {
@@ -227,6 +227,7 @@
     private ConcurrentQueue<string>[] _logs;
     private int _logsChangeCounter;
     private string _githubUserLogin;
+    private long _githubUserId;
     private bool _hasRuntimeUtilsPermissions;
 
     private bool _submittingJob;
@@ -247,8 +248,8 @@
     private class NewJobModel
     {
         [RegularExpression(
-            pattern: @"^\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_\.]+/[A-Za-z\d-_\.]+/(?:tree|blob)/[A-Za-z\d-_\.]+)(?:[\?#/].*)?$",
-            ErrorMessage = "Invalid PR number / link / branch")]
+            pattern: @"^(?:\d{1,8}|https://github\.com/(?:dotnet/runtime/pull/\d{1,8}|[A-Za-z\d-_\.]+/[A-Za-z\d-_\.]+/(?:tree|blob)/[A-Za-z\d-_\.]+|[A-Za-z\d-_\.]+/[A-Za-z\d-_\.]+/commit/[a-fA-F\d]{7,40})(?:[\?#/].*)?)$",
+            ErrorMessage = "Invalid PR number, commit link, or branch")]
         public string InputPROrBranch { get; set; }
 
         public NewJobType JobType { get; set; }
@@ -303,7 +304,8 @@
             (await authenticationState).User is { } user &&
             user.TryGetGitHubLogin(out _githubUserLogin))
         {
-            _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions("dotnet", _githubUserLogin, (long)(user.GetGitHubUserId() ?? 0)) == true;
+            _githubUserId = (long)(user.GetGitHubUserId() ?? 0);
+            _hasRuntimeUtilsPermissions = runtimeUtils.CheckGitHubUserPermissions("dotnet", _githubUserLogin, _githubUserId) == true;
         }
 
         if (OperatingSystem.IsWindows() && runtimeUtils.GetAllActiveJobs().Length == 0)
@@ -345,7 +347,7 @@
             {
                 try
                 {
-                    await foreach (string line in job.StreamLogsAsync(_cts.Token))
+                    await foreach (string line in job.StreamLogsAsync(NumLinesPerJob, _cts.Token))
                     {
                         if (line is null)
                         {
@@ -407,7 +409,7 @@
             {
                 if (_selectedJobType != NewJobType.Benchmark || string.IsNullOrWhiteSpace(_newJob.CompareLink))
                 {
-                    _submittingJobError = "PR number/link or branch is required";
+                    _submittingJobError = "PR number/link, commit, or branch is required";
                     return;
                 }
 
@@ -418,6 +420,30 @@
                 }
 
                 newJob = runtimeUtils.StartBenchmarkJob(_githubUserLogin, _newJob.Arguments, comment: null);
+            }
+            else if (GitHubHelper.TryParseGitHubCommit(prOrBranch, out _, out _))
+            {
+                if (_selectedJobType == NewJobType.Fuzz)
+                {
+                    _submittingJobError = "Commit jobs are supported for JitDiff, Benchmark, and RegexDiff";
+                    return;
+                }
+
+                if (OperatingSystem.IsWindows())
+                {
+                    _submittingJobError = $"Commit={prOrBranch}";
+                    return;
+                }
+
+                PatchJobSubmissionResponse submission = await runtimeUtils.StartPatchJobForGitHubUserAsync(new PatchJobRequest
+                {
+                    JobType = GetPatchJobType(),
+                    Commit = prOrBranch,
+                    Arguments = _newJob.Arguments,
+                }, _githubUserLogin, _githubUserId, _cts.Token);
+
+                Navigation.NavigateTo(submission.ProgressUrl, forceLoad: true);
+                return;
             }
             else if (GitHubHelper.TryParseIssueOrPRNumber(prOrBranch, out int prNumber))
             {
@@ -444,7 +470,7 @@
             {
                 if (await GitHubHelper.TryParseGithubRepoAndBranch(GitHub, prOrBranch) is not { } branch)
                 {
-                    _submittingJobError = "Failed to parse the PR number/link or branch";
+                    _submittingJobError = "Failed to parse the PR number/link, commit, or branch";
                     return;
                 }
 
@@ -483,6 +509,13 @@
         NewJobType.Fuzz => runtimeUtils.StartFuzzLibrariesJob(branch, _githubUserLogin, arguments),
         NewJobType.RegexDiff => runtimeUtils.StartRegexDiffJob(branch, _githubUserLogin, arguments),
         _ => runtimeUtils.StartJitDiffJob(branch, _githubUserLogin, arguments),
+    };
+
+    private string GetPatchJobType() => _selectedJobType switch
+    {
+        NewJobType.Benchmark => "BenchmarkLibraries",
+        NewJobType.RegexDiff => "RegexDiff",
+        _ => "JitDiff",
     };
 
     public void Dispose() => _cts.Cancel();

@@ -373,8 +373,10 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (runtimeUtilsEnabled)
     {
+        services.AddHttpContextAccessor();
         services.AddSingleton<RuntimeUtilsService>();
         services.AddHostedService(s => s.GetRequiredService<RuntimeUtilsService>());
+        services.AddSingleton<RuntimeUtilsMcpServer>();
     }
 
     if (gitHubAIEnabled)
@@ -534,11 +536,20 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddReverseProxy()
         .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-    if (gitHubAIEnabled)
+    if (gitHubAIEnabled || runtimeUtilsEnabled)
     {
-        services.AddMcpServer()
-            .WithHttpTransport()
-            .WithTools<McpServer>();
+        var mcpServerBuilder = services.AddMcpServer()
+            .WithHttpTransport();
+
+        if (gitHubAIEnabled)
+        {
+            mcpServerBuilder.WithTools<McpServer>();
+        }
+
+        if (runtimeUtilsEnabled)
+        {
+            mcpServerBuilder.WithTools<RuntimeUtilsMcpServer>();
+        }
     }
 }
 
@@ -611,7 +622,8 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     app.MapReverseProxy();
 
-    if (app.Services.GetService<McpServer>() is not null)
+    if (app.Services.GetService<McpServer>() is not null ||
+        app.Services.GetService<RuntimeUtilsMcpServer>() is not null)
     {
         app.MapMcp("/mcp");
     }

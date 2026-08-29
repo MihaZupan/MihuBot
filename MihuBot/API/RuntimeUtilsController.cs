@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
+using Microsoft.Net.Http.Headers;
 using MihuBot.Helpers.Crypto;
 using MihuBot.RuntimeUtils;
 
@@ -26,17 +27,101 @@ public sealed class RuntimeUtilsController : ControllerBase
     }
 
     [HttpGet("Jobs/Progress")]
-    public async Task StreamProgress([FromQuery] string jobId)
+    public async Task StreamProgress([FromQuery] string jobId, [FromQuery] bool live = false, [FromQuery] int? tail = null)
     {
-        if (!_jobs.TryGetJob(jobId, publicId: true, out var job))
+        if (tail is < 0 or > 100_000)
         {
-            Response.StatusCode = 404;
+            Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
         }
 
-        Response.Headers.ContentType = "text/event-stream; charset=utf-8";
+        if (_jobs.TryGetJob(jobId, publicId: true, out var job))
+        {
+            Response.Headers.ContentType = live
+                ? "text/event-stream; charset=utf-8"
+                : "text/plain; charset=utf-8";
 
-        await job.StreamLogsAsync(new StreamWriter(Response.Body), HttpContext.RequestAborted);
+            using var writer = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
+
+            if (live)
+            {
+                await job.StreamLogsAsync(writer, tail, HttpContext.RequestAborted);
+            }
+            else
+            {
+                foreach (string line in job.GetLogSnapshot(tail))
+                {
+                    await writer.WriteLineAsync(line.AsMemory(), HttpContext.RequestAborted);
+                }
+            }
+
+            return;
+        }
+
+        CompletedJobRecord completed = await _jobs.TryGetCompletedJobRecordAsync(jobId, HttpContext.RequestAborted);
+        if (completed?.LogsArtifactUrl is null)
+        {
+            Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        Response.Headers.ContentType = "text/plain; charset=utf-8";
+        using var completedWriter = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
+        foreach (string line in await _jobs.GetCompletedJobLogsAsync(completed, tail, HttpContext.RequestAborted))
+        {
+            await completedWriter.WriteLineAsync(line.AsMemory(), HttpContext.RequestAborted);
+        }
+    }
+
+    [HttpPost("Jobs")]
+    [RequestSizeLimit(11 * 1024 * 1024)]
+    public async Task<ActionResult<PatchJobSubmissionResponse>> SubmitJob([FromBody] PatchJobRequest request, CancellationToken cancellationToken)
+    {
+        string githubToken = null;
+        if (Request.Headers.TryGetValue(HeaderNames.Authorization, out var authorization) &&
+            authorization.Count == 1)
+        {
+            const string BearerPrefix = "Bearer ";
+            string value = authorization[0];
+            if (!value.StartsWith(BearerPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return Unauthorized();
+            }
+
+            githubToken = value.Substring(BearerPrefix.Length).Trim();
+            if (githubToken.Length == 0)
+            {
+                return Unauthorized();
+            }
+        }
+
+        try
+        {
+            return Ok(await _jobs.StartPatchJobAsync(request, githubToken, cancellationToken));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Unauthorized();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new ProblemDetails { Title = "Invalid job request", Detail = ex.Message });
+        }
+        catch (RuntimeUtilsCapacityException ex)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+            {
+                Title = "Runtime-utils capacity exhausted",
+                Detail = ex.Message,
+            });
+        }
+    }
+
+    [HttpGet("Jobs/Status")]
+    public async Task<ActionResult<RuntimeUtilsJobStatusResponse>> GetJobStatus([FromQuery] string jobId, CancellationToken cancellationToken)
+    {
+        RuntimeUtilsJobStatusResponse status = await _jobs.TryGetJobStatusAsync(jobId, cancellationToken);
+        return status is null ? NotFound() : status;
     }
 
     [HttpPost("Jobs/Logs")]
@@ -121,6 +206,18 @@ public sealed class RuntimeUtilsController : ControllerBase
         }
 
         return new JsonResult(job.Metadata);
+    }
+
+    [HttpGet("Jobs/Patch")]
+    public IActionResult GetPatch([FromQuery] string jobId)
+    {
+        if (!_jobs.TryGetJob(jobId, publicId: false, out JobBase job) ||
+            job.PatchContent is null)
+        {
+            return NotFound();
+        }
+
+        return Content(job.PatchContent, "text/x-diff", Encoding.UTF8);
     }
 
     [HttpGet("Jobs/Complete")]

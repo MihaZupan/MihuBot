@@ -44,6 +44,7 @@ public abstract class JobBase
 
     public CommentInfo GitHubComment { get; }
     public string GithubCommenterLogin { get; }
+    public string PatchContent { get; private set; }
 
     protected virtual string RepoOwner => GitHubComment?.RepoOwner() ?? "dotnet";
     protected virtual string RepoName => GitHubComment?.RepoName() ?? "runtime";
@@ -97,6 +98,7 @@ public abstract class JobBase
 
     private string _firstErrorMessage;
     protected string FirstErrorMessage => _firstErrorMessage;
+    public string ErrorMessage => _firstErrorMessage;
     protected virtual bool PostErrorAsGitHubComment => false;
 
     // An error the runner asked us to surface to the user even though the job as a whole succeeded.
@@ -105,6 +107,8 @@ public abstract class JobBase
     private UserVisibleError _userVisibleError;
 
     private bool _manuallyCancelled;
+    public bool WasCancelled => _manuallyCancelled;
+    private readonly bool _forceHelix;
 
     public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -121,7 +125,8 @@ public abstract class JobBase
         set => Metadata["CustomArguments"] = value;
     }
 
-    public string ProgressUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={ExternalId}";
+    public string LogsUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={ExternalId}";
+    public string ProgressUrl => $"{LogsUrl}&live=true";
     public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
 
     public int TotalProgressSiteViews;
@@ -163,6 +168,27 @@ public abstract class JobBase
         TestedPROrBranchLink = $"https://github.com/{branch.Repository}/tree/{branch.Branch.Name}";
     }
 
+    public JobBase(RuntimeUtilsService parent, string baseRepository, string baseBranch, string baseCommit, string patchContent, string testedLink, string githubCommenterLogin, string arguments, bool forceHelix)
+        : this(parent, githubCommenterLogin, arguments)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseRepository);
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseBranch);
+        ArgumentException.ThrowIfNullOrWhiteSpace(patchContent);
+
+        InitMetadata(baseRepository, baseBranch, baseRepository, baseBranch);
+        Metadata.Add("HasPatch", bool.TrueString);
+        if (baseCommit is not null)
+        {
+            Metadata.Add("BaseCommit", baseCommit);
+        }
+
+        PatchContent = patchContent;
+        _forceHelix = forceHelix;
+        SuppressTrackingIssue = githubCommenterLogin is null;
+
+        TestedPROrBranchLink = testedLink ?? $"https://github.com/{baseRepository}/tree/{baseBranch}";
+    }
+
     public JobBase(RuntimeUtilsService parent, PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment)
         : this(parent, githubCommenterLogin, arguments, comment)
     {
@@ -192,7 +218,7 @@ public abstract class JobBase
     protected bool Fast => CustomArguments.Contains("-fast", StringComparison.OrdinalIgnoreCase);
     protected virtual bool UseWindows => CustomArguments.Contains("-win", StringComparison.OrdinalIgnoreCase);
     protected bool UseHetzner => CustomArguments.Contains("-hetzner", StringComparison.OrdinalIgnoreCase);
-    protected virtual bool UseHelix => CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
+    protected virtual bool UseHelix => _forceHelix || CustomArguments.Contains("-helix", StringComparison.OrdinalIgnoreCase);
     protected virtual bool RunUsingGitHubActions => false;
     protected virtual bool RunUsingAzurePipelines => false;
 
@@ -215,7 +241,7 @@ public abstract class JobBase
     /// </summary>
     private string GetHelixDockerImage(string queueId)
     {
-        if (TryGetArgument("docker", out string image))
+        if (IsFromAdmin && TryGetArgument("docker", out string image))
         {
             return image;
         }
@@ -389,6 +415,7 @@ public abstract class JobBase
         catch (Exception ex)
         {
             LastSystemInfo = null;
+            _firstErrorMessage ??= ex.Message;
 
             Log($"Uncaught exception: {ex}");
 
@@ -427,8 +454,10 @@ public abstract class JobBase
                 TestedPROrBranchLink = TestedPROrBranchLink,
                 TrackingIssueUrl = TrackingIssue?.HtmlUrl,
                 Metadata = Metadata,
-                Artifacts = Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size)).ToArray(),
-                LogsArtifactUrl = logsArtifactPath is null ? null : Parent.LogsStorage.GetFileUrl(logsArtifactPath, TimeSpan.MaxValue, writeAccess: false)
+                Artifacts = GetArtifactsSnapshot(),
+                LogsArtifactUrl = logsArtifactPath is null ? null : Parent.LogsStorage.GetFileUrl(logsArtifactPath, TimeSpan.MaxValue, writeAccess: false),
+                ErrorMessage = ErrorMessage,
+                WasCancelled = WasCancelled,
             });
 
             if (ShouldMentionJobInitiator && GithubCommenterLogin is not null && TrackingIssue is not null)
@@ -644,6 +673,14 @@ public abstract class JobBase
         return builder.ToString();
     }
 
+    internal CompletedJobRecord.Artifact[] GetArtifactsSnapshot()
+    {
+        lock (Artifacts)
+        {
+            return [.. Artifacts.Select(a => new CompletedJobRecord.Artifact(a.FileName, a.Url, a.Size))];
+        }
+    }
+
     public void Log(string line)
     {
         TimeSpan elapsed = Stopwatch.Elapsed;
@@ -770,9 +807,9 @@ public abstract class JobBase
         return (bytes, new MemoryStream(bytes));
     }
 
-    public async Task StreamLogsAsync(StreamWriter writer, CancellationToken cancellationToken)
+    public async Task StreamLogsAsync(StreamWriter writer, int? tail, CancellationToken cancellationToken)
     {
-        await foreach (string line in StreamLogsAsync(cancellationToken))
+        await foreach (string line in StreamLogsAsync(tail, cancellationToken))
         {
             if (line is null)
             {
@@ -785,6 +822,8 @@ public abstract class JobBase
         }
     }
 
+    public string[] GetLogSnapshot(int? tail) => _logs.GetTail(tail ?? int.MaxValue);
+
     public void NotifyJobCompletion()
     {
         if (JobCompletionTcs.TrySetResult())
@@ -795,9 +834,12 @@ public abstract class JobBase
         _idleTimeoutCts.CancelAfter(Timeout.InfiniteTimeSpan);
     }
 
-    public async IAsyncEnumerable<string> StreamLogsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    public IAsyncEnumerable<string> StreamLogsAsync(CancellationToken cancellationToken) =>
+        StreamLogsAsync(tail: null, cancellationToken);
+
+    public async IAsyncEnumerable<string> StreamLogsAsync(int? tail, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        int position = 0;
+        int position = tail.HasValue ? _logs.GetPositionForTail(tail.Value) : 0;
         int cooldown = 100;
         string[] lines = new string[100];
         Stopwatch lastYield = Stopwatch.StartNew();
@@ -905,9 +947,14 @@ public abstract class JobBase
         _idleTimeoutCts.Cancel();
     }
 
+    internal void ReleasePatchContent() => PatchContent = null;
+
     protected async Task<bool> TrySignalAvailableRunnerAsync()
     {
-        if (UseHetzner || UseHelix || CustomArguments.Contains("-NoPreparedRunner", StringComparison.OrdinalIgnoreCase))
+        if (UseHetzner ||
+            UseHelix ||
+            Metadata.ContainsKey("BaseCommit") ||
+            CustomArguments.Contains("-NoPreparedRunner", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -1078,6 +1125,11 @@ public abstract class JobBase
 
         async Task RunAzureVirtualMachineAsync(CancellationToken jobTimeout)
         {
+            if (Metadata.ContainsKey("StartedViaMcp"))
+            {
+                defaultAzureCoreCount = Math.Min(defaultAzureCoreCount, 8);
+            }
+
             if (Fast)
             {
                 defaultAzureCoreCount *= 2;

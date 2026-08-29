@@ -1,4 +1,7 @@
+using System.Buffers;
 using System.Text.RegularExpressions;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using Azure.Storage.Blobs;
 using Markdig;
 using Markdig.Syntax;
@@ -17,11 +20,36 @@ namespace MihuBot.RuntimeUtils;
 
 public sealed partial class RuntimeUtilsService : IHostedService
 {
+    private const int MaxSubmittedPatchLength = 10 * 1024 * 1024;
+    private const int MaxSubmittedArgumentsLength = 10 * 1024;
+    private const int MaxConcurrentSubmittedJobs = 100;
+    private const long MaxSubmittedPatchMemoryBytes = 2L * 1024 * 1024 * 1024;
+
+    private static readonly SearchValues<char> s_submittedArgumentChars =
+        SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ._:/,#=*?+-");
+
     // https://gist.github.com/MihaZupan/6bcaacbe025265aa457ea7bb9a4dbcae
     private const string UsageCommentMarkdown =
         """
+        ## Runtime-utils jobs
+
+        Runtime-utils compares a tested dotnet/runtime change with a baseline and publishes logs, artifacts, and a tracking issue.
+
+        Ways to submit:
+
+        - Mention `@MihuBot` on a dotnet/runtime pull request.
+        - Use the form at <https://mihubot.xyz/runtime-utils> for a pull request, branch, or public GitHub commit.
+        - Agents can use the public REST API or the MCP tools `start_runtime_utils_patch_job` and
+          `start_runtime_utils_commit_job`. Patch/commit API submissions currently support JitDiff,
+          BenchmarkLibraries, and RegexDiff.
+
+        Anonymous API/MCP submissions run on public Helix infrastructure. A GitHub access token supplied with the
+        bearer authentication scheme identifies the caller; callers authorized to use runtime-utils may use Azure.
+        The token is used for identity only and is not sent to the runner.
+
+
         <details>
-        <summary>Extra options for most job types</summary>
+        <summary>Common options and machine selection</summary>
 
         ```
         Options:
@@ -30,9 +58,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
             -dependsOn <prs>      A comma-separated list of PR numbers to merge into the baseline branch.
             -combineWith <prs>    A comma-separated list of PR numbers to merge into the tested PR branch.
 
-            -arm                  Run on an ARM64 VM instead of X64.
-            -intel                Run on an Intel-based VM instead of an AMD-based one (doesn't work with -helix).
-            -fast                 Run on a more powerful VM to save a few minutes.
+            -arm                  Use ARM64 instead of X64.
+            -intel                Prefer an Intel CPU instead of AMD (Azure/Hetzner only).
+            -win                  Use Windows. This currently implies Helix.
+            -fast                 Use a larger paid VM. Has no effect on Helix machine selection.
             -hetzner              Run on a Hetzner VM instead of Azure.
             -helix                Run on a public Helix queue instead.
             -queue <queueId>      Run on a specific Helix queue (requires that -helix also be set).
@@ -40,7 +69,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
         Example:
             @MihuBot -arm -hetzner -combineWith #1000,#1001
+            @MihuBot -helix -queue ubuntu.2404.armarch.open -arm
+            @MihuBot -win -arm -queue windows.11.arm64.ampere.open
         ```
+
+        `-queue` is an advanced option. The selected queue must be compatible with the job and runner startup scripts.
+        macOS queues are not currently supported; the runner requires Linux or Windows. Linux Helix work items run
+        inside a Linux container, so selecting a different Linux host queue does not change the guest OS.
 
         </details>
 
@@ -48,14 +83,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
         <details>
         <summary>Generate JIT diffs</summary>
 
-        See <https://mihubot.xyz/runtime-utils> for an alternative way of submitting jobs.
-
         ```
         Usage: @MihuBot [options]
 
         Options:
             -nocctors             Avoid passing --cctors to jit-diff.
             -tier0                Generate tier0 code.
+            -nuget                Diff a larger set of popular NuGet packages (400+).
 
             -includeKnownNoise    Display diffs affected by known noise (e.g. race conditions between different JIT runs).
             -includeNewMethodRegressions        Display diffs for new methods.
@@ -78,13 +112,18 @@ public sealed partial class RuntimeUtilsService : IHostedService
         Options:
             <link to a GitHub commit diff (compare)>
             <link to a custom dotnet/performance branch>
-            -medium/long
+            -medium               Use BenchmarkDotNet's medium run configuration.
+            -long                 Use BenchmarkDotNet's long run configuration.
 
         Example:
             @MihuBot benchmark Regex
             @MihuBot benchmark GetUnicodeCategory https://github.com/dotnet/runtime/compare/4bb0bcd9b5c47df97e51b462d8204d66c7d470fc...c74440f8291edd35843f3039754b887afe61766e
             @MihuBot benchmark RustLang_Sherlock https://github.com/MihaZupan/performance/tree/compiled-regex-only -intel -medium
         ```
+
+        Benchmark duration depends heavily on the filter, selected run configuration, and available hardware.
+        `-medium` is recommended for more stable results, but avoid combining it with a broad filter: the job may
+        take several hours or exceed its time limit. Start with the narrowest filter that covers the scenario.
 
         </details>
 
@@ -109,11 +148,14 @@ public sealed partial class RuntimeUtilsService : IHostedService
         <summary>Generate Regex source generator code and JIT diffs</summary>
 
         ```
-        @MihuBot regexdiff
+        @MihuBot regexdiff [options]
+
+        Options:
+            -jitdiff              Also generate JIT assembly diffs for changed regexes.
 
         Example:
             @MihuBot regexdiff
-            @MihuBot regexdiff -arm
+            @MihuBot regexdiff -arm -jitdiff
         ```
 
         </details>
@@ -125,6 +167,38 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ```
         @MihuBot merge/rebase/format    Requires collaborator access on your fork
         ```
+
+        </details>
+
+
+        <details>
+        <summary>REST API and MCP automation</summary>
+
+        Submit `POST https://mihubot.xyz/api/RuntimeUtils/Jobs` with JSON containing:
+
+        - `jobType`: `JitDiff`, `BenchmarkLibraries`, or `RegexDiff`.
+        - Exactly one of:
+          - `patch`: a git-compatible unified diff, plus optional `baseRepository` and `baseBranch`.
+          - `commit`: a public GitHub non-merge commit URL, compared with its parent.
+        - `arguments`: the same job arguments documented above.
+
+        The response includes the public job ID, dashboard URL, status API URL, finite logs API URL, and runner policy.
+        Poll the status URL until `state` is `succeeded`, `failed`, or `cancelled`.
+
+        The logs API returns the current log and closes by default:
+
+        ```
+        GET /api/RuntimeUtils/Jobs/Progress?jobId=<id>
+        GET /api/RuntimeUtils/Jobs/Progress?jobId=<id>&tail=200
+        GET /api/RuntimeUtils/Jobs/Progress?jobId=<id>&tail=200&live=true
+        ```
+
+        `live=true` keeps the response open while an active job runs. Avoid it for agents or tools that expect a
+        finite HTTP response. Completed jobs always return their entire stored log.
+
+        MCP provides `start_runtime_utils_patch_job`, `start_runtime_utils_commit_job`, and
+        `get_runtime_utils_job_status`. The status tool can include all retained logs with `includeLogs=true`, or
+        only recent lines with `tail=N`.
 
         </details>
         """;
@@ -168,6 +242,9 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
     private bool _shuttingDown;
     private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly Lock _submittedJobsLock = new();
+    private int _activeSubmittedJobs;
+    private long _submittedPatchMemoryBytes;
 
     public RuntimeUtilsService(Logger logger, GitHubClient github, GitHubNotificationsService gitHubNotifications, HttpClient http, IConfiguration configuration, IConfigurationService configurationService, IEnumerable<HetznerClient> hetznerClients, IDbContextFactory<MihuBotDbContext> mihuBotDb, UrlShortenerService urlShortener, CoreRootService coreRoot, IDbContextFactory<GitHubDbContext> gitHubDataDb, ServiceConfiguration serviceConfiguration, StorageService storage, HelixAvailabilityService helixAvailability)
     {
@@ -673,6 +750,220 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartRegexDiffJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new RegexDiffJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
+    public async Task<PatchJobSubmissionResponse> StartPatchJobAsync(PatchJobRequest request, string githubToken, CancellationToken cancellationToken)
+    {
+        (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
+        return await StartPatchJobCoreAsync(request, caller, startedViaMcp: false, cancellationToken);
+    }
+
+    public async Task<PatchJobSubmissionResponse> StartPatchJobFromMcpAsync(PatchJobRequest request, string githubToken, CancellationToken cancellationToken)
+    {
+        (string Login, long Id)? caller = await TryGetGitHubCallerAsync(githubToken, cancellationToken);
+        return await StartPatchJobCoreAsync(request, caller, startedViaMcp: true, cancellationToken);
+    }
+
+    public Task<PatchJobSubmissionResponse> StartPatchJobForGitHubUserAsync(PatchJobRequest request, string login, long id, CancellationToken cancellationToken) =>
+        StartPatchJobCoreAsync(request, (login, id), startedViaMcp: false, cancellationToken);
+
+    private async Task<PatchJobSubmissionResponse> StartPatchJobCoreAsync(PatchJobRequest request, (string Login, long Id)? caller, bool startedViaMcp, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.JobType?.Length > 64)
+        {
+            throw new ArgumentException("JobType must not exceed 64 characters.", nameof(request));
+        }
+
+        if (request.BaseRepository?.Length > 200)
+        {
+            throw new ArgumentException("BaseRepository must not exceed 200 characters.", nameof(request));
+        }
+
+        if (request.BaseBranch?.Length > 500)
+        {
+            throw new ArgumentException("BaseBranch must not exceed 500 characters.", nameof(request));
+        }
+
+        if (request.Commit?.Length > 500)
+        {
+            throw new ArgumentException("Commit must not exceed 500 characters.", nameof(request));
+        }
+
+        if (request.Arguments is { } submittedArguments &&
+            Encoding.UTF8.GetByteCount(submittedArguments) > MaxSubmittedArgumentsLength)
+        {
+            throw new ArgumentException("Arguments must not exceed 10 KiB.", nameof(request));
+        }
+
+        bool hasPatch = !string.IsNullOrWhiteSpace(request.Patch);
+        bool hasCommit = !string.IsNullOrWhiteSpace(request.Commit);
+        if (hasPatch == hasCommit)
+        {
+            throw new ArgumentException("Specify exactly one of Patch or Commit.", nameof(request));
+        }
+
+        string repository = string.IsNullOrWhiteSpace(request.BaseRepository) ? "dotnet/runtime" : request.BaseRepository.Trim();
+        string branch = string.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : request.BaseBranch.Trim();
+        string baseCommit = null;
+        string patch = request.Patch;
+        string testedLink = null;
+        string testedCommit = null;
+
+        if (hasCommit)
+        {
+            if (!GitHubHelper.TryParseGitHubCommit(request.Commit.Trim(), out repository, out string commitSha))
+            {
+                throw new ArgumentException("Commit must be a public GitHub commit URL.", nameof(request));
+            }
+
+            string[] parts = repository.Split('/');
+            string commitOwner = parts[0];
+            string commitRepositoryName = parts[1];
+
+            GitHubCommit commit;
+            Repository commitRepository;
+            try
+            {
+                commit = await Github.Repository.Commit.Get(commitOwner, commitRepositoryName, commitSha);
+                commitRepository = await Github.Repository.Get(commitOwner, commitRepositoryName);
+            }
+            catch (NotFoundException ex)
+            {
+                throw new ArgumentException($"The commit '{request.Commit}' does not exist or is not public.", nameof(request), ex);
+            }
+
+            if (commit.Parents.Count != 1)
+            {
+                throw new ArgumentException("Commit jobs require a non-merge commit with exactly one parent.", nameof(request));
+            }
+
+            branch = commitRepository.DefaultBranch;
+            baseCommit = commit.Parents[0].Sha;
+            testedCommit = commit.Sha;
+            testedLink = commit.HtmlUrl;
+            patch = await DownloadCommitPatchAsync(repository, commit.Sha, cancellationToken);
+        }
+
+        if (patch.Length > MaxSubmittedPatchLength)
+        {
+            throw new ArgumentException("Patch must not exceed 10 MiB.", nameof(request));
+        }
+
+        if (!GitHubHelper.TryParseRepoOwnerAndName(repository, out string owner, out string name, out string[] extra) ||
+            extra.Length != 0 ||
+            !repository.Equals($"{owner}/{name}", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("BaseRepository must be in owner/name form.", nameof(request));
+        }
+
+        if (!GitHubHelper.IsSafeGitHubBranchName(branch))
+        {
+            throw new ArgumentException("BaseBranch contains unsupported characters.", nameof(request));
+        }
+
+        string arguments = request.Arguments?.Trim() ?? string.Empty;
+        if (arguments.AsSpan().ContainsAnyExcept(s_submittedArgumentChars))
+        {
+            throw new ArgumentException("Arguments contain unsupported shell characters.", nameof(request));
+        }
+
+        try
+        {
+            await Github.Repository.Branch.Get(owner, name, branch);
+        }
+        catch (NotFoundException ex)
+        {
+            throw new ArgumentException($"The branch '{repository}/{branch}' does not exist or is not public.", nameof(request), ex);
+        }
+
+        bool canUseAzure = caller is { } identity &&
+            CheckGitHubUserPermissions("dotnet", identity.Login, identity.Id) == true;
+
+        long patchMemoryBytes = checked((long)patch.Length * sizeof(char));
+        SubmittedJobReservation reservation = ReserveSubmittedJob(patchMemoryBytes);
+        try
+        {
+            JobBase job = request.JobType?.Trim().ToLowerInvariant() switch
+            {
+                "jitdiff" => new JitDiffJob(this, repository, branch, baseCommit, patch, testedLink, caller?.Login, arguments, forceHelix: !canUseAzure),
+                "benchmark" or "benchmarklibraries" => new BenchmarkLibrariesJob(this, repository, branch, baseCommit, patch, testedLink, caller?.Login, arguments, forceHelix: !canUseAzure),
+                "regexdiff" => new RegexDiffJob(this, repository, branch, baseCommit, patch, testedLink, caller?.Login, arguments, forceHelix: !canUseAzure),
+                _ => throw new ArgumentException("JobType must be JitDiff, BenchmarkLibraries, or RegexDiff.", nameof(request)),
+            };
+
+            if (testedCommit is not null)
+            {
+                job.Metadata["PrBranch"] = testedCommit;
+                job.Metadata.Add("TestedCommit", testedCommit);
+            }
+
+            if (startedViaMcp)
+            {
+                job.Metadata.Add("StartedViaMcp", bool.TrueString);
+            }
+
+            StartJobCore(job, () =>
+            {
+                job.ReleasePatchContent();
+                reservation.Dispose();
+            });
+
+            return new PatchJobSubmissionResponse(
+                job.ExternalId,
+                $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Status?jobId={job.ExternalId}",
+                job.ProgressDashboardUrl,
+                job.LogsUrl,
+                canUseAzure ? "azure-allowed" : "helix-required");
+        }
+        catch
+        {
+            reservation.Dispose();
+            throw;
+        }
+    }
+
+    private async Task<string> DownloadCommitPatchAsync(string repository, string commitSha, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await Http.GetAsync($"https://github.com/{repository}/commit/{commitSha}.patch", HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await response.Content.LoadIntoBufferAsync(MaxSubmittedPatchLength, cancellationToken);
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    public async Task<(string Login, long Id)?> TryGetGitHubCallerAsync(string githubToken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(githubToken))
+        {
+            return null;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user");
+        request.Headers.UserAgent.ParseAdd("MihuBot-RuntimeUtils-API");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", githubToken);
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
+        if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+        {
+            throw new UnauthorizedAccessException("The supplied GitHub token is invalid or cannot identify its owner.");
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        GitHubCallerResponse caller = await response.Content.ReadFromJsonAsync<GitHubCallerResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("GitHub returned an empty user response.");
+
+        if (string.IsNullOrWhiteSpace(caller.Login) || caller.Id == 0)
+        {
+            throw new InvalidOperationException("GitHub returned an invalid user response.");
+        }
+
+        return (caller.Login, caller.Id);
+    }
+
+    private sealed record GitHubCallerResponse(string Login, long Id);
+
     public JobBase StartBackportJob(PullRequest pullRequest, string githubCommenterLogin, string arguments, CommentInfo comment) =>
         StartJobCore(new BackportJob(this, pullRequest, githubCommenterLogin, arguments, comment));
 
@@ -682,12 +973,13 @@ public sealed partial class RuntimeUtilsService : IHostedService
     public JobBase StartNuGetExtraAssembliesJob(string githubCommenterLogin, string arguments) =>
         StartJobCore(new NuGetExtraAssembliesJob(this, githubCommenterLogin, arguments));
 
-    public JobBase StartJobCore(JobBase job)
+    public JobBase StartJobCore(JobBase job, Action onCompleted = null)
     {
         lock (_jobs)
         {
             if (_shuttingDown)
             {
+                onCompleted?.Invoke();
                 return job;
             }
 
@@ -718,10 +1010,53 @@ public sealed partial class RuntimeUtilsService : IHostedService
                 {
                     await Logger.DebugAsync(ex.ToString());
                 }
+                finally
+                {
+                    onCompleted?.Invoke();
+                }
             });
         }
 
         return job;
+    }
+
+    private SubmittedJobReservation ReserveSubmittedJob(long patchMemoryBytes)
+    {
+        lock (_submittedJobsLock)
+        {
+            if (_activeSubmittedJobs >= MaxConcurrentSubmittedJobs)
+            {
+                throw new RuntimeUtilsCapacityException($"At most {MaxConcurrentSubmittedJobs} submitted jobs may run concurrently.");
+            }
+
+            if (_submittedPatchMemoryBytes > MaxSubmittedPatchMemoryBytes - patchMemoryBytes)
+            {
+                throw new RuntimeUtilsCapacityException("Submitted jobs are already retaining the maximum 2 GiB of patch content.");
+            }
+
+            _activeSubmittedJobs++;
+            _submittedPatchMemoryBytes += patchMemoryBytes;
+            return new SubmittedJobReservation(this, patchMemoryBytes);
+        }
+    }
+
+    private void ReleaseSubmittedJob(long patchMemoryBytes)
+    {
+        lock (_submittedJobsLock)
+        {
+            _activeSubmittedJobs--;
+            _submittedPatchMemoryBytes -= patchMemoryBytes;
+        }
+    }
+
+    private sealed class SubmittedJobReservation(RuntimeUtilsService owner, long patchMemoryBytes) : IDisposable
+    {
+        private RuntimeUtilsService _owner = owner;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)?.ReleaseSubmittedJob(patchMemoryBytes);
+        }
     }
 
     public JobBase[] GetAllActiveJobs()
@@ -870,6 +1205,103 @@ public sealed partial class RuntimeUtilsService : IHostedService
             Logger.DebugLog($"Failed to create completed job record for {externalId}: {ex}");
             throw;
         }
+    }
+
+    public async Task<RuntimeUtilsJobStatusResponse> TryGetJobStatusAsync(
+        string externalId,
+        CancellationToken cancellationToken,
+        bool includeLogs = false,
+        int? tail = null)
+    {
+        if (tail is < 0 or > 100_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tail), "Tail must be between 0 and 100000.");
+        }
+
+        includeLogs |= tail.HasValue;
+
+        if (TryGetJob(externalId, publicId: true, out JobBase job))
+        {
+            string state =
+                !job.Completed ? (job.InitialRemoteRunnerContact is null ? "queued" : "running") :
+                job.WasCancelled ? "cancelled" :
+                job.ErrorMessage is null ? "succeeded" :
+                "failed";
+
+            return new RuntimeUtilsJobStatusResponse(
+                job.ExternalId,
+                state,
+                job.JobTitle,
+                job.StartTime,
+                job.Stopwatch.Elapsed,
+                job.ProgressDashboardUrl,
+                job.LogsUrl,
+                job.TrackingIssue?.HtmlUrl,
+                job.LastProgressSummary,
+                job.ErrorMessage,
+                job.GetArtifactsSnapshot(),
+                includeLogs ? job.GetLogSnapshot(tail) : null);
+        }
+
+        if (await TryGetCompletedJobRecordAsync(externalId, cancellationToken) is not { } completed)
+        {
+            return null;
+        }
+
+        return new RuntimeUtilsJobStatusResponse(
+            completed.ExternalId,
+            completed.WasCancelled ? "cancelled" : completed.ErrorMessage is null ? "succeeded" : "failed",
+            completed.Title,
+            completed.StartedAt,
+            completed.Duration,
+            $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{completed.ExternalId}",
+            $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={completed.ExternalId}",
+            completed.TrackingIssueUrl,
+            null,
+            completed.ErrorMessage,
+            completed.Artifacts ?? [],
+            includeLogs ? await GetCompletedJobLogsAsync(completed, tail, cancellationToken) : null);
+    }
+
+    internal async Task<string[]> GetCompletedJobLogsAsync(CompletedJobRecord completed, int? tail, CancellationToken cancellationToken)
+    {
+        if (completed.LogsArtifactUrl is null)
+        {
+            return [];
+        }
+
+        using HttpResponseMessage response = await Http.GetAsync(completed.LogsArtifactUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+
+        if (tail is null)
+        {
+            var lines = new List<string>();
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
+            {
+                lines.Add(line);
+            }
+
+            return [.. lines];
+        }
+
+        var tailLines = new Queue<string>(tail.Value);
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            if (tailLines.Count == tail.Value && tailLines.Count > 0)
+            {
+                tailLines.Dequeue();
+            }
+
+            if (tail.Value > 0)
+            {
+                tailLines.Enqueue(line);
+            }
+        }
+
+        return [.. tailLines];
     }
 
     public async Task SaveCompletedJobRecordAsync(CompletedJobRecord record)
