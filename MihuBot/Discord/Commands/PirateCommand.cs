@@ -97,7 +97,8 @@ public sealed partial class PirateCommand : CommandBase
     {
         Interlocked.Increment(ref _activeDownloads);
 
-        bool error = false;
+        bool completed = false;
+        RestUserMessage? message = null;
         try
         {
             ctx.DebugLog($"Starting download for `{uri.DisplayName}`: <{uri.Url}>");
@@ -111,7 +112,6 @@ public sealed partial class PirateCommand : CommandBase
             await Task.Delay(3_000, ctx.CancellationToken);
 
             QBittorrentClient.TorrentInfo info;
-            RestUserMessage? message = null;
             while (true)
             {
                 info = await _qBittorrent.GetTorrentInfoAsync(uri.Hash, ctx.CancellationToken);
@@ -174,18 +174,18 @@ public sealed partial class PirateCommand : CommandBase
                 await Task.Delay(3000 * _activeDownloads, ctx.CancellationToken);
             }
 
-            await _jellyfin.RefreshLibraryAsync(ctx.CancellationToken);
+            completed = true;
 
-            if (message is not null)
-            {
-                await message.DeleteAsync();
-            }
+            await _jellyfin.RefreshLibraryAsync(ctx.CancellationToken);
 
             await ctx.ReplyAsync($"Downloaded `{info.Name}` successfully.", mention: true);
         }
+        catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested)
+        {
+            ctx.DebugLog($"Download for `{uri.DisplayName}` was cancelled, aborting the torrent.");
+        }
         catch (Exception ex)
         {
-            error = true;
             await ctx.ReplyAsync($"Failed to add torrent: {ex.Message}");
             await ctx.DebugAsync(ex);
         }
@@ -193,9 +193,19 @@ public sealed partial class PirateCommand : CommandBase
         {
             Interlocked.Decrement(ref _activeDownloads);
 
+            if (message is not null)
+            {
+                message.DeleteAsync().IgnoreExceptions();
+            }
+
+            // Never use ctx.CancellationToken here -- if the command was cancelled, the torrent
+            // would keep downloading in the background instead of being removed.
+            using var cleanupCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
             try
             {
-                await _qBittorrent.DeleteTorrentAsync(uri.Hash, deleteFiles: error, ctx.CancellationToken);
+                await _qBittorrent.LoginAsync(cleanupCts.Token);
+                await _qBittorrent.DeleteTorrentAsync(uri.Hash, deleteFiles: !completed, cleanupCts.Token);
             }
             catch (Exception ex)
             {
