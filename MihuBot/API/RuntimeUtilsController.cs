@@ -41,7 +41,7 @@ public sealed class RuntimeUtilsController : ControllerBase
                 ? "text/event-stream; charset=utf-8"
                 : "text/plain; charset=utf-8";
 
-            using var writer = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
+            await using var writer = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
 
             if (live)
             {
@@ -66,7 +66,7 @@ public sealed class RuntimeUtilsController : ControllerBase
         }
 
         Response.Headers.ContentType = "text/plain; charset=utf-8";
-        using var completedWriter = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
+        await using var completedWriter = new StreamWriter(Response.Body, new UTF8Encoding(false), bufferSize: 1024, leaveOpen: true);
         foreach (string line in await _jobs.GetCompletedJobLogsAsync(completed, tail, HttpContext.RequestAborted))
         {
             await completedWriter.WriteLineAsync(line.AsMemory(), HttpContext.RequestAborted);
