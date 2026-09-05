@@ -8,6 +8,27 @@ main {
     flex: 1;
 }
 
+/* Let live job logs use only the viewport space left by navigation and job details. */
+.page:has(.runtime-utils-logs) {
+    height: 100dvh;
+}
+
+.page:has(.runtime-utils-logs) .sidebar {
+    flex-shrink: 0;
+}
+
+.page:has(.runtime-utils-logs) main,
+.page:has(.runtime-utils-logs) article {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.page:has(.runtime-utils-logs) article ::deep > :not(.runtime-utils-logs) {
+    flex-shrink: 0;
+}
+
 @media (min-width: 641px) {
     main {
         max-width: calc(100% - 240px);
