@@ -56,13 +56,15 @@ dotnet test MihuBot.Tests --filter "FullyQualifiedName~TryGetSshSignaturePublicK
 `MihaZupan/runtime-utils` (usually cloned next to this repo at `../runtime-utils`) holds the *runner* side of
 the RuntimeUtils feature: the code that actually executes on the Azure/Hetzner/Helix/GitHub-Actions machines
 MihuBot provisions. When a task touches jobs, job arguments, logs, artifacts or the runner API, assume both
-repos are in scope and check `../runtime-utils` before concluding something is missing.
+repos are in scope and check `..\runtime-utils` before concluding something is missing. Read its
+`.github\copilot-instructions.md` for runner-side build requirements, lifecycle, and wire contracts.
 
 - **Layout:** one project, `Runner/Runner.csproj` (`net11.0`, `Nullable` *enabled*, solution `Runner.slnx`).
   `Runner/Program.cs` is the entry point, `Runner/JobBase.cs` the shared job infrastructure, `Runner/Jobs/`
   the job implementations, `Runner/Helpers/` the utilities (jitdiff, NuGet, git, core root, ...).
-  Global usings live in `Runner/Usings.cs`. There are no tests; build with
-  `dotnet build ../runtime-utils/Runner/Runner.slnx`.
+  Global usings live in `Runner/Usings.cs`. The runner requires a current daily .NET 11 SDK for its in-box
+  ZStandard APIs; an older .NET 11 preview SDK may not suffice. There are no tests; build with
+  `dotnet build ..\runtime-utils\Runner\Runner.slnx`.
 - **Jobs are paired 1:1 by class name.** `MihuBot/RuntimeUtils/Jobs/XJob.cs` (orchestration: provisioning,
   GitHub comment, metadata) has a counterpart `Runner/Jobs/XJob.cs` (execution). `Runner/Program.cs`
   dispatches on the `JobType` metadata value, which is the MihuBot job class name - so adding, renaming or
@@ -73,15 +75,22 @@ repos are in scope and check `../runtime-utils` before concluding something is m
   `API/CoreRootController.cs` ↔ `Runner/Helpers/CoreRootAPI.cs`. Everything the runner knows about a job
   arrives as the string-to-string metadata dictionary built by MihuBot's `JobBase` (`BaseRepo`, `PrBranch`,
   `CustomArguments`, `PersistentStateSasUri`, ...). New per-job inputs are added as metadata entries or as
-  `CustomArguments` flags (`-flag` / `-arg value`, read via `TryGetFlag`/`TryGetArgument` on both sides).
-- **Runners always run `main` of runtime-utils.** The startup scripts in `MihuBot/RuntimeUtils/JobBase.cs`
-  `git clone https://github.com/MihaZupan/runtime-utils` and `dotnet run -c Release --project
-  ../runtime-utils/Runner`; nothing is pinned or versioned. A runner change is live for the next job without
-  redeploying MihuBot, but an incompatible change breaks in-flight/old jobs - keep the API and metadata
-  backwards compatible, or land the MihuBot side first.
-- **Linux Helix work items run in `mihazupan/runtime-utils:runner`**, built from `Runner/Dockerfile` by that
-  repo's `publish-docker` workflow (same `docker`-in-the-commit-message trigger as here); overridable per job
-  with `-docker <image>` (`GetHelixDockerImage`).
+  `CustomArguments` flags (`-flag` / `-arg value`, read via `TryGetFlag`/`TryGetArgument` in the runner).
+  Keep server-side argument validation and usage text in sync.
+- **VM and Helix startup scripts clone unpinned runner source.** The scripts in
+  `MihuBot\RuntimeUtils\JobBase.cs` clone the default branch of `MihaZupan/runtime-utils` and build/run it
+  from a separate sibling `runner-work` directory. Never use the project directory as scratch space:
+  the runner clones dotnet/runtime and generates artifacts there. Source changes can reach new jobs
+  without redeploying MihuBot; prepared runners may still use older code, so keep API/metadata changes
+  backwards compatible and deploy compatible server support before runner changes that require it.
+- **Linux Helix work items require Helix-specific prerequisite images.** `GetHelixDockerImage` defaults to
+  `mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-helix-amd64` or
+  `mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-helix-arm64v8`, selected from the actual queue.
+  The `helixbot` user, Helix scripts, and access to the mounted commands are required; a plain runner/build
+  image is not interchangeable. Defaults can be overridden through `GetConfigFlag` with
+  `HelixDockerImageamd64` / `HelixDockerImagearm64`, or by an admin's `-docker <image>`.
+  This is separate from `mihazupan/runtime-utils:runner`, which the companion repo builds for prepared
+  Docker runners. Helix uses the container as its environment and clones/builds fresh runner source.
 - **GitHub Actions path:** jobs can also run via `.github/workflows/run-script.yml` in
   `MihuBot/runtime-utils`, triggered by an issue whose body contains `RUN_AS_GITHUB_ACTION_<ExternalId>`.
   Job reports and AI triage issues are filed in `MihuBot/runtime-utils` (`JobBase.IssueRepositoryName`).
