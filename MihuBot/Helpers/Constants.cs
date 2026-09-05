@@ -33,6 +33,8 @@ public static class Constants
     // Dev credentials are used everywhere except the Linux deployment.
     public static string DevSuffix { get; } = OperatingSystem.IsLinux() ? "" : "-dev";
 
+    public static string PublicBaseUrl { get; } = OperatingSystem.IsLinux() ? "https://mihubot.xyz" : "http://localhost:5000";
+
     // Bulk file storage for the StorageService. Defaults to living under the state directory,
     // but may point elsewhere (e.g. a separate Docker volume) via MIHUBOT_STORAGE_DIRECTORY.
     public static string StorageDirectory { get; } =

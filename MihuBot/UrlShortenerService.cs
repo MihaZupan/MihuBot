@@ -35,7 +35,7 @@ public sealed class UrlShortenerService
 
     public async Task<Entry> CreateAsync(string creationSource, Uri originalUrl)
     {
-        if (originalUrl.IdnHost.Equals("mihubot.xyz", StringComparison.OrdinalIgnoreCase) &&
+        if (originalUrl.GetLeftPart(UriPartial.Authority).Equals(Constants.PublicBaseUrl, StringComparison.OrdinalIgnoreCase) &&
             originalUrl.PathAndQuery.StartsWith("/r/", StringComparison.OrdinalIgnoreCase))
         {
             return await GetAsync(originalUrl.PathAndQuery[3..]);
@@ -70,6 +70,6 @@ public sealed class UrlShortenerService
 
         public DateTime Timestamp => SnowflakeUtils.FromSnowflake((ulong)Id).UtcDateTime;
 
-        public string ShortUrl => $"https://mihubot.xyz/r/{Snowflake.GetString((ulong)Id)}";
+        public string ShortUrl => $"{Constants.PublicBaseUrl}/r/{Snowflake.GetString((ulong)Id)}";
     }
 }

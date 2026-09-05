@@ -1,0 +1,42 @@
+@using MihuBot.RuntimeUtils
+
+@if (Entry.ExtraInfo is { Length: > 0 })
+{
+    <pre class="regex-context">@Entry.ExtraInfo</pre>
+}
+@if (Entry.Truncated)
+{
+    <p role="note">This example was shortened by the runner: some context or middle lines were omitted.</p>
+}
+@if (PageCount > 1)
+{
+    <div class="mb-2">
+        <button class="btn btn-secondary" disabled="@(_page == 0)" @onclick="() => _page--">Previous lines</button>
+        <span>Lines @(_page * LinesPerPage + 1)-@(Math.Min((_page + 1) * LinesPerPage, _lines.Length)) of @_lines.Length</span>
+        <button class="btn btn-secondary" disabled="@((_page + 1) * LinesPerPage >= _lines.Length)" @onclick="() => _page++">Next lines</button>
+        <label>Jump to page <input type="number" min="1" max="@PageCount" @bind="LinePage" style="width: 6rem;" /> of @PageCount</label>
+    </div>
+}
+<pre class="diff-lines" tabindex="0" aria-label="Unified diff">@foreach (string line in _lines.Skip(_page * LinesPerPage).Take(LinesPerPage))
+{<span class="@DiffExampleEntry.LineClass(line)">@line@("\n")</span>}</pre>
+
+@code {
+    [Parameter, EditorRequired]
+    public DiffExampleEntry Entry { get; set; }
+
+    private const int LinesPerPage = 2000;
+    private string[] _lines = [];
+    private int _page;
+    private int PageCount => Math.Max(1, (_lines.Length + LinesPerPage - 1) / LinesPerPage);
+    private int LinePage
+    {
+        get => _page + 1;
+        set => _page = Math.Clamp(value, 1, PageCount) - 1;
+    }
+
+    protected override void OnParametersSet()
+    {
+        _lines = Entry.Diff.ReplaceLineEndings("\n").Split('\n');
+        _page = 0;
+    }
+}

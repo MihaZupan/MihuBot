@@ -5,7 +5,6 @@ namespace MihuBot.Helpers;
 
 public sealed class StorageClient
 {
-    private const string Host = "https://mihubot.xyz";
     private const string PathPrefix = "/s";
 
     private readonly HttpClient _http;
@@ -20,7 +19,7 @@ public sealed class StorageClient
     {
         _http = httpClient;
         _containerName = containerName;
-        _containerUrl = $"{Host}{PathPrefix}/{containerName}";
+        _containerUrl = $"{Constants.PublicBaseUrl}{PathPrefix}/{containerName}";
         _sasKey = Encoding.UTF8.GetBytes(sasKey);
         _isPublic = isPublic;
     }
@@ -33,7 +32,7 @@ public sealed class StorageClient
         }
 
         string toSign = GetUnsignedUrl($"{PathPrefix}/{_containerName}/{path}", duration, writeAccess);
-        return $"{Host}{toSign}&sig={Sign(toSign)}";
+        return $"{Constants.PublicBaseUrl}{toSign}&sig={Sign(toSign)}";
     }
 
     public static string GetFileUrl(string containerSasUrl, string path)
@@ -50,7 +49,7 @@ public sealed class StorageClient
         }
 
         string toSign = GetUnsignedUrl(_containerName, duration, writeAccess);
-        return $"{Host}{PathPrefix}/{toSign}&sig={Sign(toSign)}";
+        return $"{Constants.PublicBaseUrl}{PathPrefix}/{toSign}&sig={Sign(toSign)}";
     }
 
     private static string GetUnsignedUrl(string @base, TimeSpan duration, bool writeAccess)

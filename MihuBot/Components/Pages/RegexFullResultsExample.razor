@@ -1,0 +1,60 @@
+@using System.Text.Json
+
+<details class="mb-3">
+    <summary>Analyze the full regex results in C#</summary>
+    <p>
+        <a href="@ArtifactUrl">Download Results.zip</a> for every pattern's baseline and PR source,
+        full diffs, and extracted SearchValues information, including results omitted from this browser.
+        This example downloads and reads the archive so you can explore the complete data locally.
+    </p>
+    <CodeHighlight Language="language-csharp" Code="@ExampleCode" CodeStyle="max-height: 40rem; white-space: pre;" />
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public string ArtifactUrl { get; set; }
+
+    [Parameter, EditorRequired]
+    public string ExternalId { get; set; }
+
+    private string ExampleCode =>
+        $$"""
+        #nullable enable
+        using System;
+        using System.IO;
+        using System.IO.Compression;
+        using System.Net.Http;
+        using System.Text.Json;
+        using System.Text.RegularExpressions;
+
+        const string JsonPath = {{JsonSerializer.Serialize($"RegexResults-{ExternalId}.json")}};
+        if (!File.Exists(JsonPath))
+        {
+            using var client = new HttpClient();
+            await using var archiveStream = await client.GetStreamAsync({{JsonSerializer.Serialize(ArtifactUrl)}});
+            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+            var jsonEntry = archive.GetEntry("Results.json")
+                ?? throw new InvalidDataException("Results.json is missing from the archive.");
+            jsonEntry.ExtractToFile(JsonPath);
+        }
+
+        using FileStream jsonFileStream = File.OpenRead(JsonPath);
+        RegexEntry[] entries = JsonSerializer.Deserialize<RegexEntry[]>(
+            jsonFileStream, new JsonSerializerOptions { IncludeFields = true })
+            ?? throw new InvalidDataException("The results are empty.");
+        Console.WriteLine($"Working with {entries.Length} patterns");
+
+        record KnownPattern(string Pattern, RegexOptions Options, int Count);
+
+        sealed class RegexEntry
+        {
+            public required KnownPattern Regex { get; set; }
+            public required string MainSource { get; set; }
+            public required string PrSource { get; set; }
+            public string? FullDiff { get; set; }
+            public string? ShortDiff { get; set; }
+            public (string Name, string Values)[]? SearchValuesOfChar { get; set; }
+            public (string[] Values, StringComparison ComparisonType)[]? SearchValuesOfString { get; set; }
+        }
+        """;
+}

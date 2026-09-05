@@ -1,0 +1,37 @@
+.diff-lines {
+    max-height: 40rem;
+    overflow: auto;
+    background: #161b22;
+    color: #e6edf3;
+    padding: .5rem;
+    tab-size: 4;
+    white-space: pre;
+}
+
+.diff-lines span {
+    display: block;
+    min-width: 100%;
+    width: max-content;
+}
+
+.diff-added {
+    background: #123b26;
+    color: #aff5b4;
+}
+
+.diff-removed {
+    background: #4a2025;
+    color: #ffdcd7;
+}
+
+.diff-hunk {
+    background: #163451;
+    color: #a5d6ff;
+}
+
+.regex-context {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 20rem;
+    overflow: auto;
+}

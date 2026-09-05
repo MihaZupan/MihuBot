@@ -1,4 +1,6 @@
-﻿<!DOCTYPE html>
+﻿@inject IServiceProvider Services
+
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -11,7 +13,7 @@
     <link rel="stylesheet" href="@Assets["MihuBot.styles.css"]" />
 
     <ImportMap />
-    <HeadOutlet />
+    <HeadOutlet @rendermode="PageRenderModes.GetHeadRenderMode(HttpContext, Services)" />
 </head>
 
 <body class="dark">
@@ -37,3 +39,8 @@
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; }
+}

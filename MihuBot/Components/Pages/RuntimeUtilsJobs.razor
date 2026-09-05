@@ -2,6 +2,7 @@
 @using MihuBot.RuntimeUtils;
 @using System.Collections.Concurrent;
 @inject RuntimeUtilsService runtimeUtils
+@inject NavigationManager Navigation
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -33,6 +34,10 @@
         </div>
     }
     <div>For all the logs, see <a href="@_job.ProgressUrl">here</a>.</div>
+    @if (_job.HasDiffExamples)
+    {
+        <p><a href="@_job.DiffExamplesUrl">Browse diff examples</a></p>
+    }
     @if (_job.TrackingIssue is not null)
     {
         <div style="overflow-wrap: break-word;">Tracking issue: <a href="@_job.TrackingIssue.HtmlUrl">@_job.TrackingIssue.HtmlUrl</a></div>
@@ -86,6 +91,10 @@ else if (_completedJob is not null)
 {
     <h1 style="word-break: break-word;"><a href="@_completedJob.TestedPROrBranchLink">@_completedJob.Title</a></h1>
     <div>Started at @_completedJob.StartedAt.ToISODateTime(' ') UTC, ran for @_completedJob.Duration.ToElapsedTime().</div>
+    @if (DiffExamplesReport.HasReport(_completedJob.Artifacts))
+    {
+        <p><a href="@($"/runtime-utils/{_completedJob.ExternalId}/diffs")">Browse diff examples</a></p>
+    }
     @if (_completedJob.TrackingIssueUrl is not null)
     {
         <div style="overflow-wrap: break-word;">Tracking issue: <a href="@_completedJob.TrackingIssueUrl">@_completedJob.TrackingIssueUrl</a></div>
@@ -139,6 +148,7 @@ else
 
     private JobBase _job;
     private CompletedJobRecord _completedJob;
+    private bool _redirectOnCompletion;
 
     protected override async Task OnInitializedAsync()
     {
@@ -146,6 +156,7 @@ else
 
         if (runtimeUtils.TryGetJob(JobId, publicId: true, out _job))
         {
+            _redirectOnCompletion = !_job.Completed && _completedJob is null;
             Interlocked.Increment(ref _job.TotalProgressSiteViews);
             Interlocked.Increment(ref _job.CurrentProgressSiteViews);
 
@@ -219,6 +230,18 @@ else
                 _canViewCredentials = runtimeUtils.CheckGitHubAdminPermissions(_githubUserLogin);
             }
         }
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_redirectOnCompletion && !_cts.IsCancellationRequested &&
+            _job is { Completed: true, ErrorMessage: null, WasCancelled: false, HasDiffExamples: true })
+        {
+            _redirectOnCompletion = false;
+            Navigation.NavigateTo(_job.DiffExamplesUrl);
+        }
+
+        return Task.CompletedTask;
     }
 
     private void DoNotDeleteTheVm()

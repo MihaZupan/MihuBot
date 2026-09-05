@@ -41,6 +41,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
         ## Runtime-utils jobs
 
         Runtime-utils compares a tested dotnet/runtime change with a baseline and publishes logs, artifacts, and a tracking issue.
+        JIT and regex jobs publish browsable diff examples linked from the tracking issue and job dashboard.
+        Filter by assembly, category, or method/regex text; expand a method to browse its colored diff.
 
         Ways to submit:
 
@@ -941,7 +943,7 @@ public sealed partial class RuntimeUtilsService : IHostedService
 
             return new PatchJobSubmissionResponse(
                 job.ExternalId,
-                $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Status?jobId={job.ExternalId}",
+                $"{Constants.PublicBaseUrl}/api/RuntimeUtils/Jobs/Status?jobId={job.ExternalId}",
                 job.ProgressDashboardUrl,
                 job.LogsUrl,
                 canUseAzure ? "azure-allowed" : "helix-required");
@@ -1285,8 +1287,8 @@ public sealed partial class RuntimeUtilsService : IHostedService
             completed.Title,
             completed.StartedAt,
             completed.Duration,
-            $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{completed.ExternalId}",
-            $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={completed.ExternalId}",
+            $"{Constants.PublicBaseUrl}/runtime-utils/{completed.ExternalId}",
+            $"{Constants.PublicBaseUrl}/api/RuntimeUtils/Jobs/Progress?jobId={completed.ExternalId}",
             completed.TrackingIssueUrl,
             null,
             completed.ErrorMessage,

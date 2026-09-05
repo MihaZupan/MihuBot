@@ -1,21 +1,18 @@
 ﻿@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
 @inject IJSRuntime JS
+@inject ILogger<CodeHighlight> Logger
+@implements IAsyncDisposable
 
-<script>
-    function updateCode(id, code) {
-        let e = document.getElementById(id);
-        e.innerHTML = code;
-        e.removeAttribute('data-highlighted');
-        hljs.highlightAll();
-    }
-</script>
-
-<pre id="@CodeBlockId" style="@CodeStyle"><code class="@Language" id="@DisplayId">@Code</code></pre>
+<link rel="stylesheet" href="vs2015.css" />
+<pre id="@CodeBlockId" style="@CodeStyle"><code @key="Code" @ref="_element" class="@Language">@Code</code></pre>
+@if (_highlightError)
+{
+    <p role="alert">Syntax highlighting is unavailable. The plain source code is shown above.</p>
+}
 
 @code
 {
-    string DisplayId { get; set; } = Guid.NewGuid().ToString("n");
-
     [Parameter]
     public string Language { get; set; }
 
@@ -28,32 +25,51 @@
     [Parameter]
     public string CodeStyle { get; set; }
 
-    private bool _isFirstRenderDone = false;
-
-
-    protected override async Task OnParametersSetAsync()
-    {
-        if (_isFirstRenderDone && !string.IsNullOrEmpty(Code))
-        {
-            await UpdateAsync();
-        }
-    }
+    private ElementReference _element;
+    private IJSObjectReference _module;
+    private string _highlightedCode;
+    private string _highlightedLanguage;
+    private bool _highlightError;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (_highlightError || string.IsNullOrEmpty(Code) || (_highlightedCode == Code && _highlightedLanguage == Language))
         {
-            await UpdateAsync();
-            _isFirstRenderDone = true;
+            return;
+        }
+
+        try
+        {
+            string code = Code;
+            string language = Language;
+            ElementReference element = _element;
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/CodeHighlight.razor.js");
+            await _module.InvokeVoidAsync("highlight", element, code);
+            _highlightedCode = code;
+            _highlightedLanguage = language;
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException ex)
+        {
+            Logger.LogWarning(ex, "Failed to highlight source code");
+            _highlightError = true;
+            StateHasChanged();
         }
     }
 
-    private async Task UpdateAsync()
+    public async ValueTask DisposeAsync()
     {
-        try
+        if (_module is not null)
         {
-            await JS.InvokeVoidAsync("updateCode", DisplayId, Code);
+            try
+            {
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
         }
-        catch { }
     }
 }

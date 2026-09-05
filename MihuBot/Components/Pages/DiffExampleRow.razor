@@ -1,0 +1,32 @@
+@using MihuBot.RuntimeUtils
+
+<article class="diff-example">
+    <button type="button" class="method-toggle" data-category="@Entry.Category" aria-expanded="@Expanded" @onclick="OnToggle">
+        <span class="disclosure" aria-hidden="true"></span>
+        <span class="method-name" title="@Entry.Method">@Entry.Method</span>
+        <span class="assembly-name" title="@Entry.Assembly">@Entry.Assembly</span>
+        <span class="category">@Entry.Category</span>
+        @if (Entry.ByteSummary is { } bytes)
+        {
+            <span class="byte-summary" title="@bytes">@bytes</span>
+        }
+    </button>
+    @if (Expanded)
+    {
+        <div class="method-details">
+            <p>@Entry.Description</p>
+            <DiffExampleDetails Entry="Entry" />
+        </div>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public DiffExampleEntry Entry { get; set; }
+
+    [Parameter]
+    public bool Expanded { get; set; }
+
+    [Parameter]
+    public EventCallback OnToggle { get; set; }
+}

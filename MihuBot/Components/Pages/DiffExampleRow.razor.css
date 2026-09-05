@@ -1,0 +1,101 @@
+.diff-example {
+    margin-bottom: .25rem;
+}
+
+.method-toggle {
+    --row-background: #161b22;
+    --row-active-background: #282f38;
+    --row-border: #444c56;
+    --row-accent: #a5d6ff;
+    display: grid;
+    grid-template-columns: .4rem minmax(0, 2fr) minmax(0, 1fr) 7rem 16rem;
+    align-items: center;
+    gap: .6rem;
+    width: 100%;
+    padding: .35rem .6rem;
+    border: 1px solid var(--row-border);
+    border-radius: .25rem;
+    background: var(--row-background);
+    color: #e6edf3;
+    text-align: left;
+    font-size: .875rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.method-toggle:hover, .method-toggle[aria-expanded="true"] {
+    background: var(--row-active-background);
+}
+
+.method-toggle[data-category="improvement"] {
+    --row-background: #122b1e;
+    --row-active-background: #1c422d;
+    --row-border: #347d49;
+    --row-accent: #aff5b4;
+}
+
+.method-toggle[data-category="regression"] {
+    --row-background: #341a1e;
+    --row-active-background: #50242b;
+    --row-border: #aa4554;
+    --row-accent: #ffdcd7;
+}
+
+.method-toggle:focus-visible {
+    outline: 2px solid #79c0ff;
+    outline-offset: 2px;
+}
+
+.disclosure {
+    border-top: .3rem solid transparent;
+    border-bottom: .3rem solid transparent;
+    border-left: .4rem solid currentColor;
+}
+
+.method-toggle[aria-expanded="true"] .disclosure {
+    transform: rotate(90deg);
+}
+
+.method-name, .assembly-name, .byte-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.method-name {
+    font-family: monospace;
+}
+
+.assembly-name {
+    color: #b6c2cf;
+}
+
+.category {
+    color: var(--row-accent);
+}
+
+.byte-summary {
+    color: var(--row-accent);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.method-details {
+    padding: .5rem 0;
+    overflow-wrap: anywhere;
+}
+
+.method-details p {
+    margin-bottom: .5rem;
+}
+
+@media (max-width: 700px) {
+    .method-toggle {
+        grid-template-columns: .4rem minmax(0, 1fr) 6.5rem minmax(0, .8fr);
+    }
+
+    .assembly-name {
+        display: none;
+    }
+}

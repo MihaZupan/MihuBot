@@ -1,0 +1,194 @@
+@page "/runtime-utils/{ExternalId}/diffs"
+@using MihuBot.RuntimeUtils
+@inject RuntimeUtilsService RuntimeUtils
+@inject Logger Logger
+@implements IDisposable
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<PageTitle>@(_jobTitle ?? "Runtime utils diff examples")</PageTitle>
+<h1 class="job-title">@(_jobTitle ?? "Diff examples")</h1>
+
+@if (DiffExamplesReport.IsPublicId(ExternalId))
+{
+    <p><a href="@($"/runtime-utils/{ExternalId}")">Job dashboard and tracking issue</a></p>
+}
+@if (_loading)
+{
+    <p>Loading diff examples...</p>
+}
+else if (_error is not null)
+{
+    <p role="alert">@_error</p>
+}
+else if (_reports.Length == 0)
+{
+    <p>No diff report is available. The job may still be running or may have failed before producing a report.</p>
+}
+else
+{
+    @if (_regexResults is not null)
+    {
+        <RegexFullResultsExample ArtifactUrl="@_regexResults.Url" ExternalId="@ExternalId" />
+    }
+    @foreach (DiffExamplesReport report in _reports)
+    {
+        <pre class="report-summary">@report.Summary</pre>
+        @foreach (string note in report.Notes)
+        {
+            <p class="report-note">@note</p>
+        }
+    }
+    <p>
+        @_entries.Length reported examples:
+        @_entries.Count(e => e.Category == "regression") regressions,
+        @_entries.Count(e => e.Category == "improvement") improvements,
+        @_entries.Count(e => e.Category == "same-size") same-size changes,
+        @_entries.Count(e => e.Category == "source") generated regex source changes.
+        Examples retain the runner's assembly-diverse ordering.
+    </p>
+    @if (_entries.Length == 0)
+    {
+        <p>No differences to display in these reports. See the summaries and notes above for comparison coverage.</p>
+    }
+    else
+    {
+        <div class="diff-filters">
+            <label>Search methods, context, and diff contents
+                <input type="search" maxlength="1024" @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
+            </label>
+            <label>Category
+                <select @bind="_category" @bind:after="ApplyFilters">
+                    <option value="">All categories</option>
+                    <option value="regression">Regressions</option>
+                    <option value="improvement">Improvements</option>
+                    <option value="same-size">Same-size changes</option>
+                    <option value="source">Regex source</option>
+                </select>
+            </label>
+            <label>Assembly
+                <select @bind="_assembly" @bind:after="ApplyFilters">
+                    <option value="">All assemblies</option>
+                    @foreach (string assembly in _assemblies)
+                    {
+                        <option value="@assembly">@assembly</option>
+                    }
+                </select>
+            </label>
+        </div>
+        <p>
+            @_filtered.Length matching examples.
+            @if (PageCount > 1)
+            {
+                <span>Page @(_page + 1) of @PageCount.</span>
+            }
+        </p>
+        @if (PageCount > 1)
+        {
+            <div class="mb-3">
+                <button class="btn btn-secondary" disabled="@(_page == 0)" @onclick="() => ChangePage(-1)">Previous methods</button>
+                <button class="btn btn-secondary" disabled="@(_page + 1 >= PageCount)" @onclick="() => ChangePage(1)">Next methods</button>
+            </div>
+        }
+        @foreach (DiffExampleEntry entry in _filtered.Skip(_page * PageSize).Take(PageSize))
+        {
+            <DiffExampleRow Entry="entry" Expanded="@(_expanded == entry)" OnToggle="@(() => Toggle(entry))" @key="entry" />
+        }
+        @if (_filtered.Length == 0)
+        {
+            <p>No examples match these filters.</p>
+        }
+    }
+}
+
+@code {
+    [Parameter]
+    public string ExternalId { get; set; }
+
+    private const int PageSize = 25;
+    private CancellationTokenSource _cts;
+    private bool _loading;
+    private string _error;
+    private string _jobTitle;
+    private DiffExamplesReport[] _reports = [];
+    private CompletedJobRecord.Artifact _regexResults;
+    private DiffExampleEntry[] _entries = [];
+    private DiffExampleEntry[] _filtered = [];
+    private string[] _assemblies = [];
+    private string _search = "";
+    private string _category = "";
+    private string _assembly = "";
+    private int _page;
+    private DiffExampleEntry _expanded;
+    private int PageCount => Math.Max(1, (_filtered.Length + PageSize - 1) / PageSize);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new();
+        CancellationToken token = _cts.Token;
+        _loading = true;
+        _error = null;
+        _jobTitle = null;
+        _reports = [];
+        _regexResults = null;
+        _entries = [];
+        _search = _category = _assembly = "";
+        try
+        {
+            if (!DiffExamplesReport.IsPublicId(ExternalId))
+            {
+                _error = "Invalid public job ID.";
+                return;
+            }
+
+            var (title, reports, regexResults) = await RuntimeUtils.GetDiffExamplesAsync(ExternalId, token);
+            token.ThrowIfCancellationRequested();
+            _jobTitle = title;
+            _reports = reports;
+            _regexResults = regexResults;
+            _entries = [.. reports.SelectMany(r => r.Entries)];
+            _assemblies = [.. _entries.Select(e => e.Assembly).Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase)];
+            ApplyFilters();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            Logger.DebugLog($"Failed to load diff examples for {ExternalId}: {ex}");
+            if (!token.IsCancellationRequested)
+            {
+                _error = "The diff report could not be loaded. It may be invalid or no longer available.";
+            }
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                _loading = false;
+            }
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        _filtered = [.. _entries.Where(e => e.Matches(_search, _category, _assembly))];
+        _page = 0;
+        _expanded = null;
+    }
+
+    private void ChangePage(int delta)
+    {
+        _page += delta;
+        _expanded = null;
+    }
+
+    private void Toggle(DiffExampleEntry entry) => _expanded = _expanded == entry ? null : entry;
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

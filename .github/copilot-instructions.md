@@ -77,12 +77,13 @@ repos are in scope and check `..\runtime-utils` before concluding something is m
   `CustomArguments`, `PersistentStateSasUri`, ...). New per-job inputs are added as metadata entries or as
   `CustomArguments` flags (`-flag` / `-arg value`, read via `TryGetFlag`/`TryGetArgument` in the runner).
   Keep server-side argument validation and usage text in sync.
+- **Hosted diff examples:** The runner produces diff artifacts and MihuBot displays them in its web UI.
+  Changes to diff reporting may require updating both repositories.
 - **VM and Helix startup scripts clone unpinned runner source.** The scripts in
   `MihuBot\RuntimeUtils\JobBase.cs` clone the default branch of `MihaZupan/runtime-utils` and build/run it
   from a separate sibling `runner-work` directory. Never use the project directory as scratch space:
-  the runner clones dotnet/runtime and generates artifacts there. Source changes can reach new jobs
-  without redeploying MihuBot; prepared runners may still use older code, so keep API/metadata changes
-  backwards compatible and deploy compatible server support before runner changes that require it.
+  the runner clones dotnet/runtime and generates artifacts there. MihuBot and the runner, including
+  prepared runners, are assumed to use matching, up-to-date versions.
 - **Linux Helix work items require Helix-specific prerequisite images.** `GetHelixDockerImage` defaults to
   `mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-helix-amd64` or
   `mcr.microsoft.com/dotnet-buildtools/prereqs:ubuntu-24.04-helix-arm64v8`, selected from the actual queue.

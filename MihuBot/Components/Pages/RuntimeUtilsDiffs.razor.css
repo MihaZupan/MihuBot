@@ -1,0 +1,23 @@
+.job-title {
+    overflow-wrap: anywhere;
+}
+
+.diff-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.diff-filters label {
+    display: flex;
+    flex-direction: column;
+    max-width: 100%;
+}
+
+.report-summary, .report-note {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 25rem;
+    overflow: auto;
+}

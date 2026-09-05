@@ -125,9 +125,11 @@ public abstract class JobBase
         set => Metadata["CustomArguments"] = value;
     }
 
-    public string LogsUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/api/RuntimeUtils/Jobs/Progress?jobId={ExternalId}";
+    public string LogsUrl => $"{Constants.PublicBaseUrl}/api/RuntimeUtils/Jobs/Progress?jobId={ExternalId}";
     public string ProgressUrl => $"{LogsUrl}&live=true";
-    public string ProgressDashboardUrl => $"https://{(Debugger.IsAttached ? "localhost" : "mihubot.xyz")}/runtime-utils/{ExternalId}";
+    public string ProgressDashboardUrl => $"{Constants.PublicBaseUrl}/runtime-utils/{ExternalId}";
+    public string DiffExamplesUrl => $"{ProgressDashboardUrl}/diffs";
+    public bool HasDiffExamples => DiffExamplesReport.HasReport(GetArtifactsSnapshot());
 
     public int TotalProgressSiteViews;
     public int CurrentProgressSiteViews;
@@ -611,6 +613,8 @@ public abstract class JobBase
             {{userVisibleError}}
 
             {{customInfo}}
+
+            {{(HasDiffExamples && !customInfo.Contains(DiffExamplesUrl, StringComparison.Ordinal) ? $"[Browse diff examples]({DiffExamplesUrl})" : "")}}
 
             {{GetArtifactList()}}
             """);
