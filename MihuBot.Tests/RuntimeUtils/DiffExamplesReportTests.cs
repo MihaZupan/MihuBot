@@ -158,6 +158,52 @@ public sealed class DiffExamplesReportTests
     }
 
     [Theory]
+    [InlineData(100, 150, 0.5)]
+    [InlineData(100, 60, -0.4)]
+    [InlineData(100, 100, 0)]
+    [InlineData(100, 0, -1)]
+    [InlineData(0, 10, double.PositiveInfinity)]
+    [InlineData(0, 0, 0)]
+    public void RelativeSizeDeltaHandlesSizeChangesAndZeroBaseline(long baseline, long changed, double expected)
+    {
+        DiffExampleEntry entry = Entry();
+        entry.BaseBytes = baseline;
+        entry.DiffBytes = changed;
+        Assert.Equal(expected, entry.RelativeSizeDelta);
+        Assert.DoesNotContain("RelativeSizeDelta", JsonSerializer.Serialize(entry), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OrdersByPercentageMagnitudeRatherThanCategoryOrByteCount()
+    {
+        DiffExampleEntry Create(string name, long baseline, long changed)
+        {
+            DiffExampleEntry entry = Entry();
+            entry.Method = name;
+            entry.BaseBytes = baseline;
+            entry.DiffBytes = changed;
+            return entry;
+        }
+
+        DiffExampleEntry source = Entry("source");
+        source.Method = "source";
+        source.BaseBytes = source.DiffBytes = null;
+        DiffExampleEntry[] entries =
+        [
+            Create("same-size", 100, 100),
+            Create("10% regression", 10000, 11000),
+            Create("40% improvement", 100, 60),
+            Create("50% regression", 100, 150),
+            Create("60% improvement", 100, 40),
+            source,
+        ];
+
+        Assert.Equal(
+            ["60% improvement", "50% regression", "40% improvement", "10% regression", "same-size", "source"],
+            entries.OrderByDescending(e => Math.Abs(e.RelativeSizeDelta)).Select(e => e.Method));
+    }
+
+    [Theory]
     [InlineData("../private")]
     [InlineData("https://example.com")]
     [InlineData("a/b")]

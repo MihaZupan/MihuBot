@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MihuBot.RuntimeUtils;
 
@@ -115,6 +116,11 @@ public sealed class DiffExampleEntry
     public bool Truncated { get; set; }
     public long? BaseBytes { get; set; }
     public long? DiffBytes { get; set; }
+
+    [JsonIgnore]
+    public double RelativeSizeDelta => BaseBytes is { } baseline && DiffBytes is { } changed
+        ? baseline > 0 ? (double)(changed - baseline) / baseline : changed > 0 ? double.PositiveInfinity : 0
+        : 0;
 
     public bool Matches(string search, string category, string assembly) =>
         (string.IsNullOrEmpty(category) || Category.Equals(category, StringComparison.Ordinal)) &&

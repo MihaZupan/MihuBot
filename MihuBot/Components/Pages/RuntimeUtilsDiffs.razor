@@ -32,7 +32,10 @@ else
     }
     @foreach (DiffExamplesReport report in _reports)
     {
-        <pre class="report-summary">@report.Summary</pre>
+        <details class="mb-3">
+            <summary>Comparison summary</summary>
+            <pre class="report-summary">@report.Summary</pre>
+        </details>
         @foreach (string note in report.Notes)
         {
             <p class="report-note">@note</p>
@@ -44,7 +47,7 @@ else
         @_entries.Count(e => e.Category == "improvement") improvements,
         @_entries.Count(e => e.Category == "same-size") same-size changes,
         @_entries.Count(e => e.Category == "source") generated regex source changes.
-        Examples retain the runner's assembly-diverse ordering.
+        Sorted by absolute percentage size change, largest first.
     </p>
     @if (_entries.Length == 0)
     {
@@ -147,7 +150,7 @@ else
             _jobTitle = title;
             _reports = reports;
             _regexResults = regexResults;
-            _entries = [.. reports.SelectMany(r => r.Entries)];
+            _entries = [.. reports.SelectMany(r => r.Entries).OrderByDescending(e => Math.Abs(e.RelativeSizeDelta))];
             _assemblies = [.. _entries.Select(e => e.Assembly).Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase)];
             ApplyFilters();
         }
