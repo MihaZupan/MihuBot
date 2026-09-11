@@ -62,6 +62,17 @@
     <InternalsVisibleTo Include="MihuBot.Tests" />
   </ItemGroup>
 
+  <Target Name="IncludeRegexSourceGenerator" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <Content Include="@(Analyzer)" Condition="'%(Analyzer.Filename)' == 'System.Text.RegularExpressions.Generator'">
+        <Link>System.Text.RegularExpressions.Generator.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </Content>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Content Update="credentials.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

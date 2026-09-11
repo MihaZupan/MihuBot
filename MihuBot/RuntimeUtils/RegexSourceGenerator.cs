@@ -26,7 +26,7 @@ public sealed class RegexSourceGenerator
 
     private readonly CSharpParseOptions _languageOptions = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Preview);
     private readonly MetadataReference[] _references;
-    private readonly Logger _logger;
+    private readonly Action<string> _log;
     private readonly HybridCache _cache;
 
     public ImmutableArray<Generator> Generators { get; } = [];
@@ -35,8 +35,13 @@ public sealed class RegexSourceGenerator
     public string? LoadError { get; }
 
     public RegexSourceGenerator(Logger logger, HybridCache cache)
+        : this(message => logger.DebugLog(message), cache)
     {
-        _logger = logger;
+    }
+
+    internal RegexSourceGenerator(Action<string> log, HybridCache cache)
+    {
+        _log = log;
         _cache = cache;
 
         try
@@ -80,7 +85,7 @@ public sealed class RegexSourceGenerator
                 }
                 catch (Exception ex)
                 {
-                    _logger.DebugLog($"Failed to load generator '{name}' from '{path}': {ex}");
+                    _log($"Failed to load generator '{name}' from '{path}': {ex}");
                 }
             }
 
@@ -180,7 +185,7 @@ public sealed class RegexSourceGenerator
         }, cancellationToken: cancellationToken);
 
         TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
-        _logger.DebugLog($"[RegexSourceGenerator] Generated source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
+        _log($"[RegexSourceGenerator] Generated source for v={generator.Name} '{pattern}' ({options}) in {elapsed.TotalMilliseconds:N2} ms");
 
         return (entry.Source, entry.Error);
     }

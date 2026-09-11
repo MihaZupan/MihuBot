@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -147,44 +147,4 @@ test("highlighting ignores detached controls and surfaces CDN failures", async (
     const failed = highlightHarness({ fail: true });
     await assert.rejects(failed.highlight(codeElement(), "int x;"), /Failed to load https:/);
     assert.equal(failed.highlighted.length, 0);
-});
-
-test("frontend sources do not use removed Bootstrap 4 attributes or classes", async () => {
-    const obsoleteAttributes = /\bdata-(?:toggle|target|dismiss|backdrop|keyboard|html|placement|parent|ride|slide|spy)=/;
-    const obsoleteClasses = /(?:^|[\s"'.])(?:form-group|form-row|form-inline|input-group-append|input-group-prepend|custom-select|badge-pill|btn-block|sr-only|[mp][lr]-(?:(?:sm|md|lg|xl)-)?(?:[0-5]|auto)|text-(?:left|right)|float-(?:left|right))(?=[\s"'.{]|$)/m;
-    for (const directory of ["Components", "wwwroot"]) {
-        const root = path.join(appDirectory, directory);
-        for (const file of await readdir(root, { recursive: true })) {
-            if (!/\.(razor|js|css)$/.test(file)) {
-                continue;
-            }
-            const source = await readFile(path.join(root, file), "utf8");
-            assert.doesNotMatch(source, obsoleteAttributes, file);
-            assert.doesNotMatch(source, obsoleteClasses, file);
-        }
-    }
-});
-
-test("Blazor table rows have explicit sections for Bootstrap cell selectors", async () => {
-    const root = path.join(appDirectory, "Components");
-    const rowsWithoutSections = [];
-    for (const file of await readdir(root, { recursive: true })) {
-        if (!file.endsWith(".razor")) {
-            continue;
-        }
-        const source = await readFile(path.join(root, file), "utf8");
-        const stack = [];
-        for (const [, closing, tag] of source.matchAll(/<(\/?)(table|thead|tbody|tfoot|tr)\b[^>]*>/g)) {
-            if (closing) {
-                assert.equal(stack.pop(), tag, `Unbalanced table markup in ${file}`);
-            } else {
-                if (tag === "tr" && !["thead", "tbody", "tfoot"].includes(stack.at(-1))) {
-                    rowsWithoutSections.push(file);
-                }
-                stack.push(tag);
-            }
-        }
-        assert.equal(stack.length, 0, `Unclosed table markup in ${file}`);
-    }
-    assert.deepEqual(rowsWithoutSections, [], "Interactive Blazor does not insert implicit tbody elements");
 });

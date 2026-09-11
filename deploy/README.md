@@ -65,6 +65,12 @@ to the .NET tests. For browser smoke checks, exercise dropdowns, modal close/sta
 backdrop behavior, advanced-options collapse, dynamically added tooltips, syntax
 highlighting, and the narrow-screen navigation.
 
+The `/regex` GUI uses the regex source generator from the project's resolved .NET
+reference pack. Normal builds and publishes copy the analyzer DLL next to the app
+(outside the single-file bundle), so local runs need no manual setup. Additional
+versions can be placed in `State/RegexSourceGenerators/<version>.dll`. The core
+methods view falls back to full source when a pattern has no core methods to show.
+
 ## Volumes
 
 `docker-compose.yml` declares two named volumes, `mihubot-data` (mounted at

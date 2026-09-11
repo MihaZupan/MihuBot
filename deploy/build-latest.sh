@@ -72,20 +72,13 @@ publish() {
 cd "$WORKDIR/src"
 
 # Prefer the daily build; fall back to a known-good version.
-DOTNET_DIR=""
-if "$WORKDIR/dotnet-install.sh" --channel "$DOTNET_CHANNEL" --quality daily --install-dir "$WORKDIR/dotnet-daily" \
-    && publish "$WORKDIR/dotnet-daily/dotnet"; then
-    DOTNET_DIR="$WORKDIR/dotnet-daily"
-else
+if ! { "$WORKDIR/dotnet-install.sh" --channel "$DOTNET_CHANNEL" --quality daily --install-dir "$WORKDIR/dotnet-daily" \
+    && publish "$WORKDIR/dotnet-daily/dotnet"; }; then
     echo "[build] Daily build failed; falling back to $DOTNET_FALLBACK_VERSION ..."
     rm -rf artifacts
     "$WORKDIR/dotnet-install.sh" --version "$DOTNET_FALLBACK_VERSION" --install-dir "$WORKDIR/dotnet-fallback"
     publish "$WORKDIR/dotnet-fallback/dotnet"
-    DOTNET_DIR="$WORKDIR/dotnet-fallback"
 fi
-
-# Ship the regex source generator analyzer next to the app.
-cp "$DOTNET_DIR"/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs/System.Text.RegularExpressions.Generator.dll artifacts/ 2>/dev/null || true
 
 echo "[build] Packaging $OUT_TARBALL ..."
 mkdir -p "$(dirname "$OUT_TARBALL")"

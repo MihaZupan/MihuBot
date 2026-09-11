@@ -1,7 +1,6 @@
 ﻿@page "/regex"
 @using System.Text.RegularExpressions
 @using System.Threading
-@using System.Web
 @using Microsoft.AspNetCore.WebUtilities
 @using MihuBot.RuntimeUtils
 @inject RegexSourceGenerator SourceGenerator
@@ -163,7 +162,7 @@
             field = value;
             RegenerateSource();
         }
-    }
+    } = "";
 
     private RegexOptions Options
     {
@@ -294,7 +293,7 @@
 
     private async Task PostProcessSourceAsync()
     {
-        string source = HttpUtility.HtmlEncode(!string.IsNullOrEmpty(_rawGeneratedSource) ? _rawGeneratedSource : $"// {_errorMessage}");
+        string source = !string.IsNullOrEmpty(_rawGeneratedSource) ? _rawGeneratedSource : $"// {_errorMessage}";
 
         if (_hideComments)
         {
@@ -318,12 +317,7 @@
 
         if (_showOnlyCoreMethods)
         {
-            source =
-                $"""
-                {GetCodeBlock(source, "private bool TryFindNextPossibleStartingPosition")}
-                {GetCodeBlock(source, "private bool TryMatchAtCurrentPosition")}
-                {GetCodeBlock(source, "file static class Utilities")}
-                """;
+            source = GetCoreMethods(source);
         }
 
         _generatedSource = source.Trim(' ', '\t', '\r', '\n');
@@ -334,7 +328,7 @@
             { "showAll", _showOnlyCoreMethods ? null : "1" },
             { "hideComments", _hideComments ? "1" : null },
             { "options", Options == RegexOptions.None ? null : (int)Options },
-            { "version", Generator.Name == SourceGenerator.Latest.Name ? null : Generator.Name },
+            { "version", Generator?.Name == SourceGenerator.Latest?.Name ? null : Generator?.Name },
         });
 
         if (newUrl.Length <= 10_000)
@@ -345,6 +339,18 @@
             }
             catch { }
         }
+    }
+
+    internal static string GetCoreMethods(string source)
+    {
+        string coreMethods =
+            $"""
+            {GetCodeBlock(source, "private bool TryFindNextPossibleStartingPosition")}
+            {GetCodeBlock(source, "private bool TryMatchAtCurrentPosition")}
+            {GetCodeBlock(source, "file static class Utilities")}
+            """;
+
+        return string.IsNullOrWhiteSpace(coreMethods) ? source : coreMethods;
     }
 
     private static string GetCodeBlock(string source, string prefix)
