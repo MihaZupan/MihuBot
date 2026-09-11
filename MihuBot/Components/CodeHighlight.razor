@@ -5,7 +5,7 @@
 @implements IAsyncDisposable
 
 <link rel="stylesheet" href="@Assets["vs2015.css"]" />
-<pre id="@CodeBlockId" style="@CodeStyle"><code @key="Code" @ref="_element" class="@Language">@Code</code></pre>
+<pre id="@CodeBlockId" style="@CodeStyle"><code @key="Code" @ref="_element" class="hljs @Language">@Code</code></pre>
 @if (_highlightError)
 {
     <p role="alert">Syntax highlighting is unavailable. The plain source code is shown above.</p>

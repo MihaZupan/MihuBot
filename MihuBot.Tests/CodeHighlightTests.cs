@@ -10,7 +10,7 @@ namespace MihuBot.Tests;
 public sealed class CodeHighlightTests
 {
     [Fact]
-    public async Task PrerenderIncludesThemeAndEncodedSourceWithoutRunningJavaScript()
+    public async Task PrerenderIncludesThemeLayoutClassAndEncodedSourceWithoutRunningJavaScript()
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -31,7 +31,7 @@ public sealed class CodeHighlightTests
 
         Assert.Contains("href=\"vs2015.css\"", html, StringComparison.Ordinal);
         Assert.Contains("id=\"source\"", html, StringComparison.Ordinal);
-        Assert.Contains("class=\"language-csharp\"", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"hljs language-csharp\"", html, StringComparison.Ordinal);
         Assert.Contains("&lt;script&gt;literal&lt;/script&gt;", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script>", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Syntax highlighting is unavailable", html, StringComparison.Ordinal);

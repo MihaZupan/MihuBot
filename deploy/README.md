@@ -40,36 +40,14 @@ replaceable build separate without any symlinks.
 The storage location is controlled by `MIHUBOT_STORAGE_DIRECTORY` (set to
 `/storage` by the image); when unset the app falls back to `State/Files`.
 
-## Browser assets
+## Runtime assets
 
-Frontend dependencies are pinned directly in source, not restored through npm:
-Bootstrap 5.3.8 (including Popper 2.11.8) and jQuery Slim 4.0.0 in
-`MihuBot/Components/App.razor`, Bootstrap Icons 1.13.1 in `MihuBot/wwwroot/app.css`,
-and highlight.js 11.12.0 (core and C# module) in
-`MihuBot/Components/CodeHighlight.razor.js`. The matching VS2015 theme is vendored
-in `MihuBot/wwwroot/vs2015.css`. Blazor's JavaScript comes from the .NET build.
-Browsers need access to `cdn.jsdelivr.net` and `cdnjs.cloudflare.com`.
+Browsers need access to `cdn.jsdelivr.net` and `cdnjs.cloudflare.com` for frontend
+dependencies. Local assets are included in the .NET build; no npm restore is needed.
 
-When updating these assets, update script/stylesheet integrity hashes alongside
-their URLs and keep highlight.js and its theme aligned. Bootstrap controls use
-the v5 `data-bs-*` attributes and native JavaScript API; `wwwroot/app.js` delegates
-tooltips to support dynamically rendered Blazor controls and disposes them when
-controls are removed. The global `data-bs-theme="dark"` and Bootstrap CSS variables
-preserve dark controls, close buttons, and table cells.
-Tables must explicitly wrap body rows in `<tbody>`: interactive Blazor creates
-DOM nodes directly, whereas Bootstrap 5's cell selectors require a table section.
-
-Run the dependency-free JavaScript regression checks with
-`node --test MihuBot.Tests/FrontendTests.mjs` from the repository root, in addition
-to the .NET tests. For browser smoke checks, exercise dropdowns, modal close/static
-backdrop behavior, advanced-options collapse, dynamically added tooltips, syntax
-highlighting, and the narrow-screen navigation.
-
-The `/regex` GUI uses the regex source generator from the project's resolved .NET
-reference pack. Normal builds and publishes copy the analyzer DLL next to the app
-(outside the single-file bundle), so local runs need no manual setup. Additional
-versions can be placed in `State/RegexSourceGenerators/<version>.dll`. The core
-methods view falls back to full source when a pattern has no core methods to show.
+The `/regex` source generator DLL is included next to the app by normal builds and
+publishes, outside the single-file bundle. Additional versions can be placed in
+`State/RegexSourceGenerators/<version>.dll`.
 
 ## Volumes
 
