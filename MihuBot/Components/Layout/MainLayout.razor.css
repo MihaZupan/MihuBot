@@ -2,75 +2,59 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    min-height: 100dvh;
 }
 
 main {
     flex: 1;
+    min-width: 0;
 }
 
-/* Let live job logs use only the viewport space left by navigation and job details. */
-.page:has(.runtime-utils-logs) {
+article {
+    padding: 1.5rem !important;
+}
+
+.sidebar {
+    position: relative;
+    background: var(--app-surface);
+    border-bottom: 1px solid var(--app-border);
+}
+
+.skip-link {
+    position: fixed;
+    top: .5rem;
+    left: .5rem;
+    z-index: 1100;
+    padding: .6rem 1rem;
+    border-radius: .5rem;
+    background: var(--app-text);
+    color: var(--app-background);
+    transform: translateY(-150%);
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
+/* Let live logs use only the viewport space left by navigation and page details. */
+.page:has(.viewport-logs) {
     height: 100dvh;
 }
 
-.page:has(.runtime-utils-logs) .sidebar {
+.page:has(.viewport-logs) .sidebar {
     flex-shrink: 0;
 }
 
-.page:has(.runtime-utils-logs) main,
-.page:has(.runtime-utils-logs) article {
+.page:has(.viewport-logs) main,
+.page:has(.viewport-logs) article {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
 }
 
-.page:has(.runtime-utils-logs) article ::deep > :not(.runtime-utils-logs) {
+.page:has(.viewport-logs) article ::deep > :not(.viewport-logs) {
     flex-shrink: 0;
-}
-
-@media (min-width: 641px) {
-    main {
-        max-width: calc(100% - 240px);
-    }
-}
-
-.sidebar {
-    background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
-}
-
-.top-row {
-    background-color: #f7f7f7;
-    border-bottom: 1px solid #d6d5d5;
-    justify-content: flex-end;
-    height: 3.5rem;
-    display: flex;
-    align-items: center;
-}
-
-    .top-row ::deep a, .top-row ::deep .btn-link {
-        white-space: nowrap;
-        margin-left: 1.5rem;
-        text-decoration: none;
-    }
-
-    .top-row ::deep a:hover, .top-row ::deep .btn-link:hover {
-        text-decoration: underline;
-    }
-
-    .top-row ::deep a:first-child {
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-@media (max-width: 640.98px) {
-    .top-row {
-        justify-content: space-between;
-    }
-
-    .top-row ::deep a, .top-row ::deep .btn-link {
-        margin-left: 0;
-    }
 }
 
 @media (min-width: 641px) {
@@ -79,47 +63,59 @@ main {
     }
 
     .sidebar {
+        flex: 0 0 240px;
         width: 240px;
-        height: 100vh;
+        height: 100dvh;
         position: sticky;
         top: 0;
+        border-bottom: 0;
+        border-right: 1px solid var(--app-border);
     }
 
-    .top-row {
-        position: sticky;
-        top: 0;
-        z-index: 1;
+    main {
+        max-width: calc(100% - 240px);
     }
 
-    .top-row.auth ::deep a:first-child {
-        flex: 1;
-        text-align: right;
-        width: 0;
+    article {
+        padding: 2rem !important;
     }
+}
 
-    .top-row, article {
-        padding-left: 2rem !important;
-        padding-right: 1.5rem !important;
+@media (max-width: 400px) {
+    article {
+        padding: 1rem !important;
     }
 }
 
 #blazor-error-ui {
-    color-scheme: light only;
-    background: lightyellow;
+    background: #341a1e;
+    color: #ffdcd7;
+    border-top: 1px solid #aa4554;
     bottom: 0;
-    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 -4px 24px #0003;
     box-sizing: border-box;
     display: none;
     left: 0;
-    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    padding: 1rem 3rem 1rem 1.25rem;
     position: fixed;
     width: 100%;
     z-index: 1000;
 }
 
-    #blazor-error-ui .dismiss {
-        cursor: pointer;
-        position: absolute;
-        right: 0.75rem;
-        top: 0.5rem;
-    }
+#blazor-error-ui .reload {
+    margin-left: .5rem;
+    color: #ffdcd7;
+    text-decoration: underline;
+}
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: .75rem;
+    top: .65rem;
+    border: 0;
+    border-radius: .35rem;
+    background: transparent;
+    color: inherit;
+    font-size: 1.25rem;
+}

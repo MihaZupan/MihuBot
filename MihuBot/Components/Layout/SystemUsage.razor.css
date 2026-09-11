@@ -1,32 +1,41 @@
 .system-usage {
-    padding-bottom: 1rem;
-    color: #d7d7d7;
+    margin: 1rem;
+    padding: .75rem !important;
+    border: 1px solid var(--app-border);
+    border-radius: .65rem;
+    background: var(--app-background);
+    color: var(--app-muted);
     font-size: 0.75rem;
 }
 
 .usage-metric {
-    margin-top: 0.5rem;
+    margin-top: .75rem;
+}
+
+.usage-metric:first-child {
+    margin-top: 0;
 }
 
 .usage-caption {
     margin-bottom: 0.15rem;
-    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
 .usage-process {
     margin-top: 0.15rem;
     margin-bottom: 0;
-    color: #6fb5ff;
+    color: var(--app-accent);
 }
 
 .progress {
     height: 0.4rem;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: var(--app-surface-hover);
+    border-radius: 1rem;
 }
 
 /* Our own usage, highlighted inside the machine's total usage. */
 .usage-bar-process {
-    background-color: #1b6ec2;
+    background-color: var(--app-accent);
 }
 
 .usage-bar-other {

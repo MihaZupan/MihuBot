@@ -1,11 +1,12 @@
 ﻿@inherits LayoutComponentBase
 
+<a class="skip-link" href="#main-content">Skip to content</a>
 <div class="page">
     <div class="sidebar">
         <NavMenu />
     </div>
 
-    <main>
+    <main id="main-content" tabindex="-1">
         <article class="content px-4">
             @Body
         </article>
@@ -15,5 +16,5 @@
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
+    <button type="button" class="dismiss" aria-label="Dismiss error">&times;</button>
 </div>

@@ -3,22 +3,33 @@
 @inject NavigationManager Navigation
 @inject AvailableFeatures features
 
-<div class="top-row ps-3 navbar navbar-dark">
+<div class="brand-row">
     <AuthorizeView Policy="Discord">
         <Authorized>
-            <img class="profile-image" src="@context.User.GetAvatarUrl(128)" alt="Avatar of @context.User.Identity.Name" />
-            <a class="navbar-brand" href="">@context.User.Identity.Name</a>
+            <a class="brand-link" href="">
+                <img class="profile-image" src="@context.User.GetAvatarUrl(128)" alt="" />
+                <span class="brand-copy">
+                    <span class="brand-name">MihuBot</span>
+                    <span class="brand-caption" title="@context.User.Identity.Name">@context.User.Identity.Name</span>
+                </span>
+            </a>
         </Authorized>
         <NotAuthorized>
-            <a class="navbar-brand" href="">MihuBot</a>
+            <a class="brand-link" href="">
+                <span class="brand-mark bi bi-terminal" aria-hidden="true"></span>
+                <span class="brand-copy">
+                    <span class="brand-name">MihuBot</span>
+                    <span class="brand-caption">Tools &amp; automation</span>
+                </span>
+            </a>
         </NotAuthorized>
     </AuthorizeView>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input id="navigation-toggle" type="checkbox" aria-label="Show navigation menu" aria-controls="primary-navigation" class="navbar-toggler" />
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
+<div id="primary-navigation" class="nav-scrollable" onclick="if (event.target.closest('a')) document.getElementById('navigation-toggle').checked = false">
+    <nav class="nav flex-column" aria-label="Primary navigation">
         @if (features.RuntimeUtils)
         {
             <div class="nav-item px-3">

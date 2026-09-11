@@ -1,51 +1,185 @@
 @import url("https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css");
 
+:root {
+    --app-background: #0d1117;
+    --app-surface: #161b22;
+    --app-surface-hover: #21262d;
+    --app-border: #30363d;
+    --app-text: #e6edf3;
+    --app-muted: #b6c2cf;
+    --app-accent: #79c0ff;
+    --app-accent-soft: #192c40;
+}
+
 html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    line-height: 1.55;
+    background: var(--app-background);
+    color: var(--app-text);
 }
 
 * {
     color-scheme: dark;
 }
 
-body, pre, .card, .modal-content, .form-control {
-    background-color: color-mix(in srgb, Canvas, CanvasText 2.5%);
-    color: color-mix(in srgb, CanvasText, Canvas 5%);
+pre, .card, .modal-content, .form-control, .custom-select {
+    background-color: var(--app-surface);
+    color: var(--app-text);
 }
 
-    .form-control:focus, .dropdown-menu, .dropdown-item, .close, .close:hover, .list-group-item {
-        background-color: color-mix(in srgb, Canvas, CanvasText 5%);
-        color: color-mix(in srgb, CanvasText, Canvas 5%);
-    }
+.form-control:focus, .custom-select:focus, .dropdown-menu, .dropdown-item, .list-group-item {
+    background-color: var(--app-surface);
+    color: var(--app-text);
+}
 
 .text-muted, ::placeholder {
-    color: color-mix(in srgb, CanvasText, Canvas 30%) !important;
+    color: var(--app-muted) !important;
+}
+
+.card, .modal-content, .dropdown-menu, .list-group-item {
+    border-color: var(--app-border);
+}
+
+.card, .modal-content, .dropdown-menu {
+    border-radius: .75rem;
+}
+
+.card-header, .card-footer, .modal-header, .modal-footer {
+    border-color: var(--app-border);
+}
+
+.card-header, .card-footer {
+    background: #ffffff03;
 }
 
 .modal-content, .dropdown-menu {
-    border-color: deepskyblue
+    box-shadow: 0 12px 40px #0005;
+}
+
+.dropdown-item:hover, .dropdown-item:focus, .list-group-item-action:hover, .list-group-item-action:focus {
+    background: var(--app-surface-hover);
+    color: var(--app-text);
+}
+
+.dropdown-item.active, .dropdown-item:active, .list-group-item.active {
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+}
+
+.close, .close:hover {
+    color: var(--app-text);
+    text-shadow: none;
 }
 
 a, .btn-link {
-    color: #008fb7;
+    color: var(--app-accent);
+}
+
+a:hover, .btn-link:hover {
+    color: #a5d6ff;
+}
+
+h1, h2, h3 {
+    letter-spacing: -.025em;
+    font-weight: 600;
+}
+
+h1 {
+    font-size: clamp(1.65rem, 3vw, 2.1rem);
+    margin-bottom: 1rem;
+}
+
+.btn {
+    border-radius: .5rem;
+    font-weight: 500;
 }
 
 .btn-primary {
     color: #fff;
-    background-color: #1b6ec2;
-    border-color: #1861ac;
+    background-color: #1f6feb;
+    border-color: #388bfd;
+}
+
+.btn-primary:hover {
+    background-color: #1a60ce;
+    border-color: #79c0ff;
+}
+
+.btn-secondary {
+    background: var(--app-surface-hover);
+    border-color: #444c56;
+    color: var(--app-text);
+}
+
+.btn-secondary:hover {
+    background: #30363d;
+    border-color: var(--app-muted);
+    color: var(--app-text);
+}
+
+.form-control, .custom-select {
+    border-color: #444c56;
+    border-radius: .5rem;
+}
+
+.form-control:disabled, .form-control[readonly], .custom-select:disabled {
+    background-color: var(--app-surface-hover);
+    color: var(--app-muted);
+}
+
+.form-control:focus, .custom-select:focus {
+    border-color: var(--app-accent);
+}
+
+.table {
+    color: var(--app-text);
+}
+
+.table-dark {
+    background-color: var(--app-surface);
+}
+
+.table th, .table td, .table thead th {
+    border-color: var(--app-border);
+}
+
+.table thead th {
+    color: var(--app-muted);
+    font-size: .85rem;
+    font-weight: 600;
+}
+
+.table-hover tbody tr:hover {
+    background-color: var(--app-surface-hover);
+    color: var(--app-text);
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+    box-shadow: 0 0 0 .2rem #79c0ff40;
 }
 
-.content {
-    padding-top: 1.1rem;
+:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
 }
 
 h1:focus {
     outline: none;
+}
+
+.viewport-logs {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-width: 98%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column-reverse;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.viewport-logs > code {
+    flex-shrink: 0;
 }
 
 .valid.modified:not([type=checkbox]) {
