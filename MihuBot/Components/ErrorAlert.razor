@@ -1,0 +1,24 @@
+@if (Error is not null || Message is not null)
+{
+    <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">
+        @if (Error is not null)
+        {
+            <AuthorizeView Policy="Admin">
+                <Authorized>@Error.ToString()</Authorized>
+                <NotAuthorized>@(Message ?? "An unexpected error occurred. Please try again later.")</NotAuthorized>
+            </AuthorizeView>
+        }
+        else
+        {
+            @Message
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Exception Error { get; set; }
+
+    [Parameter]
+    public string Message { get; set; }
+}

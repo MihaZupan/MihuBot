@@ -48,10 +48,7 @@ else
                 </div>
             </div>
 
-            @if (_errorMessage != null)
-            {
-                <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
-            }
+            <ErrorAlert Error="_error" Message="@_errorMessage" />
         </div>
     </form>
 }
@@ -70,6 +67,7 @@ else
 
     string? _newRepoUrl;
     string? _errorMessage;
+    Exception? _error;
     bool _onboardingInProgress;
 
     protected override async Task OnInitializedAsync()
@@ -91,6 +89,7 @@ else
         try
         {
             _errorMessage = null;
+            _error = null;
 
             if (!GitHubHelper.TryParseRepoOwnerAndName(_newRepoUrl, out string? repoOwner, out string? repoName, out _))
             {
@@ -103,7 +102,7 @@ else
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.ToString();
+            _error = ex;
         }
         finally
         {

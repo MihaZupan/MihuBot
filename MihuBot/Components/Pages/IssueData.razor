@@ -22,10 +22,7 @@
     </button>
 </form>
 
-@if (_errorMessage != null)
-{
-    <div class="alert alert-danger" style="white-space: pre-wrap" role="alert">@_errorMessage</div>
-}
+<ErrorAlert Error="_error" Message="@_errorMessage" />
 
 <pre>
     <code>
@@ -38,6 +35,7 @@
     string? _issueData;
     string? SearchQuery { get; set; }
     string? _errorMessage;
+    Exception? _error;
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -48,6 +46,7 @@
         try
         {
             _errorMessage = null;
+            _error = null;
 
             if (!GitHubHelper.TryParseIssueOrPRNumber(SearchQuery, out string? repoName, out int number))
             {
@@ -90,7 +89,7 @@
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.ToString();
+            _error = ex;
         }
     }
 }
