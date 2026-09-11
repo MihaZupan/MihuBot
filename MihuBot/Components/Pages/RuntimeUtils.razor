@@ -7,7 +7,6 @@
 @inject RuntimeUtilsService runtimeUtils
 @inject NavigationManager Navigation
 @inject GitHubClient GitHub
-@inject IJSRuntime JS
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -17,34 +16,32 @@
 <AuthorizeView Policy="GitHub">
     <Authorized>
         <p>
-            <small class="text-muted">Logged in as @@@_githubUserLogin</small>
+            <small class="text-body-secondary">Logged in as @@@_githubUserLogin</small>
         </p>
 
         @if (_hasRuntimeUtilsPermissions)
         {
             <div class="btn-group">
-                <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.JitDiff)">
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.JitDiff)">
                     JitDiff
                 </button>
-                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Benchmark)">
+                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Benchmark)">
                     Benchmark
                 </button>
-                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Fuzz)">
+                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.Fuzz)">
                     Fuzz
                 </button>
-                <button type="button" class="btn btn-secondary" data-toggle="modal" data-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.RegexDiff)">
+                <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#newJobModal" @onclick="() => SelectJobType(NewJobType.RegexDiff)">
                     RegexDiff
                 </button>
             </div>
 
-            <div class="modal fade" id="newJobModal" tabindex="-1" role="dialog">
+            <div class="modal fade" id="newJobModal" tabindex="-1" aria-labelledby="newJobModalLabel" aria-hidden="true">
                 <div class="modal-dialog modal-dialog-centered" role="document">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title" id="newJobModalLabel">Submit a new @_selectedJobType job</h5>
-                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                                <span>&times;</span>
-                            </button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
                             <EditForm Context="NewJobForm" Model="_newJob" OnValidSubmit="SubmitNewJobAsync">
@@ -60,7 +57,7 @@
 
                                 <div class="form-check">
                                     <InputText style="width: 90%;" @bind-Value=_newJob.InputPROrBranch placeholder="PR number/link, commit, or branch to test"
-                                        data-toggle="tooltip" data-html="true"
+                                        data-bs-toggle="tooltip" data-bs-html="true"
                                         title="88394<br />https://github.com/dotnet/runtime/pull/88394<br />https://github.com/dotnet/runtime/commit/abcdef123456<br />https://github.com/MihaZupan/runtime/tree/main<br />https://github.com/MihaZupan/runtime/blob/main/README.md" />
                                 </div>
                                 @if (_selectedJobType == NewJobType.Benchmark)
@@ -70,7 +67,7 @@
                                     </div>
                                     <div class="form-check">
                                         <InputText style="width: 90%;" @bind-Value=_newJob.CompareLink placeholder="GitHub compare link (optional, instead of PR)"
-                                            data-toggle="tooltip" data-html="true"
+                                            data-bs-toggle="tooltip" data-bs-html="true"
                                             title="https://github.com/dotnet/runtime/compare/abc123...def456" />
                                     </div>
                                 }
@@ -82,35 +79,35 @@
                                 }
                                 <br />
                                 <div class="form-check">
-                                    <InputCheckbox @bind-Value=_newJob.MentionPrOnTrackingIssue id="mentionPrCheck" />
-                                    <label for="mentionPrCheck">Mention the PR on the tracking issue</label>
+                                    <InputCheckbox class="form-check-input" @bind-Value=_newJob.MentionPrOnTrackingIssue id="mentionPrCheck" />
+                                    <label class="form-check-label" for="mentionPrCheck">Mention the PR on the tracking issue</label>
                                 </div>
                                 <div class="form-check">
-                                    <InputCheckbox @bind-Value=_newJob.FastJob id="fastJobCheck" />
-                                    <label for="fastJobCheck">Run on a more powerful VM</label>
+                                    <InputCheckbox class="form-check-input" @bind-Value=_newJob.FastJob id="fastJobCheck" />
+                                    <label class="form-check-label" for="fastJobCheck">Run on a more powerful VM</label>
                                 </div>
                                 <div class="form-check">
-                                    <InputCheckbox @bind-Value=_newJob.RunOnArm id="runOnArmCheck" />
-                                    <label for="runOnArmCheck">Run on ARM64</label>
+                                    <InputCheckbox class="form-check-input" @bind-Value=_newJob.RunOnArm id="runOnArmCheck" />
+                                    <label class="form-check-label" for="runOnArmCheck">Run on ARM64</label>
                                 </div>
                                 @if (_selectedJobType == NewJobType.JitDiff)
                                 {
                                     <div class="form-check">
-                                        <InputCheckbox @bind-Value=_newJob.RunCctors id="runCctorsCheck" />
-                                        <label for="runCctorsCheck">Pass --cctors to jit-diff</label>
+                                        <InputCheckbox class="form-check-input" @bind-Value=_newJob.RunCctors id="runCctorsCheck" />
+                                        <label class="form-check-label" for="runCctorsCheck">Pass --cctors to jit-diff</label>
                                     </div>
                                     <div class="form-check">
-                                        <InputCheckbox @bind-Value=_newJob.RunTier0 id="runTier0Check" />
-                                        <label for="runTier0Check">Generate tier0 code</label>
+                                        <InputCheckbox class="form-check-input" @bind-Value=_newJob.RunTier0 id="runTier0Check" />
+                                        <label class="form-check-label" for="runTier0Check">Generate tier0 code</label>
                                     </div>
                                     <div class="form-check">
-                                        <InputCheckbox @bind-Value=_newJob.UseNuGetPackages id="useNuGetPackagesCheck" />
-                                        <label for="useNuGetPackagesCheck">Collect diffs for popular NuGet packages</label>
+                                        <InputCheckbox class="form-check-input" @bind-Value=_newJob.UseNuGetPackages id="useNuGetPackagesCheck" />
+                                        <label class="form-check-label" for="useNuGetPackagesCheck">Collect diffs for popular NuGet packages</label>
                                     </div>
                                 }
 
                                 <p>
-                                    <button class="btn btn-secondary" type="button" data-toggle="collapse" data-target="#collapseAdvancedOptions">
+                                    <button class="btn btn-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdvancedOptions" aria-expanded="false" aria-controls="collapseAdvancedOptions">
                                         Advanced options
                                     </button>
                                 </p>
@@ -119,27 +116,27 @@
                                         @if (_selectedJobType == NewJobType.JitDiff)
                                         {
                                             <div class="form-check">
-                                                <InputCheckbox @bind-Value=_newJob.IncludeKnownNoise id="includeKnownNoiseCheck" />
-                                                <label for="includeKnownNoiseCheck">Include noisy diffs</label>
+                                                <InputCheckbox class="form-check-input" @bind-Value=_newJob.IncludeKnownNoise id="includeKnownNoiseCheck" />
+                                                <label class="form-check-label" for="includeKnownNoiseCheck">Include noisy diffs</label>
                                             </div>
                                         }
                                         <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.RunOnHetzner id="runOnHetznerCheck" />
-                                            <label for="runOnHetznerCheck">Run on a Hetzner VM instead of Azure</label>
+                                            <InputCheckbox class="form-check-input" @bind-Value=_newJob.RunOnHetzner id="runOnHetznerCheck" />
+                                            <label class="form-check-label" for="runOnHetznerCheck">Run on a Hetzner VM instead of Azure</label>
                                         </div>
                                         <div class="form-check">
-                                            <InputCheckbox @bind-Value=_newJob.RunOnIntel id="runOnIntelCheck" />
-                                            <label for="runOnIntelCheck">Run on an Intel-based CPU instead of AMD</label>
+                                            <InputCheckbox class="form-check-input" @bind-Value=_newJob.RunOnIntel id="runOnIntelCheck" />
+                                            <label class="form-check-label" for="runOnIntelCheck">Run on an Intel-based CPU instead of AMD</label>
                                         </div>
                                         @if (_selectedJobType == NewJobType.JitDiff)
                                         {
                                             <div class="form-check">
-                                                <InputCheckbox @bind-Value=_newJob.IncludeNewMethodRegressions id="includeNewMethodsCheck" />
-                                                <label for="includeNewMethodsCheck">Include new method "regressions"</label>
+                                                <InputCheckbox class="form-check-input" @bind-Value=_newJob.IncludeNewMethodRegressions id="includeNewMethodsCheck" />
+                                                <label class="form-check-label" for="includeNewMethodsCheck">Include new method "regressions"</label>
                                             </div>
                                             <div class="form-check">
-                                                <InputCheckbox @bind-Value=_newJob.IncludeRemovedMethodImprovements id="includeRemovedMethodsCheck" />
-                                                <label for="includeRemovedMethodsCheck">Include removed method "improvements"</label>
+                                                <InputCheckbox class="form-check-input" @bind-Value=_newJob.IncludeRemovedMethodImprovements id="includeRemovedMethodsCheck" />
+                                                <label class="form-check-label" for="includeRemovedMethodsCheck">Include removed method "improvements"</label>
                                             </div>
                                         }
                                         <div class="form-check">
@@ -157,7 +154,7 @@
                                 </div>
 
                                 <p style="word-break: break-all;">
-                                    <small class="text-muted">@@MihuBot @_newJob.Arguments</small>
+                                    <small class="text-body-secondary">@@MihuBot @_newJob.Arguments</small>
                                 </p>
                                 <input disabled="@_submittingJob" type="submit" class="btn btn-primary" value="@(_submittingJob ? "Submitting ..." : "Submit")" />
                             </EditForm>
@@ -190,30 +187,32 @@
             <th scope="col">Logs</th>
         </tr>
     </thead>
-    @foreach (var (job, logs) in _activeJobs.Zip(_logs))
-    {
-        <tr>
-            <td scope="row"><a href="@job.ProgressDashboardUrl">@job.JobTitle.TruncateWithDotDotDot(80)</a></td>
-            <td>
-                <pre>
-                    <code>
-                        @foreach (string line in logs)
-                        {
-                            @line
-                            <br />
-                        }
-                    </code>
-                </pre>
-            </td>
-        </tr>
-    }
-    @if (_activeJobs.Length == 0)
-    {
-        <tr>
-            <td>No active jobs</td>
-            <td>N/A</td>
-        </tr>
-    }
+    <tbody>
+        @foreach (var (job, logs) in _activeJobs.Zip(_logs))
+        {
+            <tr>
+                <td scope="row"><a href="@job.ProgressDashboardUrl">@job.JobTitle.TruncateWithDotDotDot(80)</a></td>
+                <td>
+                    <pre>
+                        <code>
+                            @foreach (string line in logs)
+                            {
+                                @line
+                                <br />
+                            }
+                        </code>
+                    </pre>
+                </td>
+            </tr>
+        }
+        @if (_activeJobs.Length == 0)
+        {
+            <tr>
+                <td>No active jobs</td>
+                <td>N/A</td>
+            </tr>
+        }
+    </tbody>
 </table>
 
 @code
@@ -369,18 +368,6 @@
                 }
                 catch { }
             }, CancellationToken.None);
-        }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            try
-            {
-                await JS.InvokeVoidAsync("addTooltips");
-            }
-            catch { }
         }
     }
 

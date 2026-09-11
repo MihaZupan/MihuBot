@@ -2,8 +2,8 @@
 @inject DiscordSocketClient discord
 @inject IJSRuntime jsRuntime
 
-<div class="dropdown form-group">
-    <button class="form-control btn btn-primary dropdown-toggle" type="button" id="guildsDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+<div class="dropdown mb-3">
+    <button class="btn btn-primary dropdown-toggle w-100" type="button" id="guildsDropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
         @(selectedGuild?.Name ?? "Select guild")
     </button>
     <div class="dropdown-menu" aria-labelledby="guildsDropdown">
@@ -19,8 +19,8 @@
 
 @if (selectedGuild != null)
 {
-    <div class="dropdown form-group">
-        <button class="form-control btn btn-primary dropdown-toggle" type="button" id="channelsDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+    <div class="dropdown mb-3">
+        <button class="btn btn-primary dropdown-toggle w-100" type="button" id="channelsDropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
             @(selectedChannel?.Name ?? "Select channel")
         </button>
         <div class="dropdown-menu" aria-labelledby="channelsDropdown">

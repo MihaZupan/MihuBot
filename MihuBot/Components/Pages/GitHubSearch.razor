@@ -58,15 +58,15 @@
 <div>
     <div class="search-toolbar">
         <div class="toolbar-center">
-            <div class="form-group">
-                <div class="input-group">
+            <div class="mb-3">
+                <div class="d-flex flex-wrap align-items-stretch">
                     <input id="searchQuery" type="text" @bind-value="SearchQuery" @bind-value:event="oninput" placeholder="Search query">
                     <div class="btn-group" role="group">
-                        <button type="button" @onclick="() => DoRelevanceClassification = !DoRelevanceClassification" class="btn btn-primary ml-1">@(DoRelevanceClassification ? "I want faster searches" : "Filter unrelated results")</button>
-                        <button type="button" @onclick="() => IncludeOpenIssueOnly = !IncludeOpenIssueOnly" class="btn btn-primary ml-1">@(IncludeOpenIssueOnly ? "Show all" : "Hide closed issues")</button>
+                        <button type="button" @onclick="() => DoRelevanceClassification = !DoRelevanceClassification" class="btn btn-primary ms-1">@(DoRelevanceClassification ? "I want faster searches" : "Filter unrelated results")</button>
+                        <button type="button" @onclick="() => IncludeOpenIssueOnly = !IncludeOpenIssueOnly" class="btn btn-primary ms-1">@(IncludeOpenIssueOnly ? "Show all" : "Hide closed issues")</button>
                     </div>
-                    <div class="input-group-append ml-1">
-                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@(RepoFilter ?? "Filter repos")</button>
+                    <div class="dropdown d-flex ms-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@(RepoFilter ?? "Filter repos")</button>
                         <div class="dropdown-menu">
                             <a class="dropdown-item" @onclick="() => RepoFilter = null">All</a>
                             @foreach (RepositoryIngestionStats repo in DataIngestion.Stats.TrackedRepos)
@@ -119,12 +119,12 @@
                         <span class="mb-1">@result.Issue.Title.TruncateWithDotDotDot(300)</span>
                     </div>
                     <div>
-                        <span class="mr-1">@result.Score.ToString("F2")</span>
-                        <span class="ml-1 mr-1">@result.Issue.CreatedAt.ToISODate()</span>
-                        <span class="ml-1 mr-1">@result.Issue.Repository.FullName#@result.Issue.Number by @result.Issue.User.Login</span>
+                        <span class="me-1">@result.Score.ToString("F2")</span>
+                        <span class="ms-1 me-1">@result.Issue.CreatedAt.ToISODate()</span>
+                        <span class="ms-1 me-1">@result.Issue.Repository.FullName#@result.Issue.Number by @result.Issue.User.Login</span>
                         @foreach (var label in result.Issue.Labels)
                         {
-                            <span class="badge badge-pill ml-1" style="background-color: #@label.Color; color: @PickCssTextColor(label.Color)">@label.Name</span>
+                            <span class="badge rounded-pill ms-1" style="background-color: #@label.Color; color: @PickCssTextColor(label.Color)">@label.Name</span>
                         }
                     </div>
                 </a>

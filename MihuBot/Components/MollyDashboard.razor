@@ -38,7 +38,7 @@ else
                         @if (user.BatteryLevel is { } battery)
                         {
                             <span class="@BatteryIcon(battery)" title="Battery @(battery)%" aria-hidden="true"></span>
-                            <small class="mr-2">@(battery)%</small>
+                            <small class="me-2">@(battery)%</small>
                         }
 
                         @if (user.LocationEnabled is { } locationEnabled)
@@ -64,36 +64,36 @@ else
 
                         @if (user.AlertsMuted)
                         {
-                            <span class="badge bg-secondary ml-1">Muted</span>
+                            <span class="badge bg-secondary ms-1">Muted</span>
                         }
                     </td>
                     <td>
-                        <button type="button" class="btn btn-sm btn-outline-light mr-2" disabled="@_busy"
+                        <button type="button" class="btn btn-sm btn-outline-light me-2" disabled="@_busy"
                                 @onclick="() => SetAlertsMutedAsync(user, !user.AlertsMuted)">
                             @(user.AlertsMuted ? "Unmute alerts" : "Mute alerts")
                         </button>
 
                         @if (!user.WipeRequested)
                         {
-                            <button type="button" class="btn btn-sm btn-warning mr-2" disabled="@_busy"
+                            <button type="button" class="btn btn-sm btn-warning me-2" disabled="@_busy"
                                     @onclick="() => SetLockRequestedAsync(user, !user.LockRequested)">
                                 @(user.LockRequested ? "Unlock" : "Lock")
                             </button>
 
                             @if (_pendingWipeId == user.Id)
                             {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
                                         @onclick="() => WipeAsync(user)">
                                     Confirm wipe
                                 </button>
-                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
                                         @onclick="() => _pendingWipeId = null">
                                     Cancel
                                 </button>
                             }
                             else
                             {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
                                         title="Shift+click to skip the confirmation"
                                         @onclick="e => ConfirmOrRunAsync(e, () => _pendingWipeId = user.Id, () => WipeAsync(user))">
                                     Wipe
@@ -105,18 +105,18 @@ else
                         {
                             @if (_pendingClearAlertsId == user.Id)
                             {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
                                         @onclick="() => ClearAlertsAsync(user)">
                                     Confirm clear alerts
                                 </button>
-                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
                                         @onclick="() => _pendingClearAlertsId = null">
                                     Cancel
                                 </button>
                             }
                             else
                             {
-                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
                                         title="Shift+click to skip the confirmation"
                                         @onclick="e => ConfirmOrRunAsync(e, () => _pendingClearAlertsId = user.Id, () => ClearAlertsAsync(user))">
                                     Clear alerts
@@ -125,18 +125,18 @@ else
 
                             @if (_pendingDeleteId == user.Id)
                             {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
                                         @onclick="() => DeleteAsync(user)">
                                     Confirm delete
                                 </button>
-                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
                                         @onclick="() => _pendingDeleteId = null">
                                     Cancel
                                 </button>
                             }
                             else
                             {
-                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
                                         title="Shift+click to skip the confirmation"
                                         @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteId = user.Id, () => DeleteAsync(user))">
                                     Delete
@@ -206,18 +206,18 @@ else
                         <td>
                             @if (_pendingDeleteAlertId == alert.Id)
                             {
-                                <button type="button" class="btn btn-sm btn-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
                                         @onclick="() => DeleteAlertAsync(alert)">
                                     Confirm delete
                                 </button>
-                                <button type="button" class="btn btn-sm btn-secondary mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
                                         @onclick="() => _pendingDeleteAlertId = null">
                                     Cancel
                                 </button>
                             }
                             else
                             {
-                                <button type="button" class="btn btn-sm btn-outline-danger mr-2" disabled="@_busy"
+                                <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
                                         title="Shift+click to skip the confirmation"
                                         @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteAlertId = alert.Id, () => DeleteAlertAsync(alert))">
                                     Delete

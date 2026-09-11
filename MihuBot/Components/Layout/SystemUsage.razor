@@ -28,9 +28,13 @@
 
         <div class="usage-metric">
             <div class="usage-caption">@name: @machineText (@machinePercentage%)</div>
-            <div class="progress">
-                <div class="progress-bar usage-bar-process" role="progressbar" style="width: @(processPercentage)%"></div>
-                <div class="progress-bar usage-bar-other" role="progressbar" style="width: @(otherPercentage)%"></div>
+            <div class="progress-stacked">
+                <div class="progress" role="progressbar" aria-label="@($"{name}: MihuBot")" aria-valuenow="@processPercentage" aria-valuemin="0" aria-valuemax="100" style="width: @(processPercentage)%">
+                    <div class="progress-bar usage-bar-process"></div>
+                </div>
+                <div class="progress" role="progressbar" aria-label="@($"{name}: other processes")" aria-valuenow="@otherPercentage" aria-valuemin="0" aria-valuemax="100" style="width: @(otherPercentage)%">
+                    <div class="progress-bar usage-bar-other"></div>
+                </div>
             </div>
             <div class="usage-caption usage-process">MihuBot: @processText (@processPercentage%)</div>
         </div>

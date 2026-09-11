@@ -40,6 +40,31 @@ replaceable build separate without any symlinks.
 The storage location is controlled by `MIHUBOT_STORAGE_DIRECTORY` (set to
 `/storage` by the image); when unset the app falls back to `State/Files`.
 
+## Browser assets
+
+Frontend dependencies are pinned directly in source, not restored through npm:
+Bootstrap 5.3.8 (including Popper 2.11.8) and jQuery Slim 4.0.0 in
+`MihuBot/Components/App.razor`, Bootstrap Icons 1.13.1 in `MihuBot/wwwroot/app.css`,
+and highlight.js 11.12.0 (core and C# module) in
+`MihuBot/Components/CodeHighlight.razor.js`. The matching VS2015 theme is vendored
+in `MihuBot/wwwroot/vs2015.css`. Blazor's JavaScript comes from the .NET build.
+Browsers need access to `cdn.jsdelivr.net` and `cdnjs.cloudflare.com`.
+
+When updating these assets, update script/stylesheet integrity hashes alongside
+their URLs and keep highlight.js and its theme aligned. Bootstrap controls use
+the v5 `data-bs-*` attributes and native JavaScript API; `wwwroot/app.js` delegates
+tooltips to support dynamically rendered Blazor controls and disposes them when
+controls are removed. The global `data-bs-theme="dark"` and Bootstrap CSS variables
+preserve dark controls, close buttons, and table cells.
+Tables must explicitly wrap body rows in `<tbody>`: interactive Blazor creates
+DOM nodes directly, whereas Bootstrap 5's cell selectors require a table section.
+
+Run the dependency-free JavaScript regression checks with
+`node --test MihuBot.Tests/FrontendTests.mjs` from the repository root, in addition
+to the .NET tests. For browser smoke checks, exercise dropdowns, modal close/static
+backdrop behavior, advanced-options collapse, dynamically added tooltips, syntax
+highlighting, and the narrow-screen navigation.
+
 ## Volumes
 
 `docker-compose.yml` declares two named volumes, `mihubot-data` (mounted at
@@ -125,6 +150,21 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
+
+## Runtime-utils permissions
+
+Set `RuntimeUtils.Admin.<GitHubLogin>` to `true` in global runtime configuration
+to grant both admin privileges and job-submission authorization:
+
+```text
+!config set global RuntimeUtils.Admin.<GitHubLogin> true
+```
+
+This applies to the web GUI, GitHub comments, and authenticated API/MCP job
+submissions; no separate `RuntimeUtils.AuthorizedUser.<GitHubLogin>` flag is needed.
+Explicit `RuntimeUtils.BlockedUser.<GitHubLogin>` or `RuntimeUtils.BlockedUser.<GitHubId>`
+flags still deny submission authorization, including for admins.
+Reload an open runtime-utils page after changing permissions.
 
 ## Notes
 

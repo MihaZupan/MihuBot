@@ -40,12 +40,10 @@ else
 @if (_hasPermissionsToOnboardRepos)
 {
     <form @onsubmit="OnboardAsync">
-        <div class="form-group">
-            <div class="form-group input-group mb-3">
+        <div class="mb-3">
+            <div class="input-group mb-3">
                 <input @bind="_newRepoUrl" type="text" class="form-control" placeholder="Repo URL" aria-label="Message" aria-describedby="basic-addon2">
-                <div class="input-group-append">
-                    <button disabled="@_onboardingInProgress" @onclick="OnboardAsync" class="btn btn-outline-secondary" type="button">Onboard repo</button>
-                </div>
+                <button disabled="@_onboardingInProgress" @onclick="OnboardAsync" class="btn btn-outline-secondary" type="button">Onboard repo</button>
             </div>
 
             <ErrorAlert Error="_error" Message="@_errorMessage" />

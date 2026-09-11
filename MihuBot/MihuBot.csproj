@@ -59,6 +59,7 @@
 
   <ItemGroup>
     <EditorConfigFiles Include="$(MSBuildThisFileDirectory)..\CodeAnalysis.globalconfig" />
+    <InternalsVisibleTo Include="MihuBot.Tests" />
   </ItemGroup>
 
   <ItemGroup>

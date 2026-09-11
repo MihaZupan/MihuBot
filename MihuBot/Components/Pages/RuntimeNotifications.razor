@@ -12,7 +12,7 @@
 <AuthorizeView Policy="GitHub">
     <Authorized>
         <p>
-            <small class="text-muted">Logged in as @@@_githubUserLogin</small>
+            <small class="text-body-secondary">Logged in as @@@_githubUserLogin</small>
         </p>
 
         @if (_currentUser is not null)
@@ -46,11 +46,10 @@
                 </div>
             }
 
-            <div class="form-check">
-                <InputText @bind-Value=_newPat.PAT placeholder="ghp_abc123" />
+            <div class="mb-3">
+                <InputText class="form-control" @bind-Value=_newPat.PAT placeholder="ghp_abc123" />
             </div>
 
-            <br />
             <input disabled="@_submittingPat" type="submit" class="btn btn-primary" value="@(_submittingPat ? "Submitting ..." : "Submit new PAT")" />
         </EditForm>
 
@@ -96,7 +95,7 @@
                             <td>
                                 @foreach (var label in team.Value)
                                 {
-                                    <span class="badge bg-secondary mr-1">@label</span>
+                                    <span class="badge bg-secondary me-1">@label</span>
                                 }
                             </td>
                         </tr>
@@ -230,4 +229,3 @@
         }
     }
 }
-

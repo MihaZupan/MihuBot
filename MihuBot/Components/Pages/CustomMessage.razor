@@ -5,7 +5,7 @@
 @rendermode InteractiveServer
 
 <form @onsubmit="SendMessageAsync">
-    <div class="form-group">
+    <div class="mb-3">
         <MihuBot.Components.ChannelPicker
             OnChannelSelected="@OnChannelSelected"
             OnChannelCleared="@OnChannelCleared"
@@ -15,12 +15,10 @@
 
         @if (textChannel != null)
         {
-            <div class="form-group input-group mb-3">
-                    <input @bind="currentValue" type="text" class="form-control" placeholder="Message" aria-label="Message" aria-describedby="basic-addon2">
-                    <div class="input-group-append">
-                        <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
-                    </div>
-                </div>
+            <div class="input-group mb-3">
+                <input @bind="currentValue" type="text" class="form-control" placeholder="Message" aria-label="Message" aria-describedby="basic-addon2">
+                <button @onclick="SendMessageAsync" class="btn btn-outline-secondary" type="button">Send</button>
+            </div>
         }
 
         @if (exception != null)

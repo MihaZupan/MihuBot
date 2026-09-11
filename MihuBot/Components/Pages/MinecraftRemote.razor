@@ -5,12 +5,10 @@
 @rendermode InteractiveServer
 
 <form @onsubmit="SendCommandAsync">
-    <div class="form-group">
-        <div class="form-group input-group mb-3">
+    <div class="mb-3">
+        <div class="input-group mb-3">
             <input @bind="currentValue" type="text" class="form-control" placeholder="Command" aria-label="Command" aria-describedby="basic-addon2">
-            <div class="input-group-append">
-                <button @onclick="SendCommandAsync" class="btn btn-outline-secondary" type="button">Send</button>
-            </div>
+            <button @onclick="SendCommandAsync" class="btn btn-outline-secondary" type="button">Send</button>
         </div>
 
         @if (lastResponse is not null)

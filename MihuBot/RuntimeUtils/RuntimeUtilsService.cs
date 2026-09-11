@@ -1164,30 +1164,34 @@ public sealed partial class RuntimeUtilsService : IHostedService
         return tcs?.TrySetResult(job.JobId) == true ? runnerId : null;
     }
 
-    public bool? CheckGitHubUserPermissions(string repositoryOwner, string userLogin, long userId)
+    public bool? CheckGitHubUserPermissions(string repositoryOwner, string userLogin, long userId) =>
+        CheckGitHubUserPermissions(repositoryOwner, userLogin, userId, ConfigurationService);
+
+    internal static bool? CheckGitHubUserPermissions(string repositoryOwner, string userLogin, long userId, IConfigurationService configurationService)
     {
         if (string.IsNullOrWhiteSpace(repositoryOwner) ||
             string.IsNullOrWhiteSpace(userLogin) ||
             userId == 0 ||
-            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userId}", false) ||
-            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userLogin}", false))
+            configurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userId}", false) ||
+            configurationService.GetOrDefault(null, $"RuntimeUtils.BlockedUser.{userLogin}", false))
         {
             return false;
         }
 
-        if (ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", false) ||
-            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{repositoryOwner}.{userLogin}", false))
+        if (CheckGitHubAdminPermissions(userLogin, configurationService) ||
+            configurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{userLogin}", false) ||
+            configurationService.GetOrDefault(null, $"RuntimeUtils.AuthorizedUser.{repositoryOwner}.{userLogin}", false))
         {
             return true;
         }
 
         if (userId == GitHubDataIngestionService.CopilotUserId &&
-            ConfigurationService.GetOrDefault(null, $"RuntimeUtils.AllowCopilot.{repositoryOwner}", true))
+            configurationService.GetOrDefault(null, $"RuntimeUtils.AllowCopilot.{repositoryOwner}", true))
         {
             return true;
         }
 
-        if (CheckGitHubAdminPermissions(repositoryOwner))
+        if (CheckGitHubAdminPermissions(repositoryOwner, configurationService))
         {
             return true;
         }
@@ -1214,7 +1218,10 @@ public sealed partial class RuntimeUtilsService : IHostedService
     }
 
     public bool CheckGitHubAdminPermissions(string userLogin) =>
-        ConfigurationService.GetOrDefault(null, $"RuntimeUtils.Admin.{userLogin}", false);
+        CheckGitHubAdminPermissions(userLogin, ConfigurationService);
+
+    private static bool CheckGitHubAdminPermissions(string userLogin, IConfigurationService configurationService) =>
+        configurationService.GetOrDefault(null, $"RuntimeUtils.Admin.{userLogin}", false);
 
     public async Task<PullRequest> GetPullRequestAsync(int prNumber)
     {

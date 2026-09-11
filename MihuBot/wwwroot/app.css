@@ -1,4 +1,4 @@
-@import url("https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css");
+@import url("https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css");
 
 :root {
     --app-background: #0d1117;
@@ -9,6 +9,13 @@
     --app-muted: #b6c2cf;
     --app-accent: #79c0ff;
     --app-accent-soft: #192c40;
+}
+
+:root[data-bs-theme="dark"] {
+    --bs-body-bg: var(--app-background);
+    --bs-body-color: var(--app-text);
+    --bs-secondary-color: var(--app-muted);
+    --bs-border-color: var(--app-border);
 }
 
 html, body {
@@ -22,17 +29,17 @@ html, body {
     color-scheme: dark;
 }
 
-pre, .card, .modal-content, .form-control, .custom-select {
+pre, .card, .modal-content, .form-control, .form-select {
     background-color: var(--app-surface);
     color: var(--app-text);
 }
 
-.form-control:focus, .custom-select:focus, .dropdown-menu, .dropdown-item, .list-group-item {
+.form-control:focus, .form-select:focus, .dropdown-menu, .dropdown-item, .list-group-item {
     background-color: var(--app-surface);
     color: var(--app-text);
 }
 
-.text-muted, ::placeholder {
+.text-body-secondary, ::placeholder {
     color: var(--app-muted) !important;
 }
 
@@ -66,17 +73,17 @@ pre, .card, .modal-content, .form-control, .custom-select {
     color: var(--app-accent);
 }
 
-.close, .close:hover {
-    color: var(--app-text);
-    text-shadow: none;
-}
-
 a, .btn-link {
     color: var(--app-accent);
+    text-decoration: none;
 }
 
 a:hover, .btn-link:hover {
     color: #a5d6ff;
+}
+
+a:not(.btn, .nav-link, .dropdown-item):hover, .btn-link:hover {
+    text-decoration: underline;
 }
 
 h1, h2, h3 {
@@ -117,26 +124,26 @@ h1 {
     color: var(--app-text);
 }
 
-.form-control, .custom-select {
+.form-control, .form-select {
     border-color: #444c56;
     border-radius: .5rem;
 }
 
-.form-control:disabled, .form-control[readonly], .custom-select:disabled {
+.form-control:disabled, .form-control[readonly], .form-select:disabled {
     background-color: var(--app-surface-hover);
     color: var(--app-muted);
 }
 
-.form-control:focus, .custom-select:focus {
+.form-control:focus, .form-select:focus {
     border-color: var(--app-accent);
 }
 
-.table {
-    color: var(--app-text);
-}
-
-.table-dark {
-    background-color: var(--app-surface);
+.table, .table-dark {
+    --bs-table-color: var(--app-text);
+    --bs-table-bg: var(--app-surface);
+    --bs-table-border-color: var(--app-border);
+    --bs-table-hover-color: var(--app-text);
+    --bs-table-hover-bg: var(--app-surface-hover);
 }
 
 .table th, .table td, .table thead th {
@@ -147,11 +154,6 @@ h1 {
     color: var(--app-muted);
     font-size: .85rem;
     font-weight: 600;
-}
-
-.table-hover tbody tr:hover {
-    background-color: var(--app-surface-hover);
-    color: var(--app-text);
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
@@ -215,6 +217,11 @@ h1:focus {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+.tooltip {
+    --bs-tooltip-color: var(--app-text);
+    --bs-tooltip-bg: #000;
 }
 
 .tooltip-inner {

@@ -16,19 +16,19 @@
         <div class="d-flex flex-wrap align-items-center mb-2">
             @if (_canCancelJob)
             {
-                <button class="btn btn-danger mr-2 mb-1" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
+                <button class="btn btn-danger me-2 mb-1" onclick="@(() => _job.FailFast($"Cancelled by {_githubUserLogin}", _githubUserLogin == _job.GithubCommenterLogin))">Cancel</button>
             }
             @if (_canViewCredentials)
             {
-                <small class="text-muted mr-2 mb-1" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
+                <small class="text-body-secondary me-2 mb-1" style="font-size: small">Current viewers: @_job.CurrentProgressSiteViews, Total: @_job.TotalProgressSiteViews</small>
             }
             @if (_canViewCredentials && _job.RemoteLoginCredentials is { Length: > 0 } remoteLogin)
             {
-                <small class="text-muted mr-2 mb-1" style="font-size: small; overflow-wrap: break-word;">@remoteLogin</small>
+                <small class="text-body-secondary me-2 mb-1" style="font-size: small; overflow-wrap: break-word;">@remoteLogin</small>
 
                 @if (_job.ShouldDeleteVM)
                 {
-                    <button class="btn btn-danger mr-2 mb-1" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
+                    <button class="btn btn-danger me-2 mb-1" @onclick="DoNotDeleteTheVm">Do not delete the VM</button>
                 }
             }
         </div>
@@ -60,20 +60,20 @@
         var memoryUsageWidth = $"{info.MemoryUsagePercentage}%";
 
         <div>@cpuUsageCaption</div>
-        <div class="progress" style="max-width: 400px;">
-            <div class="progress-bar" role="progressbar" style="width: @cpuUsageWidth"></div>
+        <div class="progress" role="progressbar" aria-label="@cpuUsageCaption" aria-valuenow="@info.CpuUsagePercentage" aria-valuemin="0" aria-valuemax="100" style="max-width: 400px;">
+            <div class="progress-bar" style="width: @cpuUsageWidth"></div>
         </div>
 
         <div>@memoryUsageCaption</div>
-        <div class="progress" style="max-width: 400px;">
-            <div class="progress-bar" role="progressbar" style="width: @memoryUsageWidth"></div>
+        <div class="progress" role="progressbar" aria-label="@memoryUsageCaption" aria-valuenow="@info.MemoryUsagePercentage" aria-valuemin="0" aria-valuemax="100" style="max-width: 400px;">
+            <div class="progress-bar" style="width: @memoryUsageWidth"></div>
         </div>
     }
 
     <p>
         @if (_job.CustomArguments is { Length: > 0 } customArguments)
         {
-            <small class="text-muted">Arguments: @customArguments</small>
+            <small class="text-body-secondary">Arguments: @customArguments</small>
         }
     </p>
 
@@ -106,7 +106,7 @@ else if (_completedJob is not null)
     <br />
     @if (_completedJob.CustomArguments is { Length: > 0 } customArguments)
     {
-        <p><small class="text-muted">Arguments: @customArguments</small></p>
+        <p><small class="text-body-secondary">Arguments: @customArguments</small></p>
     }
     <br />
     @if (_completedJob.Artifacts.Length != 0)

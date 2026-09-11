@@ -4,7 +4,7 @@
 @inject ILogger<CodeHighlight> Logger
 @implements IAsyncDisposable
 
-<link rel="stylesheet" href="vs2015.css" />
+<link rel="stylesheet" href="@Assets["vs2015.css"]" />
 <pre id="@CodeBlockId" style="@CodeStyle"><code @key="Code" @ref="_element" class="@Language">@Code</code></pre>
 @if (_highlightError)
 {
@@ -43,7 +43,7 @@
             string code = Code;
             string language = Language;
             ElementReference element = _element;
-            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./Components/CodeHighlight.razor.js");
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/CodeHighlight.razor.js"]}");
             await _module.InvokeVoidAsync("highlight", element, code);
             _highlightedCode = code;
             _highlightedLanguage = language;

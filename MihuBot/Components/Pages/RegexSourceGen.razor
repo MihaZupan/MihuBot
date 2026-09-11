@@ -71,15 +71,15 @@
 <div>
     <div class="regex-toolbar">
         <div class="toolbar-center">
-            <div class="form-group">
-                <div class="input-group">
+            <div class="mb-3">
+                <div class="d-flex flex-wrap align-items-stretch">
                     <input id="regexPattern" type="text" @bind-value="Pattern" @bind-value:event="oninput" placeholder="Regex pattern">
                     <div class="btn-group" role="group">
-                        <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary ml-1">@(_showOnlyCoreMethods ? "Show all" : "Show core methods")</button>
-                        <button type="button" @onclick="() => ToggleHideComments()" class="btn btn-primary ml-1">@(_hideComments ? "Show comments" : "Hide comments")</button>
+                        <button type="button" @onclick="() => ToggleShowOnlyCoreMethods()" class="btn btn-primary ms-1">@(_showOnlyCoreMethods ? "Show all" : "Show core methods")</button>
+                        <button type="button" @onclick="() => ToggleHideComments()" class="btn btn-primary ms-1">@(_hideComments ? "Show comments" : "Hide comments")</button>
                     </div>
-                    <div class="input-group-append ml-1">
-                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
+                    <div class="dropdown d-flex ms-1">
+                        <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Regex Options</button>
                         <div class="dropdown-menu">
                             @foreach (RegexOptions option in RegexSourceGenerator.ValidOptions)
                             {
@@ -89,8 +89,8 @@
                     </div>
                     @if (Generator is not null)
                     {
-                        <div class="input-group-append ml-1">
-                            <button class="btn btn-outline-info dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Generator.Name</button>
+                        <div class="dropdown d-flex ms-1">
+                            <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">@Generator.Name</button>
                             <div class="dropdown-menu">
                                 @foreach (var generator in SourceGenerator.Generators)
                                 {
