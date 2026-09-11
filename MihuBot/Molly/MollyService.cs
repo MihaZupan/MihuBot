@@ -42,6 +42,8 @@ public sealed class MollyService
     /// <summary>Only the newest alerts are kept per device.</summary>
     private const int MaxAlertsPerEntry = 100;
 
+    private static readonly TimeSpan StatusAlertRetention = TimeSpan.FromDays(2);
+
     /// <summary>The admin dashboard, linked from alert emails.</summary>
     private const string DashboardUrl = "https://mihubot.xyz/molly";
 
@@ -469,10 +471,58 @@ public sealed class MollyService
         }
     }
 
+    /// <summary>Deletes status alerts older than two days, based on their server receipt time.</summary>
+    public async Task DeleteExpiredStatusAlertsAsync(CancellationToken cancellationToken = default)
+    {
+        await DatabaseSetupHelper.MigrationsCompleted;
+
+        DateTime cutoff = DateTime.UtcNow - StatusAlertRetention;
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        long lastId = 0;
+        int deleted = 0;
+
+        while (true)
+        {
+            // The type is encrypted inside the payload, so inspect old alerts in bounded batches.
+            MollyAlertDbEntry[] alerts = await db.Alerts
+                .AsNoTracking()
+                .Where(a => a.Id > lastId && a.CreatedAt < cutoff)
+                .OrderBy(a => a.Id)
+                .Take(1000)
+                .ToArrayAsync(cancellationToken);
+
+            if (alerts.Length == 0)
+            {
+                break;
+            }
+
+            long[] expiredIds = alerts
+                .Where(a => MollyAlertEnvelope.TryParse(Encoding.UTF8.GetBytes(TryDecryptAlert(a)))?.AlertType == MollyAlertType.Status)
+                .Select(a => a.Id)
+                .ToArray();
+
+            if (expiredIds.Length > 0)
+            {
+                deleted += await db.Alerts
+                    .Where(a => expiredIds.Contains(a.Id))
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
+
+            lastId = alerts[^1].Id;
+        }
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation("Deleted {Count} expired Molly status alerts", deleted);
+        }
+    }
+
     private async Task RunMaintenanceAsync(CancellationToken cancellationToken)
     {
         await DeleteUnassociatedEntriesAsync(cancellationToken);
         await LockInactiveEntriesAsync(cancellationToken);
+        await DeleteExpiredStatusAlertsAsync(cancellationToken);
         await DeleteExcessAlertsAsync(cancellationToken);
     }
 

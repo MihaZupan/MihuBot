@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
+using MihuBot.DB;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
 
@@ -459,6 +461,61 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         await Molly.DeleteExcessAlertsAsync();
 
         Assert.Equal(5, await _fixture.CountAlertsAsync(id));
+    }
+
+    [Theory]
+    [InlineData("status", 2881, true)]
+    [InlineData("STATUS", 2881, true)]
+    [InlineData("status", 2879, false)]
+    [InlineData("status", 0, false)]
+    [InlineData("location", 2881, false)]
+    [InlineData("unknown", 2881, false)]
+    public async Task DeleteExpiredStatusAlerts_OnlyDeletesStatusesOlderThanTwoDays(string type, int ageMinutes, bool deleted)
+    {
+        (string token, Guid id) = await RegisterAsync();
+        await Molly.SubmitAlertAsync(token, Payload($$"""{"type":"{{type}}"}"""), default);
+
+        await using MollyDbContext db = _fixture.DbFactory.CreateDbContext();
+        DateTime createdAt = DateTime.UtcNow.AddMinutes(-ageMinutes);
+        await db.Alerts.Where(a => a.EntryId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.CreatedAt, createdAt));
+
+        await Molly.DeleteExpiredStatusAlertsAsync();
+
+        Assert.Equal(deleted ? 0 : 1, await _fixture.CountAlertsAsync(id));
+        Assert.True(await _fixture.EntryExistsAsync(id));
+    }
+
+    [Fact]
+    public async Task DeleteExpiredStatusAlerts_ProcessesAllBatchesAndPreservesUnreadableAlerts()
+    {
+        (string token, Guid id) = await RegisterAsync();
+        await Molly.SubmitAlertAsync(token, LocationPayload(token), default);
+        await Molly.SubmitAlertAsync(token, Payload("not json"), default);
+        await Molly.SubmitAlertAsync(token, Payload("""{"type":"status"}"""), default);
+
+        await using MollyDbContext db = _fixture.DbFactory.CreateDbContext();
+        long corruptId = await db.Alerts.Where(a => a.EntryId == id).MaxAsync(a => a.Id);
+        await db.Alerts.Where(a => a.Id == corruptId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.EncryptedPayload, new byte[] { 1, 2, 3 }));
+
+        for (int i = 0; i < 1005; i++)
+        {
+            await Molly.SubmitAlertAsync(token, Payload("""{"type":"status","data":{"status":"locked"}}"""), default);
+        }
+
+        DateTime createdAt = DateTime.UtcNow.AddDays(-3);
+        await db.Alerts.Where(a => a.EntryId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.CreatedAt, createdAt));
+        long[] expectedIds = await db.Alerts.Where(a => a.EntryId == id && a.Id <= corruptId)
+            .OrderBy(a => a.Id).Select(a => a.Id).ToArrayAsync();
+
+        await Molly.DeleteExpiredStatusAlertsAsync();
+        await Molly.DeleteExpiredStatusAlertsAsync();
+
+        long[] remainingIds = await db.Alerts.Where(a => a.EntryId == id)
+            .OrderBy(a => a.Id).Select(a => a.Id).ToArrayAsync();
+        Assert.Equal(expectedIds, remainingIds);
     }
 
     [Fact]
