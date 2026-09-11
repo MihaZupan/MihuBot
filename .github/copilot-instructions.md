@@ -49,7 +49,7 @@ dotnet test MihuBot.Tests --filter "FullyQualifiedName~TryGetSshSignaturePublicK
 - **Self-update** (`SelfUpdateService.cs`, `deploy/`): the running bot polls `main`, verifies the commit is
   SSH-signed by a trusted key and committed by `MihaZupan`, builds a tarball via `deploy/build-latest.sh`
   and exits; `deploy/run.sh` swaps the artifacts in and restarts. See `deploy/README.md` for the full
-  deployment/volume layout - keep it in sync when changing update, storage, or config behavior.
+  deployment/volume layout - keep it in sync when changing operator-facing update, storage, or config behavior.
 
 ## Companion repo: runtime-utils
 
@@ -98,6 +98,9 @@ repos are in scope and check `..\runtime-utils` before concluding something is m
 
 ## Key conventions
 
+- **Deployment docs are operator-facing.** Keep `deploy/README.md` focused on deployment, configuration,
+  volumes, and operational procedures. Do not add internal implementation details unless operators need
+  them to take action.
 - **Optional integrations are the central pattern.** Each integration is an `OptionalFeature` in
   `Configuration/OptionalFeatures.cs` (a description + the config keys it needs). Services are only
   registered when `configuration.IsConfigured(OptionalFeatures.X)`. Consumers must then degrade gracefully:

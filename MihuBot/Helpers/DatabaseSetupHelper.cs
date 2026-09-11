@@ -1,4 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Data.Common;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using MihuBot.DB;
 
 #nullable disable
 
@@ -22,6 +25,11 @@ public static class DatabaseSetupHelper
         services.AddPooledDbContextFactory<TDbContext>(options =>
         {
             options.UseSqlite($"Data Source={databasePath}");
+
+            if (typeof(TDbContext) == typeof(MollyDbContext) || typeof(TDbContext) == typeof(MihuBotDbContext))
+            {
+                options.AddInterceptors(new SqliteSecureDeleteInterceptor());
+            }
 
             if (!OperatingSystem.IsLinux())
             {
@@ -67,6 +75,18 @@ public static class DatabaseSetupHelper
         IDbContextFactory<TDbContext> factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TDbContext>>();
         await using TDbContext db = factory.CreateDbContext();
 
+        await MigrateSqliteAsync(db, databasePath);
+
+        Console.WriteLine($"Vacuuming {typeof(TDbContext).Name} ...");
+        await db.Database.ExecuteSqlRawAsync("VACUUM;");
+
+        Console.WriteLine($"Optimizing {typeof(TDbContext).Name} ...");
+        await db.Database.ExecuteSqlRawAsync("PRAGMA optimize=0x10002;");
+    }
+
+    private static async Task MigrateSqliteAsync<TDbContext>(TDbContext db, string databasePath)
+        where TDbContext : DbContext
+    {
         string tempCopyPath = null;
 
         if (OperatingSystem.IsWindows() && File.Exists(databasePath))
@@ -102,6 +122,26 @@ public static class DatabaseSetupHelper
         {
             Console.WriteLine($"Deleting backup copy ({tempCopyPath})");
             File.Delete(tempCopyPath);
+        }
+    }
+
+    private sealed class SqliteSecureDeleteInterceptor : DbConnectionInterceptor
+    {
+        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
+        {
+            using DbCommand command = connection.CreateCommand();
+            command.CommandText = "PRAGMA secure_delete = ON;";
+            command.ExecuteNonQuery();
+        }
+
+        public override async Task ConnectionOpenedAsync(
+            DbConnection connection,
+            ConnectionEndEventData eventData,
+            CancellationToken cancellationToken = default)
+        {
+            await using DbCommand command = connection.CreateCommand();
+            command.CommandText = "PRAGMA secure_delete = ON;";
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 }
