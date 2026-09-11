@@ -7,17 +7,37 @@
     flex-wrap: wrap;
     gap: 1rem;
     margin-bottom: 1rem;
+    padding: 1rem;
+    border: 1px solid #30363d;
+    border-radius: .65rem;
+    background: #161b22;
 }
 
 .diff-filters label {
     display: flex;
     flex-direction: column;
+    gap: .4rem;
+    min-width: 0;
     max-width: 100%;
+    color: #b6c2cf;
+    font-size: .875rem;
 }
 
-.report-summary, .report-note {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 25rem;
-    overflow: auto;
+.diff-filters label:first-child {
+    flex: 1 1 20rem;
+}
+
+.diff-filters input, .diff-filters select {
+    width: 100%;
+    min-width: 0;
+    padding: .45rem .65rem;
+    border: 1px solid #444c56;
+    border-radius: .35rem;
+    background: #0d1117;
+    color: #e6edf3;
+}
+
+.diff-filters input:focus-visible, .diff-filters select:focus-visible {
+    outline: 2px solid #79c0ff;
+    outline-offset: 2px;
 }

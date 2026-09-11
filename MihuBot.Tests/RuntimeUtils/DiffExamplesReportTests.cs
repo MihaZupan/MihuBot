@@ -308,6 +308,72 @@ public sealed class DiffExamplesReportTests
         Assert.Empty(compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error));
     }
 
+    [Fact]
+    public async Task ReportOverviewCombinesCategoryCountsAndCollapsesEncodedNotes()
+    {
+        DiffExamplesReport first = Report(Entry("regression"), Entry("improvement"), Entry());
+        DiffExamplesReport second = Report(Entry(), Entry("source"));
+        first.Notes = ["Same-size changes are not improvements.", "<script>alert('note')</script>"];
+        second.Summary = "<script>alert('summary')</script>";
+
+        string html = await RenderAsync<DiffReportOverview>(new() { ["Reports"] = new[] { first, second } });
+
+        Assert.Matches("<strong[^>]*>5</strong> reported examples", html);
+        Assert.Contains("Largest absolute % size change first", html, StringComparison.Ordinal);
+        foreach (var (category, count) in new[] { ("regression", 1), ("improvement", 1), ("same-size", 2), ("source", 1) })
+        {
+            Assert.Matches($"(?s)data-category=\"{category}\"[^>]*>\\s*<span[^>]*>.*?</span>\\s*<span class=\"category-count\"[^>]*>{count}</span>", html);
+        }
+        Assert.Contains("Same-size changes are not improvements.", html, StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(" open", html, StringComparison.Ordinal);
+        Assert.Contains("Report 1", html, StringComparison.Ordinal);
+        Assert.Contains("Report 2", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task ReportOverviewKeepsZeroCountsAndHighlightsSameSizeExamples(int count)
+    {
+        string html = await RenderAsync<DiffReportOverview>(new()
+        {
+            ["Reports"] = new[] { Report(Enumerable.Range(0, count).Select(_ => Entry()).ToArray()) },
+        });
+
+        Assert.Matches($"<strong[^>]*>{count}</strong> reported examples", html);
+        Assert.Equal(count == 0 ? 4 : 3, Regex.Matches(html, "category-card empty").Count);
+        Assert.Matches($"(?s)data-category=\"same-size\"[^>]*>\\s*<span[^>]*>.*?</span>\\s*<span class=\"category-count\"[^>]*>{count}</span>", html);
+        Assert.Contains("Regex source changes", html, StringComparison.Ordinal);
+        Assert.Contains("Comparison summary", html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("regression")]
+    [InlineData("improvement")]
+    [InlineData("same-size")]
+    [InlineData("source")]
+    public async Task ReportOverviewCardsReflectTheSelectedCategory(string category)
+    {
+        string html = await RenderAsync<DiffReportOverview>(new()
+        {
+            ["Reports"] = new[] { Report(Entry()) },
+            ["Category"] = category,
+        });
+
+        MatchCollection buttons = Regex.Matches(html, "<button\\b[^>]*>");
+        Assert.Equal(4, buttons.Count);
+        foreach (Match button in buttons)
+        {
+            Assert.Contains("type=\"button\"", button.Value, StringComparison.Ordinal);
+            bool selected = button.Value.Contains($"data-category=\"{category}\"", StringComparison.Ordinal);
+            Assert.Contains($"aria-pressed=\"{(selected ? "true" : "false")}\"", button.Value, StringComparison.Ordinal);
+            Assert.DoesNotContain("disabled", button.Value, StringComparison.Ordinal);
+        }
+    }
+
     private static async Task<string> RenderAsync<T>(Dictionary<string, object?> parameters) where T : IComponent
     {
         using var services = new ServiceCollection().AddLogging().AddSingleton<IJSRuntime, StaticJsRuntime>().BuildServiceProvider();

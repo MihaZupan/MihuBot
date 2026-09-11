@@ -26,32 +26,14 @@ else if (_reports.Length == 0)
 }
 else
 {
+    <DiffReportOverview Reports="_reports" @bind-Category="_category" @bind-Category:after="ApplyFilters" />
     @if (_regexResults is not null)
     {
         <RegexFullResultsExample ArtifactUrl="@_regexResults.Url" ExternalId="@ExternalId" />
     }
-    @foreach (DiffExamplesReport report in _reports)
-    {
-        <details class="mb-3">
-            <summary>Comparison summary</summary>
-            <pre class="report-summary">@report.Summary</pre>
-        </details>
-        @foreach (string note in report.Notes)
-        {
-            <p class="report-note">@note</p>
-        }
-    }
-    <p>
-        @_entries.Length reported examples:
-        @_entries.Count(e => e.Category == "regression") regressions,
-        @_entries.Count(e => e.Category == "improvement") improvements,
-        @_entries.Count(e => e.Category == "same-size") same-size changes,
-        @_entries.Count(e => e.Category == "source") generated regex source changes.
-        Sorted by absolute percentage size change, largest first.
-    </p>
     @if (_entries.Length == 0)
     {
-        <p>No differences to display in these reports. See the summaries and notes above for comparison coverage.</p>
+        <p>No differences to display in these reports. Expand comparison details above for comparison coverage.</p>
     }
     else
     {

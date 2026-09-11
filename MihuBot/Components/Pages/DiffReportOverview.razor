@@ -1,0 +1,64 @@
+@using MihuBot.RuntimeUtils
+
+<section class="report-overview" aria-label="Diff report overview">
+    <div class="overview-heading">
+        <h2><strong>@Reports.Sum(r => r.Entries.Length)</strong> reported examples</h2>
+        <span class="sort-order"><i class="bi bi-sort-down" aria-hidden="true"></i> Largest absolute % size change first</span>
+    </div>
+    <div class="category-counts" role="group" aria-label="Filter by category">
+        @foreach (var category in Categories)
+        {
+            int count = Reports.Sum(r => r.Entries.Count(e => e.Category == category.Value));
+            <button type="button" class="category-card @(count == 0 ? "empty" : "")" data-category="@category.Value"
+                    aria-pressed="@(Category == category.Value ? "true" : "false")" @onclick="() => CategoryChanged.InvokeAsync(Category == category.Value ? string.Empty : category.Value)">
+                <span class="category-label"><i class="bi @category.Icon" aria-hidden="true"></i> @category.Label</span>
+                <span class="category-count">@count</span>
+            </button>
+        }
+    </div>
+    <details class="comparison-details">
+        <summary>Comparison details <span class="details-hint">Selection notes &amp; full summaries</span></summary>
+        <div class="comparison-content">
+            @for (int i = 0; i < Reports.Length; i++)
+            {
+                DiffExamplesReport report = Reports[i];
+                <div class="comparison-report">
+                    @if (Reports.Length > 1)
+                    {
+                        <h3>Report @(i + 1)</h3>
+                    }
+                    @if (report.Notes.Length > 0)
+                    {
+                        <ul class="report-notes">
+                            @foreach (string note in report.Notes)
+                            {
+                                <li>@note</li>
+                            }
+                        </ul>
+                    }
+                    <h4>Comparison summary</h4>
+                    <pre class="report-summary">@report.Summary</pre>
+                </div>
+            }
+        </div>
+    </details>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public DiffExamplesReport[] Reports { get; set; } = [];
+
+    [Parameter]
+    public string Category { get; set; } = "";
+
+    [Parameter]
+    public EventCallback<string> CategoryChanged { get; set; }
+
+    private static readonly (string Value, string Label, string Icon)[] Categories =
+    [
+        ("regression", "Regressions", "bi-arrow-up-right"),
+        ("improvement", "Improvements", "bi-arrow-down-right"),
+        ("same-size", "Same-size changes", "bi-arrow-left-right"),
+        ("source", "Regex source changes", "bi-code-slash"),
+    ];
+}
