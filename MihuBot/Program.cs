@@ -42,7 +42,7 @@ using Telegram.Bot;
 using Yarp.ReverseProxy.Configuration;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(10));
+builder.WebHost.UseShutdownTimeout(TimeSpan.FromSeconds(OperatingSystem.IsLinux() ? 10 : 1));
 
 Console.WriteLine("Starting ...");
 
