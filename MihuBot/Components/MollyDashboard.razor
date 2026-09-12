@@ -47,6 +47,11 @@ else
                             <span class="bi @(locationEnabled ? "bi-geo-alt-fill text-info" : "bi-geo-alt text-danger")"
                                   title="@(locationEnabled ? "Location available" : "No location fix")" aria-hidden="true"></span>
                         }
+
+                        @if (user.AppVersion is { } appVersion)
+                        {
+                            <small class="ms-2" title="App version">@appVersion</small>
+                        }
                     </td>
                     <td>
                         @if (user.WipeRequested)

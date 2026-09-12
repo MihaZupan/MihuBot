@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MihuBot.DB;
 
@@ -10,9 +11,11 @@ using MihuBot.DB;
 namespace MihuBot.Migrations.MollyDb
 {
     [DbContext(typeof(MollyDbContext))]
-    partial class MollyDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260912131524_MollyAppVersion")]
+    partial class MollyAppVersion
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -49,14 +52,17 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<bool>("AlertsMuted")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("AppVersion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BatteryLevel")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("DerivedHash")
                         .IsRequired()
-                        .HasColumnType("BLOB");
-
-                    b.Property<byte[]>("EncryptedDeviceStatus")
                         .HasColumnType("BLOB");
 
                     b.Property<byte[]>("EncryptedNickname")
@@ -70,6 +76,9 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.Property<DateTime>("LastSeenAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("LocationEnabled")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("LockRequested")
                         .HasColumnType("INTEGER");

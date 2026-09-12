@@ -16,4 +16,8 @@ public sealed class MollyPingRequest
     /// <summary>Optional: whether the device can currently get a location fix.</summary>
     [JsonPropertyName("locationEnabled")]
     public bool? LocationEnabled { get; set; }
+
+    /// <summary>Optional current app version: up to 32 ASCII letters, digits, or ._-. Null preserves the last reported version.</summary>
+    [JsonPropertyName("appVersion")]
+    public string? AppVersion { get; set; }
 }

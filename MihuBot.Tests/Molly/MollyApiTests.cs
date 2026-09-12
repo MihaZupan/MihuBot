@@ -300,10 +300,57 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     {
         (string id, _) = await RegisterAsync();
 
-        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","batteryLevel":73,"locationEnabled":false}""");
+        await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"version-test"}""");
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","batteryLevel":73,"locationEnabled":false,"appVersion":"1.2.3-beta.4"}""");
 
         Assert.Equal("ok", Status(response));
         Assert.Equal("pong", Data(response).GetProperty("response").GetString());
+
+        MollyUserInfo user = Assert.Single(await _fixture.Service.GetRegisteredUsersAsync(), u => u.Id == _fixture.Unprotect(id));
+        Assert.Equal(73, user.BatteryLevel);
+        Assert.False(user.LocationEnabled);
+        Assert.Equal("1.2.3-beta.4", user.AppVersion);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(",\"appVersion\":null")]
+    public async Task Ping_WithoutAppVersion_PreservesLastReportedVersion(string versionProperty)
+    {
+        (string id, _) = await RegisterAsync();
+        await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"version-test"}""");
+        await PostAsync("ping", $$"""{"id":"{{id}}","appVersion":"1.2.3"}""");
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"{{versionProperty}}}""");
+
+        Assert.Equal("ok", Status(response));
+        MollyUserInfo user = Assert.Single(await _fixture.Service.GetRegisteredUsersAsync(), u => u.Id == _fixture.Unprotect(id));
+        Assert.Equal("1.2.3", user.AppVersion);
+    }
+
+    [Fact]
+    public async Task Ping_WithNonStringAppVersion_ReturnsInvalid()
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","appVersion":123}""");
+
+        Assert.Equal("invalid", Status(response));
+    }
+
+    [Theory]
+    [InlineData("12345678901234567890123456789012345")]
+    [InlineData("1.0 beta")]
+    [InlineData("1.0+build")]
+    [InlineData("1.0\u00e9")]
+    public async Task Ping_WithInvalidAppVersion_ReturnsInvalid(string version)
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","appVersion":{{JsonSerializer.Serialize(version)}}}""");
+
+        Assert.Equal("invalid", Status(response));
     }
 
     [Fact]

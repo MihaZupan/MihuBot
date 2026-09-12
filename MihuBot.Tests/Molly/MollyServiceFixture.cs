@@ -140,6 +140,13 @@ public sealed class MollyServiceFixture : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
+    public async Task SetEncryptedDeviceStatusAsync(Guid id, byte[]? status)
+    {
+        await using MollyDbContext db = DbFactory.CreateDbContext();
+        (await db.Entries.FirstAsync(e => e.Id == id)).EncryptedDeviceStatus = status;
+        await db.SaveChangesAsync();
+    }
+
     public async Task<int> CountEntriesAsync()
     {
         await using MollyDbContext db = DbFactory.CreateDbContext();

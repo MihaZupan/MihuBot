@@ -30,6 +30,10 @@ public sealed class MollyService
     /// <summary>Nicknames are limited by their encoded size, not their character count.</summary>
     public const int MaxNicknameLengthInBytes = 64;
 
+    public const int MaxAppVersionLength = 32;
+
+    private static readonly SearchValues<char> s_appVersionChars = SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-");
+
     /// <summary>Entries that never completed an association are dropped after this long.</summary>
     private static readonly TimeSpan UnassociatedEntryRetention = TimeSpan.FromDays(2);
 
@@ -651,9 +655,11 @@ public sealed class MollyService
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>, if the device has one.</param>
     /// <param name="batteryLevel">Optional battery percentage, 0-100.</param>
     /// <param name="locationEnabled">Optional: whether the device can currently get a location fix.</param>
-    public async Task<MollyCommandResult> PingAsync(string? protectedId, int? batteryLevel, bool? locationEnabled, CancellationToken cancellationToken)
+    /// <param name="appVersion">Optional current app version: up to 32 ASCII letters, digits, or ._-.</param>
+    public async Task<MollyCommandResult> PingAsync(string? protectedId, int? batteryLevel, bool? locationEnabled, string? appVersion, CancellationToken cancellationToken)
     {
-        if (batteryLevel is < 0 or > 100)
+        if (batteryLevel is < 0 or > 100 ||
+            (appVersion is not null && (appVersion.Length > MaxAppVersionLength || appVersion.AsSpan().ContainsAnyExcept(s_appVersionChars))))
         {
             return MollyCommandResult.Invalid;
         }
@@ -683,9 +689,17 @@ public sealed class MollyService
 
         MollyCommand command = GetPendingCommand(entry);
 
-        // Both are optional, so a ping that omits one leaves the previously reported value alone.
-        entry.BatteryLevel = batteryLevel ?? entry.BatteryLevel;
-        entry.LocationEnabled = locationEnabled ?? entry.LocationEnabled;
+        if (batteryLevel.HasValue || locationEnabled.HasValue || appVersion is not null)
+        {
+            MollyDeviceStatus status = TryDecryptDeviceStatus(entry);
+            status = status with
+            {
+                BatteryLevel = batteryLevel ?? status.BatteryLevel,
+                LocationEnabled = locationEnabled ?? status.LocationEnabled,
+                AppVersion = (appVersion ?? status.AppVersion)?.PadRight(MaxAppVersionLength),
+            };
+            entry.EncryptedDeviceStatus = Encrypt(entry.Id, JsonSerializer.SerializeToUtf8Bytes(status), EncryptedField.DeviceStatus);
+        }
 
         await MarkSeenAsync(db, entry, cancellationToken);
 
@@ -715,7 +729,11 @@ public sealed class MollyService
             .ToArrayAsync(cancellationToken);
 
         return [.. entries
-            .Select(e => new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, e.BatteryLevel, e.LocationEnabled))
+            .Select(e =>
+            {
+                MollyDeviceStatus status = TryDecryptDeviceStatus(e);
+                return new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, status.BatteryLevel, status.LocationEnabled, status.AppVersion);
+            })
             .OrderByDescending(u => u.CreatedAt)];
     }
 
@@ -741,6 +759,7 @@ public sealed class MollyService
         await PingAsync(login.ProtectedId,
             batteryLevel: Random.Shared.Next(0, 101),
             locationEnabled: Random.Shared.Next(4) != 0,
+            appVersion: "1.0.0",
             cancellationToken);
 
         // Populates the alerts table too, and exercises the reporting path end to end.
@@ -965,6 +984,25 @@ public sealed class MollyService
         }
     }
 
+    internal MollyDeviceStatus TryDecryptDeviceStatus(MollyDbEntry entry)
+    {
+        try
+        {
+            if (entry.EncryptedDeviceStatus is { } encrypted)
+            {
+                MollyDeviceStatus status = JsonSerializer.Deserialize<MollyDeviceStatus>(Decrypt(entry.Id, encrypted, EncryptedField.DeviceStatus))
+                    ?? throw new CryptographicException("The stored device status is null.");
+                return status with { AppVersion = status.AppVersion?.TrimEnd(' ') };
+            }
+        }
+        catch (Exception ex) when (ex is CryptographicException or JsonException)
+        {
+            _logger.LogWarning(ex, "Failed to decrypt the device status for Molly entry {Id}", entry.Id);
+        }
+
+        return new();
+    }
+
     /// <summary>
     /// Encrypts to <c>nonce || ciphertext || tag</c>, so the nonce travels with the data it belongs to.
     /// </summary>
@@ -1060,5 +1098,6 @@ public sealed class MollyService
         ServerHmac = 0,
         Nickname = 1,
         Alert = 2,
+        DeviceStatus = 3,
     }
 }
