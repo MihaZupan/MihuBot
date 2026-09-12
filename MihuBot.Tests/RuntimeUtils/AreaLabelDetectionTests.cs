@@ -43,6 +43,69 @@ public sealed class AreaLabelDetectionTests
         Assert.Empty(AreaLabelDetector.GetCandidateLabels(repository, "component:"));
     }
 
+    [Theory]
+    [InlineData("Only used for closed issues.")]
+    [InlineData("DO NOT ASSIGN ACTIVE ISSUES to this label.")]
+    [InlineData("Do not assign to active issues.")]
+    [InlineData("Do not use; use area-Current instead.")]
+    [InlineData("This label is no longer used.")]
+    [InlineData("Legacy label retained for historical tracking.")]
+    [InlineData("Deprecated label; use area-Current instead.")]
+    [InlineData("Obsolete label.")]
+    [InlineData("This label is deprecated.")]
+    [InlineData("This label is obsolete.")]
+    [InlineData("DEPRECATED")]
+    [InlineData("Obsolete")]
+    [InlineData("LEGACY")]
+    [InlineData("No longer")]
+    [InlineData("No longer assigned to new issues.")]
+    [InlineData("Compatibility with legacy systems.")]
+    [InlineData("Issues involving deprecated APIs.")]
+    [InlineData("Issues involving obsolete APIs.")]
+    public void LegacyLabelsAreExcludedFromCandidatesAndSuggestions(string description)
+    {
+        var repository = new RepositoryInfo
+        {
+            Labels =
+            [
+                new() { Name = "area-Legacy", Description = description },
+                new() { Name = "area-Current", Description = "Current issues." },
+            ]
+        };
+
+        string[] labels = AreaLabelDetector.GetCandidateLabels(repository, "area-");
+        Assert.Equal("area-Current", Assert.Single(labels));
+        var suggestions = AreaLabelDetector.FilterSuggestions(
+            [new("area-Legacy", 1), new("area-Current", 0.9)], labels);
+        Assert.Equal(new AreaLabelSuggestion("area-Current", 0.9), Assert.Single(suggestions));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Runtime and libraries.")]
+    public void ActiveLabelsRemainCandidates(string? description)
+    {
+        var repository = new RepositoryInfo
+        {
+            Labels = [new() { Name = "component:Runtime", Description = description }]
+        };
+
+        Assert.Equal("component:Runtime", Assert.Single(AreaLabelDetector.GetCandidateLabels(repository, "component:")));
+    }
+
+    [Fact]
+    public async Task OnlyLegacyLabelsSkipsPrediction()
+    {
+        var repository = new RepositoryInfo
+        {
+            Labels = [new() { Name = "area-Legacy", Description = "For closed issues only." }]
+        };
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
+
+        Assert.Empty(await detector.GetSuggestionsAsync(repository, new IssueInfo(), CancellationToken.None));
+    }
+
     [Fact]
     public async Task PredictionCacheSeparatesPrefixesAndItems()
     {

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
@@ -20,6 +21,17 @@ public sealed class AreaLabelDetector(
     Logger logger,
     IConfigurationService configuration)
 {
+    private static readonly SearchValues<string> s_legacyLabelDescriptionMarkers = SearchValues.Create(
+    [
+        "closed issues",
+        "do not assign",
+        "do not use",
+        "no longer",
+        "legacy",
+        "deprecated",
+        "obsolete",
+    ], StringComparison.OrdinalIgnoreCase);
+
     private string Model => configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.Model", out string model) ? model : OpenAIService.DefaultModel;
 
     public async Task<AreaLabelSuggestion[]> PredictAsync(string repository, int number, string labelPrefix, CancellationToken cancellationToken)
@@ -116,6 +128,7 @@ public sealed class AreaLabelDetector(
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>
         repository.Labels
+            .Where(l => !l.Description.AsSpan().ContainsAny(s_legacyLabelDescriptionMarkers))
             .Select(l => l.Name)
             .Where(l => l.StartsWith(labelPrefix, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
