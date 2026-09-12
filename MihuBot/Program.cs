@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Hosting.StaticWebAssets;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -381,6 +382,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (gitHubAIEnabled)
     {
+        services.AddSingleton<AreaLabelDetector>();
         services.AddSingleton<DetectIssueAreaLabelsService>();
         services.AddHostedService(s => s.GetRequiredService<DetectIssueAreaLabelsService>());
     }
@@ -517,6 +519,15 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     services.AddControllers();
     services.AddRemoveUnavailableControllersConvention();
+    services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddConcurrencyLimiter("area-labels", limiter =>
+        {
+            limiter.PermitLimit = 10;
+            limiter.QueueLimit = 100;
+        });
+    });
 
     services.AddAuthorizationBuilder()
         .AddPolicy("Admin", policy =>
@@ -604,6 +615,7 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
     app.UseAuthentication();
     app.UseAuthorization();
 
+    app.UseRateLimiter();
     app.MapControllers();
 
     app.MapStaticAssets();

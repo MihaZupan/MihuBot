@@ -98,9 +98,12 @@ repos are in scope and check `..\runtime-utils` before concluding something is m
 
 ## Key conventions
 
-- **Deployment docs are operator-facing.** Keep `deploy/README.md` focused on deployment, configuration,
-  volumes, and operational procedures. Do not add internal implementation details unless operators need
-  them to take action.
+- **Keep `deploy/README.md` strictly deployment-only and concise.** Edit it only when concrete operator
+  actions change: deployment, upgrades, configuration, volumes, startup, or recovery. Never add feature/API
+  guides, endpoint/request/response examples, implementation details, internal model/search/cache/rate-limit
+  behavior, test reports, or change summaries there. A generic "update documentation" requirement is not a
+  reason to expand this file. If no operator action changes, leave it untouched; use feature-specific docs
+  for feature documentation instead.
 - **Optional integrations are the central pattern.** Each integration is an `OptionalFeature` in
   `Configuration/OptionalFeatures.cs` (a description + the config keys it needs). Services are only
   registered when `configuration.IsConfigured(OptionalFeatures.X)`. Consumers must then degrade gracefully:

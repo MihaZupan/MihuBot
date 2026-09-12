@@ -11,6 +11,9 @@ public sealed record IssueSearchBulkFilters
 
     public string? PostProcessingContext { get; set; } = DefaultPostProcessingContext;
 
+    // Full contexts keyed by retrieval query; unlike the template, these are used verbatim.
+    public IReadOnlyDictionary<string, string>? PostProcessingContextOverrides { get; set; }
+
     public bool PostProcessIssues { get; set; } = true;
 
     public IList<IssueInfo>? ExcludeIssues { get; set; }
@@ -18,7 +21,9 @@ public sealed record IssueSearchBulkFilters
     public int MaxResultsPerTerm { get; set; } = 20;
 
     public string GetPostProcessingContext(string searchTerm) =>
-        (PostProcessingContext ?? DefaultPostProcessingContext).Replace(SearchTermPlaceholder, searchTerm);
+        PostProcessingContextOverrides?.TryGetValue(searchTerm, out string? context) == true
+            ? context
+            : (PostProcessingContext ?? DefaultPostProcessingContext).Replace(SearchTermPlaceholder, searchTerm);
 
     public override string ToString()
     {

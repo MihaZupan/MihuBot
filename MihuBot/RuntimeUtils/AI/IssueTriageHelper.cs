@@ -5,12 +5,20 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using Octokit;
 using OpenAI.Chat;
 
 namespace MihuBot.RuntimeUtils.AI;
 
-public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbContext> GitHubDb, GitHubSearchService Search, OpenAIService OpenAI)
+public sealed class IssueTriageHelper(
+    Logger Logger,
+    IDbContextFactory<GitHubDbContext> GitHubDb,
+    GitHubSearchService Search,
+    OpenAIService OpenAI,
+    GitHubDataIngestionService DataIngestion,
+    GitHubClient GitHub)
 {
     public ModelInfo[] AvailableModels => OpenAIService.AllModels;
     public ModelInfo DefaultModel => AvailableModels.First(m => m.Name == OpenAIService.DefaultModel);
@@ -72,6 +80,59 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
 
         return await GetIssueAsync(issues => issues.Where(i => i.Number == issueNumber && i.Repository.FullName == repoName), cancellationToken);
+    }
+
+    public async Task<IssueInfo> GetOrFetchIssueAsync(string repoName, int issueNumber, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(issueNumber);
+
+        repoName = DataIngestion.Stats.TrackedRepos
+            .FirstOrDefault(r => r.RepoName.Equals(repoName, StringComparison.OrdinalIgnoreCase))?.RepoName ?? repoName;
+
+        RepositoryInfo repository = await DataIngestion.TryGetRepositoryInfoAsync(repoName, cancellationToken);
+        return await GetOrFetchIssueAsync(
+            repository,
+            ct => GetIssueAsync(issues => issues.Where(i =>
+                i.Number == issueNumber && i.RepositoryId == repository.Id), ct),
+            async ct =>
+            {
+                Logger.DebugLog($"Issue {repoName}#{issueNumber} not found in the database. Fetching from GitHub ...");
+                return await GitHub.Issue.Get(repository.Id, issueNumber).WaitAsyncAndSupressNotObserved(ct);
+            },
+            cancellationToken);
+    }
+
+    internal static async Task<IssueInfo> GetOrFetchIssueAsync(
+        RepositoryInfo repository,
+        Func<CancellationToken, Task<IssueInfo>> getStoredIssue,
+        Func<CancellationToken, Task<Issue>> fetchIssue,
+        CancellationToken cancellationToken)
+    {
+        if (repository is null || repository.Private)
+        {
+            throw new NotFoundException("Repository is not tracked by MihuBot or is not public.", HttpStatusCode.NotFound);
+        }
+
+        IssueInfo issue = await getStoredIssue(cancellationToken);
+        if (issue is not null)
+        {
+            issue.Repository = repository;
+            return issue;
+        }
+
+        Issue newIssue = await fetchIssue(cancellationToken);
+        issue = new IssueInfo
+        {
+            RepositoryId = repository.Id,
+            Repository = repository,
+            IssueType = newIssue.PullRequest is null ? IssueType.Issue : IssueType.PullRequest,
+            UserId = newIssue.User.Id,
+            User = new UserInfo { Id = newIssue.User.Id, Login = newIssue.User.Login },
+            Labels = [.. repository.Labels.Where(l => newIssue.Labels.Any(label => label.Name.Equals(l.Name, StringComparison.OrdinalIgnoreCase)))],
+            Comments = [],
+        };
+        GitHubDataIngestionService.PopulateBasicIssueInfo(issue, newIssue);
+        return issue;
     }
 
     public async Task<IssueInfo> GetIssueAsync(Func<IQueryable<IssueInfo>, IQueryable<IssueInfo>> query, CancellationToken cancellationToken)
@@ -198,13 +259,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
             OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
 
-            if (searchQueries.Length == 0)
-            {
-                string noResults = "No search queries could be extracted from the issue.";
-                yield return ConvertMarkdownToHtml(noResults, partial: false);
-                yield break;
-            }
-
             // Step 2: Semantic search for related issues
             IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, maxCandidates: TriageMaxCandidates, cancellationToken);
 
@@ -278,11 +332,6 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
                 OnToolLog($"Extracted {searchQueries.Length} search queries: {string.Join(", ", searchQueries)}");
 
-                if (searchQueries.Length == 0)
-                {
-                    return [];
-                }
-
                 // Step 2: Semantic search for candidate issues
                 IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, DuplicatesMaxCandidates, cancellationToken);
 
@@ -319,6 +368,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
 
         private async Task<IssueResultGroup[]> SearchForRelatedIssuesAsync(string[] searchQueries, int maxCandidates, CancellationToken cancellationToken)
         {
+            string issueQuery = GitHubSearchService.CreateIssueQuery(Issue);
             var filters = new IssueSearchFilters
             {
                 IncludeOpen = true,
@@ -334,7 +384,19 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 MaxResultsPerTerm = MaxResultsPerTerm,
                 ExcludeIssues = SkipCommentsOnCurrentIssue ? [Issue] : null,
                 PostProcessIssues = true,
-                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} on issue titled '{Issue.Title}'"
+                PostProcessingContext = $"{IssueSearchBulkFilters.DefaultPostProcessingContext} on issue titled '{Issue.Title}'",
+                PostProcessingContextOverrides = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [issueQuery] =
+                        $"""
+                        Find GitHub issues related to the issue described by this title and these extracted topics:
+                        {JsonSerializer.Serialize(new
+                        {
+                            Issue.Title,
+                            Topics = searchQueries,
+                        })}
+                        """,
+                },
             };
 
             var options = new IssueSearchResponseOptions
@@ -344,7 +406,7 @@ public sealed class IssueTriageHelper(Logger Logger, IDbContextFactory<GitHubDbC
                 PreferSpeed = false,
             };
 
-            GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync(searchQueries, bulkFilters, filters, options, cancellationToken);
+            GitHubSearchResponse searchResults = await Search.SearchIssuesAndCommentsAsync([issueQuery, .. searchQueries], bulkFilters, filters, options, cancellationToken);
 
             long currentRepo = Issue.Repository.Id;
             int maxOtherRepoResults = SearchMaxTotalResults / 2;

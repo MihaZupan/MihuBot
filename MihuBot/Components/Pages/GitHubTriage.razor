@@ -3,13 +3,8 @@
 @using MihuBot.DB.GitHub
 @using MihuBot.Helpers.AI
 @using MihuBot.RuntimeUtils.AI
-@using MihuBot.RuntimeUtils.DataIngestion.GitHub
-@using Octokit
 @rendermode InteractiveServer
 @inject IssueTriageHelper TriageHelper
-@inject GitHubClient GitHubClient
-@inject GitHubDataIngestionService DataIngestion
-@inject Logger Logger
 @implements IDisposable
 
 <PageTitle>GitHub Triage</PageTitle>
@@ -189,49 +184,7 @@
 
             LogToolLine($"Starting triage for issue #{issueNumber} with model {model.Name} ...");
 
-            if (DataIngestion.Stats.TrackedRepos.FirstOrDefault(r => r.RepoName.Equals(repoName, StringComparison.OrdinalIgnoreCase)) is { } normalizedRepo)
-            {
-                repoName = normalizedRepo.RepoName;
-            }
-
-            IssueInfo issue = await TriageHelper.GetIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken);
-
-            if (issue is null)
-            {
-                Logger.DebugLog($"Triage: Issue #{issueNumber} not found in the database. Fetching from GitHub ...");
-
-                if (repoName is not null && !DataIngestion.Stats.TrackedRepos.Any(r => r.RepoName.Equals(repoName, StringComparison.OrdinalIgnoreCase)))
-                {
-                    _errorMessage = $"Repository '{repoName}' is not being tracked by MihuBot.";
-                    return;
-                }
-
-                repoName ??= "dotnet/runtime";
-                string repoOwner = repoName.Split('/')[0];
-                string repoNameOnly = repoName.Split('/')[1];
-
-                Issue newIssue;
-                try
-                {
-                    newIssue = await GitHubClient.Issue.Get(repoOwner, repoNameOnly, issueNumber).WaitAsyncAndSupressNotObserved(cancellationToken);
-                }
-                catch (NotFoundException)
-                {
-                    _errorMessage = $"Issue #{issueNumber} not found.";
-                    return;
-                }
-
-                issue = new IssueInfo();
-                issue.RepositoryId = (await GitHubClient.Repository.Get(repoOwner, repoNameOnly).WaitAsyncAndSupressNotObserved(cancellationToken)).Id;
-                issue.Repository = await DataIngestion.TryGetRepositoryInfoAsync(repoName);
-                GitHubDataIngestionService.PopulateBasicIssueInfo(issue, newIssue);
-                issue.User = new UserInfo
-                {
-                    Id = newIssue.User.Id,
-                    Login = newIssue.User.Login,
-                };
-                issue.Comments = [];
-            }
+            IssueInfo issue = await TriageHelper.GetOrFetchIssueAsync(repoName ?? "dotnet/runtime", issueNumber, cancellationToken);
 
             Task stateChangedTask = Task.CompletedTask;
 

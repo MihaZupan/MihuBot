@@ -294,9 +294,9 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
         };
     }
 
-    public async Task<RepositoryInfo?> TryGetRepositoryInfoAsync(string repoName)
+    public async Task<RepositoryInfo?> TryGetRepositoryInfoAsync(string repoName, CancellationToken cancellationToken = default)
     {
-        await using GitHubDbContext dbContext = _db.CreateDbContext();
+        await using GitHubDbContext dbContext = await _db.CreateDbContextAsync(cancellationToken);
 
         return await dbContext.Repositories
             .AsNoTracking()
@@ -304,7 +304,7 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
             .Include(r => r.Owner)
             .Include(r => r.Labels)
             .AsSplitQuery()
-            .SingleOrDefaultAsync();
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     public static void PopulateBasicIssueInfo(IssueInfo info, Issue issue) => UpdateContext.PopulateBasicIssueInfo(info, issue);

@@ -34,6 +34,18 @@ public sealed class GitHubSearchService
 
     public Tokenizer Tokenizer => GitHubSemanticSearchIngestionService.Tokenizer;
 
+    public static string CreateIssueQuery(IssueInfo issue)
+    {
+        string description = $"""
+            {issue.Repository.FullName}#{issue.Number}: {issue.Title}
+            {issue.IssueType.ToDisplayString()} author: {issue.User.Login}
+
+            {issue.Body?.Trim()}
+            """;
+
+        return SemanticMarkdownChunker.TrimTextToTokens(GitHubSemanticSearchIngestionService.Tokenizer, description, SemanticMarkdownChunker.MaxSectionTokens);
+    }
+
     private string SearchCollectionName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.SearchCollection", out string name) ? name : "MihuBotGhSearch";
 
     private string ClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.ClassifierModel", out string name) ? name : OpenAIService.DefaultModel;
