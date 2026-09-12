@@ -87,6 +87,7 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
             Interval = TimeSpan.FromSeconds(10),
             FailureBackoff = TimeSpan.FromSeconds(1),
             AdditionalFailureDelay = GetRateLimitDelay,
+            AlertAfterConsecutiveFailures = 5,
         }, discordLogger)
     {
         _logger = logger;

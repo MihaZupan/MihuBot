@@ -23,6 +23,12 @@ public sealed record PeriodicTaskOptions
     public TimeSpan MaxFailureBackoff { get; init; } = TimeSpan.FromHours(1);
 
     /// <summary>
+    /// Report a failure to Discord once exactly this many iterations have failed in a row.
+    /// Must be positive. Every failure is still written to the debug log.
+    /// </summary>
+    public int AlertAfterConsecutiveFailures { get; init; } = 2;
+
+    /// <summary>
     /// Optional extra delay to apply for a specific exception, on top of <see cref="FailureBackoff"/>
     /// (e.g. honoring a rate limit's retry-after).
     /// </summary>
@@ -38,12 +44,6 @@ public sealed record PeriodicTaskOptions
 /// </remarks>
 public static class PeriodicTask
 {
-    /// <summary>
-    /// Report a failure to Discord once exactly this many iterations have failed in a row.
-    /// Every failure is always written to the debug log, this only controls the louder notification.
-    /// </summary>
-    private const int AlertAfterConsecutiveFailures = 2;
-
     /// <summary>Starts the loop on a background task without flowing the current <see cref="ExecutionContext"/>.</summary>
     public static void Start(string name, PeriodicTaskOptions options, Logger logger, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
     {
@@ -60,6 +60,7 @@ public static class PeriodicTask
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(action);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Interval, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.AlertAfterConsecutiveFailures);
 
         try
         {
@@ -88,7 +89,7 @@ public static class PeriodicTask
 
                     logger.DebugLog(errorMessage);
 
-                    if (consecutiveFailureCount == AlertAfterConsecutiveFailures)
+                    if (consecutiveFailureCount == options.AlertAfterConsecutiveFailures)
                     {
                         try
                         {
