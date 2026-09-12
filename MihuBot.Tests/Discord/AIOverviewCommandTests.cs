@@ -40,20 +40,6 @@ public sealed class AIOverviewCommandTests
     }
 
     [Theory]
-    [InlineData(0, "0")]
-    [InlineData(42, "42")]
-    [InlineData(999, "999")]
-    [InlineData(1000, "1k")]
-    [InlineData(1234, "1.2k")]
-    [InlineData(123742, "123.7k")]
-    [InlineData(999999, "1000k")]
-    [InlineData(1500000, "1.5M")]
-    public void FormatTokenCount_FormatsCounts(long count, string expected)
-    {
-        Assert.Equal(expected, AIOverviewCommand.FormatTokenCount(count));
-    }
-
-    [Theory]
     [InlineData("")]
     [InlineData("abc")]
     [InlineData("30")]

@@ -15,7 +15,8 @@ public sealed class AreaLabelDetector(
     GitHubSearchService search,
     IDbContextFactory<GitHubDbContext> githubDb,
     IssueTriageHelper triage,
-    HybridCache cache)
+    HybridCache cache,
+    Logger logger)
 {
     public async Task<AreaLabelSuggestion[]> PredictAsync(string repository, int number, string labelPrefix, CancellationToken cancellationToken)
     {
@@ -96,7 +97,12 @@ public sealed class AreaLabelDetector(
             ```
             """, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
-        return FilterSuggestions(result.Result ?? throw new InvalidOperationException("Label detection returned no structured response."), labels);
+        var suggestions = FilterSuggestions(result.Result ?? throw new InvalidOperationException("Label detection returned no structured response."), labels);
+        string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
+        string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
+        string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
+        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}>: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+        return suggestions;
     }
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>

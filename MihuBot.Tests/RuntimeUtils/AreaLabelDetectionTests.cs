@@ -55,7 +55,7 @@ public sealed class AreaLabelDetectionTests
         await cache.SetAsync("AreaLabels:dotnet/runtime:123:area-", area);
         await cache.SetAsync("AreaLabels:dotnet/runtime:123:component:", component);
         await cache.SetAsync("AreaLabels:dotnet/runtime:124:area-", discussion);
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache);
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!);
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
         Assert.Equal(component, await detector.PredictAsync("DOTNET/RUNTIME", 123, "COMPONENT:", CancellationToken.None));

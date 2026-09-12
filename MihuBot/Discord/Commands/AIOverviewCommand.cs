@@ -3,7 +3,6 @@ using MihuBot.Commands;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.Helpers.AI;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -175,7 +174,7 @@ public sealed class AIOverviewCommand : CommandBase
 
         if (usage is { InputTokenCount: not null } or { OutputTokenCount: not null })
         {
-            footer = $"{footer} • {FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {FormatTokenCount(usage.OutputTokenCount ?? 0)} out";
+            footer = $"{footer} • {TokenUsageHelpers.FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {TokenUsageHelpers.FormatTokenCount(usage.OutputTokenCount ?? 0)} out";
         }
 
         var embed = new EmbedBuilder()
@@ -406,22 +405,6 @@ public sealed class AIOverviewCommand : CommandBase
                 (user.GlobalName is { } globalName && comparison(globalName, pattern)) ||
                 comparison(user.Username, pattern);
         }
-    }
-
-    /// <summary>Formats token counts like 123742 as "123.7k".</summary>
-    public static string FormatTokenCount(long count)
-    {
-        if (count < 1_000)
-        {
-            return count.ToString(CultureInfo.InvariantCulture);
-        }
-
-        if (count < 1_000_000)
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{count / 1_000d:0.#}k");
-        }
-
-        return string.Create(CultureInfo.InvariantCulture, $"{count / 1_000_000d:0.##}M");
     }
 
     /// <summary>Parses durations like "2 hours" or "30 min" using the same logic as the reminder command.</summary>
