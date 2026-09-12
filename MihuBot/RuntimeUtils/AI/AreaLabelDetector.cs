@@ -67,25 +67,17 @@ public sealed class AreaLabelDetector(
             Labels = [.. issueData.Labels.Where(l => !l.StartsWith(labelPrefix, StringComparison.OrdinalIgnoreCase))],
         };
 
-        var searchResults = await search.SearchIssuesAndCommentsAsync(
-            GitHubSearchService.CreateIssueQuery(issue),
-            new IssueSearchFilters { Repository = repository.FullName },
-            new IssueSearchResponseOptions { MaxResults = 20, IncludeIssueComments = false },
-            cancellationToken);
+        SimilarIssue[] similarIssues = [];
 
-        var similarIssues = searchResults.Results
-            .TakeWhile(r => r.Score >= 0.3)
-            .Select(r => r.Results[0].Issue)
-            .Where(i => i.Id != issue.Id)
-            .Select(i => new
+        foreach (int age in new[] { 12, 24, 48 })
+        {
+            if (similarIssues.Length >= 5)
             {
-                Title = i.Title.TruncateWithDotDotDot(200),
-                Body = i.Body.TruncateWithDotDotDot(4000),
-                Label = i.Labels.FirstOrDefault(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase))?.Name,
-            })
-            .Where(i => i.Label is not null)
-            .Take(10)
-            .ToArray();
+                break;
+            }
+
+            similarIssues = await GetSimilarIssuesAsync(issue, labels, DateTime.UtcNow.AddMonths(-age), cancellationToken);
+        }
 
         var options = new ChatOptions
         {
@@ -104,18 +96,18 @@ public sealed class AreaLabelDetector(
             Choose only from the following labels:
             {string.Join(", ", labels)}
 
-            Only return the labels which are likely relevant.
-            Include the confidence level between 0 and 1 (where 1 is absolute certainty).
-
-            Here is the item data:
+            Here is the issue info:
             ```json
             {issueData.AsJson()}
             ```
 
-            Here are some issues that may be similar, and the labels they were assigned:
+            Here are some issues that **MAY** be similar, and the labels they were assigned. Ignore any that you do not consider relevant.
             ```json
             {JsonSerializer.Serialize(similarIssues)}
             ```
+            
+            Only return the labels which are likely relevant.
+            Include the confidence level between 0 and 1 (where 1 is absolute certainty).
             """, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
         var suggestions = FilterSuggestions(result.Result ?? throw new InvalidOperationException("Label detection returned no structured response."), labels);
@@ -124,6 +116,29 @@ public sealed class AreaLabelDetector(
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
         logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
         return suggestions;
+    }
+
+    private record SimilarIssue(string Title, string Body, string Label);
+
+    private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, DateTime createdAfter, CancellationToken cancellationToken)
+    {
+        GitHubSearchResponse searchResults = await search.SearchIssuesAndCommentsAsync(
+            GitHubSearchService.CreateIssueQuery(issue),
+            new IssueSearchFilters { Repository = issue.Repository.FullName, CreatedAfter = createdAfter },
+            new IssueSearchResponseOptions { MaxResults = 20, IncludeIssueComments = false },
+            cancellationToken);
+
+        return searchResults.Results
+            .TakeWhile(r => r.Score >= 0.7)
+            .Select(r => r.Results[0].Issue)
+            .Where(i => i.Id != issue.Id)
+            .Select(i => new SimilarIssue(
+                i.Title.TruncateWithDotDotDot(200),
+                i.Body.TruncateWithDotDotDot(4000),
+                i.Labels.FirstOrDefault(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase))?.Name
+            ))
+            .Where(i => i.Label is not null)
+            .ToArray();
     }
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>
