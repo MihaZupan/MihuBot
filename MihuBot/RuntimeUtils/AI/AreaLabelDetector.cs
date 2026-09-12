@@ -39,7 +39,12 @@ public sealed class AreaLabelDetector(
             return [];
         }
 
-        string issueData = (await IssueInfoForPrompt.CreateAsync(issue, githubDb, cancellationToken)).AsJson();
+        var issueData = await IssueInfoForPrompt.CreateAsync(issue, githubDb, cancellationToken);
+        issueData = issueData with
+        {
+            Labels = [.. issueData.Labels.Where(l => !l.StartsWith(labelPrefix, StringComparison.OrdinalIgnoreCase))],
+        };
+
         var searchResults = await search.SearchIssuesAndCommentsAsync(
             GitHubSearchService.CreateIssueQuery(issue),
             new IssueSearchFilters { Repository = repository.FullName },
@@ -82,7 +87,7 @@ public sealed class AreaLabelDetector(
 
             Here is the item data:
             ```json
-            {issueData}
+            {issueData.AsJson()}
             ```
 
             Here are some issues that may be similar, and the labels they were assigned:
