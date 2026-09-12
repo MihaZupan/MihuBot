@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using MihuBot.DB.GitHub;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
+using MihuBot.Tests.Configuration;
 using Octokit;
 using Octokit.Internal;
 
@@ -52,14 +54,40 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] area = [new("area-Test", 0.9)];
         AreaLabelSuggestion[] component = [new("component:Runtime", 0.9)];
         AreaLabelSuggestion[] discussion = [new("area-Discussion", 0.9)];
-        await cache.SetAsync("AreaLabels:dotnet/runtime:123:area-", area);
-        await cache.SetAsync("AreaLabels:dotnet/runtime:123:component:", component);
-        await cache.SetAsync("AreaLabels:dotnet/runtime:124:area-", discussion);
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", area);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:component:", component);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:124:area-", discussion);
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
         Assert.Equal(component, await detector.PredictAsync("DOTNET/RUNTIME", 123, "COMPONENT:", CancellationToken.None));
         Assert.Equal(discussion, await detector.PredictAsync("dotnet/runtime", 124, "area-", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("test-model")]
+    [InlineData("provider/model:version")]
+    public async Task ModelChangesSelectSeparateCachedPredictionsImmediately(string model)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<HybridCache>();
+        var configuration = new TestConfigurationService();
+        AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
+        AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", original);
+        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:dotnet/runtime:123:area-", alternative);
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+
+        Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Set(null, "AreaLabelDetector.Model", model);
+        Assert.Equal(alternative, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Remove(null, "AreaLabelDetector.Model");
+        Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
     }
 
     [Fact]

@@ -11,7 +11,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MihuBot.API;
 using MihuBot.Configuration;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
+using MihuBot.Tests.Configuration;
 using Octokit;
 
 namespace MihuBot.Tests.RuntimeUtils;
@@ -112,7 +114,7 @@ public sealed class AreaLabelsApiTests
             Assert.Matches(@" in \d+[.,]\d{2}s:", message);
             Assert.DoesNotContain('\n', message);
         });
-        Assert.Equal(["AreaLabels:dotnet/runtime:123:area-", "AreaLabels:dotnet/runtime:123:area-"], cache.Keys);
+        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", $"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-"], cache.Keys);
     }
 
     [Fact]
@@ -245,7 +247,7 @@ public sealed class AreaLabelsApiTests
         });
         if (cache is not null)
         {
-            builder.Services.AddSingleton(new AreaLabelDetector(null!, null!, null!, null!, cache, null!));
+            builder.Services.AddSingleton(new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService()));
         }
         var app = builder.Build();
         app.UseRateLimiter();
@@ -273,7 +275,7 @@ public sealed class AreaLabelsApiTests
             HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default)
         {
             Keys.Enqueue(key);
-            LabelPrefix = key.Split(':', 4)[3];
+            LabelPrefix = key.Split(':', 5)[4];
             if (Interlocked.Increment(ref _calls) == 10)
             {
                 TenRequestsStarted.TrySetResult();

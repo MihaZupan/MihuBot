@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
+using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.Search;
@@ -16,22 +17,29 @@ public sealed class AreaLabelDetector(
     IDbContextFactory<GitHubDbContext> githubDb,
     IssueTriageHelper triage,
     HybridCache cache,
-    Logger logger)
+    Logger logger,
+    IConfigurationService configuration)
 {
+    private string Model => configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.Model", out string model) ? model : OpenAIService.DefaultModel;
+
     public async Task<AreaLabelSuggestion[]> PredictAsync(string repository, int number, string labelPrefix, CancellationToken cancellationToken)
     {
+        string model = Model;
         return await cache.GetOrCreateAsync(
-            $"AreaLabels:{repository.ToLowerInvariant()}:{number}:{labelPrefix.ToLowerInvariant()}",
+            $"AreaLabels:{Uri.EscapeDataString(model)}:{repository.ToLowerInvariant()}:{number}:{labelPrefix.ToLowerInvariant()}",
             async ct =>
             {
                 var issue = await triage.GetOrFetchIssueAsync(repository, number, ct);
-                return await GetSuggestionsAsync(issue.Repository, issue, ct, labelPrefix);
+                return await GetSuggestionsAsync(issue.Repository, issue, ct, labelPrefix, model);
             },
             new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
             cancellationToken: cancellationToken);
     }
 
-    public async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix = "area-")
+    public Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix = "area-") =>
+        GetSuggestionsAsync(repository, issue, cancellationToken, labelPrefix, Model);
+
+    private async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix, string model)
     {
         long start = Stopwatch.GetTimestamp();
         string[] labels = GetCandidateLabels(repository, labelPrefix);
@@ -75,7 +83,7 @@ public sealed class AreaLabelDetector(
             },
         };
 
-        ChatResponse<AreaLabelSuggestion[]> result = await openAI.GetChat(OpenAIService.DefaultModel, secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
+        ChatResponse<AreaLabelSuggestion[]> result = await openAI.GetChat(model, secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
             $"""
             You are an expert at classifying GitHub issues, pull requests, and discussions related to .NET into categories based on their content.
             Your task is to determine which labels best match the new item.
@@ -102,7 +110,7 @@ public sealed class AreaLabelDetector(
         string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
         string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
-        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
         return suggestions;
     }
 
