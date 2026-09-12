@@ -68,7 +68,7 @@ public sealed class AreaLabelDetector(
             },
         };
 
-        ChatResponse<AreaLabelSuggestion[]> result = await openAI.GetChat("gpt-5-mini", secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
+        ChatResponse<AreaLabelSuggestion[]> result = await openAI.GetChat(OpenAIService.DefaultModel, secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
             $"""
             You are an expert at classifying GitHub issues, pull requests, and discussions related to .NET into categories based on their content.
             Your task is to determine which labels best match the new item.

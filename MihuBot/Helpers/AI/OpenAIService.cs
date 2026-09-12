@@ -12,10 +12,13 @@ public sealed record ModelInfo(string Name, int ContextSize);
 
 public sealed class OpenAIService
 {
-    public const string DefaultModel = "gpt-5-mini";
+    public const string DefaultModel = "gpt-5.6-luna";
 
     public static readonly ModelInfo[] AllModels =
     [
+        new("gpt-5.6-luna", 1_050_000),
+        new("gpt-5.6-terra", 1_050_000),
+        new("gpt-5.6-sol", 1_050_000),
         new("gpt-5", 400_000),
         new("gpt-5-mini", 400_000),
         new("gpt-5-nano", 400_000),
