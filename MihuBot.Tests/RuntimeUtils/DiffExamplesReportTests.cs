@@ -290,7 +290,7 @@ public sealed class DiffExamplesReportTests
         string code = WebUtility.HtmlDecode(Regex.Match(html, "<code[^>]*>(.*?)</code>", RegexOptions.Singleline).Groups[1].Value);
 
         Assert.Contains("Download Results.zip", html, StringComparison.Ordinal);
-        Assert.Contains("class=\"language-csharp\"", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"hljs language-csharp\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("<script", html, StringComparison.Ordinal);
         Assert.DoesNotContain("</script>", html, StringComparison.Ordinal);
         Assert.Contains("RegexResults-example-job.json", code, StringComparison.Ordinal);
