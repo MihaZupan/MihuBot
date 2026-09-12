@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -17,22 +18,39 @@ file sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
 /// Covers the encrypted transport in isolation: sealing to the server's X25519 key, the timestamp
 /// freshness window, and the rolling nonce replay window.
 /// </summary>
-public sealed class MollyRequestProtectorTests
+public sealed class MollyRequestProtectorTests : IDisposable
 {
+    private delegate bool DeriveSessionKeys(ReadOnlySpan<byte> header, out byte[]? requestKey, out byte[]? responseKey, out bool bootstrap);
+
     /// <summary>Small enough to fill within a test, so nonce eviction is reachable.</summary>
     private const int SmallWindow = 4;
 
     private readonly TimeProvider _time = new FixedTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly MollyRequestProtector _protector;
-    private readonly MollyTestEnvelope _client = new();
+    private readonly MollyTestEnvelope _client;
 
     public MollyRequestProtectorTests()
     {
         _protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time);
+        _client = new MollyTestEnvelope(_protector.GetTransportKey());
     }
 
     private byte[] Encrypt(string action, string? data = null, string? nonce = null, long? timestamp = null) =>
         _client.EncryptRequest(action, data, nonce, timestamp ?? _time.GetUtcNow().ToUnixTimeSeconds());
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(47)]
+    [InlineData(49)]
+    [InlineData(64)]
+    public void KeyDerivation_RejectsAnIncorrectHeaderLength(int length)
+    {
+        DeriveSessionKeys derive = typeof(MollyRequestProtector)
+            .GetMethod("TryDeriveSessionKeys", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<DeriveSessionKeys>(_protector);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => derive(new byte[length], out _, out _, out _));
+    }
 
     [Fact]
     public void ValidRequest_IsDecrypted()
@@ -47,8 +65,9 @@ public sealed class MollyRequestProtectorTests
     [Fact]
     public void RequestSealedToADifferentServerKey_IsRejected()
     {
-        var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
+        using var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
         byte[] body = wrongKey.EncryptRequest("login", timestamp: _time.GetUtcNow().ToUnixTimeSeconds());
+        MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(_protector.GetTransportKey().PublicKey)).CopyTo(body, 0);
 
         Assert.False(_protector.TryDecryptRequest(body, out _, out _));
     }
@@ -65,7 +84,7 @@ public sealed class MollyRequestProtectorTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    [InlineData(32 + XAesGcm.NonceSizeInBytes + XAesGcm.TagSizeInBytes - 1)] // One byte short of an empty payload.
+    [InlineData(48 + XAesGcm.NonceSizeInBytes + XAesGcm.TagSizeInBytes + 2 - 1)] // One byte short of the padding-length field.
     public void ARequestTooShortToBeAnEnvelope_IsRejected(int length)
     {
         Assert.False(_protector.TryDecryptRequest(new byte[length], out _, out _));
@@ -154,18 +173,19 @@ public sealed class MollyRequestProtectorTests
     [Fact]
     public void OnceTheWindowRollsOver_TheOldestNonceCanBeUsedAgain()
     {
-        var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, SmallWindow);
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, SmallWindow);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
 
         string first = MollyTestEnvelope.NewNonce();
-        Assert.True(protector.TryDecryptRequest(Encrypt("ping", nonce: first), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _));
 
         // Push the first nonce out of the window of the last SmallWindow seen.
         for (int i = 0; i < SmallWindow; i++)
         {
-            Assert.True(protector.TryDecryptRequest(Encrypt("ping", nonce: MollyTestEnvelope.NewNonce()), out _, out _));
+            Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: MollyTestEnvelope.NewNonce()), out _, out _));
         }
 
-        Assert.True(protector.TryDecryptRequest(Encrypt("ping", nonce: first), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _));
     }
 
     [Fact]
@@ -174,7 +194,8 @@ public sealed class MollyRequestProtectorTests
         // An all-zero X25519 public key is a low-order point: the ECDH yields an all-zero shared
         // secret, which the platform rejects (RFC 7748 6.1). Since the ephemeral key comes straight
         // off the wire, that must surface as a rejected request, not an escaping exception.
-        byte[] body = new byte[32 + XAesGcm.NonceSizeInBytes + XAesGcm.TagSizeInBytes];
+        byte[] body = Encrypt("ping");
+        body.AsSpan(16, 32).Clear();
 
         Assert.False(_protector.TryDecryptRequest(body, out _, out _));
     }
@@ -197,5 +218,11 @@ public sealed class MollyRequestProtectorTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new MollyRequestProtector(new byte[31]));
         Assert.Throws<ArgumentOutOfRangeException>(() => new MollyRequestProtector(new byte[33]));
+    }
+
+    public void Dispose()
+    {
+        _client.Dispose();
+        _protector.Dispose();
     }
 }

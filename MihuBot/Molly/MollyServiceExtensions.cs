@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
@@ -60,16 +61,20 @@ public static class MollyServiceExtensions
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
-        // A body that isn't sealed to our public key (or is a stale/replayed request) didn't come from
-        // the app, so there's nobody to hand a meaningful (and encryptable) answer to.
-        if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey))
+        // Unknown recipient keys and failed authentication all fail closed.
+        if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey))
         {
             return Results.BadRequest();
         }
 
-        MollyApiResponse response = await ExecuteAsync(molly, request, cancellationToken);
+        MollyApiResponse response = request.Action == MollyApiActions.TransportKey
+            ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
+            : await ExecuteAsync(molly, request, cancellationToken);
 
-        return Results.Bytes(protector.EncryptResponse(response, sessionKey), EncryptedContentType);
+        context.Response.Headers.CacheControl = "no-store";
+        byte[] encrypted = protector.EncryptResponse(response, responseKey);
+        CryptographicOperations.ZeroMemory(responseKey);
+        return Results.Bytes(encrypted, EncryptedContentType);
     }
 
     private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, CancellationToken cancellationToken)
@@ -138,6 +143,7 @@ public static class MollyServiceExtensions
                 byte[] payload = Encoding.UTF8.GetBytes(request.Data.GetRawText());
 
                 MollyCommandResult result = await molly.SubmitAlertAsync(data.Id, payload, cancellationToken);
+                CryptographicOperations.ZeroMemory(payload);
 
                 return ToResponse(result, static command => new MollyCommandResponse { Command = command });
             }

@@ -42,8 +42,8 @@ public static class OptionalFeatures
 
     /// <summary>
     /// The transport key: the server's static X25519 private key. Its public half is hardcoded into
-    /// the closed-source Molly client, which seals its requests to it (X25519 + HKDF + XAES-256-GCM).
-    /// Protects requests/responses on the wire; unrelated to the database. Never leaves the server.
+    /// the closed-source Molly client. It authenticates discovery of rotating, memory-only keys;
+    /// application requests must use those rotating keys. Unrelated to the database. Never leaves the server.
     /// Base64 encoded raw 32-byte key.
     /// </summary>
     public const string MollyTransportPrivateKeyName = "Molly:TransportPrivateKey";

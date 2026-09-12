@@ -15,6 +15,7 @@ using MihuBot.DB;
 using MihuBot.Helpers;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
+using MihuBot.Molly.Api;
 
 namespace MihuBot.Tests.Molly;
 
@@ -31,6 +32,8 @@ public sealed class MollyApiFixture : IAsyncLifetime
     public MollyService Service => _app.Services.GetRequiredService<MollyService>();
 
     public MollyIdProtector IdProtector => _app.Services.GetRequiredService<MollyIdProtector>();
+
+    public MollyTransportKeyResponse TransportKey { get; private set; } = null!;
 
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string protectedId)
@@ -99,6 +102,13 @@ public sealed class MollyApiFixture : IAsyncLifetime
             .Addresses.First();
 
         Client = new HttpClient { BaseAddress = new Uri(address) };
+
+        using var bootstrap = new MollyTestEnvelope();
+        using var content = new ByteArrayContent(bootstrap.EncryptRequest("transport-key"));
+        using HttpResponseMessage response = await Client.PostAsync(MollyApiTests.Group, content);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonElement envelope = bootstrap.DecryptResponse(await response.Content.ReadAsByteArrayAsync());
+        TransportKey = envelope.GetProperty("data").Deserialize<MollyTransportKeyResponse>()!;
     }
 
     public async Task DisposeAsync()
@@ -115,7 +125,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
     }
 }
 
-public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
+public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 {
     internal const string Group = "/api/molly";
 
@@ -123,9 +133,15 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     internal const string RemoveSizeLimitFeatureHeader = "X-Test-Remove-Size-Limit-Feature";
 
     private readonly MollyApiFixture _fixture;
-    private readonly MollyTestEnvelope _envelope = new();
+    private readonly MollyTestEnvelope _envelope;
 
-    public MollyApiTests(MollyApiFixture fixture) => _fixture = fixture;
+    public MollyApiTests(MollyApiFixture fixture)
+    {
+        _fixture = fixture;
+        _envelope = new MollyTestEnvelope(fixture.TransportKey);
+    }
+
+    public void Dispose() => _envelope.Dispose();
 
     /// <summary>
     /// Each test uses its own X-Real-IP so that the shared host's rate limiter
@@ -191,8 +207,9 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     [Fact]
     public async Task Request_SealedToADifferentServerKey_IsBadRequest()
     {
-        var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
+        using var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
         byte[] body = wrongKey.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()));
+        MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(_fixture.TransportKey.PublicKey)).CopyTo(body, 0);
 
         HttpResponseMessage response = await PostRawAsync(body);
 
@@ -247,12 +264,32 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
     {
         // An all-zero ephemeral key forces an all-zero ECDH agreement, which the platform throws on.
         // The endpoint must translate that to a rejection, never a 500.
-        // 32-byte ephemeral public key + 24-byte nonce + 16-byte tag, minimum-length body.
-        byte[] body = new byte[32 + 24 + 16];
+        byte[] body = _envelope.EncryptRequest("ping");
+        body.AsSpan(16, 32).Clear();
 
         HttpResponseMessage response = await PostRawAsync(body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransportKey_IsAuthenticatedAndCannotCarryApplicationRequests()
+    {
+        using var bootstrap = new MollyTestEnvelope();
+        using HttpResponseMessage response = await PostRawAsync(bootstrap.EncryptRequest("transport-key"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+
+        JsonElement envelope = bootstrap.DecryptResponse(await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal("ok", Status(envelope));
+        MollyTransportKeyResponse key = Data(envelope).Deserialize<MollyTransportKeyResponse>()!;
+        Assert.Equal(_fixture.TransportKey.PublicKey, key.PublicKey);
+        Assert.Equal(32, Convert.FromBase64String(key.PublicKey).Length);
+        Assert.InRange(key.ExpiresAt, MollyTestEnvelope.Now() + 1, MollyTestEnvelope.Now() + 31 * 60);
+        Assert.Equal(2, Data(envelope).EnumerateObject().Count());
+
+        using HttpResponseMessage rejected = await PostRawAsync(bootstrap.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash())));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
     }
 
     [Fact]
@@ -394,6 +431,36 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>
         HttpResponseMessage response = await PostRawAsync(body);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(8192, HttpStatusCode.OK)]
+    [InlineData(8193, HttpStatusCode.RequestEntityTooLarge)]
+    public async Task Padding_CountsTowardTheRequestSizeLimit(int bodyLength, HttpStatusCode expectedStatus)
+    {
+        string json = MollyTestEnvelope.RequestJson("login", LoginData(MollyTestKeys.NewKeyHash()));
+        int paddingLength = bodyLength - _envelope.Encrypt(json).Length;
+        byte[] body = _envelope.Encrypt(json, paddingLength);
+        Assert.Equal(bodyLength, body.Length);
+
+        using HttpResponseMessage response = await PostRawAsync(body);
+        Assert.Equal(expectedStatus, response.StatusCode);
+        if (expectedStatus == HttpStatusCode.OK)
+        {
+            Assert.Equal("ok", Status(_envelope.DecryptResponse(await response.Content.ReadAsByteArrayAsync())));
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task MalformedPadding_IsBadRequest(int plaintextLength)
+    {
+        byte[] plaintext = new byte[plaintextLength];
+        plaintext.AsSpan().Fill(0xFF);
+        using HttpResponseMessage response = await PostRawAsync(_envelope.EncryptRawPlaintext(plaintext));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

@@ -6,8 +6,8 @@ using System.Text.Json.Serialization;
 namespace MihuBot.Molly.Api;
 
 /// <summary>
-/// The decrypted body of every Molly API call. The endpoint is a single URL, so the operation is
-/// part of the payload instead of the path.
+/// The JSON data of every Molly API call, after decryption and padding removal.
+/// The endpoint is a single URL, so the operation is part of the payload instead of the path.
 /// </summary>
 public sealed class MollyApiRequest
 {

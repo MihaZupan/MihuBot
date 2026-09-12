@@ -14,7 +14,7 @@ namespace MihuBot.Tests.Molly;
 /// Test keys. These only ever exist in tests - the real ones come from configuration.
 /// The database key is base64 32-byte key material for <see cref="MollyIdProtector"/> and the at-rest
 /// encryption; the transport private key is a raw 32-byte X25519 private key for
-/// <see cref="MollyRequestProtector"/>, and the client seals requests to its matching public key.
+/// <see cref="MollyRequestProtector"/>, used by the client only to discover rotating transport keys.
 /// </summary>
 public static class MollyTestKeys
 {
@@ -36,7 +36,7 @@ public static class MollyTestKeys
 
     public static byte[] OtherTransportPrivateKeyBytes => Convert.FromBase64String(OtherTransportPrivateKey);
 
-    /// <summary>The public half of <see cref="TransportPrivateKey"/>, which the client seals requests to.</summary>
+    /// <summary>The public half of <see cref="TransportPrivateKey"/>, used to authenticate key discovery.</summary>
     public static byte[] TransportPublicKeyBytes => PublicKeyOf(TransportPrivateKeyBytes);
 
     /// <summary>The public half of <see cref="OtherTransportPrivateKey"/>.</summary>

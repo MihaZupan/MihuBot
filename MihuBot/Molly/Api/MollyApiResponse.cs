@@ -5,8 +5,8 @@ using System.Text.Json.Serialization;
 namespace MihuBot.Molly.Api;
 
 /// <summary>
-/// The decrypted body of every Molly API response. HTTP status codes no longer carry the outcome
-/// of an operation - <see cref="Status"/> does. There is no nonce echo: each request derives a
+/// The JSON data of every Molly API response, after decryption and padding removal.
+/// <see cref="Status"/> carries the operation's outcome. There is no nonce echo: each request derives a
 /// unique session key, so a response only decrypts for the exact request it answers.
 /// </summary>
 public sealed class MollyApiResponse

@@ -167,6 +167,7 @@ public sealed class XAesGcm : IDisposable
         }
         catch (CryptographicException)
         {
+            CryptographicOperations.ZeroMemory(result);
             return false;
         }
 

@@ -126,6 +126,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Qdrant:Host` (+`:Port`) | Vector search + semantic ingestion (FTS still works) |
 | `Hetzner:ApiKey` | Hetzner runner VMs → jobs fall back to Azure VMs |
 | `GoogleMaps:ApiKey` | Static map image on relayed Telegram locations |
+| `Molly:DatabaseKey` + `Molly:TransportPrivateKey` | Molly remote lockout API and dashboard |
 | `Molly:AlertEmailConnectionString`+`:AlertEmailFrom` | Emails Molly alerts via Azure Communication Services. Recipients come from the runtime `Molly.AlertEmailTo` config key (comma-separated). Every recipient must have a Proton Mail key |
 | `Youtube:ApiKey` | YouTube API search/playlists (scraping fallback remains) |
 | `Spotify:ClientId`+`ClientSecret` | Spotify links in `!play` |
@@ -134,6 +135,10 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
+
+For Molly, use a single instance or instance affinity. Avoid
+process dumps and memory snapshots that retain expired transport secrets.
+The client protocol is documented in [Molly's README](../MihuBot/Molly/README.md).
 
 ## Runtime-utils permissions
 
