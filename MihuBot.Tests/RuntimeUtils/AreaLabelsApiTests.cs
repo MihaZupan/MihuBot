@@ -53,6 +53,68 @@ public sealed class AreaLabelsApiTests
         }
     }
 
+    [Theory]
+    [InlineData("null", HttpStatusCode.OK)]
+    [InlineData("""{"labelName":"area-Other","confidence":0}""", HttpStatusCode.OK)]
+    [InlineData("""{"labelName":"area-Other","confidence":0.85}""", HttpStatusCode.OK)]
+    [InlineData("""{"labelName":"area-Other","confidence":1}""", HttpStatusCode.OK)]
+    [InlineData("""{}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"confidence":0.85}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"","confidence":0.85}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":" ","confidence":0.85}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other\ninjected log","confidence":0.85}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other"}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other","confidence":null}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other","confidence":-0.1}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other","confidence":1.1}""", HttpStatusCode.BadRequest)]
+    [InlineData("""{"labelName":"area-Other","confidence":0.85,"body":"Caller content"}""", HttpStatusCode.BadRequest)]
+    public async Task ExistingPredictionIsOptionalAndValidated(string existingPrediction, HttpStatusCode expectedStatus)
+    {
+        var cache = new PredictionCache();
+        await using var app = CreateApp(cache);
+        await app.StartAsync();
+        using var http = CreateClient(app);
+        string json = $$"""{"repository":"dotnet/runtime","number":123,"existingPrediction":{{existingPrediction}}}""";
+        using var response = await http.PostAsync("/api/RuntimeUtils/AreaLabels/Predict", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal(expectedStatus == HttpStatusCode.OK ? 1 : 0, cache.Calls);
+    }
+
+    [Fact]
+    public async Task ExistingPredictionsAreLoggedPerRequestWithoutChangingCachedResults()
+    {
+        var cache = new PredictionCache();
+        var logs = new ComparisonLoggerProvider();
+        await using var app = CreateApp(cache, logs);
+        await app.StartAsync();
+        using var http = CreateClient(app);
+
+        foreach (string label in new[] { "area-First", "area-Second" })
+        {
+            using var response = await http.PostAsJsonAsync("/api/RuntimeUtils/AreaLabels/Predict",
+                new { repository = "dotnet/runtime", number = 123, existingPrediction = new { labelName = label, confidence = 0.85 } });
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var suggestions = await response.Content.ReadFromJsonAsync<AreaLabelSuggestion[]>();
+            Assert.Equal(new AreaLabelSuggestion("area-Test", 0.9), Assert.Single(suggestions!));
+        }
+
+        Assert.Equal(2, logs.Messages.Count);
+        Assert.Contains("ML area-First", logs.Messages[0]);
+        Assert.Contains("ML area-Second", logs.Messages[1]);
+        Assert.All(logs.Messages, message =>
+        {
+            Assert.Contains("<https://github.com/dotnet/runtime/issues/123>", message);
+            Assert.Contains("85", message);
+            Assert.Contains("LLM area-Test", message);
+            Assert.Contains("90", message);
+            Assert.Matches(@" in \d+[.,]\d{2}s:", message);
+            Assert.DoesNotContain('\n', message);
+        });
+        Assert.Equal(["AreaLabels:dotnet/runtime:123:area-", "AreaLabels:dotnet/runtime:123:area-"], cache.Keys);
+    }
+
     [Fact]
     public async Task MissingDiscussionReturnsNotFound()
     {
@@ -164,11 +226,16 @@ public sealed class AreaLabelsApiTests
         }
     }
 
-    private static WebApplication CreateApp(PredictionCache? cache)
+    private static WebApplication CreateApp(PredictionCache? cache, ILoggerProvider? loggerProvider = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        if (loggerProvider is not null)
+        {
+            builder.Logging.AddProvider(loggerProvider);
+            builder.Logging.AddFilter<ComparisonLoggerProvider>(typeof(AreaLabelsController).FullName, LogLevel.Information);
+        }
         builder.Services.AddControllers().AddApplicationPart(typeof(AreaLabelsController).Assembly);
         builder.Services.AddRemoveUnavailableControllersConvention();
         builder.Services.AddRateLimiter(options =>
@@ -195,6 +262,7 @@ public sealed class AreaLabelsApiTests
     {
         private int _calls;
         public int Calls => _calls;
+        public System.Collections.Concurrent.ConcurrentQueue<string> Keys { get; } = new();
         public string? LabelPrefix { get; private set; }
         public Exception? Error { get; init; }
         public Task? Release { get; init; }
@@ -204,6 +272,7 @@ public sealed class AreaLabelsApiTests
             string key, TState state, Func<TState, CancellationToken, ValueTask<T>> factory,
             HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default)
         {
+            Keys.Enqueue(key);
             LabelPrefix = key.Split(':', 4)[3];
             if (Interlocked.Increment(ref _calls) == 10)
             {
@@ -229,5 +298,28 @@ public sealed class AreaLabelsApiTests
 
         public override ValueTask RemoveByTagAsync(string tag, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ComparisonLoggerProvider : ILoggerProvider
+    {
+        public List<string> Messages { get; } = [];
+
+        public ILogger CreateLogger(string categoryName) =>
+            new ComparisonLogger(categoryName == typeof(AreaLabelsController).FullName ? Messages : null);
+
+        public void Dispose() { }
+
+        private sealed class ComparisonLogger(List<string>? messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => logLevel == LogLevel.Information;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (IsEnabled(logLevel))
+                {
+                    messages?.Add(formatter(state, exception));
+                }
+            }
+        }
     }
 }

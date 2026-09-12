@@ -9,10 +9,16 @@ using Octokit;
 namespace MihuBot.API;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ExistingAreaLabelPrediction(
+    [Required, StringLength(100), RegularExpression(@"[^\r\n]+")] string LabelName,
+    [Required, Range(0d, 1d)] double? Confidence);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record AreaLabelPredictionRequest(
     [Required, RegularExpression(@"[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}")] string Repository,
     [Range(1, int.MaxValue)] int Number,
-    [Required, StringLength(100)] string LabelPrefix = "area-");
+    [Required, StringLength(100)] string LabelPrefix = "area-",
+    ExistingAreaLabelPrediction ExistingPrediction = null);
 
 [Route("api/RuntimeUtils/[controller]")]
 [ApiController]
@@ -28,7 +34,16 @@ public sealed class AreaLabelsController(AreaLabelDetector detector, ILogger<Are
 
         try
         {
-            return await detector.PredictAsync(request.Repository, request.Number, request.LabelPrefix, timeout.Token);
+            long start = Stopwatch.GetTimestamp();
+            var suggestions = await detector.PredictAsync(request.Repository, request.Number, request.LabelPrefix, timeout.Token);
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+            if (request.ExistingPrediction is { } existing)
+            {
+                string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
+                logger.LogInformation("Area label prediction comparison for <https://github.com/{Repository}/issues/{Number}> in {ElapsedSeconds:F2}s: ML {ExistingLabel} ({ExistingConfidence:P0}); LLM {Predictions}",
+                    request.Repository, request.Number, elapsed.TotalSeconds, existing.LabelName, existing.Confidence, predictions);
+            }
+            return suggestions;
         }
         catch (NotFoundException)
         {

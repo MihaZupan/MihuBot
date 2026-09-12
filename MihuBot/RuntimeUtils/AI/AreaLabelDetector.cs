@@ -33,6 +33,7 @@ public sealed class AreaLabelDetector(
 
     public async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix = "area-")
     {
+        long start = Stopwatch.GetTimestamp();
         string[] labels = GetCandidateLabels(repository, labelPrefix);
 
         if (labels.Length == 0)
@@ -101,7 +102,7 @@ public sealed class AreaLabelDetector(
         string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
         string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
-        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}>: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
         return suggestions;
     }
 
