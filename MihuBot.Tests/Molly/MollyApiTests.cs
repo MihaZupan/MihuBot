@@ -209,7 +209,9 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     {
         using var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
         byte[] body = wrongKey.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash()));
+        MollyTestEnvelope.MaskRequestBody(body);
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(_fixture.TransportKey.PublicKey)).CopyTo(body, 0);
+        MollyTestEnvelope.MaskRequestBody(body);
 
         HttpResponseMessage response = await PostRawAsync(body);
 
@@ -265,7 +267,9 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
         // An all-zero ephemeral key forces an all-zero ECDH agreement, which the platform throws on.
         // The endpoint must translate that to a rejection, never a 500.
         byte[] body = _envelope.EncryptRequest("ping");
+        MollyTestEnvelope.MaskRequestBody(body);
         body.AsSpan(16, 32).Clear();
+        MollyTestEnvelope.MaskRequestBody(body);
 
         HttpResponseMessage response = await PostRawAsync(body);
 

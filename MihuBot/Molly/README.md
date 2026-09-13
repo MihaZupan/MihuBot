@@ -27,11 +27,12 @@ Seal application requests to the advertised public key.
 Request bytes, with no separators or length prefixes:
 
 ```text
-recipientKeyId (16) || clientEphemeralPublicKey (32) || nonce (24) || ciphertext (variable) || tag (16)
+(recipientKeyId XOR tag) (16) || clientEphemeralPublicKey (32) || nonce (24) || ciphertext (variable) || tag (16)
 ```
 
-The first 48 bytes are the header. `recipientKeyId` is the first 16 bytes of SHA-512 of the raw 32-byte recipient X25519 public key (not its base64 text).
+The logical header is `recipientKeyId (16) || clientEphemeralPublicKey (32)`. `recipientKeyId` is the first 16 bytes of SHA-512 of the raw 32-byte recipient X25519 public key (not its base64 text).
 It selects the server key without transmitting that public key, for both discovery and application requests.
+XOR the first 16 bytes with the tag after encryption; undo this before key lookup and HKDF, which uses the unmasked header.
 Generate a fresh client ephemeral X25519 key pair for every exchange, including retries.
 Encrypt the plaintext with [XAES-256-GCM](https://c2sp.org/XAES-256-GCM), using a fresh random 24-byte nonce and a 16-byte tag.
 

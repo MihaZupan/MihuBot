@@ -13,7 +13,7 @@ public sealed class MollyKeyRotationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Header_ContainsRecipientSha512PrefixAndEphemeralPublicKey(bool bootstrap)
+    public void Header_ContainsTagMaskedRecipientSha512PrefixAndEphemeralPublicKey(bool bootstrap)
     {
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         byte[] recipientPublicKey = bootstrap
@@ -26,9 +26,17 @@ public sealed class MollyKeyRotationTests
         Assert.Equal(16, MollyRequestProtector.RecipientKeyIdLength);
         Assert.Equal(48, MollyRequestProtector.HeaderLength);
         Assert.Equal(48 + 24 + 16 + 2 + Encoding.UTF8.GetByteCount(plaintext), body.Length);
-        Assert.Equal(SHA512.HashData(recipientPublicKey).AsSpan(0, 16).ToArray(), body.AsSpan(0, 16).ToArray());
+        byte[] recipientKeyId = SHA512.HashData(recipientPublicKey).AsSpan(0, 16).ToArray();
+        for (int i = 0; i < recipientKeyId.Length; i++)
+        {
+            Assert.Equal((byte)(recipientKeyId[i] ^ body[body.Length - recipientKeyId.Length + i]), body[i]);
+        }
+        byte[] nextBody = client.Encrypt(plaintext);
+        Assert.NotEqual(body.AsSpan(0, 16).ToArray(), nextBody.AsSpan(0, 16).ToArray());
         Assert.Equal(-1, body.AsSpan(0, 48).IndexOf(recipientPublicKey));
+        byte[] originalBody = body.ToArray();
         Assert.True(server.TryDecryptRequest(body, out _, out byte[]? keys));
+        Assert.Equal(originalBody, body);
         CryptographicOperations.ZeroMemory(keys);
     }
 
@@ -505,7 +513,9 @@ public sealed class MollyKeyRotationTests
         time.Advance(TimeSpan.FromMinutes(30));
         MollyTransportKeyResponse next = server.GetTransportKey();
         byte[] body = oldClient.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
+        MollyTestEnvelope.MaskRequestBody(body);
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(next.PublicKey)).CopyTo(body, 0);
+        MollyTestEnvelope.MaskRequestBody(body);
         Assert.False(server.TryDecryptRequest(body, out _, out _));
     }
 
@@ -531,6 +541,7 @@ public sealed class MollyKeyRotationTests
         Assert.Equal(32, responseKey.Length);
         byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, responseKey);
         using var responseCipher = new XAesGcm(responseKey);
+        MollyTestEnvelope.MaskRequestBody(body);
         Assert.False(responseCipher.TryDecrypt(body.AsSpan(48), out _));
         Assert.Equal("ok", client.DecryptResponse(response).GetProperty("status").GetString());
         CryptographicOperations.ZeroMemory(responseKey);
@@ -555,12 +566,14 @@ public sealed class MollyKeyRotationTests
 
         using var stolenIdentity = X25519DiffieHellman.ImportPrivateKey(MollyTestKeys.TransportPrivateKeyBytes);
         byte[] shared = new byte[32];
-        stolenIdentity.DeriveRawSecretAgreement(body.AsSpan(16, 32), shared);
-        byte[] info = [.. "MihuBot.Molly.MollyRequestProtector.v2"u8, .. body.AsSpan(0, 48)];
+        byte[] unmaskedBody = body.ToArray();
+        MollyTestEnvelope.MaskRequestBody(unmaskedBody);
+        stolenIdentity.DeriveRawSecretAgreement(unmaskedBody.AsSpan(16, 32), shared);
+        byte[] info = [.. "MihuBot.Molly.MollyRequestProtector.v2"u8, .. unmaskedBody.AsSpan(0, 48)];
         byte[] guessedKeys = HKDF.DeriveKey(HashAlgorithmName.SHA512, shared, 64, info: info);
         using var requestCipher = new XAesGcm(guessedKeys.AsSpan(0, 32));
         using var responseCipher = new XAesGcm(guessedKeys.AsSpan(32));
-        Assert.False(requestCipher.TryDecrypt(body.AsSpan(48), out _));
+        Assert.False(requestCipher.TryDecrypt(unmaskedBody.AsSpan(48), out _));
         Assert.False(responseCipher.TryDecrypt(response, out _));
         CryptographicOperations.ZeroMemory(shared);
         CryptographicOperations.ZeroMemory(guessedKeys);

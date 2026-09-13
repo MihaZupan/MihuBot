@@ -42,6 +42,14 @@ public sealed class MollyTestEnvelope : IDisposable
     public static byte[] GetRecipientKeyId(ReadOnlySpan<byte> publicKey) =>
         SHA512.HashData(publicKey).AsSpan(0, RecipientKeyIdLength).ToArray();
 
+    public static void MaskRequestBody(Span<byte> body)
+    {
+        for (int i = 0; i < RecipientKeyIdLength; i++)
+        {
+            body[i] ^= body[body.Length - RecipientKeyIdLength + i];
+        }
+    }
+
     /// <summary>The plaintext request envelope, with <paramref name="data"/> spliced in as raw JSON.</summary>
     public static string RequestJson(string action, string? data = null, string? nonce = null, long? timestamp = null) =>
         $$"""
@@ -84,6 +92,7 @@ public sealed class MollyTestEnvelope : IDisposable
         byte[] body = new byte[header.Length + sealedMessage.Length];
         header.CopyTo(body, 0);
         sealedMessage.CopyTo(body, header.Length);
+        MaskRequestBody(body);
         return body;
     }
 

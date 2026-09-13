@@ -35,6 +35,26 @@ public sealed class MollyRequestProtectorTests : IDisposable
         _client.EncryptRequest(action, data, nonce, timestamp ?? _time.GetUtcNow().ToUnixTimeSeconds());
 
     [Theory]
+    [InlineData(32)]
+    [InlineData(90)]
+    [InlineData(1024)]
+    public void RequestMask_XorsFirstSixteenBytesWithLastSixteenAndPreservesTheRest(int length)
+    {
+        byte[] original = Enumerable.Range(0, length).Select(i => (byte)(i % 256)).ToArray();
+        byte[] body = original.ToArray();
+        MollyTestEnvelope.MaskRequestBody(body);
+
+        for (int i = 0; i < 16; i++)
+        {
+            Assert.Equal((byte)(original[i] ^ original[length - 16 + i]), body[i]);
+        }
+        Assert.Equal(original.AsSpan(16).ToArray(), body.AsSpan(16).ToArray());
+
+        MollyTestEnvelope.MaskRequestBody(body);
+        Assert.Equal(original, body);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(47)]
     [InlineData(49)]
@@ -63,7 +83,9 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         using var wrongKey = new MollyTestEnvelope(MollyTestKeys.OtherTransportPublicKeyBytes);
         byte[] body = wrongKey.EncryptRequest("login", timestamp: _time.GetUtcNow().ToUnixTimeSeconds());
+        MollyTestEnvelope.MaskRequestBody(body);
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(_protector.GetTransportKey().PublicKey)).CopyTo(body, 0);
+        MollyTestEnvelope.MaskRequestBody(body);
 
         Assert.False(_protector.TryDecryptRequest(body, out _, out _));
     }
@@ -73,6 +95,17 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         byte[] body = Encrypt("login");
         body[^1] ^= 0xFF;
+
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+    }
+
+    [Fact]
+    public void TamperedTagWithMatchingMask_IsRejected()
+    {
+        byte[] body = Encrypt("login");
+        MollyTestEnvelope.MaskRequestBody(body);
+        body[^1] ^= 0xFF;
+        MollyTestEnvelope.MaskRequestBody(body);
 
         Assert.False(_protector.TryDecryptRequest(body, out _, out _));
     }
@@ -351,7 +384,9 @@ public sealed class MollyRequestProtectorTests : IDisposable
         // secret, which the platform rejects (RFC 7748 6.1). Since the ephemeral key comes straight
         // off the wire, that must surface as a rejected request, not an escaping exception.
         byte[] body = Encrypt("ping");
+        MollyTestEnvelope.MaskRequestBody(body);
         body.AsSpan(16, 32).Clear();
+        MollyTestEnvelope.MaskRequestBody(body);
 
         Assert.False(_protector.TryDecryptRequest(body, out _, out _));
     }

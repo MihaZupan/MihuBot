@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Hashing;
+using System.Numerics.Tensors;
 using System.Security.Cryptography;
 using System.Text.Json;
 using MihuBot.Configuration;
@@ -13,7 +14,7 @@ using MihuBot.Molly.Api;
 namespace MihuBot.Molly;
 
 /// <summary>
-/// Molly transport: <c>recipient key ID (16) || ephemeral public key (32) ||
+/// Molly transport: <c>recipient key ID XOR tag (16) || ephemeral public key (32) ||
 /// nonce (24) || ciphertext || tag (16)</c>. The pinned static public key is used
 /// exclusively for discovery; application requests require a rotating, memory-only key.
 /// </summary>
@@ -112,7 +113,11 @@ public sealed class MollyRequestProtector : IDisposable
             return false;
         }
 
-        if (!TryDeriveSessionKeys(body.Slice(0, HeaderLength), out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap))
+        Span<byte> header = stackalloc byte[HeaderLength];
+        body.Slice(0, HeaderLength).CopyTo(header);
+        TensorPrimitives.Xor(header.Slice(0, RecipientKeyIdLength), body.Slice(body.Length - RecipientKeyIdLength), header.Slice(0, RecipientKeyIdLength));
+
+        if (!TryDeriveSessionKeys(header, out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap))
         {
             // A low-order / contributory ephemeral key (all-zero agreement) or other derivation
             // failure - the ephemeral key is attacker-controlled, so this is just a bad request.
