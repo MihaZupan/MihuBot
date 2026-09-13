@@ -114,7 +114,7 @@ public sealed class AreaLabelsApiTests
             Assert.Matches(@" in \d+[.,]\d{2}s:", message);
             Assert.DoesNotContain('\n', message);
         });
-        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", $"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-"], cache.Keys);
+        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-"], cache.Keys);
     }
 
     [Fact]
@@ -275,7 +275,7 @@ public sealed class AreaLabelsApiTests
             HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default)
         {
             Keys.Enqueue(key);
-            LabelPrefix = key.Split(':', 5)[4];
+            LabelPrefix = key.Split(':', 6)[5];
             if (Interlocked.Increment(ref _calls) == 10)
             {
                 TenRequestsStarted.TrySetResult();

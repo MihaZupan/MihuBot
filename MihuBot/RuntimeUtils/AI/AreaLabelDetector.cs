@@ -34,24 +34,32 @@ public sealed class AreaLabelDetector(
 
     private string Model => configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.Model", out string model) ? model : OpenAIService.DefaultModel;
 
+    internal ChatCompletionOptions CreateChatCompletionOptions() => new()
+    {
+        ReasoningEffortLevel = configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.ReasoningEffort", out string effort)
+            ? new ChatReasoningEffortLevel(effort)
+            : ChatReasoningEffortLevel.Medium,
+    };
+
     public async Task<AreaLabelSuggestion[]> PredictAsync(string repository, int number, string labelPrefix, CancellationToken cancellationToken)
     {
         string model = Model;
+        ChatCompletionOptions completionOptions = CreateChatCompletionOptions();
         return await cache.GetOrCreateAsync(
-            $"AreaLabels:{Uri.EscapeDataString(model)}:{repository.ToLowerInvariant()}:{number}:{labelPrefix.ToLowerInvariant()}",
+            $"AreaLabels:{Uri.EscapeDataString(model)}:{Uri.EscapeDataString(completionOptions.ReasoningEffortLevel.ToString())}:{repository.ToLowerInvariant()}:{number}:{labelPrefix.ToLowerInvariant()}",
             async ct =>
             {
                 var issue = await triage.GetOrFetchIssueAsync(repository, number, ct);
-                return await GetSuggestionsAsync(issue.Repository, issue, ct, labelPrefix, model);
+                return await GetSuggestionsAsync(issue.Repository, issue, labelPrefix, model, completionOptions, ct);
             },
             new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
             cancellationToken: cancellationToken);
     }
 
-    public Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix = "area-") =>
-        GetSuggestionsAsync(repository, issue, cancellationToken, labelPrefix, Model);
+    public Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, string labelPrefix = "area-", CancellationToken cancellationToken = default) =>
+        GetSuggestionsAsync(repository, issue, labelPrefix, Model, CreateChatCompletionOptions(), cancellationToken);
 
-    private async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, CancellationToken cancellationToken, string labelPrefix, string model)
+    private async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, string labelPrefix, string model, ChatCompletionOptions completionOptions, CancellationToken cancellationToken)
     {
         long start = Stopwatch.GetTimestamp();
         string[] labels = GetCandidateLabels(repository, labelPrefix);
@@ -81,10 +89,7 @@ public sealed class AreaLabelDetector(
 
         var options = new ChatOptions
         {
-            RawRepresentationFactory = _ => new ChatCompletionOptions
-            {
-                ReasoningEffortLevel = ChatReasoningEffortLevel.Medium,
-            },
+            RawRepresentationFactory = _ => completionOptions,
         };
 
         ChatResponse<AreaLabelSuggestion[]> result = await openAI.GetChat(model, secondary: true).GetResponseAsync<AreaLabelSuggestion[]>(
@@ -114,7 +119,7 @@ public sealed class AreaLabelDetector(
         string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
         string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
-        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} (reasoning: {completionOptions.ReasoningEffortLevel}) in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
         return suggestions;
     }
 

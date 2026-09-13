@@ -103,7 +103,7 @@ public sealed class AreaLabelDetectionTests
         };
         var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
 
-        Assert.Empty(await detector.GetSuggestionsAsync(repository, new IssueInfo(), CancellationToken.None));
+        Assert.Empty(await detector.GetSuggestionsAsync(repository, new IssueInfo(), cancellationToken: CancellationToken.None));
     }
 
     [Fact]
@@ -117,9 +117,9 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] area = [new("area-Test", 0.9)];
         AreaLabelSuggestion[] component = [new("component:Runtime", 0.9)];
         AreaLabelSuggestion[] discussion = [new("area-Discussion", 0.9)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", area);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:component:", component);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:124:area-", discussion);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", area);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:component:", component);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:124:area-", discussion);
         var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
@@ -140,8 +140,8 @@ public sealed class AreaLabelDetectionTests
         var configuration = new TestConfigurationService();
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:dotnet/runtime:123:area-", original);
-        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:dotnet/runtime:123:area-", alternative);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
+        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:medium:dotnet/runtime:123:area-", alternative);
         var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
@@ -150,6 +150,57 @@ public sealed class AreaLabelDetectionTests
         Assert.Equal(alternative, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
 
         configuration.Remove(null, "AreaLabelDetector.Model");
+        Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("minimal")]
+    [InlineData("low")]
+    [InlineData("medium")]
+    [InlineData("high")]
+    [InlineData("xhigh")]
+    public void ReasoningConfigurationIsAppliedToChatOptions(string effort)
+    {
+        var configuration = new TestConfigurationService();
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+
+#pragma warning disable OPENAI001
+        Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+
+        configuration.Set(null, "AreaLabelDetector.ReasoningEffort", effort);
+        Assert.Equal(effort, detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+
+        configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
+        Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+#pragma warning restore OPENAI001
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("low")]
+    [InlineData("high")]
+    [InlineData("xhigh")]
+    public async Task ReasoningChangesSelectSeparateCachedPredictionsImmediately(string effort)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<HybridCache>();
+        var configuration = new TestConfigurationService();
+        AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
+        AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:{effort}:dotnet/runtime:123:area-", alternative);
+        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+
+        Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Set(null, "AreaLabelDetector.ReasoningEffort", effort);
+        Assert.Equal(alternative, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
     }
 

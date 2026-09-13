@@ -77,7 +77,7 @@ public sealed class DetectIssueAreaLabelsService(
 
             try
             {
-                AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(repo, issue, cancellationToken);
+                AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(repo, issue, cancellationToken: cancellationToken);
 
                 if (suggestions.Length == 0)
                 {
