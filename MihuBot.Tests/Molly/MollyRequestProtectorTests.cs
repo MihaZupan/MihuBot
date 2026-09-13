@@ -1,3 +1,5 @@
+using System.Buffers.Text;
+using System.IO.Hashing;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,12 +9,6 @@ using MihuBot.Molly;
 using MihuBot.Molly.Api;
 
 namespace MihuBot.Tests.Molly;
-
-/// <summary>A clock the tests can hold still, so the timestamp window is deterministic.</summary>
-file sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-{
-    public override DateTimeOffset GetUtcNow() => now;
-}
 
 /// <summary>
 /// Covers the encrypted transport in isolation: sealing to the server's X25519 key, the timestamp
@@ -25,7 +21,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     /// <summary>Small enough to fill within a test, so nonce eviction is reachable.</summary>
     private const int SmallWindow = 4;
 
-    private readonly TimeProvider _time = new FixedTimeProvider(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+    private readonly ManualTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly MollyRequestProtector _protector;
     private readonly MollyTestEnvelope _client;
 
@@ -171,6 +167,166 @@ public sealed class MollyRequestProtectorTests : IDisposable
     }
 
     [Fact]
+    public void ANonceWithDifferentPaddingBits_CannotBypassTheReplayWindow()
+    {
+        const string canonical = "AAAAAAAAAAAAAAAAAAAAAA==";
+        const string alternative = "AAAAAAAAAAAAAAAAAAAAAB==";
+
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical), out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: alternative), out _, out _));
+    }
+
+    [Fact]
+    public void CachedNonce_IsDerivedFromTheProcessSeed()
+    {
+        _time.Advance(TimeSpan.FromSeconds(7));
+        string nonce = MollyTestEnvelope.NewNonce();
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _));
+
+        long seed = (long)typeof(MollyRequestProtector)
+            .GetField("NonceCacheSeed", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        byte[] hash = XxHash128.Hash(Convert.FromBase64String(nonce), seed);
+        string expected = Base64Url.EncodeToString(hash);
+
+        string cached = Assert.Single(GetNonceCacheField<HashSet<string>>(_protector, "_nonces"));
+        Assert.Equal(expected, cached);
+        Assert.NotEqual(nonce, cached);
+        Assert.Equal(22, cached.Length);
+        Assert.Matches("^[A-Za-z0-9_-]{22}$", cached);
+        var (storedNonce, storedAt) = Assert.Single(GetNonceCacheField<Queue<(string Nonce, long StoredAt)>>(_protector, "_nonceOrder"));
+        Assert.Same(cached, storedNonce);
+        Assert.Equal(_time.GetTimestamp(), storedAt);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(SmallWindow)]
+    public void Eviction_DoesNotGrowTheCollectionsOrAcceptReplays(int window)
+    {
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, window);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
+        var nonces = GetNonceCacheField<HashSet<string>>(protector, "_nonces");
+        var order = GetNonceCacheField<Queue<(string Nonce, long StoredAt)>>(protector, "_nonceOrder");
+        int setCapacity = nonces.EnsureCapacity(0);
+        int queueCapacity = order.EnsureCapacity(0);
+        var bodies = new Queue<byte[]>();
+
+        for (int i = 0; i < window * 3; i++)
+        {
+            byte[] body = client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds());
+            Assert.True(protector.TryDecryptRequest(body, out _, out _));
+            bodies.Enqueue(body);
+            if (bodies.Count > window)
+            {
+                bodies.Dequeue();
+            }
+
+            foreach (byte[] replay in bodies)
+            {
+                Assert.False(protector.TryDecryptRequest(replay, out _, out _));
+            }
+
+            Assert.Equal(bodies.Count, nonces.Count);
+            Assert.Equal(bodies.Count, order.Count);
+            Assert.Equal(setCapacity, nonces.EnsureCapacity(0));
+            Assert.Equal(queueCapacity, order.EnsureCapacity(0));
+        }
+    }
+
+    private static T GetNonceCacheField<T>(MollyRequestProtector protector, string name) =>
+        (T)typeof(MollyRequestProtector).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(protector)!;
+
+    [Theory]
+    [InlineData(0, 5)]
+    [InlineData(1, 5)]
+    [InlineData(4, 5)]
+    [InlineData(5, 5)]
+    [InlineData(12, 12)]
+    [InlineData(29, 29)]
+    [InlineData(30, 30)]
+    [InlineData(45, 30)]
+    public void Eviction_AdaptsTimestampToleranceToResidenceTime(int ageSeconds, int expectedToleranceSeconds)
+    {
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 3);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.True(protector.TryDecryptRequest(
+                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+        }
+
+        _time.Advance(TimeSpan.FromSeconds(ageSeconds));
+        long now = _time.GetUtcNow().ToUnixTimeSeconds();
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now), out _, out _));
+        Assert.Equal(TimeSpan.FromSeconds(expectedToleranceSeconds),
+            GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
+
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds - 1), out _, out _));
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds + 1), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds), out _, out _));
+    }
+
+    [Fact]
+    public void TimestampTolerance_OnlyDecreasesAsEntriesArriveFaster()
+    {
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 1);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
+        Assert.True(protector.TryDecryptRequest(
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+
+        foreach (var (ageSeconds, expectedToleranceSeconds) in new (double, double)[] { (12.5, 12.5), (20, 12.5), (7, 7), (0, 5), (45, 5) })
+        {
+            _time.Advance(TimeSpan.FromSeconds(ageSeconds));
+            Assert.True(protector.TryDecryptRequest(
+                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+            Assert.Equal(TimeSpan.FromSeconds(expectedToleranceSeconds),
+                GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
+        }
+    }
+
+    [Theory]
+    [InlineData(-120)]
+    [InlineData(120)]
+    public void EvictionAge_UsesMonotonicTimeRatherThanTheWallClock(int clockAdjustmentSeconds)
+    {
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 1);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
+        Assert.True(protector.TryDecryptRequest(
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+
+        _time.Advance(TimeSpan.FromSeconds(12));
+        _time.AdjustUtcNow(TimeSpan.FromSeconds(clockAdjustmentSeconds));
+        Assert.True(protector.TryDecryptRequest(
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+        Assert.Equal(TimeSpan.FromSeconds(12), GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
+    }
+
+    [Fact]
+    public void RejectedRequests_DoNotEvictEntriesOrTightenTolerance()
+    {
+        using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 1);
+        using var client = new MollyTestEnvelope(protector.GetTransportKey());
+        long now = _time.GetUtcNow().ToUnixTimeSeconds();
+        byte[] accepted = client.EncryptRequest("ping", timestamp: now);
+        Assert.True(protector.TryDecryptRequest(accepted, out _, out _));
+        var order = GetNonceCacheField<Queue<(string Nonce, long StoredAt)>>(protector, "_nonceOrder");
+        var original = Assert.Single(order);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        string nonce = MollyTestEnvelope.NewNonce();
+        Assert.False(protector.TryDecryptRequest(accepted, out _, out _));
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: nonce, timestamp: now - 30), out _, out _));
+        Assert.Equal(original, Assert.Single(order));
+        Assert.Equal(MollyRequestProtector.TimestampTolerance, GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
+
+        Assert.True(protector.TryDecryptRequest(
+            client.EncryptRequest("ping", nonce: nonce, timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+        Assert.Equal(MollyRequestProtector.MinimumTimestampTolerance, GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
+    }
+
+    [Fact]
     public void OnceTheWindowRollsOver_TheOldestNonceCanBeUsedAgain()
     {
         using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, SmallWindow);
@@ -218,6 +374,23 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new MollyRequestProtector(new byte[31]));
         Assert.Throws<ArgumentOutOfRangeException>(() => new MollyRequestProtector(new byte[33]));
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private long _timestamp;
+
+        public override DateTimeOffset GetUtcNow() => now;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+
+        public void Advance(TimeSpan elapsed)
+        {
+            now += elapsed;
+            _timestamp += elapsed.Ticks;
+        }
+
+        public void AdjustUtcNow(TimeSpan adjustment) => now += adjustment;
     }
 
     public void Dispose()

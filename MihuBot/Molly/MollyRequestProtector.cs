@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Hashing;
 using System.Security.Cryptography;
 using System.Text.Json;
 using MihuBot.Configuration;
@@ -23,7 +25,7 @@ namespace MihuBot.Molly;
 /// </para>
 /// <para>
 /// Because anyone holding the public key can seal, requests carry a timestamp and a random nonce.
-/// The timestamp has to be within <see cref="TimestampTolerance"/> of the server's clock, and the
+/// The timestamp has to be within an adaptive tolerance of the server's clock, and the
 /// last <see cref="TrackedNonceCount"/> nonces are remembered and rejected, so a captured blob can't
 /// simply be replayed. Response replay needs no separate guard: each request derives a unique session
 /// key, so a response only ever decrypts for the exact request it answers.
@@ -42,8 +44,10 @@ public sealed class MollyRequestProtector : IDisposable
     /// <summary>Domain separation for the HKDF step, so this key derivation is bound to this protocol.</summary>
     private static ReadOnlySpan<byte> HkdfInfoLabel => "MihuBot.Molly.MollyRequestProtector.v2"u8;
 
-    /// <summary>How far the client's clock may be off, in either direction.</summary>
+    /// <summary>Initial maximum clock skew, tightened when the replay cache turns over faster.</summary>
     public static readonly TimeSpan TimestampTolerance = TimeSpan.FromSeconds(30);
+
+    public static readonly TimeSpan MinimumTimestampTolerance = TimeSpan.FromSeconds(5);
 
     /// <summary>The request nonce, as raw bytes before base64 encoding.</summary>
     public const int RequestNonceLength = 16;
@@ -54,15 +58,18 @@ public sealed class MollyRequestProtector : IDisposable
     /// <summary>Length of <see cref="RequestNonceLength"/> bytes once base64 encoded.</summary>
     private const int EncodedNonceLength = (RequestNonceLength + 2) / 3 * 4;
 
+    private static readonly long NonceCacheSeed = BinaryPrimitives.ReadInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(long)));
+
     private readonly MollyTransportKeyRing _keys;
 
     private readonly TimeProvider _timeProvider;
     private readonly int _trackedNonceCount;
 
     /// <summary>Insertion ordered so the oldest nonce can be evicted once the window is full.</summary>
-    private readonly Queue<string> _nonceOrder;
+    private readonly Queue<(string Nonce, long StoredAt)> _nonceOrder;
     private readonly HashSet<string> _nonces;
     private readonly Lock _nonceLock = new();
+    private TimeSpan _timestampTolerance = TimestampTolerance;
 
     public MollyRequestProtector(IConfiguration configuration)
         : this(Convert.FromBase64String(configuration[OptionalFeatures.MollyTransportPrivateKeyName]!))
@@ -80,8 +87,9 @@ public sealed class MollyRequestProtector : IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _trackedNonceCount = trackedNonceCount;
 
-        _nonceOrder = new Queue<string>(trackedNonceCount);
-        _nonces = new HashSet<string>(trackedNonceCount, StringComparer.Ordinal);
+        _nonceOrder = new Queue<(string Nonce, long StoredAt)>(trackedNonceCount);
+        // Add must detect duplicates before eviction, without growing the set.
+        _nonces = new HashSet<string>(checked(trackedNonceCount + 1), StringComparer.Ordinal);
 
         _keys = new MollyTransportKeyRing(privateKey, _timeProvider);
     }
@@ -144,9 +152,8 @@ public sealed class MollyRequestProtector : IDisposable
             string.IsNullOrEmpty(request.Action) ||
             bootstrap != string.Equals(request.Action, MollyApiActions.TransportKey, StringComparison.Ordinal) ||
             (bootstrap && request.Data.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)) ||
-            !IsTimestampFresh(request.Timestamp) ||
-            !TryDecodeNonce(request.Nonce, out string? nonce) ||
-            !TryConsumeNonce(nonce))
+            !TryGetNonceCacheKey(request.Nonce, out string? nonce) ||
+            !TryConsumeNonce(nonce, request.Timestamp))
         {
             request = null;
             return false;
@@ -227,28 +234,11 @@ public sealed class MollyRequestProtector : IDisposable
 
     public void Dispose() => _keys.Dispose();
 
-    /// <summary>Unix seconds, which have to be within <see cref="TimestampTolerance"/> of the server's clock.</summary>
-    private bool IsTimestampFresh(long timestamp)
-    {
-        DateTimeOffset now = _timeProvider.GetUtcNow();
-
-        // Guard against values so far out that constructing the DateTimeOffset would throw.
-        if (timestamp < DateTimeOffset.UnixEpoch.ToUnixTimeSeconds() ||
-            timestamp > now.AddYears(100).ToUnixTimeSeconds())
-        {
-            return false;
-        }
-
-        TimeSpan difference = DateTimeOffset.FromUnixTimeSeconds(timestamp) - now;
-
-        return difference.Duration() <= TimestampTolerance;
-    }
-
     /// <summary>
-    /// Requires the exact base64 encoding of <see cref="RequestNonceLength"/> random bytes, so that
-    /// the same nonce can't be re-sent in a different encoding to slip past the replay window.
+    /// Derives a process-seeded cache key from the decoded nonce, so alternate base64 spellings
+    /// cannot bypass replay detection and clients cannot directly choose the stored strings.
     /// </summary>
-    private static bool TryDecodeNonce(string? value, [NotNullWhen(true)] out string? nonce)
+    private static bool TryGetNonceCacheKey(string? value, [NotNullWhen(true)] out string? nonce)
     {
         nonce = null;
 
@@ -262,27 +252,48 @@ public sealed class MollyRequestProtector : IDisposable
             return false;
         }
 
-        // Canonical form, so that whitespace or alternative padding can't produce a second spelling.
-        nonce = Convert.ToBase64String(bytes);
+        Span<byte> hash = stackalloc byte[16];
+        XxHash128.Hash(bytes, hash, NonceCacheSeed);
+        nonce = Base64Url.EncodeToString(hash);
         return true;
     }
 
-    /// <summary>Records the nonce, or fails if it is already in the window of the last ones seen.</summary>
-    private bool TryConsumeNonce(string nonce)
+    /// <summary>Checks freshness and records the nonce, rejecting duplicates without changing the cache.</summary>
+    private bool TryConsumeNonce(string nonce, long timestamp)
     {
         lock (_nonceLock)
         {
-            if (!_nonces.Add(nonce))
+            DateTimeOffset now = _timeProvider.GetUtcNow();
+
+            // Guard against values so far out that constructing the DateTimeOffset would throw.
+            if (timestamp < DateTimeOffset.UnixEpoch.ToUnixTimeSeconds() ||
+                timestamp > now.AddYears(100).ToUnixTimeSeconds())
             {
                 return false;
             }
 
-            _nonceOrder.Enqueue(nonce);
+            TimeSpan difference = DateTimeOffset.FromUnixTimeSeconds(timestamp) - now;
 
-            if (_nonceOrder.Count > _trackedNonceCount)
+            if (difference.Duration() > _timestampTolerance || !_nonces.Add(nonce))
             {
-                _nonces.Remove(_nonceOrder.Dequeue());
+                return false;
             }
+
+            long storedAt = _timeProvider.GetTimestamp();
+
+            if (_nonceOrder.Count == _trackedNonceCount)
+            {
+                (string? evictedNonce, long evictedAt) = _nonceOrder.Dequeue();
+                _nonces.Remove(evictedNonce);
+
+                TimeSpan age = _timeProvider.GetElapsedTime(evictedAt, storedAt);
+                if (age < _timestampTolerance)
+                {
+                    _timestampTolerance = age < MinimumTimestampTolerance ? MinimumTimestampTolerance : age;
+                }
+            }
+
+            _nonceOrder.Enqueue((nonce, storedAt));
 
             return true;
         }

@@ -15,7 +15,7 @@ public sealed class MollyApiRequest
     [JsonPropertyName("action")]
     public string? Action { get; set; }
 
-    /// <summary>Unix seconds. Must be within 30 seconds of the server's clock.</summary>
+    /// <summary>Unix seconds. Allowed clock skew starts at 30 seconds and may tighten to 5 seconds under load.</summary>
     [JsonPropertyName("timestamp")]
     public long Timestamp { get; set; }
 
