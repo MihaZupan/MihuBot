@@ -90,15 +90,19 @@ public sealed class AIOverviewCommandTests
             Usage = new UsageDetails { InputTokenCount = 100_000, OutputTokenCount = 10_000 },
         };
 
-        Assert.Equal("gpt-5-mini-2025-08-07 \u2022 100k tokens in, 10k out \u2022 ~$0.045 USD",
+        Assert.Equal("100k tokens in, 10k out \u2022 gpt-5-mini \u2022 ~$0.05 USD",
             AIOverviewCommand.FormatUsageFooter(response, "gpt-5"));
     }
 
-    [Fact]
-    public void FormatUsageFooter_FallsBackToClientModel()
+    [Theory]
+    [InlineData("gpt-5-mini", "gpt-5-mini")]
+    [InlineData("gpt-5-mini-2025-08-07", "gpt-5-mini")]
+    [InlineData("gpt-6-astra", "gpt-6-astra")]
+    [InlineData("gpt-5-mini-2025-02-30", "gpt-5-mini-2025-02-30")]
+    public void FormatUsageFooter_FallsBackToClientModel(string model, string expectedModel)
     {
-        Assert.Equal("gpt-5-mini \u2022 ~$0.00 USD",
-            AIOverviewCommand.FormatUsageFooter(new ChatResponse(), "gpt-5-mini"));
+        Assert.Equal($"{expectedModel} \u2022 ~$0.00 USD",
+            AIOverviewCommand.FormatUsageFooter(new ChatResponse(), model));
     }
 
     [Fact]
@@ -112,6 +116,7 @@ public sealed class AIOverviewCommandTests
     [InlineData("gpt-5-mini", 1L, 0L, "~$0.00 USD")]
     [InlineData("gpt-5-mini", 0L, 0L, "~$0.00 USD")]
     [InlineData("gpt-5-mini", 100L, null, "~$0.00 USD")]
+    [InlineData("gpt-5-mini", 133_600L, 0L, "~$0.03 USD")]
     [InlineData("unknown", 100L, 10L, "~$0.00 USD")]
     public void FormatUsageFooter_HandlesSmallCostsAndUnavailableEstimates(string model, long input, long? output, string expectedCost)
     {

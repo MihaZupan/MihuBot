@@ -197,16 +197,16 @@ public sealed class AIOverviewCommand : CommandBase
     internal static string FormatUsageFooter(ChatResponse response, string defaultModelId)
     {
         string model = response.ModelId ?? defaultModelId;
-        string footer = model ?? "Unknown model";
+        string footer = TokenUsageHelpers.WithoutSnapshotDate(model ?? "Unknown model");
         UsageDetails usage = response.Usage;
 
         if (usage is { InputTokenCount: not null } or { OutputTokenCount: not null })
         {
-            footer = $"{footer} • {TokenUsageHelpers.FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {TokenUsageHelpers.FormatTokenCount(usage.OutputTokenCount ?? 0)} out";
+            footer = $"{TokenUsageHelpers.FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {TokenUsageHelpers.FormatTokenCount(usage.OutputTokenCount ?? 0)} out • {footer}";
         }
 
         decimal cost = TokenUsageHelpers.EstimateCostUsd(model, usage) ?? 0;
-        string costText = string.Create(CultureInfo.InvariantCulture, $"~${cost:0.00##} USD");
+        string costText = string.Create(CultureInfo.InvariantCulture, $"~${cost:0.00} USD");
 
         return $"{footer} • {costText}";
     }

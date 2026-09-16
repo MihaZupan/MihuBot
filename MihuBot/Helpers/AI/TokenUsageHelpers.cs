@@ -7,6 +7,18 @@ namespace MihuBot.Helpers.AI;
 
 public static class TokenUsageHelpers
 {
+    public static string WithoutSnapshotDate(string model)
+    {
+        // Responses may identify a dated snapshot instead of the configured model alias.
+        if (model.Length > 11 && model[^11] == '-' &&
+            DateOnly.TryParseExact(model.AsSpan(model.Length - 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        {
+            return model[..^11];
+        }
+
+        return model;
+    }
+
     /// <summary>Estimates standard text-token cost in USD; null means pricing or usage is unavailable.</summary>
     public static decimal? EstimateCostUsd(string? model, UsageDetails? usage)
     {
@@ -15,12 +27,7 @@ public static class TokenUsageHelpers
             return null;
         }
 
-        // Responses may identify a dated snapshot instead of the configured model alias.
-        if (model.Length > 11 && model[^11] == '-' &&
-            DateOnly.TryParseExact(model.AsSpan(model.Length - 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
-        {
-            model = model[..^11];
-        }
+        model = WithoutSnapshotDate(model);
 
         ModelInfo? modelInfo = OpenAIService.AllModels.FirstOrDefault(m => m.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
 
