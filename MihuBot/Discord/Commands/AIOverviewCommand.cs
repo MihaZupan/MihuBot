@@ -224,14 +224,25 @@ public sealed class AIOverviewCommand : CommandBase
                 log.ChannelId == channelId &&
                 (log.Type == Logger.EventType.MessageReceived ||
                  log.Type == Logger.EventType.MessageUpdated ||
+                 log.Type == Logger.EventType.MessageDeleted ||
                  log.Type == Logger.EventType.FileReceived)),
             cancellationToken: cancellationToken);
 
+        return BuildTranscript(entries, ctx.Message.Id, focusUserId, await botsTask, userId => GetDisplayName(ctx, userId));
+    }
+
+    internal static (string Transcript, int MessageCount, int FocusMessageCount) BuildTranscript(
+        IEnumerable<LogDbEntry> entries,
+        ulong beforeMessageId,
+        ulong? focusUserId,
+        IReadOnlyCollection<ulong> botIds,
+        Func<ulong, string> getDisplayName)
+    {
         SortedDictionary<long, LoggedMessage> messages = [];
 
         foreach (LogDbEntry entry in entries)
         {
-            if ((ulong)entry.Snowflake >= ctx.Message.Id)
+            if ((ulong)entry.Snowflake >= beforeMessageId)
             {
                 continue;
             }
@@ -239,6 +250,12 @@ public sealed class AIOverviewCommand : CommandBase
             if (!messages.TryGetValue(entry.Snowflake, out LoggedMessage message))
             {
                 messages[entry.Snowflake] = message = new LoggedMessage();
+            }
+
+            if (entry.Type == Logger.EventType.MessageDeleted)
+            {
+                message.Deleted = true;
+                continue;
             }
 
             message.AuthorId = (ulong)entry.UserId;
@@ -282,23 +299,26 @@ public sealed class AIOverviewCommand : CommandBase
 
             content = content.ReplaceLineEndings("  ").Trim();
 
-            if (content.Length > 200 && (await botsTask).Contains(message.AuthorId))
+            if (content.Length > 200 && botIds.Contains(message.AuthorId))
             {
                 content = content.TruncateWithDotDotDot(200);
             }
 
             messageCount++;
 
-            bool isFocused = focusUserId.HasValue && message.AuthorId == focusUserId.Value;
-
-            if (isFocused)
+            if (focusUserId.HasValue && message.AuthorId == focusUserId.Value)
             {
                 focusMessageCount++;
                 builder.Append(FocusMarker).Append(' ');
             }
 
             builder.Append('[').Append(SnowflakeUtils.FromSnowflake((ulong)snowflake).ToISODateTime()).Append("] ");
-            builder.Append(GetDisplayName(ctx, message.AuthorId)).Append(": ");
+            builder.Append(getDisplayName(message.AuthorId));
+            if (message.Deleted)
+            {
+                builder.Append(" (deleted)");
+            }
+            builder.Append(": ");
             builder.AppendLine(content);
 
             if (builder.Length > MaxTranscriptLength)
@@ -315,6 +335,7 @@ public sealed class AIOverviewCommand : CommandBase
         public ulong AuthorId;
         public string Content;
         public List<string> Attachments;
+        public bool Deleted;
     }
 
     private static bool TryGetAttachmentName(LogDbEntry entry, out string filename)
