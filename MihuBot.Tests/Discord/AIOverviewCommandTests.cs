@@ -7,6 +7,40 @@ namespace MihuBot.Tests.Discord;
 public sealed class AIOverviewCommandTests
 {
     [Theory]
+    [InlineData("", "", null)]
+    [InlineData("2 hours from john", "2 hours from john", null)]
+    [InlineData("123 2 hours", "2 hours", 123ul)]
+    [InlineData("2 hours 123", "2 hours", 123ul)]
+    [InlineData("123", "", 123ul)]
+    [InlineData("2 hours 123 from <@456>", "2 hours from <@456>", 123ul)]
+    [InlineData("2 hours from john 123", "2 hours from john", 123ul)]
+    [InlineData("2 hours from 789", "2 hours from 789", null)]
+    [InlineData("789 2 hours", "789 2 hours", null)]
+    [InlineData("<#123> 2 hours", "<#123> 2 hours", null)]
+    [InlineData("https://discord.com/channels/42/123 2h", "https://discord.com/channels/42/123 2h", null)]
+    [InlineData("<https://discord.com/channels/42/123>", "<https://discord.com/channels/42/123>", null)]
+    [InlineData("https://discord.com/channels/42/123/999", "https://discord.com/channels/42/123/999", null)]
+    [InlineData("0", "0", null)]
+    [InlineData("-123", "-123", null)]
+    [InlineData("18446744073709551616", "18446744073709551616", null)]
+    public void TryExtractChannelArgument_ExtractsOnlyGuildChannelId(string argument, string expectedArgument, ulong? expectedChannelId)
+    {
+        string[] arguments = argument.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        Assert.True(AIOverviewCommand.TryExtractChannelArgument(arguments, id => id is 123 or 456, out string remainingArgument, out ulong? channelId));
+        Assert.Equal(expectedArgument, remainingArgument);
+        Assert.Equal(expectedChannelId, channelId);
+    }
+
+    [Theory]
+    [InlineData("123 456")]
+    [InlineData("123 2 hours 123")]
+    public void TryExtractChannelArgument_RejectsRepeatedChannelIds(string argument)
+    {
+        string[] arguments = argument.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        Assert.False(AIOverviewCommand.TryExtractChannelArgument(arguments, id => id is 123 or 456, out _, out _));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void BuildTranscript_MarksDeletedMessagesWithoutLosingAuthorOrContent(bool deletionFirst)

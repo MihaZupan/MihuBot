@@ -41,8 +41,26 @@ public sealed class AIOverviewCommand : CommandBase
             return;
         }
 
-        string argument = ctx.ArgumentLines.FirstOrDefault() ?? string.Empty;
         string extraContext = string.Join('\n', ctx.ArgumentLines.Skip(1)).Trim();
+
+        if (!TryExtractChannelArgument(ctx.Arguments, id => ctx.Guild.GetTextChannel(id) is not null, out string argument, out ulong? channelId))
+        {
+            await ctx.ReplyAsync("Please specify only one source channel ID: `!tldr CHANNEL_ID 2 hours`.", mention: true);
+            return;
+        }
+
+        SocketTextChannel sourceChannel = ctx.Channel;
+
+        if (channelId.HasValue)
+        {
+            if (!ctx.IsFromAdmin)
+            {
+                await ctx.ReplyAsync("Only admins can select a source channel.", mention: true);
+                return;
+            }
+
+            sourceChannel = ctx.Guild.GetTextChannel(channelId.Value);
+        }
 
         IUser mentionedUser = ctx.Message.MentionedUsers.FirstOrDefault(u => u.Id != ctx.BotId);
 
@@ -70,7 +88,7 @@ public sealed class AIOverviewCommand : CommandBase
 
         if (filterUser is null && !string.IsNullOrEmpty(userArgument))
         {
-            filterUser = await ResolveUserAsync(ctx, userArgument);
+            filterUser = await ResolveUserAsync(ctx, sourceChannel, userArgument);
 
             if (filterUser is null)
             {
@@ -81,7 +99,7 @@ public sealed class AIOverviewCommand : CommandBase
 
         DateTimeOffset cutoff = DateTimeOffset.UtcNow - duration;
 
-        (string transcript, int messageCount, int focusMessageCount) = await GetTranscriptAsync(ctx, cutoff, filterUser?.Id, ctx.CancellationToken);
+        (string transcript, int messageCount, int focusMessageCount) = await GetTranscriptAsync(ctx, sourceChannel.Id, cutoff, filterUser?.Id, ctx.CancellationToken);
 
         if (messageCount == 0)
         {
@@ -153,7 +171,7 @@ public sealed class AIOverviewCommand : CommandBase
             new ChatMessage(ChatRole.System, systemPrompt),
             new ChatMessage(ChatRole.User,
                 $"""
-                Here is the transcript of the last {duration.ToElapsedTime(includeSeconds: false)} in #{ctx.Channel.Name} ({messageCount} messages, oldest first{(filterUser is null ? "" : $", {focusMessageCount} of them from {filterUser.GetName()}")}):
+                Here is the transcript of the last {duration.ToElapsedTime(includeSeconds: false)} in #{sourceChannel.Name} ({messageCount} messages, oldest first{(filterUser is null ? "" : $", {focusMessageCount} of them from {filterUser.GetName()}")}):
 
                 {transcript}
                 """)
@@ -168,7 +186,7 @@ public sealed class AIOverviewCommand : CommandBase
         }
         catch (Exception ex) when (!ctx.CancellationToken.IsCancellationRequested)
         {
-            ctx.DebugLog(ex, $"Failed to generate an overview for {ctx.Channel.Id}");
+            ctx.DebugLog(ex, $"Failed to generate an overview for {sourceChannel.Id}");
             await ctx.ReplyAsync("Sorry, something went wrong while generating the overview", mention: true);
             return;
         }
@@ -179,9 +197,14 @@ public sealed class AIOverviewCommand : CommandBase
             return;
         }
 
-        _logger.DebugLog($"AI overview for {ctx.AuthorId} in channel={ctx.Channel.Id} over {duration} (focusUser={filterUser?.Id.ToString() ?? "none"}, {messageCount} messages, {focusMessageCount} focused) was '{response}'");
+        _logger.DebugLog($"AI overview for {ctx.AuthorId} in channel={sourceChannel.Id} requested from channel={ctx.Channel.Id} over {duration} (focusUser={filterUser?.Id.ToString() ?? "none"}, {messageCount} messages, {focusMessageCount} focused) was '{response}'");
 
         string footer = $"Based on {messageCount} message{(messageCount == 1 ? "" : "s")}{(filterUser is null ? "" : $", {focusMessageCount} from {filterUser.GetName()}")}";
+
+        if (sourceChannel.Id != ctx.Channel.Id)
+        {
+            footer = $"{footer} in #{sourceChannel.Name}";
+        }
 
         footer = $"{footer} • {FormatUsageFooter(chatResponse, client.GetService<ChatClientMetadata>()?.DefaultModelId)}";
 
@@ -211,9 +234,9 @@ public sealed class AIOverviewCommand : CommandBase
         return $"{footer} • {costText}";
     }
 
-    private async Task<(string Transcript, int MessageCount, int FocusMessageCount)> GetTranscriptAsync(CommandContext ctx, DateTimeOffset cutoff, ulong? focusUserId, CancellationToken cancellationToken)
+    private async Task<(string Transcript, int MessageCount, int FocusMessageCount)> GetTranscriptAsync(CommandContext ctx, ulong sourceChannelId, DateTimeOffset cutoff, ulong? focusUserId, CancellationToken cancellationToken)
     {
-        long channelId = (long)ctx.Channel.Id;
+        long channelId = (long)sourceChannelId;
 
         Task<ulong[]> botsTask = ctx.Guild.GetUsersAsync().Flatten().Where(u => u.IsBot).Select(u => u.Id).ToArrayAsync(cancellationToken).AsTask();
 
@@ -362,6 +385,30 @@ public sealed class AIOverviewCommand : CommandBase
     private static string GetDisplayName(CommandContext ctx, ulong userId) =>
         ctx.Guild.GetUser(userId)?.GetName() ?? ctx.Discord.GetUser(userId)?.GetName() ?? userId.ToString();
 
+    internal static bool TryExtractChannelArgument(string[] parts, Func<ulong, bool> isChannelId, out string remainingArgument, out ulong? channelId)
+    {
+        remainingArgument = string.Join(' ', parts);
+        channelId = null;
+
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (!ulong.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out ulong id) || !isChannelId(id))
+            {
+                continue;
+            }
+
+            if (channelId.HasValue)
+            {
+                return false;
+            }
+
+            channelId = id;
+            remainingArgument = string.Join(' ', parts.Take(i).Concat(parts.Skip(i + 1)));
+        }
+
+        return true;
+    }
+
     /// <summary>Splits the argument into the duration part and the optional person name, e.g. "2 hours from someone".</summary>
     /// <param name="mentionedUserIds">Ids of users mentioned in the message - their mention tags are stripped from the argument.</param>
     public static (string Duration, string User) SplitArguments(string argument, IEnumerable<ulong> mentionedUserIds = null)
@@ -414,14 +461,14 @@ public sealed class AIOverviewCommand : CommandBase
         return (string.Join(' ', parts), user);
     }
 
-    private static async Task<IUser> ResolveUserAsync(CommandContext ctx, string pattern)
+    private static async Task<IUser> ResolveUserAsync(CommandContext ctx, SocketTextChannel sourceChannel, string pattern)
     {
         if (ulong.TryParse(pattern, out ulong userId) && ctx.Guild.GetUser(userId) is { } userById)
         {
             return userById;
         }
 
-        return Choose(ctx.Channel.Users) ?? Choose(ctx.Guild.Users);
+        return Choose(sourceChannel.Users) ?? Choose(ctx.Guild.Users);
 
         SocketGuildUser Choose(IEnumerable<SocketGuildUser> users)
         {
