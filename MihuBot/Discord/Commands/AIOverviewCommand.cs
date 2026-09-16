@@ -3,6 +3,7 @@ using MihuBot.Commands;
 using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.Helpers.AI;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -159,12 +160,11 @@ public sealed class AIOverviewCommand : CommandBase
         ];
 
         string response;
-        UsageDetails usage;
+        ChatResponse chatResponse;
         try
         {
-            ChatResponse chatResponse = await client.GetResponseAsync(messages, options, ctx.CancellationToken);
+            chatResponse = await client.GetResponseAsync(messages, options, ctx.CancellationToken);
             response = chatResponse.Text;
-            usage = chatResponse.Usage;
         }
         catch (Exception ex) when (!ctx.CancellationToken.IsCancellationRequested)
         {
@@ -183,10 +183,7 @@ public sealed class AIOverviewCommand : CommandBase
 
         string footer = $"Based on {messageCount} message{(messageCount == 1 ? "" : "s")}{(filterUser is null ? "" : $", {focusMessageCount} from {filterUser.GetName()}")}";
 
-        if (usage is { InputTokenCount: not null } or { OutputTokenCount: not null })
-        {
-            footer = $"{footer} • {TokenUsageHelpers.FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {TokenUsageHelpers.FormatTokenCount(usage.OutputTokenCount ?? 0)} out";
-        }
+        footer = $"{footer} • {FormatUsageFooter(chatResponse, client.GetService<ChatClientMetadata>()?.DefaultModelId)}";
 
         var embed = new EmbedBuilder()
             .WithTitle($"Overview of the last {duration.ToElapsedTime(includeSeconds: false)}{(filterUser is null ? "" : $" focused on {filterUser.GetName()}")}".TruncateWithDotDotDot(256))
@@ -195,6 +192,23 @@ public sealed class AIOverviewCommand : CommandBase
             .WithColor(new Color(88, 101, 242));
 
         await ctx.Channel.SendMessageAsync(embed: embed.Build());
+    }
+
+    internal static string FormatUsageFooter(ChatResponse response, string defaultModelId)
+    {
+        string model = response.ModelId ?? defaultModelId;
+        string footer = model ?? "Unknown model";
+        UsageDetails usage = response.Usage;
+
+        if (usage is { InputTokenCount: not null } or { OutputTokenCount: not null })
+        {
+            footer = $"{footer} • {TokenUsageHelpers.FormatTokenCount(usage.InputTokenCount ?? 0)} tokens in, {TokenUsageHelpers.FormatTokenCount(usage.OutputTokenCount ?? 0)} out";
+        }
+
+        decimal cost = TokenUsageHelpers.EstimateCostUsd(model, usage) ?? 0;
+        string costText = string.Create(CultureInfo.InvariantCulture, $"~${cost:0.00##} USD");
+
+        return $"{footer} • {costText}";
     }
 
     private async Task<(string Transcript, int MessageCount, int FocusMessageCount)> GetTranscriptAsync(CommandContext ctx, DateTimeOffset cutoff, ulong? focusUserId, CancellationToken cancellationToken)

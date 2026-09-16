@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace MihuBot.Configuration;
@@ -69,7 +70,9 @@ public static class OptionalDependencies
 /// <summary>
 /// Removes API controllers that depend on services which aren't available, so their routes 404 instead of throwing.
 /// </summary>
-public sealed class RemoveUnavailableControllersConvention(IServiceProvider services) : IApplicationModelConvention
+public sealed class RemoveUnavailableControllersConvention(
+    IServiceProvider services,
+    ILogger<RemoveUnavailableControllersConvention> logger) : IApplicationModelConvention
 {
     public void Apply(ApplicationModel application)
     {
@@ -77,7 +80,7 @@ public sealed class RemoveUnavailableControllersConvention(IServiceProvider serv
         {
             if (OptionalDependencies.GetMissingDependency(services, controller.ControllerType) is { } missingDependency)
             {
-                Console.WriteLine($"Skipping {controller.ControllerType.Name} as {missingDependency.Name} is not available.");
+                logger.LogInformation("Skipping {Controller} as {MissingDependency} is not available.", controller.ControllerType.Name, missingDependency.Name);
                 application.Controllers.Remove(controller);
             }
         }
@@ -90,6 +93,7 @@ public static class ControllerConventionServiceCollectionExtensions
     {
         services.AddSingleton<IConfigureOptions<MvcOptions>>(serviceProvider =>
             new ConfigureNamedOptions<MvcOptions>(Options.DefaultName, options =>
-                options.Conventions.Add(new RemoveUnavailableControllersConvention(serviceProvider))));
+                options.Conventions.Add(new RemoveUnavailableControllersConvention(
+                    serviceProvider, serviceProvider.GetRequiredService<ILogger<RemoveUnavailableControllersConvention>>()))));
     }
 }

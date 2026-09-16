@@ -8,20 +8,30 @@ using Microsoft.Extensions.AI;
 
 namespace MihuBot.Helpers.AI;
 
-public sealed record ModelInfo(string Name, int ContextSize);
+public sealed record ModelInfo(
+    string Name,
+    int ContextSize,
+    decimal InputUsdPerMillionTokens,
+    decimal CachedInputUsdPerMillionTokens,
+    decimal OutputUsdPerMillionTokens,
+    int? LongContextThreshold = null);
 
 public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-5.6-luna";
 
+    // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-16).
+    // Estimates, not Azure region/deployment-specific billing rates. Above LongContextThreshold,
+    // input/cache rates double and output rates increase by 50% for the full request.
     public static readonly ModelInfo[] AllModels =
     [
-        new("gpt-5.6-luna", 1_050_000),
-        new("gpt-5.6-terra", 1_050_000),
-        new("gpt-5.6-sol", 1_050_000),
-        new("gpt-5", 400_000),
-        new("gpt-5-mini", 400_000),
-        new("gpt-5-nano", 400_000),
+        new("gpt-5.6-luna", 1_050_000, 0.20m, 0.02m, 1.20m, LongContextThreshold: 272_000),
+        new("gpt-5.6-terra", 1_050_000, 2m, 0.20m, 12m, LongContextThreshold: 272_000),
+        new("gpt-5.6-sol", 1_050_000, 4m, 0.40m, 20m, LongContextThreshold: 272_000),
+        new("gpt-6-astra", 1_050_000, 10m, 1m, 50m, LongContextThreshold: 272_000),
+        new("gpt-5", 400_000, 1.25m, 0.125m, 10m),
+        new("gpt-5-mini", 400_000, 0.25m, 0.025m, 2m),
+        new("gpt-5-nano", 400_000, 0.05m, 0.005m, 0.40m),
     ];
 
     private readonly Logger _logger;

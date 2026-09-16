@@ -1,9 +1,53 @@
+using Microsoft.Extensions.AI;
 using MihuBot.Discord.Commands;
 
 namespace MihuBot.Tests.Discord;
 
 public sealed class AIOverviewCommandTests
 {
+    [Fact]
+    public void FormatUsageFooter_IncludesResponseModelTokensAndCost()
+    {
+        var response = new ChatResponse
+        {
+            ModelId = "gpt-5-mini-2025-08-07",
+            Usage = new UsageDetails { InputTokenCount = 100_000, OutputTokenCount = 10_000 },
+        };
+
+        Assert.Equal("gpt-5-mini-2025-08-07 \u2022 100k tokens in, 10k out \u2022 ~$0.045 USD",
+            AIOverviewCommand.FormatUsageFooter(response, "gpt-5"));
+    }
+
+    [Fact]
+    public void FormatUsageFooter_FallsBackToClientModel()
+    {
+        Assert.Equal("gpt-5-mini \u2022 ~$0.00 USD",
+            AIOverviewCommand.FormatUsageFooter(new ChatResponse(), "gpt-5-mini"));
+    }
+
+    [Fact]
+    public void FormatUsageFooter_ReportsUnknownModelWithZeroCost()
+    {
+        Assert.Equal("Unknown model \u2022 ~$0.00 USD",
+            AIOverviewCommand.FormatUsageFooter(new ChatResponse(), null!));
+    }
+
+    [Theory]
+    [InlineData("gpt-5-mini", 1L, 0L, "~$0.00 USD")]
+    [InlineData("gpt-5-mini", 0L, 0L, "~$0.00 USD")]
+    [InlineData("gpt-5-mini", 100L, null, "~$0.00 USD")]
+    [InlineData("unknown", 100L, 10L, "~$0.00 USD")]
+    public void FormatUsageFooter_HandlesSmallCostsAndUnavailableEstimates(string model, long input, long? output, string expectedCost)
+    {
+        var response = new ChatResponse
+        {
+            ModelId = model,
+            Usage = new UsageDetails { InputTokenCount = input, OutputTokenCount = output },
+        };
+
+        Assert.EndsWith($" \u2022 {expectedCost}", AIOverviewCommand.FormatUsageFooter(response, model));
+    }
+
     [Theory]
     [InlineData("30m", 30)]
     [InlineData("30 min", 30)]
