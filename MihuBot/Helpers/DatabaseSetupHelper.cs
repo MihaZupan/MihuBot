@@ -77,11 +77,14 @@ public static class DatabaseSetupHelper
 
         await MigrateSqliteAsync(db, databasePath);
 
-        Console.WriteLine($"Vacuuming {typeof(TDbContext).Name} ...");
-        await db.Database.ExecuteSqlRawAsync("VACUUM;");
+        if (Random.Shared.Next(10) == 0)
+        {
+            Console.WriteLine($"Vacuuming {typeof(TDbContext).Name} ...");
+            await db.Database.ExecuteSqlRawAsync("VACUUM;");
 
-        Console.WriteLine($"Optimizing {typeof(TDbContext).Name} ...");
-        await db.Database.ExecuteSqlRawAsync("PRAGMA optimize=0x10002;");
+            Console.WriteLine($"Optimizing {typeof(TDbContext).Name} ...");
+            await db.Database.ExecuteSqlRawAsync("PRAGMA optimize=0x10002;");
+        }
     }
 
     private static async Task MigrateSqliteAsync<TDbContext>(TDbContext db, string databasePath)
