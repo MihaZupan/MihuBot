@@ -176,7 +176,7 @@ public sealed class AreaLabelDetector(
             .Where(i => i.Id != issue.Id)
             .Select(i => new SimilarIssue(
                 i.Title.TruncateWithDotDotDot(200),
-                i.Body.TruncateWithDotDotDot(4000),
+                (i.Body ?? "").TruncateWithDotDotDot(4000),
                 i.Labels.FirstOrDefault(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase))?.Name
             ))
             .Where(i => i.Label is not null)
