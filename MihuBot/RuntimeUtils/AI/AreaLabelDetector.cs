@@ -13,6 +13,8 @@ namespace MihuBot.RuntimeUtils.AI;
 
 public sealed record AreaLabelSuggestion(string LabelName, double? Confidence);
 
+internal sealed record AreaLabelPredictionSettings(string Model, ChatReasoningEffortLevel ReasoningEffort);
+
 public sealed class AreaLabelDetector(
     OpenAIService openAI,
     GitHubSearchService search,
@@ -46,18 +48,24 @@ public sealed class AreaLabelDetector(
 
     private string Model => configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.Model", out string model) ? model : OpenAIService.DefaultModel;
 
-    internal ChatCompletionOptions CreateChatCompletionOptions() => new()
-    {
-        ReasoningEffortLevel = configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.ReasoningEffort", out string effort)
+    internal AreaLabelPredictionSettings GetPredictionSettings() => new(Model,
+        configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.ReasoningEffort", out string effort)
             ? new ChatReasoningEffortLevel(effort)
-            : ChatReasoningEffortLevel.Medium,
+            : ChatReasoningEffortLevel.Medium);
+
+    internal ChatCompletionOptions CreateChatCompletionOptions() => CreateChatCompletionOptions(GetPredictionSettings());
+
+    private static ChatCompletionOptions CreateChatCompletionOptions(AreaLabelPredictionSettings settings) => new()
+    {
+        ReasoningEffortLevel = settings.ReasoningEffort,
         MaxOutputTokenCount = MaxOutputTokens,
     };
 
     public async Task<AreaLabelSuggestion[]> PredictAsync(string repository, int number, string labelPrefix, CancellationToken cancellationToken)
     {
-        string model = Model;
-        ChatCompletionOptions completionOptions = CreateChatCompletionOptions();
+        var settings = GetPredictionSettings();
+        string model = settings.Model;
+        ChatCompletionOptions completionOptions = CreateChatCompletionOptions(settings);
         return await cache.GetOrCreateAsync(
             $"AreaLabels:{Uri.EscapeDataString(model)}:{Uri.EscapeDataString(completionOptions.ReasoningEffortLevel.ToString())}:{repository.ToLowerInvariant()}:{number}:{labelPrefix.ToLowerInvariant()}",
             async ct =>
@@ -70,7 +78,10 @@ public sealed class AreaLabelDetector(
     }
 
     public Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, string labelPrefix = "area-", CancellationToken cancellationToken = default) =>
-        GetSuggestionsAsync(repository, issue, labelPrefix, Model, CreateChatCompletionOptions(), cancellationToken);
+        GetSuggestionsAsync(repository, issue, GetPredictionSettings(), labelPrefix, cancellationToken);
+
+    internal Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, AreaLabelPredictionSettings settings, string labelPrefix = "area-", CancellationToken cancellationToken = default) =>
+        GetSuggestionsAsync(repository, issue, labelPrefix, settings.Model, CreateChatCompletionOptions(settings), cancellationToken);
 
     internal static int EstimateTokenBudget(string prompt) =>
         // Include schema/framing and the output cap, including reasoning.

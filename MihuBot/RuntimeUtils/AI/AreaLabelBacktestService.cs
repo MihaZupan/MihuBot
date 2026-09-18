@@ -14,15 +14,17 @@ public sealed class AreaLabelBacktestService
     private readonly GitHubClient _github;
     private readonly GithubGraphQLClient _graphQL;
     private readonly Func<string, CancellationToken, Task<RepositoryInfo>> _getRepository;
-    private readonly Func<RepositoryInfo, IssueInfo, CancellationToken, Task<AreaLabelSuggestion[]>> _predict;
+    private readonly Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, CancellationToken, Task<AreaLabelSuggestion[]>> _predict;
+    private readonly Func<AreaLabelPredictionSettings> _getPredictionSettings;
     private readonly Action<string> _debugLog;
 
     public AreaLabelBacktestService(GitHubClient github, GithubGraphQLClient graphQL, GitHubDataIngestionService ingestion, AreaLabelDetector detector, Logger logger)
         : this(github, graphQL,
             (repo, ct) => ingestion.TryGetRepositoryInfoAsync(
                 ingestion.Stats.TrackedRepos.FirstOrDefault(r => r.RepoName.Equals(repo, StringComparison.OrdinalIgnoreCase))?.RepoName ?? repo, ct),
-            (repo, issue, ct) => detector.GetSuggestionsAsync(repo, issue, cancellationToken: ct),
-            message => logger.DebugLog(message))
+            (repo, issue, settings, ct) => detector.GetSuggestionsAsync(repo, issue, settings, cancellationToken: ct),
+            message => logger.DebugLog(message),
+            detector.GetPredictionSettings)
     {
     }
 
@@ -30,14 +32,16 @@ public sealed class AreaLabelBacktestService
         GitHubClient github,
         GithubGraphQLClient graphQL,
         Func<string, CancellationToken, Task<RepositoryInfo>> getRepository,
-        Func<RepositoryInfo, IssueInfo, CancellationToken, Task<AreaLabelSuggestion[]>> predict,
-        Action<string> debugLog)
+        Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, CancellationToken, Task<AreaLabelSuggestion[]>> predict,
+        Action<string> debugLog,
+        Func<AreaLabelPredictionSettings> getPredictionSettings)
     {
         _github = github;
         _graphQL = graphQL;
         _getRepository = getRepository;
         _predict = predict;
         _debugLog = debugLog;
+        _getPredictionSettings = getPredictionSettings;
     }
 
     internal async Task<AreaLabelBacktestReport> RunAsync(
@@ -56,7 +60,12 @@ public sealed class AreaLabelBacktestService
             throw new InvalidOperationException("The repository has no active area-* labels to predict.");
         }
 
-        var report = new AreaLabelBacktestReport(request);
+        var settings = _getPredictionSettings();
+        var report = new AreaLabelBacktestReport(request)
+        {
+            Model = settings.Model,
+            ReasoningEffort = settings.ReasoningEffort.ToString(),
+        };
         IReadOnlyList<Issue> issues;
 
         if (request.IssueNumber is { } number)
@@ -133,7 +142,7 @@ public sealed class AreaLabelBacktestService
 
                         try
                         {
-                            evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), cancellationToken);
+                            evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), settings, cancellationToken);
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
@@ -389,6 +398,8 @@ internal sealed record AreaLabelHistory(
 
 internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
 {
+    public string Model { get; init; }
+    public string ReasoningEffort { get; init; }
     public List<AreaLabelEvaluation> Issues { get; } = [];
     public bool Cancelled { get; set; }
     internal AreaLabelEvaluation[] PredictedIssues => [.. Issues.Where(i => i.Suggestions is not null)];
@@ -408,6 +419,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         text.AppendLine($"Area label evaluation: {request.Repository}");
         text.AppendLine(string.Create(CultureInfo.InvariantCulture, $"Generated: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC"));
         text.AppendLine(Summary);
+        text.AppendLine($"Prediction model: {Model}; reasoning effort: {ReasoningEffort}");
         text.AppendLine($"Original labeler actor: {request.LabelerActor}");
         text.AppendLine(request.IssueNumber is { } number ? $"Scope: issue #{number}." : "Scope: newest issues, open and closed; no pull requests.");
         text.AppendLine("Scoring: top answer vs full area-label set; no answer / needs-area-label = abstention. Lower suggestions do not change matches.");

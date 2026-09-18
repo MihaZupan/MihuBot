@@ -5,7 +5,9 @@ using System.Text.Json.Nodes;
 using System.Web;
 using MihuBot.DB.GitHub;
 using MihuBot.Discord.Commands;
+using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
+using MihuBot.Tests.Configuration;
 using Octokit;
 using Octokit.Internal;
 using static MihuBot.Tests.RuntimeUtils.AreaLabelGraphQLTransport;
@@ -15,6 +17,68 @@ namespace MihuBot.Tests.RuntimeUtils;
 public sealed class AreaLabelBacktestTests
 {
     private const string Labeler = "github-actions[bot]";
+
+    private static AreaLabelPredictionSettings GetPredictionSettings()
+    {
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
+
+        return detector.GetPredictionSettings();
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("custom-model", "high")]
+    [InlineData("custom-model", "none")]
+    public async Task ReportIncludesPredictionSettingsCapturedOncePerRun(string? model, string? reasoning)
+    {
+        var configuration = new TestConfigurationService();
+
+        if (model is not null)
+        {
+            configuration.Set(null, "AreaLabelDetector.Model", model);
+        }
+
+        if (reasoning is not null)
+        {
+            configuration.Set(null, "AreaLabelDetector.ReasoningEffort", reasoning);
+        }
+
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+        using var handler = new GitHubHandler(_ => JsonResponse($"[{IssueJson(10)},{IssueJson(11)}]"));
+        using var graphQL = new AreaLabelGraphQLTransport();
+        List<AreaLabelPredictionSettings> predictionSettings = [];
+        int settingsReads = 0;
+
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, settings, _) =>
+        {
+            predictionSettings.Add(settings);
+            configuration.Set(null, "AreaLabelDetector.Model", "next-model");
+            configuration.Set(null, "AreaLabelDetector.ReasoningEffort", "low");
+
+            return Task.FromResult<AreaLabelSuggestion[]>([]);
+        }, _ => { }, () =>
+        {
+            settingsReads++;
+
+            return detector.GetPredictionSettings();
+        });
+
+        var report = await service.RunAsync(new("o/r", null, 2, Labeler), CancellationToken.None);
+
+        Assert.Equal(1, settingsReads);
+        Assert.Equal(2, predictionSettings.Count);
+        Assert.Same(predictionSettings[0], predictionSettings[1]);
+        Assert.Equal(model ?? OpenAIService.DefaultModel, predictionSettings[0].Model);
+        Assert.Equal(reasoning ?? "medium", predictionSettings[0].ReasoningEffort.ToString());
+        Assert.Contains($"Prediction model: {model ?? OpenAIService.DefaultModel}; reasoning effort: {reasoning ?? "medium"}", report.ToText(), StringComparison.Ordinal);
+
+        var nextReport = await service.RunAsync(new("o/r", null, 2, Labeler), CancellationToken.None);
+
+        Assert.Equal(2, settingsReads);
+        Assert.Equal("next-model", predictionSettings[2].Model);
+        Assert.Equal("low", predictionSettings[2].ReasoningEffort.ToString());
+        Assert.Contains("Prediction model: next-model; reasoning effort: low", nextReport.ToText(), StringComparison.Ordinal);
+    }
 
     [Theory]
     [InlineData(0, 0)]
@@ -1074,7 +1138,7 @@ public sealed class AreaLabelBacktestTests
             repositoryReads++;
 
             return Task.FromResult(storedRepository);
-        }, (repository, issue, ct) =>
+        }, (repository, issue, _, ct) =>
         {
             Assert.Equal(cancellation.Token, ct);
             Assert.Same(storedRepository, repository);
@@ -1086,7 +1150,7 @@ public sealed class AreaLabelBacktestTests
             predictions.Add(issue);
 
             return Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         var report = await service.RunAsync(new("o/r", null, 3, Labeler), cancellation.Token);
 
@@ -1138,13 +1202,13 @@ public sealed class AreaLabelBacktestTests
 
         List<string> logs = [];
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
         {
             predictions++;
             AssertStrippedPredictionInput(issue);
 
             return Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         var report = await service.RunAsync(new("o/r", 10, 1, "custom-labeler"), CancellationToken.None);
 
@@ -1179,12 +1243,12 @@ public sealed class AreaLabelBacktestTests
         List<string> logs = [];
         int predictions = 0;
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, _, _) =>
         {
             predictions++;
 
             return Task.FromResult<AreaLabelSuggestion[]>([]);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         List<(int Completed, int Total)> progress = [];
 
@@ -1238,7 +1302,7 @@ public sealed class AreaLabelBacktestTests
                 new JsonArray { GraphError("Later timeline page unavailable", "issue0", "timelineItems") }));
         };
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
         {
             AssertStrippedPredictionInput(issue);
             predictions.Add(issue.Number);
@@ -1246,7 +1310,7 @@ public sealed class AreaLabelBacktestTests
             return issue.Number is 11 or 12
                 ? Task.FromException<AreaLabelSuggestion[]>(new InvalidOperationException($"Model failed for {issue.Number}"))
                 : Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         var report = await service.RunAsync(new("o/r", null, 4, Labeler), CancellationToken.None);
 
@@ -1310,7 +1374,7 @@ public sealed class AreaLabelBacktestTests
 
         var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client,
             (_, _) => Task.FromResult(scenario == "missing" ? null! : repository),
-            (_, _, _) => throw new InvalidOperationException("Prediction must not run"), message => Assert.Fail(message));
+            (_, _, _, _) => throw new InvalidOperationException("Prediction must not run"), message => Assert.Fail(message), GetPredictionSettings);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.RunAsync(new("o/r", 10, 1, Labeler), CancellationToken.None));
@@ -1338,7 +1402,7 @@ public sealed class AreaLabelBacktestTests
 
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, ct) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, ct) =>
         {
             Assert.Equal(cancellation.Token, ct);
             predictions.Add(issue.Number);
@@ -1347,7 +1411,7 @@ public sealed class AreaLabelBacktestTests
             return predictionCompleted
                 ? Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)])
                 : Task.FromCanceled<AreaLabelSuggestion[]>(ct);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         List<(int Completed, int Total)> progress = [];
 
@@ -1432,14 +1496,14 @@ public sealed class AreaLabelBacktestTests
             return Task.FromResult(DefaultGraphResponse(request));
         };
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
         {
             predictions.Add(issue.Number);
 
             return lastPredictionInFirstBatchFails && issue.Number == 109
                 ? Task.FromException<AreaLabelSuggestion[]>(new InvalidOperationException("Last prediction in first batch failed"))
                 : Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
-        }, logs.Add);
+        }, logs.Add, GetPredictionSettings);
 
         List<(int Completed, int Total)> progress = [];
 
@@ -1499,7 +1563,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _) =>
         {
             int index = issue.Number - 10;
             concurrency.Enqueue(Interlocked.Increment(ref active));
@@ -1517,7 +1581,7 @@ public sealed class AreaLabelBacktestTests
                 Interlocked.Decrement(ref active);
                 finished[index].SetResult();
             }
-        }, logs.Enqueue);
+        }, logs.Enqueue, GetPredictionSettings);
 
         Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None, async (completed, total) =>
         {
@@ -1583,7 +1647,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _) =>
         {
             predictions.Enqueue(issue.Number);
 
@@ -1605,7 +1669,7 @@ public sealed class AreaLabelBacktestTests
             }
 
             return [new("area-Foo", 0.9)];
-        }, logs.Enqueue);
+        }, logs.Enqueue, GetPredictionSettings);
 
         Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None);
 
@@ -1648,7 +1712,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, ct) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, ct) =>
         {
             int index = issue.Number - 10;
             Interlocked.Increment(ref active);
@@ -1670,7 +1734,7 @@ public sealed class AreaLabelBacktestTests
                 Interlocked.Decrement(ref active);
                 finished[index].SetResult();
             }
-        }, logs.Enqueue);
+        }, logs.Enqueue, GetPredictionSettings);
 
         Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), cancellation.Token);
 
