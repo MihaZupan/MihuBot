@@ -747,7 +747,7 @@ public sealed class AreaLabelBacktestTests
     [Fact]
     public void ConfidenceBandsUseTopAnswerWithNonOverlappingBoundaries()
     {
-        double[] confidences = [0.5, 0.699999, 0.7, 0.799999, 0.8, 0.899999, 0.9, 0.949999, 0.95, 1.0];
+        double[] confidences = [0.5, 0.599999, 0.6, 0.699999, 0.7, 0.799999, 0.8, 0.899999, 0.9, 0.949999, 0.95, 1.0];
         var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, confidences.Length, Labeler));
         var history = Analyze([Event(1, "area-Foo")], ["area-Foo"]);
 
@@ -763,13 +763,13 @@ public sealed class AreaLabelBacktestTests
 
         foreach (string section in sections.Skip(1))
         {
-            foreach (string band in new[] { "0.5-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+" })
+            foreach (string band in new[] { "0.5-0.6", "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+" })
             {
                 Assert.Contains($"{band}: 1/2 (50.0%)", section, StringComparison.Ordinal);
             }
         }
 
-        Assert.Contains("current area labels 5/10; original labeler 5/10", report.Summary, StringComparison.Ordinal);
+        Assert.Contains("current area labels 6/12; original labeler 6/12", report.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -919,7 +919,8 @@ public sealed class AreaLabelBacktestTests
         Assert.Contains("Current comparison: MATCH", details, StringComparison.Ordinal);
         Assert.Contains("Original comparison: MATCH", details, StringComparison.Ordinal);
         Assert.Contains("0.95+: 1/1 (100.0%)", text, StringComparison.Ordinal);
-        Assert.Contains("0.5-0.7: 0/0 (N/A)", text, StringComparison.Ordinal);
+        Assert.Contains("0.5-0.6: 0/0 (N/A)", text, StringComparison.Ordinal);
+        Assert.Contains("0.6-0.7: 0/0 (N/A)", text, StringComparison.Ordinal);
     }
 
     [Theory]

@@ -531,17 +531,18 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
             return;
         }
 
-        var buckets = comparisons.ToLookup(c => c.Issue.Suggestions.Length == 0 ? 6 : c.Issue.Suggestions[0].Confidence switch
+        var buckets = comparisons.ToLookup(c => c.Issue.Suggestions.Length == 0 ? 7 : c.Issue.Suggestions[0].Confidence switch
         {
-            >= 0.5 and < 0.7 => 0,
-            >= 0.7 and < 0.8 => 1,
-            >= 0.8 and < 0.9 => 2,
-            >= 0.9 and < 0.95 => 3,
-            >= 0.95 and <= 1 => 4,
-            _ => 5,
+            >= 0.5 and < 0.6 => 0,
+            >= 0.6 and < 0.7 => 1,
+            >= 0.7 and < 0.8 => 2,
+            >= 0.8 and < 0.9 => 3,
+            >= 0.9 and < 0.95 => 4,
+            >= 0.95 and <= 1 => 5,
+            _ => 6,
         });
 
-        string[] names = ["0.5-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+", "Missing/invalid confidence", "Abstained (no confidence)"];
+        string[] names = ["0.5-0.6", "0.6-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+", "Missing/invalid confidence", "Abstained (no confidence)"];
         text.AppendLine("  Accuracy by top-answer confidence:");
         text.AppendLine("    Band: matches/total (accuracy); [low, high), 0.95+ includes 1.0");
 
@@ -549,7 +550,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         {
             var bucket = buckets[i].ToArray();
 
-            if (i >= 5 && bucket.Length == 0)
+            if (i >= 6 && bucket.Length == 0)
             {
                 continue;
             }
