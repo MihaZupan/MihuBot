@@ -141,7 +141,6 @@ public sealed partial class GitHubNotificationsService
 
                 if (user.Disabled)
                 {
-                    _logger.DebugLog($"Skipping notifications on {comment.HtmlUrl} for {user.Name} due to previous errors.");
                     continue;
                 }
 
@@ -180,11 +179,17 @@ public sealed partial class GitHubNotificationsService
                     {
                         if (usersJson.TryGetValue(user.Name, out var existingUser))
                         {
-                            usersJson[user.Name] = existingUser with
+                            UserRecord updatedUser = existingUser with
                             {
                                 LastSubscribedIssue = comment.Issue.HtmlUrl,
                                 ErrorCount = failed ? existingUser.ErrorCount + 1 : 0,
                             };
+                            usersJson[user.Name] = updatedUser;
+
+                            if (!existingUser.Disabled && updatedUser.Disabled)
+                            {
+                                _logger.DebugLog($"Disabled notifications for {user.Name} after {updatedUser.ErrorCount} consecutive errors. Update the PAT to re-enable notifications.");
+                            }
                         }
                     }
                     finally
