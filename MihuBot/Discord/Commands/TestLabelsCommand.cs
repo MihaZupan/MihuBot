@@ -9,7 +9,7 @@ public sealed class TestLabelsCommand(AreaLabelBacktestService backtest) : Comma
 
     internal const string Usage = "Usage: `!testlabels <issue-url|number> [--labeler-actor login]` or " +
         "`!testlabels backtest <owner/repo> <N> [--labeler-actor login]`. " +
-        "Numbers default to dotnet/runtime. N must be 1-1000. This never changes GitHub labels.";
+        "Numbers default to dotnet/runtime. N must be 1-10000. This never changes GitHub labels.";
 
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
@@ -76,7 +76,7 @@ public sealed class TestLabelsCommand(AreaLabelBacktestService backtest) : Comma
             GitHubHelper.TryParseRepoOwnerAndName(repo, out string owner, out string name, out string[] extra) &&
             extra.Length == 0 &&
             int.TryParse(countText, NumberStyles.None, CultureInfo.InvariantCulture, out int count) &&
-            count is >= 1 and <= 1000)
+            count is >= 1 and <= 10000)
         {
             request = new($"{owner}/{name}", null, count, actor);
 
