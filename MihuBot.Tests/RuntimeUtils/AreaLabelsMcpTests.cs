@@ -26,7 +26,7 @@ public sealed class AreaLabelsMcpTests
         services.AddHybridCache();
         await using var provider = services.BuildServiceProvider();
         var cache = provider.GetRequiredService<HybridCache>();
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
         List<string> logs = [];
         var server = new McpServer(logs.Add, null!, detector);
 

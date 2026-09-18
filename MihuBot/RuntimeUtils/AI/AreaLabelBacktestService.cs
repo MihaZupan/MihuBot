@@ -9,6 +9,8 @@ internal sealed record AreaLabelBacktestRequest(string Repository, int? IssueNum
 
 public sealed class AreaLabelBacktestService
 {
+    internal const int MaxConcurrentPredictions = 8;
+
     private readonly GitHubClient _github;
     private readonly GithubGraphQLClient _graphQL;
     private readonly Func<string, CancellationToken, Task<RepositoryInfo>> _getRepository;
@@ -72,7 +74,7 @@ public sealed class AreaLabelBacktestService
             issues = await GetIssuesAsync(repo.Id, request.Count, cancellationToken);
         }
 
-        AreaLabelEvaluation unfinished = null;
+        object logLock = new();
 
         try
         {
@@ -82,55 +84,76 @@ public sealed class AreaLabelBacktestService
 
                 var (timelines, _, _, _) = await _graphQL.GetIssueLabelTimelinesAsync([.. batch.Select(i => i.NodeId)], _debugLog, cancellationToken);
 
-                for (int i = 0; i < batch.Length; i++)
+                var evaluations = new AreaLabelEvaluation[batch.Length];
+                int nextIndex = -1;
+
+                await Task.WhenAll(Enumerable.Range(0, Math.Min(MaxConcurrentPredictions, batch.Length)).Select(_ => EvaluateIssuesAsync()));
+
+                report.Issues.AddRange(evaluations.Where(e => e is not null));
+                cancellationToken.ThrowIfCancellationRequested();
+
+                async Task EvaluateIssuesAsync()
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    Issue issue = batch[i];
-
-                    var evaluation = new AreaLabelEvaluation(
-                        issue.Number, issue.HtmlUrl, issue.Title, issue.State.ToString(),
-                        AreaLabelHistory.Normalize(issue.Labels.Select(l => l.Name)));
-
-                    report.Issues.Add(evaluation);
-                    unfinished = evaluation;
-
-                    if (timelines[i].Error is { } error)
+                    while (!cancellationToken.IsCancellationRequested)
                     {
-                        _debugLog($"Failed to fetch label timeline for {issue.HtmlUrl}: {error}");
-                        evaluation.Errors.Add($"Timeline failed: {error}");
-                    }
-                    else
-                    {
-                        evaluation.History = AreaLabelHistory.AnalyzeEvents(
-                            timelines[i].Events.Select(e => AreaLabelEvent.FromGraphQL(e, request.LabelerActor)),
-                            evaluation.CurrentLabels, request.LabelerActor);
-                    }
+                        int i = Interlocked.Increment(ref nextIndex);
 
-                    try
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
+                        if (i >= batch.Length)
+                        {
+                            break;
+                        }
 
-                        evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), cancellationToken);
-                    }
-                    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        _debugLog($"Failed to predict labels for {issue.HtmlUrl}: {ex}");
-                        evaluation.Errors.Add($"Prediction failed: {ex.Message}");
-                    }
+                        Issue issue = batch[i];
 
-                    unfinished = null;
+                        var evaluation = new AreaLabelEvaluation(
+                            issue.Number, issue.HtmlUrl, issue.Title, issue.State.ToString(),
+                            AreaLabelHistory.Normalize(issue.Labels.Select(l => l.Name)));
+
+                        evaluations[i] = evaluation;
+
+                        if (timelines[i].Error is { } error)
+                        {
+                            Log($"Failed to fetch label timeline for {issue.HtmlUrl}: {error}");
+                            evaluation.Errors.Add($"Timeline failed: {error}");
+                        }
+                        else
+                        {
+                            evaluation.History = AreaLabelHistory.AnalyzeEvents(
+                                timelines[i].Events.Select(e => AreaLabelEvent.FromGraphQL(e, request.LabelerActor)),
+                                evaluation.CurrentLabels, request.LabelerActor);
+                        }
+
+                        try
+                        {
+                            evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), cancellationToken);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                        {
+                            evaluation.Errors.Add("Cancelled before evaluation completed.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Failed to predict labels for {issue.HtmlUrl}: {ex}");
+                            evaluation.Errors.Add($"Prediction failed: {ex.Message}");
+                        }
+                    }
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             report.Cancelled = true;
-
-            unfinished?.Errors.Add("Cancelled before evaluation completed.");
         }
 
         return report;
+
+        void Log(string message)
+        {
+            lock (logLock)
+            {
+                _debugLog(message);
+            }
+        }
     }
 
     private async Task<IReadOnlyList<Issue>> GetIssuesAsync(long repositoryId, int count, CancellationToken cancellationToken)
@@ -206,7 +229,8 @@ internal sealed class AreaLabelEvaluation(int number, string url, string title, 
     public string[] CurrentLabels { get; } = currentLabels;
     public string[] CurrentAreas => AreaLabelHistory.Areas(CurrentLabels);
     public AreaLabelSuggestion[] Suggestions { get; set; }
-    public string[] Predicted => AreaLabelHistory.Normalize(Suggestions.Select(s => s.LabelName));
+    public string[] Predicted => [.. Suggestions.Take(1).Select(s => s.LabelName)];
+    public string[] AllPredicted => AreaLabelHistory.Normalize(Suggestions.Select(s => s.LabelName));
     public AreaLabelHistory History { get; set; }
     public List<string> Errors { get; } = [];
 }
@@ -350,37 +374,33 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
     public string Summary =>
         $"{(Cancelled ? "Label evaluation CANCELLED (partial report)" : "Label evaluation")}: {Issues.Count}/{request.Count} issues evaluated, {PredictedIssues.Length} predicted, " +
         $"{Issues.Count(i => i.Errors.Count > 0)} with errors. " +
-        $"Exact matches: current area labels {CurrentScored.Count(i => AreaLabelHistory.Equal(i.CurrentAreas, i.Predicted))}/{CurrentScored.Length}; " +
+        $"Top-answer exact matches: current area labels {CurrentScored.Count(i => AreaLabelHistory.Equal(i.CurrentAreas, i.Predicted))}/{CurrentScored.Length}; " +
         $"original labeler {OriginalScored.Count(i => AreaLabelHistory.Equal(AreaLabelHistory.Areas(i.History.OriginalLabels), i.Predicted))}/{OriginalScored.Length}. " +
-        "Full results and mismatch breakdowns attached. No GitHub labels changed.";
+        "No GitHub labels changed.";
 
     public string ToText()
     {
         var text = new StringBuilder();
         text.AppendLine($"Area label evaluation: {request.Repository}");
-        text.AppendLine($"Generated: {DateTimeOffset.UtcNow:O}");
+        text.AppendLine(string.Create(CultureInfo.InvariantCulture, $"Generated: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC"));
         text.AppendLine(Summary);
         text.AppendLine($"Original labeler actor: {request.LabelerActor}");
-        text.AppendLine("Sampling: newest issues by creation time, open and closed, excluding pull requests.");
-        text.AppendLine("Prediction uses current title/body, without current labels, comments, assignees or milestone. Similar-issue retrieval uses today's indexed data.");
-        text.AppendLine("This is a retrospective comparison, NOT an as-of-creation replay: edited bodies and later related issues may influence predictions.");
-        text.AppendLine("All detector suggestions are compared as a set (confidence >= 0.5, maximum 5); an empty prediction is abstention.");
-        text.AppendLine("Current area labels are a reference, not verified ground truth. Issues without current area labels are unscored against current labels.");
-        text.AppendLine("Original labels are the initial needs-area-label fallback or first consecutive area-label additions by the selected actor; fallback is scored as abstention.");
-        text.AppendLine("Actor attribution is assumed, not workflow-verified: other workflows may share that actor. No event cannot prove a skipped or unexecuted prediction.");
-        text.AppendLine("Human edits include removals/additions/restorations, not necessarily corrections. Missing/deleted/renamed labels or concurrent edits may make a timeline inconsistent.");
-        text.AppendLine("Unavailable/inconsistent timelines are excluded only from original-labeler scoring; prediction failures are excluded from prediction-comparison denominators.");
+        text.AppendLine(request.IssueNumber is { } number ? $"Scope: issue #{number}." : "Scope: newest issues, open and closed; no pull requests.");
+        text.AppendLine("Scoring: top answer vs full area-label set; no answer / needs-area-label = abstention. Lower suggestions do not change matches.");
+        text.AppendLine("Caveats: current title/body and today's index, not a historical replay. Reference labels are not ground truth.");
+        text.AppendLine("Original = first actor application; workflow attribution unverified. No event does not prove a skip; human edits need not be corrections.");
+        text.AppendLine("Unscored: prediction errors; no current areas (current comparison); unknown/inconsistent history (original comparison).");
         text.AppendLine();
 
-        text.AppendLine("Original labeler outcomes (all sampled issues):");
+        text.AppendLine("Original labeler outcomes:");
 
         foreach (var group in Issues.GroupBy(i => i.History?.Status ?? "Timeline unavailable").OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
             text.AppendLine($"  {group.Count()}: {group.Key}");
         }
 
-        AppendComparisons(text, "Current area labels -> prediction", CurrentScored.Select(i => (i.CurrentAreas, i.Predicted)));
-        AppendComparisons(text, "Original labeler -> prediction", OriginalScored.Select(i => (AreaLabelHistory.Areas(i.History.OriginalLabels), i.Predicted)));
+        AppendPredictionComparisons(text, "Current area labels -> prediction", CurrentScored.Select(i => (i.CurrentAreas, i)));
+        AppendPredictionComparisons(text, "Original labeler -> prediction", OriginalScored.Select(i => (AreaLabelHistory.Areas(i.History.OriginalLabels), i)));
 
         AppendComparisons(text, "Current area labels -> original labeler", Issues
             .Where(i => i.CurrentAreas.Length > 0 && i.History is { ObservedLabeler: true, Consistent: true })
@@ -394,15 +414,28 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
             text.AppendLine();
             text.AppendLine($"{request.Repository}#{issue.Number} [{issue.State}] {OneLine(issue.Title)}");
             text.AppendLine($"  {issue.Url}");
-            text.AppendLine($"  Current labels: {Display(issue.CurrentLabels)}");
-            text.AppendLine($"  Current areas: {Display(issue.CurrentAreas)}");
-            text.AppendLine($"  Prediction: {(issue.Suggestions is null ? "FAILED" : issue.Suggestions.Length == 0 ? "(abstained)" : string.Join(", ", issue.Suggestions.Select(s => string.Create(CultureInfo.InvariantCulture, $"{s.LabelName} ({s.Confidence:P1})"))))}");
+            text.Append($"  Current areas: {Display(issue.CurrentAreas)} | Prediction: {(issue.Suggestions is null ? "FAILED" : issue.Suggestions.Length == 0 ? "(abstained)" : FormatSuggestion(issue.Suggestions[0]))}");
 
             if (issue.Suggestions is not null)
             {
-                text.AppendLine($"  Current comparison: {(issue.CurrentAreas.Length == 0 ? "UNSCORED (no current area labels)" : AreaLabelHistory.Equal(issue.CurrentAreas, issue.Predicted) ? "MATCH" : "DIFFERENT")}");
-                text.AppendLine($"  Missing vs current: {Display(issue.CurrentAreas.Except(issue.Predicted, StringComparer.OrdinalIgnoreCase))}");
-                text.AppendLine($"  Extra vs current: {Display(issue.Predicted.Except(issue.CurrentAreas, StringComparer.OrdinalIgnoreCase))}");
+                text.Append($" | Current comparison: {(issue.CurrentAreas.Length == 0 ? "UNSCORED (no current area labels)" : AreaLabelHistory.Equal(issue.CurrentAreas, issue.Predicted) ? "MATCH" : "DIFFERENT")}");
+            }
+
+            text.AppendLine();
+
+            if (issue.Suggestions is { Length: > 1 })
+            {
+                text.AppendLine($"  Lower-ranked suggestions: {string.Join(", ", issue.Suggestions.Skip(1).Select(FormatSuggestion))}");
+            }
+
+            if (issue.Suggestions is not null)
+            {
+                if (issue.CurrentAreas.Length > 0)
+                {
+                    AppendLabelDifferences(text, "current", issue.CurrentAreas, issue.Predicted);
+                }
+
+                AppendLowerRankedReferences(text, "current", issue.CurrentAreas, issue);
             }
 
             text.AppendLine($"  Original outcome: {issue.History?.Status ?? "Timeline unavailable"}");
@@ -415,13 +448,18 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
                 {
                     string[] original = AreaLabelHistory.Areas(history.OriginalLabels);
                     text.AppendLine($"  Original comparison: {(AreaLabelHistory.Equal(original, issue.Predicted) ? "MATCH" : "DIFFERENT")}");
-                    text.AppendLine($"  Missing vs original: {Display(original.Except(issue.Predicted, StringComparer.OrdinalIgnoreCase))}");
-                    text.AppendLine($"  Extra vs original: {Display(issue.Predicted.Except(original, StringComparer.OrdinalIgnoreCase))}");
+                    AppendLabelDifferences(text, "original", original, issue.Predicted);
+                    AppendLowerRankedReferences(text, "original", original, issue);
                 }
 
-                foreach (AreaLabelEvent e in history.Events)
+                if (!history.Consistent || history.HumanChanged || !history.ObservedLabeler ||
+                    !AreaLabelHistory.Equal(AreaLabelHistory.Areas(history.OriginalLabels), issue.CurrentAreas))
                 {
-                    text.AppendLine($"    {e.At:O} {OneLine(e.Actor)} {(e.Added ? "+" : "-")}{OneLine(e.Label)}");
+                    foreach (AreaLabelEvent e in history.Events)
+                    {
+                        text.AppendLine(string.Create(CultureInfo.InvariantCulture,
+                            $"    {e.At.UtcDateTime:yyyy-MM-dd HH:mm}Z {OneLine(e.Actor)} {(e.Added ? "+" : "-")}{OneLine(e.Label)}"));
+                    }
                 }
             }
 
@@ -434,13 +472,107 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         return text.ToString();
     }
 
+    private static string FormatSuggestion(AreaLabelSuggestion suggestion) =>
+        string.Create(CultureInfo.InvariantCulture, $"{suggestion.LabelName} ({suggestion.Confidence:P1})");
+
+    private static void AppendLabelDifferences(StringBuilder text, string referenceName, string[] reference, string[] predicted)
+    {
+        string[] missing = [.. reference.Except(predicted, StringComparer.OrdinalIgnoreCase)];
+        string[] extra = [.. predicted.Except(reference, StringComparer.OrdinalIgnoreCase)];
+
+        if (missing.Length > 0)
+        {
+            text.AppendLine($"  Missing vs {referenceName}: {Display(missing)}");
+        }
+
+        if (extra.Length > 0)
+        {
+            text.AppendLine($"  Extra vs {referenceName}: {Display(extra)}");
+        }
+    }
+
+    private static void AppendLowerRankedReferences(StringBuilder text, string referenceName, string[] reference, AreaLabelEvaluation issue)
+    {
+        if (reference.Length == 0 || AreaLabelHistory.Equal(reference, issue.Predicted))
+        {
+            return;
+        }
+
+        string[] included = issue.Suggestions.Select((s, index) => (Suggestion: s, Rank: index + 1))
+            .Where(s => s.Rank > 1 && reference.Contains(s.Suggestion.LabelName, StringComparer.OrdinalIgnoreCase))
+            .Select(s => $"{OneLine(s.Suggestion.LabelName)} (rank {s.Rank})")
+            .ToArray();
+
+        if (included.Length > 0)
+        {
+            text.AppendLine($"  Lower-ranked reference labels vs {referenceName}: {string.Join(", ", included)}");
+        }
+    }
+
+    private static void AppendPredictionComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, AreaLabelEvaluation Issue)> comparisons)
+    {
+        var all = comparisons.ToArray();
+        AppendComparisons(text, title, all.Select(c => (c.Reference, c.Issue.Predicted)));
+
+        var differences = all.Where(c => c.Reference.Length > 0 && !AreaLabelHistory.Equal(c.Reference, c.Issue.Predicted)).ToArray();
+        if (differences.Length > 0)
+        {
+            int included = differences.Count(c => c.Reference.All(label => c.Issue.AllPredicted.Contains(label, StringComparer.OrdinalIgnoreCase)));
+            text.AppendLine($"  All reference labels in suggestions: {included}/{differences.Length} mismatches (excluding abstention references).");
+        }
+
+        AppendConfidenceBreakdown(text, all);
+    }
+
+    private static void AppendConfidenceBreakdown(StringBuilder text, (string[] Reference, AreaLabelEvaluation Issue)[] comparisons)
+    {
+        if (comparisons.Length == 0)
+        {
+            return;
+        }
+
+        var buckets = comparisons.ToLookup(c => c.Issue.Suggestions.Length == 0 ? 6 : c.Issue.Suggestions[0].Confidence switch
+        {
+            >= 0.5 and < 0.7 => 0,
+            >= 0.7 and < 0.8 => 1,
+            >= 0.8 and < 0.9 => 2,
+            >= 0.9 and < 0.95 => 3,
+            >= 0.95 and <= 1 => 4,
+            _ => 5,
+        });
+
+        string[] names = ["0.5-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+", "Missing/invalid confidence", "Abstained (no confidence)"];
+        text.AppendLine("  Accuracy by top-answer confidence:");
+        text.AppendLine("    Band: matches/total (accuracy); [low, high), 0.95+ includes 1.0");
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            var bucket = buckets[i].ToArray();
+
+            if (i >= 5 && bucket.Length == 0)
+            {
+                continue;
+            }
+
+            int matches = bucket.Count(c => AreaLabelHistory.Equal(c.Reference, c.Issue.Predicted));
+            string accuracy = bucket.Length == 0 ? "N/A" : string.Create(CultureInfo.InvariantCulture, $"{100.0 * matches / bucket.Length:F1}%");
+            text.AppendLine($"    {names[i]}: {matches}/{bucket.Length} ({accuracy})");
+        }
+    }
+
     private static void AppendComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, string[] Actual)> comparisons)
     {
         var all = comparisons.ToArray();
         var differences = all.Where(c => !AreaLabelHistory.Equal(c.Reference, c.Actual)).ToArray();
         text.AppendLine();
         text.AppendLine($"{title}: {all.Length - differences.Length}/{all.Length} exact matches; {differences.Length} differences");
-        text.AppendLine("  Mismatched label combinations (reference => actual):");
+
+        if (differences.Length == 0)
+        {
+            return;
+        }
+
+        text.AppendLine("  Mismatches (reference => actual):");
 
         foreach (var group in differences.GroupBy(c => $"{Display(c.Reference)} => {Display(c.Actual)}", StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
@@ -448,10 +580,13 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
             text.AppendLine($"    {group.Count()}: {group.Key}");
         }
 
-        text.AppendLine("  Missing reference labels and their unexpected replacement combinations:");
-
         var misses = differences.SelectMany(c => c.Reference.Except(c.Actual, StringComparer.OrdinalIgnoreCase)
-            .Select(label => (Label: label, Replacements: Display(c.Actual.Except(c.Reference, StringComparer.OrdinalIgnoreCase)))));
+            .Select(label => (Label: label, Replacements: Display(c.Actual.Except(c.Reference, StringComparer.OrdinalIgnoreCase))))).ToArray();
+
+        if (misses.Length > 0)
+        {
+            text.AppendLine("  Missed labels and replacements:");
+        }
 
         foreach (var group in misses.GroupBy(m => m.Label, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -463,10 +598,15 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
             }
         }
 
-        text.AppendLine("  Unexpected labels (issue counts):");
+        var unexpected = differences.SelectMany(c => c.Actual.Except(c.Reference, StringComparer.OrdinalIgnoreCase))
+            .GroupBy(l => l, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase).ToArray();
 
-        foreach (var group in differences.SelectMany(c => c.Actual.Except(c.Reference, StringComparer.OrdinalIgnoreCase))
-            .GroupBy(l => l, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        if (unexpected.Length > 0)
+        {
+            text.AppendLine("  Unexpected labels (issues):");
+        }
+
+        foreach (var group in unexpected)
         {
             text.AppendLine($"    {group.Key}: {group.Count()}");
         }

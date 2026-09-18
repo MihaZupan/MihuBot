@@ -1,8 +1,10 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
+using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.Tests.Configuration;
 using Octokit;
 using Octokit.Internal;
@@ -110,7 +112,7 @@ public sealed class AreaLabelDetectionTests
         {
             Labels = [new() { Name = "area-Legacy", Description = "For closed issues only." }]
         };
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
 
         Assert.Empty(await detector.GetSuggestionsAsync(repository, new IssueInfo(), cancellationToken: CancellationToken.None));
     }
@@ -129,7 +131,7 @@ public sealed class AreaLabelDetectionTests
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", area);
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:component:", component);
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:124:area-", discussion);
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
         Assert.Equal(component, await detector.PredictAsync("DOTNET/RUNTIME", 123, "COMPONENT:", CancellationToken.None));
@@ -151,7 +153,7 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
         await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:medium:dotnet/runtime:123:area-", alternative);
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
 
@@ -172,7 +174,7 @@ public sealed class AreaLabelDetectionTests
     public void ReasoningConfigurationIsAppliedToChatOptions(string effort)
     {
         var configuration = new TestConfigurationService();
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
 
 #pragma warning disable OPENAI001
         Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
@@ -202,7 +204,7 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
         await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:{effort}:dotnet/runtime:123:area-", alternative);
-        var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
 
@@ -211,6 +213,61 @@ public sealed class AreaLabelDetectionTests
 
         configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+    }
+
+    [Fact]
+    public void OutputBudgetAppliesToAllPredictionOptions()
+    {
+        var configuration = new TestConfigurationService();
+        configuration.Set(null, "AreaLabelDetector.ReasoningEffort", "high");
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+
+        var options = detector.CreateChatCompletionOptions();
+        Assert.Equal(32_768, options.MaxOutputTokenCount);
+        Assert.Equal(AreaLabelDetector.MaxOutputTokens, options.MaxOutputTokenCount);
+
+#pragma warning disable OPENAI001
+        Assert.Equal("high", options.ReasoningEffortLevel.ToString());
+#pragma warning restore OPENAI001
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("issue title, body, labels, and retrieved examples")]
+    [InlineData("\u00e9\u4e2d\ud83d\ude00")]
+    public void ReservationIncludesTokenizedPromptSchemaAndMaximumOutput(string prompt)
+    {
+        Assert.Equal(GitHubSemanticSearchIngestionService.Tokenizer.CountTokens(prompt) + 2_048 + AreaLabelDetector.MaxOutputTokens,
+            AreaLabelDetector.EstimateTokenBudget(prompt));
+        Assert.Equal(800_000, AreaLabelDetector.TokensPerMinute);
+    }
+
+    [Fact]
+    public void PromptReservationCountsTokensRatherThanBytes()
+    {
+        Assert.Equal(2 + 2_048 + AreaLabelDetector.MaxOutputTokens, AreaLabelDetector.EstimateTokenBudget("hello world"));
+    }
+
+    [Theory]
+    [InlineData(100L, 20L, null, 120)]
+    [InlineData(100L, 20L, 120L, 120)]
+    [InlineData(null, null, 120L, 120)]
+    [InlineData(100L, null, 120L, 120)]
+    [InlineData(0L, 0L, null, 0)]
+    [InlineData(null, null, null, null)]
+    [InlineData(100L, null, null, null)]
+    [InlineData(null, 20L, null, null)]
+    public void ActualTokenCountUsesReportedTotalOrCompleteInputAndOutput(long? input, long? output, long? total, int? expected)
+    {
+        var usage = new UsageDetails { InputTokenCount = input, OutputTokenCount = output, TotalTokenCount = total };
+
+        Assert.Equal(expected, AreaLabelDetector.GetActualTokenCount(usage));
+    }
+
+    [Fact]
+    public void MissingUsageDoesNotRefundTheReservation()
+    {
+        Assert.Null(AreaLabelDetector.GetActualTokenCount(null!));
     }
 
     [Fact]

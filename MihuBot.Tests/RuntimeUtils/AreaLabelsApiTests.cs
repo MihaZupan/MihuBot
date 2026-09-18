@@ -247,7 +247,7 @@ public sealed class AreaLabelsApiTests
         });
         if (cache is not null)
         {
-            builder.Services.AddSingleton(new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService()));
+            builder.Services.AddSingleton(_ => new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService()));
         }
         var app = builder.Build();
         app.UseRateLimiter();

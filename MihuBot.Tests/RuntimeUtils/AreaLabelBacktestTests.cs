@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -659,15 +660,171 @@ public sealed class AreaLabelBacktestTests
         report.Issues.Add(Evaluation(2, ["AREA-FOO"], []));
         report.Issues.Add(Evaluation(3, ["area-Foo"], [new("AREA-FOO", 0.9), new("area-foo", 0.8)]));
 
-        Assert.Equal(["area-Bar", "area-keep"], report.Issues[0].Predicted);
+        Assert.Equal(["area-keep"], report.Issues[0].Predicted);
+        Assert.Equal(["area-Bar", "area-keep"], report.Issues[0].AllPredicted);
         string text = report.ToText();
 
         Assert.Contains("Current area labels -> prediction: 1/3 exact matches; 2 differences", text, StringComparison.Ordinal);
         Assert.Contains("area-Foo: missed 2 of 3 reference issues", text, StringComparison.Ordinal);
-        Assert.Contains("1 => \"area-Bar\"", text, StringComparison.Ordinal);
-        Assert.Contains("1 => (none)", text, StringComparison.Ordinal);
-        Assert.Contains("area-Bar: 1", text, StringComparison.Ordinal);
+        Assert.Contains("2 => (none)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("=> \"area-Bar\"", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("area-Bar: 1", text, StringComparison.Ordinal);
         Assert.DoesNotContain("area-Keep: missed", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TopAnswerMatchIgnoresLowerRankedSuggestions()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"],
+            [new("area-Foo", 0.9), new("area-Bar", 0.8)],
+            Analyze([Event(1, "area-Foo")], ["area-Foo"])));
+
+        string text = report.ToText();
+
+        Assert.Contains("Top-answer exact matches: current area labels 1/1; original labeler 1/1", report.Summary, StringComparison.Ordinal);
+        Assert.Contains("Current area labels -> prediction: 1/1 exact matches; 0 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Original labeler -> prediction: 1/1 exact matches; 0 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Prediction: area-Foo (90.0", text, StringComparison.Ordinal);
+        Assert.Contains("Lower-ranked suggestions: area-Bar (80.0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Extra vs", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Missing vs", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lower-ranked reference labels vs", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LowerRankedReferenceIsReportedWithoutChangingTopAnswerMismatch()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"],
+            [new("area-Bar", 0.9), new("area-Baz", 0.8), new("AREA-FOO", 0.7)],
+            Analyze([Event(1, "area-Foo")], ["area-Foo"])));
+
+        string text = report.ToText();
+
+        Assert.Contains("current area labels 0/1; original labeler 0/1", report.Summary, StringComparison.Ordinal);
+        Assert.Contains("Current area labels -> prediction: 0/1 exact matches; 1 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Original labeler -> prediction: 0/1 exact matches; 1 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Current area labels -> original labeler: 1/1 exact matches; 0 differences", text, StringComparison.Ordinal);
+        Assert.Contains("1: \"area-Foo\" => \"area-Bar\"", text, StringComparison.Ordinal);
+        Assert.Contains("Missing vs current: \"area-Foo\"", text, StringComparison.Ordinal);
+        Assert.Contains("Extra vs current: \"area-Bar\"", text, StringComparison.Ordinal);
+        Assert.Contains("Missing vs original: \"area-Foo\"", text, StringComparison.Ordinal);
+        Assert.Contains("Extra vs original: \"area-Bar\"", text, StringComparison.Ordinal);
+        Assert.Contains("Lower-ranked reference labels vs current: AREA-FOO (rank 3)", text, StringComparison.Ordinal);
+        Assert.Contains("Lower-ranked reference labels vs original: AREA-FOO (rank 3)", text, StringComparison.Ordinal);
+        Assert.Equal(2, text.Split("All reference labels in suggestions: 1/1", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("area-Baz: 1", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SuggestionCoverageSeparatesFullPartialAbsentAndUnscoredReferences()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, 7, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo", "area-Bar"], [new("area-Foo", 0.9), new("area-Bar", 0.8)]));
+        report.Issues.Add(Evaluation(2, ["area-Foo", "area-Bar"], [new("area-Foo", 0.9), new("area-Baz", 0.8)]));
+        report.Issues.Add(Evaluation(3, ["area-Foo"], [new("area-Bar", 0.9), new("area-Baz", 0.8)]));
+        report.Issues.Add(Evaluation(4, ["area-Foo"], []));
+        report.Issues.Add(Evaluation(5, ["area-Foo"], null, null, "Prediction failed"));
+        report.Issues.Add(Evaluation(6, [], [new("area-Foo", 0.9)]));
+        report.Issues.Add(Evaluation(7, ["needs-area-label"], [new("area-Foo", 0.9)],
+            Analyze([Event(1, "needs-area-label")], ["needs-area-label"])));
+
+        string text = report.ToText();
+
+        Assert.Contains("current area labels 0/4; original labeler 0/1", report.Summary, StringComparison.Ordinal);
+        Assert.Contains("All reference labels in suggestions: 1/4", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("All reference labels in suggestions: 0/0", text, StringComparison.Ordinal);
+        Assert.Contains("Lower-ranked reference labels vs current: area-Bar (rank 2)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lower-ranked reference labels vs current: (none)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lower-ranked reference labels vs original:", text, StringComparison.Ordinal);
+        Assert.Contains("Prediction: (abstained)", text, StringComparison.Ordinal);
+        Assert.Contains("Prediction: FAILED", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfidenceBandsUseTopAnswerWithNonOverlappingBoundaries()
+    {
+        double[] confidences = [0.5, 0.699999, 0.7, 0.799999, 0.8, 0.899999, 0.9, 0.949999, 0.95, 1.0];
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, confidences.Length, Labeler));
+        var history = Analyze([Event(1, "area-Foo")], ["area-Foo"]);
+
+        for (int i = 0; i < confidences.Length; i++)
+        {
+            report.Issues.Add(Evaluation(i + 1, ["area-Foo"],
+                [new(i % 2 == 0 ? "area-Foo" : "area-Bar", confidences[i]), new("area-Foo", 0.5)], history));
+        }
+
+        string text = report.ToText();
+        string[] sections = text.Split("  Accuracy by top-answer confidence:", StringSplitOptions.None);
+        Assert.Equal(3, sections.Length);
+
+        foreach (string section in sections.Skip(1))
+        {
+            foreach (string band in new[] { "0.5-0.7", "0.7-0.8", "0.8-0.9", "0.9-0.95", "0.95+" })
+            {
+                Assert.Contains($"{band}: 1/2 (50.0%)", section, StringComparison.Ordinal);
+            }
+        }
+
+        Assert.Contains("current area labels 5/10; original labeler 5/10", report.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConfidenceAccuracyUsesIndependentScoringDenominatorsAndSeparatesAbstentions()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, 9, Labeler));
+        var known = Analyze([Event(1, "area-Foo")], ["area-Foo"]);
+        var fallback = Analyze([Event(1, "needs-area-label")], ["needs-area-label"]);
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", 0.99)], known));
+        report.Issues.Add(Evaluation(2, ["area-Foo"], [new("area-Bar", 0.99)], null, "Timeline failed"));
+        report.Issues.Add(Evaluation(3, ["area-Foo"], [new("area-Bar", 0.99)], Analyze([], ["area-Foo"])));
+        report.Issues.Add(Evaluation(4, ["area-Foo"], null, known, "Prediction failed"));
+        report.Issues.Add(Evaluation(5, [], [new("area-Foo", 0.99)], Analyze([], [])));
+        report.Issues.Add(Evaluation(6, ["needs-area-label"], [new("area-Foo", 0.99)], fallback));
+        report.Issues.Add(Evaluation(7, ["area-Foo"], [], known));
+        report.Issues.Add(Evaluation(8, ["needs-area-label"], [], fallback));
+        report.Issues.Add(Evaluation(9, ["area-Foo", "area-Bar"], [new("area-Foo", 0.99), new("area-Bar", 0.98)]));
+
+        string[] sections = report.ToText().Split("  Accuracy by top-answer confidence:", StringSplitOptions.None);
+        Assert.Equal(3, sections.Length);
+        Assert.Contains("0.95+: 1/4 (25.0%)", sections[1], StringComparison.Ordinal);
+        Assert.Contains("Abstained (no confidence): 0/1 (0.0%)", sections[1], StringComparison.Ordinal);
+        Assert.Contains("0.95+: 1/2 (50.0%)", sections[2], StringComparison.Ordinal);
+        Assert.Contains("Abstained (no confidence): 1/2 (50.0%)", sections[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ComparisonsWithoutScoredPredictionsOmitConfidenceTables()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], null, null, "Prediction failed"));
+        string text = report.ToText();
+
+        Assert.Contains("Current area labels -> prediction: 0/0", text, StringComparison.Ordinal);
+        Assert.Contains("Original labeler -> prediction: 0/0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Accuracy by top-answer confidence:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Abstained (no confidence):", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Missing/invalid confidence:", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0.49)]
+    [InlineData(1.01)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void UnusableConfidenceIsExplicitlyReportedOutsideNumericBands(double? confidence)
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", confidence)]));
+
+        string text = report.ToText();
+
+        Assert.Contains("Missing/invalid confidence: 1/1 (100.0%)", text, StringComparison.Ordinal);
+        Assert.Contains("0.95+: 0/0 (N/A)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Abstained (no confidence):", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -695,7 +852,7 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(4, entries.Length);
         Assert.Contains("11 [closed] First issue", entries[1], StringComparison.Ordinal);
         Assert.Contains("https://github.com/dotnet/runtime/issues/11", entries[1], StringComparison.Ordinal);
-        Assert.Contains("Current labels: \"area-Bar\", \"bug\"", entries[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("Current labels:", entries[1], StringComparison.Ordinal);
         Assert.Contains("Current areas: \"area-Bar\"", entries[1], StringComparison.Ordinal);
         Assert.Contains("Prediction: area-Foo (75.0", entries[1], StringComparison.Ordinal);
         Assert.Contains("Current comparison: DIFFERENT", entries[1], StringComparison.Ordinal);
@@ -713,14 +870,14 @@ public sealed class AreaLabelBacktestTests
         Assert.Contains("Original labels: (not observed; not an abstention)", entries[2], StringComparison.Ordinal);
         Assert.DoesNotContain("Original comparison:", entries[2], StringComparison.Ordinal);
         Assert.Contains("13 [open] Issue 13", entries[3], StringComparison.Ordinal);
-        Assert.Contains("Current labels: \"area-Baz\"", entries[3], StringComparison.Ordinal);
+        Assert.Contains("Current areas: \"area-Baz\"", entries[3], StringComparison.Ordinal);
         Assert.Contains("Prediction: FAILED", entries[3], StringComparison.Ordinal);
         Assert.Contains("Original outcome: Timeline unavailable", entries[3], StringComparison.Ordinal);
         Assert.Contains("ERROR: Timeline failed: unavailable", entries[3], StringComparison.Ordinal);
         Assert.Contains("ERROR: Prediction failed: model error", entries[3], StringComparison.Ordinal);
         Assert.DoesNotContain("Current comparison:", entries[3], StringComparison.Ordinal);
-        Assert.Contains("NOT an as-of-creation replay", text, StringComparison.Ordinal);
-        Assert.Contains("No event cannot prove a skipped or unexecuted prediction", text, StringComparison.Ordinal);
+        Assert.Contains("not a historical replay", text, StringComparison.Ordinal);
+        Assert.Contains("No event does not prove a skip", text, StringComparison.Ordinal);
         Assert.Contains("No GitHub labels changed", text, StringComparison.Ordinal);
     }
 
@@ -732,8 +889,35 @@ public sealed class AreaLabelBacktestTests
 
         string text = report.ToText();
 
-        Assert.Contains("Current labels: \"area-\"\"Quoted\"\" label\"", text, StringComparison.Ordinal);
+        Assert.Contains("Current areas: \"area-\"\"Quoted\"\" label\"", text, StringComparison.Ordinal);
         Assert.Contains("Missing vs current: \"area-\"\"Quoted\"\" label\"", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MatchingIssueReportIsCompactAndOmitsEmptyDetails()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", 0.99)],
+            Analyze([Event(1, "area-Foo")], ["area-Foo"])));
+
+        string text = report.ToText();
+        string details = text[(text.IndexOf("ALL EVALUATED ISSUES", StringComparison.Ordinal) + "ALL EVALUATED ISSUES".Length)..];
+
+        Assert.True(text.Length < 2_500, $"Report has {text.Length} characters.");
+        Assert.InRange(details.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length, 1, 8);
+        Assert.Contains("Scope: issue #1.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Execution:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Mismatches (reference => actual):", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Missed labels and replacements:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unexpected labels (issues):", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("All reference labels in suggestions:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Missing vs", details, StringComparison.Ordinal);
+        Assert.DoesNotContain("Extra vs", details, StringComparison.Ordinal);
+        Assert.DoesNotContain("github-actions[bot] +area-Foo", details, StringComparison.Ordinal);
+        Assert.Contains("Current comparison: MATCH", details, StringComparison.Ordinal);
+        Assert.Contains("Original comparison: MATCH", details, StringComparison.Ordinal);
+        Assert.Contains("0.95+: 1/1 (100.0%)", text, StringComparison.Ordinal);
+        Assert.Contains("0.5-0.7: 0/0 (N/A)", text, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1248,6 +1432,240 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(failed, logs.Count(message => message.Contains("Failed to predict labels for https://github.com/o/r/issues/109:", StringComparison.Ordinal)));
         Assert.Equal(2, handler.Requests.Count);
         Assert.Equal(2, graphQL.Requests.Count);
+    }
+
+    [Fact]
+    public async Task RunAsyncBoundsConcurrentPredictionsAndPreservesSampleOrderAfterOutOfOrderCompletion()
+    {
+        const int count = 9;
+        TaskCompletionSource[] started = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        TaskCompletionSource[] release = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        TaskCompletionSource[] finished = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        ConcurrentQueue<int> concurrency = new();
+        ConcurrentQueue<int> completionOrder = new();
+        ConcurrentQueue<string> logs = new();
+        int active = 0;
+
+        using var handler = new GitHubHandler(_ =>
+            JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
+        using var graphQL = new AreaLabelGraphQLTransport();
+
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _) =>
+        {
+            int index = issue.Number - 10;
+            concurrency.Enqueue(Interlocked.Increment(ref active));
+            started[index].SetResult();
+
+            try
+            {
+                await release[index].Task;
+                completionOrder.Enqueue(issue.Number);
+
+                return [new("area-Foo", 0.9)];
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+                finished[index].SetResult();
+            }
+        }, logs.Enqueue);
+
+        Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None);
+
+        try
+        {
+            await Task.WhenAll(started.Take(8).Select(signal => signal.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(8, Volatile.Read(ref active));
+            Assert.False(started[8].Task.IsCompleted);
+            Assert.False(run.IsCompleted);
+
+            release[7].SetResult();
+            await started[8].Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(8, Volatile.Read(ref active));
+
+            foreach (int index in new[] { 8, 6, 5, 4, 3, 2, 1, 0 })
+            {
+                release[index].SetResult();
+                await finished[index].Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+
+            var report = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(8, AreaLabelBacktestService.MaxConcurrentPredictions);
+            Assert.All(concurrency, value => Assert.InRange(value, 1, 8));
+            Assert.Equal(8, concurrency.Max());
+            Assert.Equal([17, 18, 16, 15, 14, 13, 12, 11, 10], completionOrder);
+            Assert.Equal(Enumerable.Range(10, count), report.Issues.Select(issue => issue.Number));
+            Assert.All(report.Issues, issue => Assert.Empty(issue.Errors));
+            Assert.Equal(count, report.PredictedIssues.Length);
+            Assert.Equal(0, Volatile.Read(ref active));
+            Assert.False(report.Cancelled);
+            Assert.Single(graphQL.Requests);
+        }
+        finally
+        {
+            foreach (var signal in release)
+            {
+                signal.TrySetResult();
+            }
+
+            await run.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
+    [Fact]
+    public async Task RunAsyncIsolatesConcurrentPredictionFailuresAndContinuesQueuedIssues()
+    {
+        const int count = 10;
+        var full = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ConcurrentQueue<int> predictions = new();
+        ConcurrentQueue<string> logs = new();
+        int started = 0;
+
+        using var handler = new GitHubHandler(_ =>
+            JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
+        using var graphQL = new AreaLabelGraphQLTransport();
+
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _) =>
+        {
+            predictions.Enqueue(issue.Number);
+
+            if (Interlocked.Increment(ref started) == 8)
+            {
+                full.SetResult();
+            }
+
+            await release.Task;
+
+            if (issue.Number == 10)
+            {
+                throw new InvalidOperationException("Model unavailable");
+            }
+
+            if (issue.Number == 11)
+            {
+                throw new OperationCanceledException("Model timeout without run cancellation");
+            }
+
+            return [new("area-Foo", 0.9)];
+        }, logs.Enqueue);
+
+        Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None);
+
+        try
+        {
+            await full.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(8, Volatile.Read(ref started));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await run.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        var report = await run;
+
+        Assert.False(report.Cancelled);
+        Assert.Equal(Enumerable.Range(10, count), predictions.Order());
+        Assert.Equal(Enumerable.Range(10, count), report.Issues.Select(issue => issue.Number));
+        Assert.Equal("Prediction failed: Model unavailable", Assert.Single(report.Issues[0].Errors));
+        Assert.Equal("Prediction failed: Model timeout without run cancellation", Assert.Single(report.Issues[1].Errors));
+        Assert.All(report.Issues.Skip(2), issue => Assert.Empty(issue.Errors));
+        Assert.Equal(count - 2, report.PredictedIssues.Length);
+        Assert.Equal(2, logs.Count(message => message.StartsWith("Failed to predict labels for", StringComparison.Ordinal)));
+        Assert.Single(graphQL.Requests);
+    }
+
+    [Fact]
+    public async Task RunAsyncCancellationAwaitsAllActivePredictionsAndExcludesUnstartedIssues()
+    {
+        const int count = 10;
+        using var cancellation = new CancellationTokenSource();
+        TaskCompletionSource[] started = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        TaskCompletionSource[] release = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        TaskCompletionSource[] finished = [.. Enumerable.Range(0, count).Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))];
+        ConcurrentQueue<string> logs = new();
+        int active = 0;
+
+        using var handler = new GitHubHandler(_ =>
+            JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
+        using var graphQL = new AreaLabelGraphQLTransport();
+
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, ct) =>
+        {
+            int index = issue.Number - 10;
+            Interlocked.Increment(ref active);
+            started[index].SetResult();
+
+            try
+            {
+                await release[index].Task;
+
+                if (index != 0)
+                {
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                return [new("area-Foo", 0.9)];
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+                finished[index].SetResult();
+            }
+        }, logs.Enqueue);
+
+        Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), cancellation.Token);
+
+        try
+        {
+            await Task.WhenAll(started.Take(8).Select(signal => signal.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            Assert.False(run.IsCompleted);
+
+            foreach (var signal in release.Take(7))
+            {
+                signal.SetResult();
+            }
+
+            await Task.WhenAll(finished.Take(7).Select(signal => signal.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, Volatile.Read(ref active));
+            Assert.False(run.IsCompleted);
+            Assert.All(started.Skip(8), signal => Assert.False(signal.Task.IsCompleted));
+
+            release[7].SetResult();
+            var report = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.True(report.Cancelled);
+            Assert.Equal(Enumerable.Range(10, 8), report.Issues.Select(issue => issue.Number));
+            Assert.Equal(10, Assert.Single(report.PredictedIssues).Number);
+            Assert.Empty(report.Issues[0].Errors);
+
+            Assert.All(report.Issues.Skip(1), issue =>
+            {
+                Assert.Null(issue.Suggestions);
+                Assert.Equal("Cancelled before evaluation completed.", Assert.Single(issue.Errors));
+            });
+
+            Assert.Equal(0, Volatile.Read(ref active));
+            Assert.All(finished.Take(8), signal => Assert.True(signal.Task.IsCompleted));
+            Assert.All(started.Skip(8), signal => Assert.False(signal.Task.IsCompleted));
+            Assert.Contains("8/10 issues evaluated, 1 predicted, 7 with errors", report.Summary, StringComparison.Ordinal);
+            Assert.DoesNotContain(logs, message => message.StartsWith("Failed to predict labels for", StringComparison.Ordinal));
+            Assert.Single(graphQL.Requests);
+        }
+        finally
+        {
+            cancellation.Cancel();
+
+            foreach (var signal in release)
+            {
+                signal.TrySetResult();
+            }
+
+            await run.WaitAsync(TimeSpan.FromSeconds(10));
+        }
     }
 
     private static Task<RepositoryInfo> GetRepositoryAsync(string name, CancellationToken cancellationToken)
