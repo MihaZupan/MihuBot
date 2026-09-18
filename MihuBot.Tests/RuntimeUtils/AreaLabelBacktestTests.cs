@@ -180,6 +180,25 @@ public sealed class AreaLabelBacktestTests
         Assert.False(history.HumanChanged);
     }
 
+    [Theory]
+    [InlineData("custom-labeler[bot]", "Bot", "custom-labeler", true)]
+    [InlineData("custom-labeler", "Bot", "custom-labeler[bot]", true)]
+    [InlineData("CUSTOM-LABELER[BOT]", "Bot", "custom-labeler", true)]
+    [InlineData("custom-labeler", "User", "custom-labeler[bot]", false)]
+    [InlineData("custom-labeler[bot]", "User", "custom-labeler", false)]
+    [InlineData("custom-labeler", "User", "CUSTOM-LABELER", true)]
+    public void RestLabelerMatchingNormalizesOnlyConfirmedBotLogins(
+        string login, string actorType, string labelerActor, bool expectedObserved)
+    {
+        var history = AreaLabelHistory.Analyze(
+            [Event(1, "needs-area-label", actor: login, actorType: actorType)], ["needs-area-label"], labelerActor);
+
+        Assert.True(history.Consistent);
+        Assert.Equal(expectedObserved, history.ObservedLabeler);
+        Assert.Equal(login, Assert.Single(history.Events).Actor);
+        Assert.Equal(expectedObserved ? ["needs-area-label"] : Array.Empty<string>(), history.OriginalLabels);
+    }
+
     [Fact]
     public void OriginalBotLabelBatchIsRetainedAndUnrelatedEventsAreIgnored()
     {

@@ -651,6 +651,83 @@ public sealed class AreaLabelTimelineTests
     }
 
     [Theory]
+    [InlineData("github-actions", "Bot", "github-actions[bot]", true)]
+    [InlineData("github-actions[bot]", "Bot", "github-actions", true)]
+    [InlineData("GITHUB-ACTIONS", "Bot", "github-actions[BOT]", true)]
+    [InlineData("github-actions[bot]", "Bot", "github-actions[bot]", true)]
+    [InlineData("custom-labeler", "Bot", "custom-labeler[bot]", true)]
+    [InlineData("other-labeler", "Bot", "custom-labeler[bot]", false)]
+    [InlineData("custom-labeler", "User", "custom-labeler[bot]", false)]
+    [InlineData("custom-labeler[bot]", "User", "custom-labeler", false)]
+    [InlineData("custom-labeler", "Mannequin", "custom-labeler[bot]", false)]
+    [InlineData("custom-labeler", null, "custom-labeler[bot]", false)]
+    [InlineData("custom-labeler", "User", "CUSTOM-LABELER", true)]
+    public async Task GraphQLLabelerMatchingNormalizesOnlyConfirmedBotLogins(
+        string login, string? actorType, string labelerActor, bool expectedObserved)
+    {
+        JsonObject item = GraphEvent("event", "area-Foo", actor: login);
+        item["actor"]!["__typename"] = actorType;
+
+        using var transport = new AreaLabelGraphQLTransport
+        {
+            Respond = (_, _) => Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode("A", [item]))))),
+        };
+
+        var result = Assert.Single(await ReadTimelinesAsync(transport.Client, [Issue("A")], labelerActor, _ => { }, CancellationToken.None));
+
+        Assert.Null(result.Error);
+        Assert.Equal(login, Assert.Single(result.Events).Actor);
+
+        var history = AreaLabelHistory.AnalyzeEvents(result.Events, ["area-Foo"], labelerActor);
+
+        Assert.True(history.Consistent);
+        Assert.Equal(expectedObserved, history.ObservedLabeler);
+        Assert.Equal(expectedObserved ? ["area-Foo"] : Array.Empty<string>(), history.OriginalLabels);
+    }
+
+    [Theory]
+    [InlineData("github-actions[bot]")]
+    [InlineData("github-actions")]
+    public async Task GraphQLBotFallbackBeforeHumanLabelingIsScoredAsAbstention(string labelerActor)
+    {
+        using var transport = new AreaLabelGraphQLTransport
+        {
+            Respond = (_, _) => Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode("A",
+            [
+                GraphEvent("fallback", "needs-area-label", actor: "github-actions"),
+                GraphEvent("area", "area-VM-coreclr", actor: "jeffschwMSFT", actorType: "User"),
+                GraphEvent("removal", "needs-area-label", added: false, actor: "teo-tsirpanis", actorType: "User"),
+            ]))))),
+        };
+
+        var result = Assert.Single(await ReadTimelinesAsync(transport.Client, [Issue("A")], labelerActor, _ => { }, CancellationToken.None));
+        Assert.Null(result.Error);
+
+        var evaluation = new AreaLabelEvaluation(134128, "https://github.com/dotnet/runtime/issues/134128", "Issue", "open",
+            ["area-VM-coreclr", "untriaged"])
+        {
+            History = AreaLabelHistory.AnalyzeEvents(result.Events, ["area-VM-coreclr", "untriaged"], labelerActor),
+            Suggestions = [new("area-VM-coreclr", 0.99)],
+        };
+
+        Assert.True(evaluation.History.ObservedLabeler);
+        Assert.True(evaluation.History.Consistent);
+        Assert.True(evaluation.History.HumanChanged);
+        Assert.Equal(["needs-area-label"], evaluation.History.OriginalLabels);
+        Assert.Equal("Applied needs-area-label (abstained); later human label change", evaluation.History.Status);
+
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 134128, 1, labelerActor));
+        report.Issues.Add(evaluation);
+
+        string text = report.ToText();
+
+        Assert.Single(report.OriginalScored);
+        Assert.Contains("Current area labels -> prediction: 1/1 exact matches; 0 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Original labeler -> prediction: 0/1 exact matches; 1 differences", text, StringComparison.Ordinal);
+        Assert.Contains("Current area labels -> original labeler: 0/1 exact matches; 1 differences", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task CancellationBeforeOrDuringTransportPropagatesInsteadOfReturningFailure(bool beforeRequest)

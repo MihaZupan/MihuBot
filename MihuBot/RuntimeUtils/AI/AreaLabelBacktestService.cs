@@ -211,8 +211,15 @@ internal sealed class AreaLabelEvaluation(int number, string url, string title, 
     public List<string> Errors { get; } = [];
 }
 
-internal sealed record AreaLabelEvent(DateTimeOffset At, string Actor, bool IsHuman, bool Added, string Label)
+internal sealed record AreaLabelEvent(DateTimeOffset At, string Actor, bool IsHuman, bool Added, string Label, bool IsBot = false)
 {
+    internal bool IsLabeler(string labelerActor) =>
+        Actor.Equals(labelerActor, StringComparison.OrdinalIgnoreCase) ||
+        (IsBot && NormalizeBotLogin(Actor).Equals(NormalizeBotLogin(labelerActor), StringComparison.OrdinalIgnoreCase));
+
+    private static string NormalizeBotLogin(string login) =>
+        login.EndsWith("[bot]", StringComparison.OrdinalIgnoreCase) ? login[..^5] : login;
+
     internal static AreaLabelEvent FromGraphQL(GitHubGraphQL.LabelTimelineEvent item, string labelerActor)
     {
         var actor = item.Actor;
@@ -224,7 +231,7 @@ internal sealed record AreaLabelEvent(DateTimeOffset At, string Actor, bool IsHu
             Type = actor.Type == "User" ? AccountType.User : actor.Type == "Bot" ? AccountType.Bot : null,
         }.IsLikelyARealUser() && !actor.Login.Equals(labelerActor, StringComparison.OrdinalIgnoreCase);
 
-        return new(item.CreatedAt, actor?.Login ?? "(unknown)", human, item.Type == "LabeledEvent", item.Label.Name);
+        return new(item.CreatedAt, actor?.Login ?? "(unknown)", human, item.Type == "LabeledEvent", item.Label.Name, actor?.Type == "Bot");
     }
 }
 
@@ -258,7 +265,7 @@ internal sealed record AreaLabelHistory(
             .Select(e => new AreaLabelEvent(e.CreatedAt, e.Actor?.Login ?? "(unknown)",
                 e.Actor is { } actor && new UserInfo { Id = actor.Id, Login = actor.Login, Type = actor.Type }.IsLikelyARealUser() &&
                     !actor.Login.Equals(labelerActor, StringComparison.OrdinalIgnoreCase),
-                e.Event.Value == EventInfoState.Labeled, e.Label.Name))
+                e.Event.Value == EventInfoState.Labeled, e.Label.Name, e.Actor?.Type == AccountType.Bot))
             .ToArray();
 
         return AnalyzeEvents(events, currentLabels, labelerActor);
@@ -328,7 +335,7 @@ internal sealed record AreaLabelHistory(
 
         return new(status, original, true, consistent, humanChanged, events);
 
-        bool IsLabeler(AreaLabelEvent e) => e.Actor.Equals(labelerActor, StringComparison.OrdinalIgnoreCase);
+        bool IsLabeler(AreaLabelEvent e) => e.IsLabeler(labelerActor);
     }
 }
 
