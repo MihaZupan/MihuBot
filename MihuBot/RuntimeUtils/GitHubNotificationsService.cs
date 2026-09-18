@@ -378,7 +378,7 @@ public sealed partial class GitHubNotificationsService
             }
         }
 
-        if (counter > 0)
+        if (counter > 1)
         {
             await _logger.DebugAsync($"[{nameof(RescanOldRuntimeIssuesAsync)}]: Subscribed to notifications on {counter} out of {issueIds.Length} issues.");
         }
