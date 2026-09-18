@@ -13,6 +13,7 @@ public sealed class AdminCommands : CommandBase
     public override string[] Aliases =>
     [
         "clearbodyedithistorytable",
+        "clearhybridcache",
         "clearhybridcache-search",
         "deleteolddebuglogs",
         "clearstoragecontainer",
@@ -113,10 +114,21 @@ public sealed class AdminCommands : CommandBase
             await ctx.ReplyAsync($"**Database counts:**\n{string.Join('\n', counts.OrderBy(c => c.Name).Select(c => $"{c.Name}: {c.Count}"))}");
         }
 
-        if (ctx.Command == "clearhybridcache-search")
+        if (ctx.Command is "clearhybridcache" or "clearhybridcache-search")
         {
-            await _cache.RemoveByTagAsync(nameof(GitHubSearchService));
-            await ctx.ReplyAsync("Hybrid cache cleared.");
+            bool searchOnly = ctx.Command == "clearhybridcache-search";
+
+            if (ctx.Arguments.Length > (searchOnly ? 0 : 1))
+            {
+                await ctx.ReplyAsync(searchOnly
+                    ? $"Usage: `!{ctx.Command}`. To clear another tag, use `!clearhybridcache <tag>`."
+                    : "Usage: `!clearhybridcache [tag]`. Omit the tag or use `*` to clear the whole cache. Tags are case-sensitive (e.g. `AreaLabelDetector`, `GitHubSearchService`).");
+                return;
+            }
+
+            string tag = searchOnly ? nameof(GitHubSearchService) : ctx.Arguments.FirstOrDefault() ?? "*";
+            await _cache.RemoveByTagAsync(tag, ctx.CancellationToken);
+            await ctx.ReplyAsync(tag == "*" ? "Hybrid cache cleared." : $"Hybrid cache cleared for tag `{tag}`.", suppressMentions: true);
         }
 
         if (ctx.Command == "deleteolddebuglogs")

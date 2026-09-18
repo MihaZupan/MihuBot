@@ -45,8 +45,10 @@ public sealed class AreaLabelsApiTests
         using var response = await http.PostAsync("/api/RuntimeUtils/AreaLabels/Predict", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
         Assert.Equal(expectedStatus, response.StatusCode);
         Assert.Equal(expectedStatus == HttpStatusCode.OK ? 1 : 0, cache.Calls);
+
         if (expectedStatus == HttpStatusCode.OK)
         {
+            Assert.Equal(nameof(AreaLabelDetector), Assert.Single(cache.Tags!));
             Assert.Equal("area-", cache.LabelPrefix);
             using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.Equal(JsonValueKind.Array, result.RootElement.ValueKind);
@@ -266,6 +268,7 @@ public sealed class AreaLabelsApiTests
         public int Calls => _calls;
         public System.Collections.Concurrent.ConcurrentQueue<string> Keys { get; } = new();
         public string? LabelPrefix { get; private set; }
+        public string[]? Tags { get; private set; }
         public Exception? Error { get; init; }
         public Task? Release { get; init; }
         public TaskCompletionSource TenRequestsStarted { get; } = new();
@@ -276,6 +279,8 @@ public sealed class AreaLabelsApiTests
         {
             Keys.Enqueue(key);
             LabelPrefix = key.Split(':', 6)[5];
+            Tags = tags?.ToArray();
+
             if (Interlocked.Increment(ref _calls) == 10)
             {
                 TenRequestsStarted.TrySetResult();

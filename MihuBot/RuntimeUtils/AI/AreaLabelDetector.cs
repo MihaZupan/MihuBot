@@ -74,6 +74,7 @@ public sealed class AreaLabelDetector(
                 return await GetSuggestionsAsync(issue.Repository, issue, labelPrefix, model, completionOptions, ct);
             },
             new HybridCacheEntryOptions { Expiration = TimeSpan.FromHours(2) },
+            tags: [nameof(AreaLabelDetector)],
             cancellationToken: cancellationToken);
     }
 
