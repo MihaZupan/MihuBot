@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using Octokit;
 
 namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
@@ -202,17 +203,203 @@ public static class GitHubGraphQL
 
     public static async Task<(UserModel[] Users, int Calls, int Cost)> GetUsers(this GithubGraphQLClient client, string[] logins, CancellationToken cancellationToken = default)
     {
-        var response = await client.RunQueryAsync<JsonElement>(Queries.BulkUsers(logins), new { }, cancellationToken);
+        if (logins.Length == 0)
+        {
+            return ([], 0, 0);
+        }
+
+        string[] aliases = [.. Enumerable.Range(0, logins.Length).Select(i => $"User{i}")];
+        var variables = logins.Select((login, i) => KeyValuePair.Create($"login{i}", login)).ToDictionary();
+        var response = await client.RunAliasedQueryAsync<UserModel>(Queries.BulkUsers(logins.Length), variables, aliases, cancellationToken);
 
         UserModel[] users = new UserModel[logins.Length];
 
         for (int i = 0; i < users.Length; i++)
         {
-            users[i] = response.GetProperty($"User{i}").Deserialize<UserModel>(JsonSerializerOptions.Web)!;
+            var field = response.Fields[aliases[i]];
+
+            if (field.InvalidData is not null || field.Errors.Any(e => e.Type != "NOT_FOUND" || e.RootField != aliases[i]))
+            {
+                throw new InvalidOperationException(field.InvalidData ?? $"GitHub user lookup failed: {string.Join("; ", field.Errors.Select(e => e.Message))}");
+            }
+
+            // Missing users are resolved by ID through REST by the ingestion service.
+            users[i] = field.Data!;
         }
 
-        return (users, 1, response.GetProperty("rateLimit").Deserialize<RateLimitModel>(JsonSerializerOptions.Web)!.Cost);
+        if (response.RateLimit is null || response.RateLimitErrors.Length > 0)
+        {
+            throw new InvalidOperationException($"GitHub user lookup returned no usable rate-limit metadata: {string.Join("; ", response.RateLimitErrors)}");
+        }
+
+        return (users, 1, response.RateLimit.Cost);
     }
+
+    internal const int LabelTimelineBatchSize = 100;
+
+    internal static async Task<(LabelTimelineResult[] Timelines, int Calls, int? Cost, GithubGraphQLClient.RateLimitInfo? LastRateLimit)> GetIssueLabelTimelinesAsync(
+        this GithubGraphQLClient client, string[] nodeIds, Action<string> debugLog, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(nodeIds.Length, LabelTimelineBatchSize);
+
+        LabelTimelineRequest[] all = [.. nodeIds.Select((id, i) => new LabelTimelineRequest(id, $"issue{i}"))];
+
+        foreach (var issue in all.Where(i => string.IsNullOrEmpty(i.Id)))
+        {
+            issue.Result.Error = "Issue has no GitHub node ID; timeline unavailable.";
+        }
+
+        List<LabelTimelineRequest> pending = [.. all.Where(i => i.Result.Error is null)];
+        int calls = 0;
+        int? totalCost = 0;
+        GithubGraphQLClient.RateLimitInfo? lastRateLimit = null;
+
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            Dictionary<string, object?> variables = [];
+
+            foreach (var issue in pending)
+            {
+                variables.Add($"{issue.Alias}Id", issue.Id);
+                variables.Add($"{issue.Alias}Cursor", issue.Cursor);
+            }
+
+            string[] aliases = [.. pending.Select(i => i.Alias)];
+            GithubGraphQLClient.AliasedResponse<LabelTimelineNode> response;
+            calls++;
+            lastRateLimit = null;
+
+            try
+            {
+                response = await client.RunAliasedQueryAsync<LabelTimelineNode>(Queries.LabelTimelines(aliases), variables, aliases, cancellationToken);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                totalCost = null;
+
+                foreach (var issue in pending)
+                {
+                    issue.Result.Error = $"GraphQL timeline request failed: {ex.Message}";
+                }
+
+                break;
+            }
+
+            totalCost += response.RateLimit?.Cost;
+            lastRateLimit = response.RateLimit;
+
+            if (response.RateLimit is not null)
+            {
+                debugLog($"Label timeline GraphQL request for {pending.Count} issues: {JsonSerializer.Serialize(response.RateLimit, JsonSerializerOptions.Web)}");
+            }
+
+            foreach (string error in response.RateLimitErrors)
+            {
+                debugLog($"Label timeline GraphQL rate-limit metadata failed: {error}");
+            }
+
+            List<LabelTimelineRequest> next = [];
+
+            foreach (var issue in pending)
+            {
+                var field = response.Fields[issue.Alias];
+
+                if (field.Errors.Length > 0)
+                {
+                    issue.Result.Error = $"GraphQL timeline error: {string.Join("; ", field.Errors.Select(e => e.Message))}";
+                    continue;
+                }
+
+                try
+                {
+                    if (field.InvalidData is not null)
+                    {
+                        throw new InvalidOperationException(field.InvalidData);
+                    }
+
+                    if (field.Data is not { } node || node.Id != issue.Id)
+                    {
+                        throw new InvalidOperationException("GraphQL returned a missing or mismatched issue.");
+                    }
+
+                    if (node.TimelineItems is not { Nodes: not null, PageInfo: not null } timeline)
+                    {
+                        throw new InvalidOperationException("GraphQL returned an incomplete timeline connection.");
+                    }
+
+                    foreach (var item in timeline.Nodes)
+                    {
+                        if (item is null || string.IsNullOrEmpty(item.Id) || !issue.EventIds.Add(item.Id))
+                        {
+                            throw new InvalidOperationException("GraphQL returned a missing or repeated timeline event ID.");
+                        }
+
+                        if (item.Type is not ("LabeledEvent" or "UnlabeledEvent"))
+                        {
+                            throw new InvalidOperationException($"Unexpected timeline event type: {item.Type}");
+                        }
+
+                        if (string.IsNullOrEmpty(item.Label?.Name))
+                        {
+                            throw new InvalidOperationException("Timeline event has no label name.");
+                        }
+
+                        issue.Result.Events.Add(item);
+                    }
+
+                    if (timeline.PageInfo.HasNextPage)
+                    {
+                        string cursor = timeline.PageInfo.EndCursor;
+
+                        if (string.IsNullOrEmpty(cursor) || !issue.Cursors.Add(cursor))
+                        {
+                            throw new InvalidOperationException("GraphQL returned a missing or repeated timeline cursor.");
+                        }
+
+                        issue.Cursor = cursor;
+                        next.Add(issue);
+                    }
+                }
+                catch (InvalidOperationException ex)
+                {
+                    issue.Result.Error = $"Invalid GraphQL timeline: {ex.Message}";
+                }
+            }
+
+            pending = next;
+        }
+
+        return ([.. all.Select(i => i.Result)], calls, totalCost, lastRateLimit);
+    }
+
+    private sealed class LabelTimelineRequest(string id, string alias)
+    {
+        public string Id { get; } = id;
+        public string Alias { get; } = alias;
+        public string? Cursor { get; set; }
+        public HashSet<string> Cursors { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> EventIds { get; } = new(StringComparer.Ordinal);
+        public LabelTimelineResult Result { get; } = new();
+    }
+
+    internal sealed class LabelTimelineResult
+    {
+        public List<LabelTimelineEvent> Events { get; } = [];
+        public string? Error { get; set; }
+    }
+
+    private sealed record LabelTimelineNode(string? Id, ConnectionModel<LabelTimelineEvent>? TimelineItems);
+
+    internal sealed record LabelNameModel(string? Name);
+
+    internal sealed record LabelTimelineEvent(
+        string? Id,
+        [property: JsonPropertyName("__typename")] string? Type,
+        [property: JsonRequired] DateTimeOffset CreatedAt,
+        [property: JsonRequired] ActorIdsModel? Actor,
+        LabelNameModel? Label);
 
     private static class Queries
     {
@@ -518,19 +705,43 @@ public static class GitHubGraphQL
             {{Fragments.ReactionsInfo}}
             """;
 
-        public static string BulkUsers(string[] logins) =>
+        public static string BulkUsers(int count) =>
             $$"""
-            query BulkUsers {
+            query BulkUsers({{string.Join(", ", Enumerable.Range(0, count).Select(i => $"$login{i}: String!"))}}) {
               rateLimit {
                 cost
               }
-              {{string.Join('\n', logins.Select((login, i) =>
+              {{string.Join('\n', Enumerable.Range(0, count).Select(i =>
                 $$"""
-                User{{i}}: user(login: "{{login}}") { ... UserInfo }
+                User{{i}}: user(login: $login{{i}}) { ... UserInfo }
                 """))}}
             }
 
             {{Fragments.UserInfo}}
+            """;
+
+        public static string LabelTimelines(string[] aliases) =>
+            $$"""
+            query({{string.Join(", ", aliases.Select(a => $"${a}Id: ID!, ${a}Cursor: String"))}}) {
+              rateLimit { cost remaining resetAt }
+              {{string.Join('\n', aliases.Select(alias =>
+                $$"""
+                {{alias}}: node(id: ${{alias}}Id) {
+                  ... on Issue {
+                    id
+                    timelineItems(first: 100, after: ${{alias}}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
+                      nodes {
+                        __typename
+                        ... on LabeledEvent { id createdAt actor { ... ActorIds } label { name } }
+                        ... on UnlabeledEvent { id createdAt actor { ... ActorIds } label { name } }
+                      }
+                      {{PageInfo}}
+                    }
+                  }
+                }
+                """))}}
+            }
+            {{Fragments.ActorIds}}
             """;
 
         public const string IssuesMarkedAsDuplicate =
@@ -567,6 +778,7 @@ public static class GitHubGraphQL
         public const string ActorIds =
             """
             fragment ActorIds on Actor {
+              __typename
               login
               ... on User {
                 id
@@ -649,7 +861,7 @@ public static class GitHubGraphQL
             """;
     }
 
-    private sealed record RepositoryWithCostModel(RateLimitModel RateLimit, RepositoryModel Repository);
+    private sealed record RepositoryWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, RepositoryModel Repository);
 
     private sealed record DuplicateIssuesResponseModel(DuplicateIssuesRepositoryModel Repository);
     private sealed record DuplicateIssuesRepositoryModel(ConnectionModel<DuplicateIssueNode> Issues);
@@ -658,13 +870,13 @@ public static class GitHubGraphQL
     public sealed record MarkedAsDuplicateEventModel(DuplicateCanonicalModel? Canonical, DuplicateCanonicalModel? Duplicate);
     public sealed record DuplicateCanonicalModel(string Url);
 
-    private sealed record CommentsNodeWithCostModel(RateLimitModel RateLimit, CommentsNode Node);
+    private sealed record CommentsNodeWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, CommentsNode Node);
 
-    private sealed record DiscussionCommentsNodeWithCostModel(RateLimitModel RateLimit, DiscussionCommentsNode Node);
+    private sealed record DiscussionCommentsNodeWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, DiscussionCommentsNode Node);
 
-    private sealed record RepliesNodeWithCostModel(RateLimitModel RateLimit, RepliesNode Node);
+    private sealed record RepliesNodeWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, RepliesNode Node);
 
-    private sealed record ReviewsNodeWithCostModel(RateLimitModel RateLimit, ReviewsNode Node);
+    private sealed record ReviewsNodeWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, ReviewsNode Node);
 
     private sealed record CommentsNode(ConnectionModel<CommentModel> Comments);
 
@@ -674,13 +886,11 @@ public static class GitHubGraphQL
 
     private sealed record ReviewsNode(ConnectionModel<PullRequestReviewModel> Reviews);
 
-    private sealed record RateLimitModel(int Cost);
-
     private sealed record RepositoryModel(ConnectionModel<IssueModel> Issues, ConnectionModel<PullRequestModel> PullRequests, ConnectionModel<DiscussionModel> Discussions);
 
     public sealed record ConnectionModel<T>(T[] Nodes, PageInfo PageInfo);
 
-    public sealed record PageInfo(bool HasNextPage, string EndCursor);
+    public sealed record PageInfo([property: JsonRequired] bool HasNextPage, string EndCursor);
 
     public sealed record ReactionGroupModel(string Content, TotalCountModel Reactors);
 
@@ -688,7 +898,7 @@ public static class GitHubGraphQL
 
     public sealed record IdOnlyModel(string Id);
 
-    public sealed record ActorIdsModel(string Login, string Id, int? DatabaseId);
+    public sealed record ActorIdsModel(string Login, string Id, int? DatabaseId, [property: JsonPropertyName("__typename")] string? Type = null);
 
     public sealed record MilestoneModel(string Id);
 

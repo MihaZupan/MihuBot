@@ -74,9 +74,12 @@ public sealed class AreaLabelDetector(
         }
 
         var issueData = await IssueInfoForPrompt.CreateAsync(issue, githubDb, cancellationToken);
+
         issueData = issueData with
         {
             Labels = [.. issueData.Labels.Where(l => !l.StartsWith(labelPrefix, StringComparison.OrdinalIgnoreCase))],
+            Milestone = null,
+            Reactions = null,
         };
 
         SimilarIssue[] similarIssues = [];

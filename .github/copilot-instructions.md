@@ -98,6 +98,12 @@ repos are in scope and check `..\runtime-utils` before concluding something is m
 
 ## Key conventions
 
+- **Match the surrounding coding style, including vertical spacing.** Separate consecutive control-flow
+  blocks (`if`, `foreach`, `for`, `while`, `try`, etc.) and the statements before/after them with a blank
+  line. Keep related declarations together, but separate logical sections; do not pack guard clauses,
+  loops, and follow-up work together. Keep `else`, `catch`, and `finally` attached to their preceding
+  blocks. Apply this consistently to all modified code, including tests; formatter/build success alone
+  does not enforce these readability conventions.
 - **Keep `deploy/README.md` strictly deployment-only and concise.** Edit it only when concrete operator
   actions change: deployment, upgrades, configuration, volumes, startup, or recovery. Never add feature/API
   guides, endpoint/request/response examples, implementation details, internal model/search/cache/rate-limit
