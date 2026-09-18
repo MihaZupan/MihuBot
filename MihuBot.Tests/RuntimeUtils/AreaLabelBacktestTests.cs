@@ -1453,7 +1453,7 @@ public sealed class AreaLabelBacktestTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task RunAsyncBatches100Then1IssuesAndRetainsFirstBatchIfSecondFetchIsCancelled(
+    public async Task RunAsyncBatches25Then1IssuesAndRetainsFirstBatchIfSecondFetchIsCancelled(
         bool cancelSecondBatch, bool lastPredictionInFirstBatchFails)
     {
         using var cancellation = new CancellationTokenSource();
@@ -1462,12 +1462,7 @@ public sealed class AreaLabelBacktestTests
 
         using var handler = new GitHubHandler(uri => uri.AbsolutePath switch
         {
-            "/repositories/1/issues" => HttpUtility.ParseQueryString(uri.Query)["page"] switch
-            {
-                "1" => JsonResponse("[" + string.Join(",", Enumerable.Range(10, 100).Select(number => IssueJson(number))) + "]"),
-                "2" => JsonResponse($"[{IssueJson(110)}]"),
-                _ => throw new InvalidOperationException($"Unexpected issue page: {uri}"),
-            },
+            "/repositories/1/issues" => JsonResponse("[" + string.Join(",", Enumerable.Range(10, 26).Select(number => IssueJson(number))) + "]"),
             _ => throw new InvalidOperationException($"Unexpected request: {uri}"),
         });
 
@@ -1478,12 +1473,12 @@ public sealed class AreaLabelBacktestTests
             if (graphQL.Requests.Count == 1)
             {
                 Assert.Empty(predictions);
-                AssertVariables(request, [.. Enumerable.Range(0, 100).Select(i => ($"issue{i}", $"I_{i + 10}", (string?)null))]);
+                AssertVariables(request, [.. Enumerable.Range(0, 25).Select(i => ($"issue{i}", $"I_{i + 10}", (string?)null))]);
             }
             else
             {
-                AssertVariables(request, ("issue0", "I_110", null));
-                Assert.Equal(100, predictions.Count);
+                AssertVariables(request, ("issue0", "I_35", null));
+                Assert.Equal(25, predictions.Count);
 
                 if (cancelSecondBatch)
                 {
@@ -1500,29 +1495,29 @@ public sealed class AreaLabelBacktestTests
         {
             predictions.Add(issue.Number);
 
-            return lastPredictionInFirstBatchFails && issue.Number == 109
+            return lastPredictionInFirstBatchFails && issue.Number == 34
                 ? Task.FromException<AreaLabelSuggestion[]>(new InvalidOperationException("Last prediction in first batch failed"))
                 : Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
         }, logs.Add, GetPredictionSettings);
 
         List<(int Completed, int Total)> progress = [];
 
-        var report = await service.RunAsync(new("o/r", null, 101, Labeler), cancellation.Token, (completed, total) =>
+        var report = await service.RunAsync(new("o/r", null, 26, Labeler), cancellation.Token, (completed, total) =>
         {
             progress.Add((completed, total));
 
             return Task.CompletedTask;
         });
 
-        int expected = cancelSecondBatch ? 100 : 101;
-        Assert.Equal(Enumerable.Range(0, expected + 1).Select(completed => (completed, 101)), progress);
+        int expected = cancelSecondBatch ? 25 : 26;
+        Assert.Equal(Enumerable.Range(0, expected + 1).Select(completed => (completed, 26)), progress);
         Assert.Equal(cancelSecondBatch, report.Cancelled);
         Assert.Equal(Enumerable.Range(10, expected), report.Issues.Select(issue => issue.Number));
         Assert.Equal(Enumerable.Range(10, expected), predictions);
 
         Assert.All(report.Issues, issue =>
         {
-            if (lastPredictionInFirstBatchFails && issue.Number == 109)
+            if (lastPredictionInFirstBatchFails && issue.Number == 34)
             {
                 Assert.Equal("Prediction failed: Last prediction in first batch failed", Assert.Single(issue.Errors));
                 Assert.Null(issue.Suggestions);
@@ -1538,11 +1533,11 @@ public sealed class AreaLabelBacktestTests
 
         int failed = lastPredictionInFirstBatchFails ? 1 : 0;
         Assert.Equal(expected - failed, report.PredictedIssues.Length);
-        Assert.Contains($"{expected}/101 issues evaluated, {expected - failed} predicted, {failed} with errors", report.Summary, StringComparison.Ordinal);
+        Assert.Contains($"{expected}/26 issues evaluated, {expected - failed} predicted, {failed} with errors", report.Summary, StringComparison.Ordinal);
         Assert.Equal((cancelSecondBatch ? 1 : 2) + failed, logs.Count);
         Assert.Equal(cancelSecondBatch ? 1 : 2, logs.Count(message => message.StartsWith("Label timeline GraphQL request", StringComparison.Ordinal)));
-        Assert.Equal(failed, logs.Count(message => message.Contains("Failed to predict labels for https://github.com/o/r/issues/109:", StringComparison.Ordinal)));
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(failed, logs.Count(message => message.Contains("Failed to predict labels for https://github.com/o/r/issues/34:", StringComparison.Ordinal)));
+        Assert.Single(handler.Requests);
         Assert.Equal(2, graphQL.Requests.Count);
     }
 

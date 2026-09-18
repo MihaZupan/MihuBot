@@ -73,7 +73,7 @@ public sealed class AreaLabelDetector(
                 var issue = await triage.GetOrFetchIssueAsync(repository, number, ct);
                 return await GetSuggestionsAsync(issue.Repository, issue, labelPrefix, model, completionOptions, ct);
             },
-            new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
+            new HybridCacheEntryOptions { Expiration = TimeSpan.FromHours(2) },
             cancellationToken: cancellationToken);
     }
 

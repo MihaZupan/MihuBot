@@ -160,15 +160,15 @@ public sealed class AreaLabelTimelineTests
     }
 
     [Fact]
-    public async Task TimelineBatchRejectsMoreThan100IssuesBeforeSendingQuery()
+    public async Task TimelineBatchRejectsMoreThan25IssuesBeforeSendingQuery()
     {
         using var transport = new AreaLabelGraphQLTransport();
-        Issue[] issues = [.. Enumerable.Range(0, 101).Select(i => Issue($"NODE{i}"))];
+        Issue[] issues = [.. Enumerable.Range(0, 26).Select(i => Issue($"NODE{i}"))];
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             ReadTimelinesAsync(transport.Client, issues, Labeler, Assert.Fail, CancellationToken.None));
 
-        Assert.Equal(100, GitHubGraphQL.LabelTimelineBatchSize);
+        Assert.Equal(25, GitHubGraphQL.LabelTimelineBatchSize);
         Assert.Empty(transport.Requests);
     }
 
@@ -268,7 +268,7 @@ public sealed class AreaLabelTimelineTests
         JsonObject[] firstPage =
         [
             GraphEvent("z-original", "area-Foo"),
-            .. Enumerable.Range(0, 99).Select(i => GraphEvent($"opaque-{i}", $"unrelated-{i}")),
+            .. Enumerable.Range(0, 49).Select(i => GraphEvent($"opaque-{i}", $"unrelated-{i}")),
         ];
 
         transport.Respond = (request, _) => Task.FromResult(transport.Requests.Count == 1
@@ -282,7 +282,7 @@ public sealed class AreaLabelTimelineTests
         var result = Assert.Single(await ReadTimelinesAsync(transport.Client, [Issue("A")], Labeler, logs.Add, CancellationToken.None));
 
         Assert.Null(result.Error);
-        Assert.Equal(102, result.Events.Count);
+        Assert.Equal(52, result.Events.Count);
         AssertVariables(transport.Requests[1], ("issue0", "A", "next-page"));
         var history = AreaLabelHistory.AnalyzeEvents(result.Events, ["area-Bar"], Labeler);
         Assert.Equal(["area-Foo"], history.OriginalLabels);
@@ -836,7 +836,7 @@ internal sealed class AreaLabelGraphQLTransport : HttpMessageHandler
         Assert.Contains("... on User { id databaseId }", query, StringComparison.Ordinal);
         Assert.Contains("pageInfo { hasNextPage endCursor }", query, StringComparison.Ordinal);
         var variables = body.GetProperty("variables").EnumerateObject().ToArray();
-        Assert.InRange(variables.Length, 2, 200);
+        Assert.InRange(variables.Length, 2, 50);
         Assert.Equal(0, variables.Length % 2);
 
         foreach (var variable in variables.Where(v => v.Name.EndsWith("Id", StringComparison.Ordinal)))
@@ -845,7 +845,7 @@ internal sealed class AreaLabelGraphQLTransport : HttpMessageHandler
             Assert.Contains($"${alias}Id: ID!", query, StringComparison.Ordinal);
             Assert.Contains($"${alias}Cursor: String", query, StringComparison.Ordinal);
             Assert.Contains($"{alias}: node(id: ${alias}Id)", query, StringComparison.Ordinal);
-            Assert.Contains($"timelineItems(first: 100, after: ${alias}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT])", query, StringComparison.Ordinal);
+            Assert.Contains($"timelineItems(first: 50, after: ${alias}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT])", query, StringComparison.Ordinal);
             Assert.True(body.GetProperty("variables").TryGetProperty($"{alias}Cursor", out _));
         }
     }

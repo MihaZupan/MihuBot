@@ -235,7 +235,8 @@ public static class GitHubGraphQL
         return (users, 1, response.RateLimit.Cost);
     }
 
-    internal const int LabelTimelineBatchSize = 100;
+    // Large batches can silently truncate GitHub's timeline preloads, even reporting hasNextPage=false.
+    internal const int LabelTimelineBatchSize = 25;
 
     internal static async Task<(LabelTimelineResult[] Timelines, int Calls, int? Cost, GithubGraphQLClient.RateLimitInfo? LastRateLimit)> GetIssueLabelTimelinesAsync(
         this GithubGraphQLClient client, string[] nodeIds, Action<string> debugLog, CancellationToken cancellationToken = default)
@@ -729,7 +730,7 @@ public static class GitHubGraphQL
                 {{alias}}: node(id: ${{alias}}Id) {
                   ... on Issue {
                     id
-                    timelineItems(first: 100, after: ${{alias}}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
+                    timelineItems(first: {{SecondaryPageSize}}, after: ${{alias}}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
                       nodes {
                         __typename
                         ... on LabeledEvent { id createdAt actor { ... ActorIds } label { name } }
