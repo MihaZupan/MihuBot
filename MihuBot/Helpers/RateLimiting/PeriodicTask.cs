@@ -13,6 +13,9 @@ public sealed record PeriodicTaskOptions
     /// <summary>Run the first iteration right away instead of waiting for <see cref="Interval"/> first.</summary>
     public bool RunImmediately { get; init; }
 
+    /// <summary>Optional signal that wakes the loop early. The caller owns its lifetime.</summary>
+    public SemaphoreSlim? WakeUpSignal { get; init; }
+
     /// <summary>
     /// Extra delay after a failed iteration, multiplied by the number of consecutive failures.
     /// Set to <see cref="TimeSpan.Zero"/> to keep running on the normal schedule.
@@ -71,7 +74,7 @@ public static class PeriodicTask
             int consecutiveFailureCount = 0;
             bool runNow = options.RunImmediately;
 
-            while (runNow || await timer.WaitForNextTickAsync(cancellationToken))
+            while (runNow || await WaitForNextIterationAsync(timer, options, cancellationToken))
             {
                 runNow = false;
 
@@ -125,6 +128,17 @@ public static class PeriodicTask
 
             _ = logger.DebugAsync(message, truncateToFile: true);
         }
+    }
+
+    private static async ValueTask<bool> WaitForNextIterationAsync(PeriodicTimer timer, PeriodicTaskOptions options, CancellationToken cancellationToken)
+    {
+        if (options.WakeUpSignal is not { } signal)
+        {
+            return await timer.WaitForNextTickAsync(cancellationToken);
+        }
+
+        await signal.WaitAsync(options.Interval, cancellationToken);
+        return true;
     }
 }
 

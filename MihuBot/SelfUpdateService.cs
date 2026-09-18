@@ -6,8 +6,8 @@ using System.Buffers.Binary;
 
 namespace MihuBot;
 
-// Polls GitHub for new commits on the deployment branch. A new commit is only built
-// if it's signed by a trusted key and is newer than what we're running.
+// Polls GitHub for new commits on the deployment branch, with early checks on push notifications.
+// A new commit is only built if it's signed by a trusted key and is newer than what we're running.
 // If so, invokes the local build script (deploy/build-latest.sh) to produce
 // next_update/artifacts.tar.gz and signals shutdown so the external runner loop
 // applies the update. Failures are surfaced via the debug logger.
@@ -32,6 +32,9 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
     private readonly GitHubClient _github;
     private readonly IConfigurationService _configuration;
     private readonly ServiceConfiguration _serviceConfiguration;
+    private readonly SimpleRateLimiter _checkRateLimiter = new(TimeSpan.FromSeconds(30), maxTolerance: 1);
+    private readonly SemaphoreSlim _checkRequested;
+    private bool _disposed;
 
     // Last SHA we attempted to build. Used to avoid retrying a failing SHA on
     // every poll; we only reattempt once main has moved past it.
@@ -43,16 +46,47 @@ public sealed class SelfUpdateService : PeriodicBackgroundService
     public SelfUpdateService(Logger logger, GitHubClient github, IConfigurationService configuration, ServiceConfiguration serviceConfiguration)
         : base(new PeriodicTaskOptions
         {
-            // The first poll only happens after a full interval so we don't race host startup / immediately
-            // rebuild if we come up on a slightly stale build (e.g. right after a manual deploy).
+            // Unless explicitly requested, wait a full interval before the first poll.
             Interval = TimeSpan.FromSeconds(DefaultPollIntervalSeconds),
             FailureBackoff = TimeSpan.Zero,
+            WakeUpSignal = new SemaphoreSlim(0, 1),
         }, logger)
     {
         _logger = logger;
         _github = github;
         _configuration = configuration;
         _serviceConfiguration = serviceConfiguration;
+        _checkRequested = Options.WakeUpSignal!;
+    }
+
+    public void RequestUpdateCheck()
+    {
+        lock (_checkRequested)
+        {
+            if (_disposed || !_checkRateLimiter.TryEnter())
+            {
+                return;
+            }
+
+            if (_checkRequested.CurrentCount == 0)
+            {
+                _checkRequested.Release();
+            }
+        }
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+
+        lock (_checkRequested)
+        {
+            if (!_disposed)
+            {
+                _disposed = true;
+                _checkRequested.Dispose();
+            }
+        }
     }
 
     private string GetString(string key, string defaultValue) =>

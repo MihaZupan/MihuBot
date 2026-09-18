@@ -1,0 +1,22 @@
+name: Notify self-update
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.repository == 'MihaZupan/MihuBot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Request an early update check
+        # Only wakes the normal update loop; signature verification still gates deployment.
+        run: >-
+          curl --fail-with-body --silent --show-error
+          --connect-timeout 10 --max-time 20
+          --retry 2 --retry-max-time 90
+          --request POST https://mihubot.xyz/api/SelfUpdate/Check
