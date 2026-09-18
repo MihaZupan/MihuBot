@@ -5,9 +5,38 @@ using ModelContextProtocol.Server;
 namespace MihuBot.RuntimeUtils.AI;
 
 [McpServerToolType]
-public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
+public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper, AreaLabelDetector LabelDetector)
 {
     private const string UserLogin = "MihuBot-McpServer";
+
+    private readonly Action<string> _debugLog = message => Logger.DebugLog(message);
+
+    internal McpServer(Action<string> debugLog, IssueTriageHelper triageHelper, AreaLabelDetector labelDetector)
+        : this(Logger: null, triageHelper, labelDetector)
+    {
+        _debugLog = debugLog;
+    }
+
+    [McpServerTool(Name = "predict_issue_labels", Title = "Predict GitHub issue labels", ReadOnly = true, Idempotent = true)]
+    [Description(
+        "Predict labels for an existing issue, pull request, or tracked discussion in a public GitHub repository tracked by MihuBot. " +
+        "Returns up to five candidate labels with confidence scores from 0.5 to 1, ordered by confidence. " +
+        "Only considers labels matching the requested prefix and excludes retired labels. Does not assign or modify labels.")]
+    public async Task<AreaLabelSuggestion[]> PredictIssueLabels(
+        [Description("The tracked public repository in owner/name form, e.g. dotnet/runtime.")] string repository,
+        [Description("The issue, pull request, or discussion number.")] int number,
+        [Description("Only consider labels with this prefix, e.g. area-, component:, or type/.")] string labelPrefix = "area-",
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(repository);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(number);
+        ArgumentException.ThrowIfNullOrWhiteSpace(labelPrefix);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(labelPrefix.Length, 100, nameof(labelPrefix));
+
+        _debugLog($"[MCP]: {nameof(PredictIssueLabels)} for {repository}#{number} (labelPrefix: {labelPrefix})");
+
+        return await LabelDetector.PredictAsync(repository, number, labelPrefix, cancellationToken);
+    }
 
     [McpServerTool(Name = "search_dotnet_repos", Title = "Search dotnet repositories", Idempotent = true)]
     [Description(
@@ -54,7 +83,7 @@ public sealed class McpServer(Logger Logger, IssueTriageHelper TriageHelper)
             IncludeCommentsInResponse = includeComments,
         };
 
-        Logger.DebugLog($"[MCP]: {nameof(SearchDotnetRepos)} for {string.Join(", ", searchTerms)} ({filters})");
+        _debugLog($"[MCP]: {nameof(SearchDotnetRepos)} for {string.Join(", ", searchTerms)} ({filters})");
 
         return await TriageHelper.SearchDotnetGitHubAsync(TriageHelper.DefaultModel, UserLogin, searchTerms, extraSearchContext, filters, cancellationToken);
     }
