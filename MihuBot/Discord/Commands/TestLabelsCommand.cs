@@ -1,4 +1,6 @@
 using System.Globalization;
+using Discord.Net;
+using Discord.Rest;
 using MihuBot.RuntimeUtils.AI;
 
 namespace MihuBot.Discord.Commands;
@@ -9,7 +11,7 @@ public sealed class TestLabelsCommand(AreaLabelBacktestService backtest) : Comma
 
     internal const string Usage = "Usage: `!testlabels <issue-url|number> [--labeler-actor login]` or " +
         "`!testlabels backtest <owner/repo> <N> [--labeler-actor login]`. " +
-        "Numbers default to dotnet/runtime. N must be 1-10000. This never changes GitHub labels.";
+        "Numbers default to dotnet/runtime. N must be 1-10000. Backtests with 25+ issues show progress. This never changes GitHub labels.";
 
     private readonly SemaphoreSlim _semaphore = new(1, 1);
 
@@ -34,23 +36,83 @@ public sealed class TestLabelsCommand(AreaLabelBacktestService backtest) : Comma
             return;
         }
 
+        RestUserMessage statusMessage = null;
+        string latestProgress = null;
+        bool progressUnavailable = false;
+        var progressTimer = Stopwatch.StartNew();
+
         try
         {
-            await ctx.ReplyAsync($"Evaluating {(request.IssueNumber is { } number ? $"issue {number}" : $"the newest {request.Count} issues (open and closed)")} " +
+            statusMessage = await ctx.ReplyAsync($"Evaluating {(request.IssueNumber is { } number ? $"issue {number}" : $"the newest {request.Count} issues (open and closed)")} " +
                 $"in {request.Repository}. No labels will be changed.", suppressMentions: true);
 
-            var report = await backtest.RunAsync(request, ctx.CancellationToken);
+            var report = await backtest.RunAsync(request, ctx.CancellationToken, async (completed, total) =>
+            {
+                latestProgress = FormatProgress(completed, total);
+
+                if (latestProgress is null || completed == total || (completed != 0 && progressTimer.Elapsed < TimeSpan.FromSeconds(5)))
+                {
+                    return;
+                }
+
+                await UpdateStatusAsync($"Evaluating labels in {request.Repository}. No labels will be changed.\n{latestProgress}");
+                progressTimer.Restart();
+            });
+
+            await UpdateStatusAsync($"Label evaluation {(report.Cancelled ? "cancelled (partial report)" : "complete")}.\n{latestProgress}");
             await ctx.Channel.SendTextFileAsync($"LabelEvaluation-{Snowflake.NextString()}.txt", report.ToText(), report.Summary);
         }
         catch (Exception ex) when (!ctx.CancellationToken.IsCancellationRequested)
         {
             ctx.DebugLog(ex, "Label evaluation failed");
+            await UpdateStatusAsync($"Label evaluation failed.\n{latestProgress}");
             await ctx.ReplyAsync($"Label evaluation failed: {ex.Message.TruncateWithDotDotDot(1000)}", suppressMentions: true);
+        }
+        catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested)
+        {
+            await UpdateStatusAsync($"Label evaluation cancelled.\n{latestProgress}");
+
+            throw;
         }
         finally
         {
             _semaphore.Release();
         }
+
+        async Task UpdateStatusAsync(string text)
+        {
+            if (latestProgress is null || progressUnavailable)
+            {
+                return;
+            }
+
+            try
+            {
+                await statusMessage.ModifyAsync(message =>
+                {
+                    message.Content = text;
+                    message.AllowedMentions = AllowedMentions.None;
+                });
+            }
+            catch (Exception ex) when (ex is HttpException or HttpRequestException or TimeoutException)
+            {
+                progressUnavailable = true;
+                ctx.DebugLog(ex, "Failed to update label evaluation progress");
+            }
+        }
+    }
+
+    internal static string FormatProgress(int completed, int total)
+    {
+        if (total < 25)
+        {
+            return null;
+        }
+
+        const int width = 20;
+        int filled = completed * width / total;
+
+        return $"`[{new string('#', filled)}{new string('-', width - filled)}]` {completed * 100 / total}% ({completed}/{total} issues processed)";
     }
 
     internal static bool TryParseArguments(string[] arguments, out AreaLabelBacktestRequest request)

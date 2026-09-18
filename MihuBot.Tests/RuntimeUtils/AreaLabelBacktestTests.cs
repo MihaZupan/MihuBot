@@ -17,6 +17,27 @@ public sealed class AreaLabelBacktestTests
     private const string Labeler = "github-actions[bot]";
 
     [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(0, 24)]
+    [InlineData(24, 24)]
+    public void ProgressIsHiddenForSmallSamples(int completed, int total)
+    {
+        Assert.Null(TestLabelsCommand.FormatProgress(completed, total));
+    }
+
+    [Theory]
+    [InlineData(0, 25, "`[--------------------]` 0% (0/25 issues processed)")]
+    [InlineData(1, 25, "`[--------------------]` 4% (1/25 issues processed)")]
+    [InlineData(25, 50, "`[##########----------]` 50% (25/50 issues processed)")]
+    [InlineData(25, 25, "`[####################]` 100% (25/25 issues processed)")]
+    [InlineData(9999, 10000, "`[###################-]` 99% (9999/10000 issues processed)")]
+    public void ProgressRendersBarPercentageAndActualCounts(int completed, int total, string expected)
+    {
+        Assert.Equal(expected, TestLabelsCommand.FormatProgress(completed, total));
+    }
+
+    [Theory]
     [InlineData("123", "dotnet/runtime", 123)]
     [InlineData("#123", "dotnet/runtime", 123)]
     [InlineData("https://github.com/dotnet/aspnetcore/issues/456", "dotnet/aspnetcore", 456)]
@@ -1165,9 +1186,17 @@ public sealed class AreaLabelBacktestTests
             return Task.FromResult<AreaLabelSuggestion[]>([]);
         }, logs.Add);
 
-        var report = await service.RunAsync(new("o/r", null, 10, Labeler), CancellationToken.None);
+        List<(int Completed, int Total)> progress = [];
+
+        var report = await service.RunAsync(new("o/r", null, 10, Labeler), CancellationToken.None, (completed, total) =>
+        {
+            progress.Add((completed, total));
+
+            return Task.CompletedTask;
+        });
 
         Assert.Equal(count, report.Issues.Count);
+        Assert.Equal(Enumerable.Range(0, count + 1).Select(completed => (completed, count)), progress);
         Assert.Equal(count, predictions);
         Assert.Contains($"{count}/10 issues evaluated", report.Summary, StringComparison.Ordinal);
         Assert.Single(handler.Requests, request => request.Uri.AbsolutePath == "/repositories/1/issues");
@@ -1320,9 +1349,17 @@ public sealed class AreaLabelBacktestTests
                 : Task.FromCanceled<AreaLabelSuggestion[]>(ct);
         }, logs.Add);
 
-        var report = await service.RunAsync(new("o/r", null, 2, Labeler), cancellation.Token);
+        List<(int Completed, int Total)> progress = [];
+
+        var report = await service.RunAsync(new("o/r", null, 2, Labeler), cancellation.Token, (completed, total) =>
+        {
+            progress.Add((completed, total));
+
+            return Task.CompletedTask;
+        });
 
         Assert.True(report.Cancelled);
+        Assert.Equal(predictionCompleted ? [(0, 2), (1, 2)] : [(0, 2)], progress);
         var issue = Assert.Single(report.Issues);
         Assert.Equal(10, issue.Number);
 
@@ -1404,9 +1441,17 @@ public sealed class AreaLabelBacktestTests
                 : Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
         }, logs.Add);
 
-        var report = await service.RunAsync(new("o/r", null, 101, Labeler), cancellation.Token);
+        List<(int Completed, int Total)> progress = [];
+
+        var report = await service.RunAsync(new("o/r", null, 101, Labeler), cancellation.Token, (completed, total) =>
+        {
+            progress.Add((completed, total));
+
+            return Task.CompletedTask;
+        });
 
         int expected = cancelSecondBatch ? 100 : 101;
+        Assert.Equal(Enumerable.Range(0, expected + 1).Select(completed => (completed, 101)), progress);
         Assert.Equal(cancelSecondBatch, report.Cancelled);
         Assert.Equal(Enumerable.Range(10, expected), report.Issues.Select(issue => issue.Number));
         Assert.Equal(Enumerable.Range(10, expected), predictions);
@@ -1447,6 +1492,7 @@ public sealed class AreaLabelBacktestTests
         ConcurrentQueue<int> concurrency = new();
         ConcurrentQueue<int> completionOrder = new();
         ConcurrentQueue<string> logs = new();
+        List<(int Completed, int Total)> progress = [];
         int active = 0;
 
         using var handler = new GitHubHandler(_ =>
@@ -1473,7 +1519,11 @@ public sealed class AreaLabelBacktestTests
             }
         }, logs.Enqueue);
 
-        Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None);
+        Task<AreaLabelBacktestReport> run = service.RunAsync(new("o/r", null, count, Labeler), CancellationToken.None, async (completed, total) =>
+        {
+            await Task.Yield();
+            progress.Add((completed, total));
+        });
 
         try
         {
@@ -1481,10 +1531,12 @@ public sealed class AreaLabelBacktestTests
             Assert.Equal(8, Volatile.Read(ref active));
             Assert.False(started[8].Task.IsCompleted);
             Assert.False(run.IsCompleted);
+            Assert.Equal([(0, count)], progress);
 
             release[7].SetResult();
             await started[8].Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal(8, Volatile.Read(ref active));
+            Assert.Equal([(0, count), (1, count)], progress);
 
             foreach (int index in new[] { 8, 6, 5, 4, 3, 2, 1, 0 })
             {
@@ -1501,6 +1553,7 @@ public sealed class AreaLabelBacktestTests
             Assert.Equal(Enumerable.Range(10, count), report.Issues.Select(issue => issue.Number));
             Assert.All(report.Issues, issue => Assert.Empty(issue.Errors));
             Assert.Equal(count, report.PredictedIssues.Length);
+            Assert.Equal(Enumerable.Range(0, count + 1).Select(completed => (completed, count)), progress);
             Assert.Equal(0, Volatile.Read(ref active));
             Assert.False(report.Cancelled);
             Assert.Single(graphQL.Requests);

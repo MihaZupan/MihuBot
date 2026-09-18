@@ -40,7 +40,8 @@ public sealed class AreaLabelBacktestService
         _debugLog = debugLog;
     }
 
-    internal async Task<AreaLabelBacktestReport> RunAsync(AreaLabelBacktestRequest request, CancellationToken cancellationToken)
+    internal async Task<AreaLabelBacktestReport> RunAsync(
+        AreaLabelBacktestRequest request, CancellationToken cancellationToken, Func<int, int, Task> progress = null)
     {
         RepositoryInfo repo = await _getRepository(request.Repository, cancellationToken)
             ?? throw new InvalidOperationException($"Repository '{request.Repository}' is not tracked in the GitHub database.");
@@ -75,6 +76,13 @@ public sealed class AreaLabelBacktestService
         }
 
         object logLock = new();
+        using var progressLock = new SemaphoreSlim(1, 1);
+        int completed = 0;
+
+        if (progress is not null)
+        {
+            await progress(0, issues.Count);
+        }
 
         try
         {
@@ -130,11 +138,27 @@ public sealed class AreaLabelBacktestService
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
                             evaluation.Errors.Add("Cancelled before evaluation completed.");
+
+                            break;
                         }
                         catch (Exception ex)
                         {
                             Log($"Failed to predict labels for {issue.HtmlUrl}: {ex}");
                             evaluation.Errors.Add($"Prediction failed: {ex.Message}");
+                        }
+
+                        if (progress is not null)
+                        {
+                            await progressLock.WaitAsync();
+
+                            try
+                            {
+                                await progress(++completed, issues.Count);
+                            }
+                            finally
+                            {
+                                progressLock.Release();
+                            }
                         }
                     }
                 }
