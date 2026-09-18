@@ -52,12 +52,17 @@ public sealed class AreaLabelsController(AreaLabelDetector detector, ILogger<Are
         catch (Exception ex) when (ex is ApiException or HttpRequestException)
         {
             logger.LogWarning(ex, "Failed to fetch public GitHub data for {Repository}#{Number}", request.Repository, request.Number);
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = "GitHub is temporarily unavailable or rate limited." });
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails { Title = $"Failed to fetch public GitHub data for {request.Repository}#{request.Number}" });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning("Area label prediction timed out for {Repository}#{Number}", request.Repository, request.Number);
             return StatusCode(StatusCodes.Status504GatewayTimeout, new ProblemDetails { Title = "Area label prediction timed out." });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Unexpected error during area label prediction for {Repository}#{Number}", request.Repository, request.Number);
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails { Title = "Unexpected error during area label prediction." });
         }
     }
 }
