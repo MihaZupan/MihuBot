@@ -26,10 +26,14 @@ public sealed class AreaLabelDetector(
         "closed issues",
         "do not assign",
         "do not use",
-        "no longer",
-        "legacy",
-        "deprecated",
-        "obsolete",
+        "no longer used",
+        "no longer assigned",
+        "legacy label",
+        "deprecated label",
+        "label is deprecated",
+        "deprecated:",
+        "obsolete label",
+        "label is obsolete",
     ], StringComparison.OrdinalIgnoreCase);
 
     private string Model => configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.Model", out string model) ? model : OpenAIService.DefaultModel;
@@ -148,12 +152,21 @@ public sealed class AreaLabelDetector(
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>
         repository.Labels
-            .Where(l => !l.Description.AsSpan().ContainsAny(s_legacyLabelDescriptionMarkers))
+            .Where(l => !IsLegacyLabelDescription(l.Description))
             .Select(l => l.Name)
             .Where(l => l.StartsWith(labelPrefix, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+    private static bool IsLegacyLabelDescription(string description)
+    {
+        ReadOnlySpan<char> text = description.AsSpan().Trim();
+        return text.Equals("legacy", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("deprecated", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("obsolete", StringComparison.OrdinalIgnoreCase) ||
+            text.ContainsAny(s_legacyLabelDescriptionMarkers);
+    }
 
     internal static AreaLabelSuggestion[] FilterSuggestions(IEnumerable<AreaLabelSuggestion> suggestions, string[] labels)
     {

@@ -57,11 +57,13 @@ public sealed class AreaLabelDetectionTests
     [InlineData("DEPRECATED")]
     [InlineData("Obsolete")]
     [InlineData("LEGACY")]
-    [InlineData("No longer")]
+    [InlineData("  DEPRECATED  ")]
     [InlineData("No longer assigned to new issues.")]
-    [InlineData("Compatibility with legacy systems.")]
-    [InlineData("Issues involving deprecated APIs.")]
-    [InlineData("Issues involving obsolete APIs.")]
+    [InlineData("Deprecated: Cross-cutting issues related to ASP.NET Core as a platform")]
+    [InlineData("*DEPRECATED* This label is deprecated in favor of the area-mvc and area-minimal labels")]
+    [InlineData("only use for closed issues")]
+    [InlineData("only for closed issues")]
+    [InlineData("Do not assign active issues to this label")]
     public void LegacyLabelsAreExcludedFromCandidatesAndSuggestions(string description)
     {
         var repository = new RepositoryInfo
@@ -84,6 +86,13 @@ public sealed class AreaLabelDetectionTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("Runtime and libraries.")]
+    [InlineData("Compatibility with legacy systems.")]
+    [InlineData("Issues involving deprecated APIs.")]
+    [InlineData("Issues involving obsolete APIs.")]
+    [InlineData("Feedback about a deprecated NuGet package.")]
+    [InlineData("ML.NET command-line entry points and legacy MAML tooling")]
+    [InlineData("Can no longer be reproduced on latest")]
+    [InlineData("Issues/PRs that are associated with transitioning our legacy UI Tests to Appium")]
     public void ActiveLabelsRemainCandidates(string? description)
     {
         var repository = new RepositoryInfo
