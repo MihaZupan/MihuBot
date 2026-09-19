@@ -6,7 +6,7 @@ namespace MihuBot.RuntimeUtils.AI;
 
 internal sealed class AreaLabelToolChatClient : FunctionInvokingChatClient
 {
-    internal const int MaxToolRounds = 4;
+    internal const int MaxToolRounds = 6;
     internal const int MaxToolCalls = 20;
     internal const int MaxToolResultCharacters = 24_000;
 

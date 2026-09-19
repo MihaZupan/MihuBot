@@ -221,7 +221,7 @@ public sealed class AreaLabelDetector(
         return suggestions;
     }
 
-    private record SimilarIssue(int Number, string Author, string Title, string Body, string Label);
+    private record SimilarIssue(string HtmlUrl, string Author, string Title, string Body, string Label);
 
     private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, DateTime createdAfter, CancellationToken cancellationToken)
     {
@@ -236,7 +236,7 @@ public sealed class AreaLabelDetector(
             .Select(r => r.Results[0].Issue)
             .Where(i => i.Id != issue.Id)
             .Select(i => new SimilarIssue(
-                i.Number,
+                i.HtmlUrl,
                 i.User.Login,
                 i.Title.TruncateWithDotDotDot(200),
                 (i.Body ?? "").TruncateWithDotDotDot(4000),
