@@ -97,6 +97,60 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal("Fix VM allocation", Assert.Single(context.CopilotSessionPrompts).Prompt);
     }
 
+    [Theory]
+    [InlineData("2026-09-14T18:55:13Z", 0)]
+    [InlineData("2026-09-14T18:55:13.015Z", 150000)]
+    [InlineData("2026-09-14T18:55:13.0155006Z", 155006)]
+    [InlineData("2026-09-14T18:55:13.015500671Z", 155006)]
+    [InlineData("2026-09-14T20:55:13.015500671+02:00", 155006)]
+    public async Task CopilotTimestampsSupportFractionalSecondsInTaskListsAndDetails(string timestamp, long fractionalTicks)
+    {
+        using var transport = new Transport
+        {
+            TaskListJson = $$$"""
+                {"tasks":[{"id":"task-id","artifacts":[{"type":"pull","data":{"global_id":"TARGET"}}],
+                "sessions":[{"created_at":"{{{timestamp}}}","prompt":"List prompt"}]}]}
+                """,
+            TaskDetails = new()
+            {
+                ["task-id"] = (HttpStatusCode.OK, $$$"""
+                    {"sessions":[
+                    {"created_at":"2026-09-15T00:00:00Z","prompt":"Later prompt"},
+                    {"created_at":"{{{timestamp}}}","prompt":"Fix VM allocation"},
+                    {"created_at":"2026-09-14T18:55:12.999999999Z","prompt":"Earlier prompt"}]}
+                    """),
+            },
+        };
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+
+        Assert.Equal(["Earlier prompt", "Fix VM allocation", "Later prompt"], context.CopilotSessionPrompts.Select(p => p.Prompt));
+        Assert.Equal(new DateTimeOffset(2026, 9, 14, 18, 55, 13, TimeSpan.Zero).AddTicks(fractionalTicks),
+            context.CopilotSessionPrompts[1].CreatedAt);
+        Assert.DoesNotContain(transport.Logs, log => log.StartsWith("Copilot session prompts unavailable", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false, "{")]
+    [InlineData(true, "{")]
+    [InlineData(false, """{"tasks":[{"id":"task-id","sessions":[{"created_at":"not-a-date","prompt":"Invalid"}]}]}""")]
+    [InlineData(true, """{"sessions":[{"created_at":"not-a-date","prompt":"Invalid"}]}""")]
+    public async Task InvalidCopilotJsonIsReportedWithoutDiscardingPrEvidence(bool taskDetails, string json)
+    {
+        using var transport = new Transport
+        {
+            ApiTask = true,
+            TaskListJson = taskDetails ? null : json,
+            TaskDetails = taskDetails ? new() { ["task-id"] = (HttpStatusCode.OK, json) } : [],
+        };
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+
+        Assert.Empty(context.CopilotSessionPrompts);
+        Assert.Single(context.Files);
+        Assert.Single(context.ClosingIssues);
+        Assert.Contains("invalid Copilot task data", context.CopilotSessionStatus, StringComparison.Ordinal);
+        Assert.Contains(transport.Logs, log => log.StartsWith("Copilot session prompts unavailable", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task FileReferenceAndSessionQueriesRunConcurrently()
     {
@@ -755,7 +809,7 @@ public sealed class PullRequestLabelContextTests
     [Fact]
     public void TaskMatchingDoesNotTrustUnrelatedTasksOrBranches()
     {
-        var tasks = new SimpleJsonSerializer().Deserialize<CopilotTaskCollection>("""
+        var tasks = DeserializeCopilotData<CopilotTaskCollection>("""
             {"tasks":[
               {"id":"other","artifacts":[{"type":"pull","data":{"global_id":"OTHER"}}]},
               {"id":"branch","artifacts":[{"type":"branch","data":{"head_ref":"copilot/test"}}]},
@@ -771,7 +825,7 @@ public sealed class PullRequestLabelContextTests
     [Fact]
     public void TaskMatchingPrefersPrIdsAndRejectsForkAndContradictoryBranchAssociations()
     {
-        var tasks = new SimpleJsonSerializer().Deserialize<CopilotTaskCollection>("""
+        var tasks = DeserializeCopilotData<CopilotTaskCollection>("""
             {"tasks":[
               {"id":"branch","artifacts":[{"type":"branch","data":{"head_ref":"feature/fix","base_ref":"main"}}]},
               {"id":"wrong-base","artifacts":[{"type":"branch","data":{"head_ref":"feature/fix","base_ref":"release/8.0"}}]},
@@ -798,7 +852,7 @@ public sealed class PullRequestLabelContextTests
         }
 
         sessions.Add(new JsonObject { ["prompt"] = "" });
-        var response = new SimpleJsonSerializer().Deserialize<CopilotTask>(new JsonObject { ["sessions"] = sessions }.ToJsonString());
+        var response = DeserializeCopilotData<CopilotTask>(new JsonObject { ["sessions"] = sessions }.ToJsonString());
         var prompts = ReadSessionPrompts(response);
 
         Assert.Equal(10, prompts.Length);
@@ -1021,14 +1075,14 @@ public sealed class PullRequestLabelContextTests
                         ? """{"tasks":[{"id":"task-id","artifacts":[{"type":"pull","data":{"id":4500000000}}]}]}"""
                         : """{"tasks":[{"id":"task-id","artifacts":[{"type":"pull","data":{"id":4500000000,"global_id":"TARGET"}}]}]}"""
                     : """{"tasks":[]}""");
-                return Json(JsonNode.Parse(TaskStatus == HttpStatusCode.OK ? tasks : """{"message":"Task access unavailable"}""")!, TaskStatus);
+                return Json(TaskStatus == HttpStatusCode.OK ? tasks : """{"message":"Task access unavailable"}""", TaskStatus);
             }
 
             if (uri.AbsolutePath.Contains("/tasks/", StringComparison.Ordinal))
             {
                 if (TaskDetails.TryGetValue(uri.Segments[^1], out var detail))
                 {
-                    return Json(JsonNode.Parse(detail.Json)!, detail.Status);
+                    return Json(detail.Json, detail.Status);
                 }
 
                 return Json(JsonNode.Parse("""{"sessions":[{"created_at":"2026-09-01T00:00:00Z","prompt":"Fix VM allocation"}]}""")!);
@@ -1038,7 +1092,10 @@ public sealed class PullRequestLabelContextTests
         }
 
         private static HttpResponseMessage Json(JsonNode json, HttpStatusCode status = HttpStatusCode.OK) =>
-            new(status) { Content = new StringContent(json.ToJsonString(), System.Text.Encoding.UTF8, "application/json") };
+            Json(json.ToJsonString(), status);
+
+        private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
+            new(status) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
 
         protected override void Dispose(bool disposing)
         {

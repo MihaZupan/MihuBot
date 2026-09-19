@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
@@ -14,6 +15,28 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class AreaLabelDetectionTests
 {
+    [Fact]
+    public void AutomaticLabelPredictionPauseIsStoredIndependentlyOfOtherServices()
+    {
+        var configuration = new TestConfigurationService();
+        var services = new ServiceConfiguration(configuration);
+
+        Assert.False(services.PauseAutoLabelPrediction);
+
+        services.PauseAutoLabelPrediction = true;
+
+        Assert.True(new ServiceConfiguration(configuration).PauseAutoLabelPrediction);
+        Assert.False(services.PauseGitHubPolling);
+        Assert.False(services.PauseAutoTriage);
+        Assert.False(services.PauseAutoDuplicateDetection);
+        Assert.True(configuration.TryGet(null, nameof(ServiceConfiguration.PauseAutoLabelPrediction), out string stored));
+        Assert.Equal(bool.TrueString, stored);
+
+        services.PauseAutoLabelPrediction = false;
+
+        Assert.False(new ServiceConfiguration(configuration).PauseAutoLabelPrediction);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -160,14 +183,25 @@ public sealed class AreaLabelDetectionTests
     [Theory]
     [InlineData(IssueType.Issue)]
     [InlineData(IssueType.PullRequest)]
-    public void AutomaticDetectionCanRevisitUpdatedPullRequests(IssueType type)
+    public void AutomaticDetectionDoesNotRevisitUpdatedItems(IssueType type)
     {
         var issue = new IssueInfo { HtmlUrl = "https://github.com/dotnet/runtime/pull/123", IssueType = type };
         string original = DetectIssueAreaLabelsService.GetProcessedKey(issue);
         issue.UpdatedAt = DateTime.UtcNow;
         string updated = DetectIssueAreaLabelsService.GetProcessedKey(issue);
 
-        Assert.Equal(type == IssueType.Issue, original == updated);
+        Assert.Equal(issue.HtmlUrl, original);
+        Assert.Equal(original, updated);
+    }
+
+    [Theory]
+    [InlineData("https://github.com/dotnet/runtime/pull/123#updated-639000000000000000", "https://github.com/dotnet/runtime/pull/123")]
+    [InlineData("https://github.com/dotnet/runtime/pull/123#updated-0", "https://github.com/dotnet/runtime/pull/123")]
+    [InlineData("https://github.com/dotnet/runtime/pull/123", "https://github.com/dotnet/runtime/pull/123")]
+    [InlineData("https://github.com/dotnet/runtime/issues/123", "https://github.com/dotnet/runtime/issues/123")]
+    public void PreviouslyProcessedKeysAreNormalizedToItemUrls(string storedKey, string expected)
+    {
+        Assert.Equal(expected, DetectIssueAreaLabelsService.NormalizeProcessedKey(storedKey));
     }
 
     [Theory]

@@ -1,3 +1,5 @@
+using System.Runtime.Serialization;
+using System.Text.Json;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
@@ -15,6 +17,10 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
     internal const int MaxCopilotTasks = 3;
     internal const int MaxCopilotSessions = 10;
     private static readonly TimeSpan CopilotRequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly JsonSerializerOptions CopilotJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+    };
 
     private readonly Action<string> _debugLog = message => logger.DebugLog(message);
 
@@ -219,19 +225,21 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
 
         try
         {
-            var response = await github.Connection.Get<T>(new Uri(path, UriKind.Relative), parameters,
+            // Keep dates untyped in Octokit, whose DateTime parser rejects nanosecond precision.
+            var response = await github.Connection.Get<object>(new Uri(path, UriKind.Relative), parameters,
                 "application/vnd.github+json", timeout.Token);
+            T data = response.HttpResponse.Body is string json ? DeserializeCopilotData<T>(json) : null;
 
-            if (response.Body is null ||
-                (response.Body is CopilotTaskCollection collection && (collection.Tasks is null || collection.Tasks.Any(t => t is null || string.IsNullOrWhiteSpace(t.Id)))) ||
-                (response.Body is CopilotTask task && (task.Sessions is null || task.Sessions.Any(s => s is null))))
+            if (data is null ||
+                (data is CopilotTaskCollection collection && (collection.Tasks is null || collection.Tasks.Any(t => t is null || string.IsNullOrWhiteSpace(t.Id)))) ||
+                (data is CopilotTask task && (task.Sessions is null || task.Sessions.Any(s => s is null))))
             {
                 throw new InvalidDataException("GitHub returned incomplete Copilot task data.");
             }
 
-            return (response.Body, null);
+            return (data, null);
         }
-        catch (Exception ex) when (ex is ApiException or HttpRequestException or TimeoutException or OperationCanceledException or InvalidDataException)
+        catch (Exception ex) when (ex is ApiException or HttpRequestException or TimeoutException or OperationCanceledException or InvalidDataException or JsonException or SerializationException)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string error = ex switch
@@ -239,12 +247,16 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
                 ApiException api => $"GitHub returned HTTP {(int)api.StatusCode}.",
                 OperationCanceledException or TimeoutException => "GitHub agent tasks request timed out.",
                 InvalidDataException => "GitHub returned incomplete Copilot task data.",
+                JsonException or SerializationException => "GitHub returned invalid Copilot task data.",
                 _ => "GitHub agent tasks request failed.",
             };
             _debugLog($"Copilot session prompts unavailable for {path}: {error} {ex.Message}");
             return (null, error);
         }
     }
+
+    internal static T DeserializeCopilotData<T>(string json) =>
+        JsonSerializer.Deserialize<T>(json, CopilotJsonOptions);
 
     internal static string[] FindTaskIds(CopilotTaskCollection response, PullRequestLabelInfoModel pr, string repository) =>
         [.. response.Tasks

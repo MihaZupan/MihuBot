@@ -15,11 +15,12 @@ public sealed class DetectIssueAreaLabelsService(
     : PeriodicBackgroundService(new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(1) }, Logger)
 {
     private readonly Logger _logger = Logger;
-    private readonly FileBackedHashSet _processedIssues = new("ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase);
+    private readonly FileBackedHashSet _processedIssues = new(
+        "ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase, NormalizeProcessedKey);
 
     protected override async Task RunIterationAsync(CancellationToken cancellationToken)
     {
-        if (OperatingSystem.IsWindows() || ServiceConfiguration.PauseGitHubPolling)
+        if (OperatingSystem.IsWindows() || ServiceConfiguration.PauseGitHubPolling || ServiceConfiguration.PauseAutoLabelPrediction)
         {
             return;
         }
@@ -56,6 +57,12 @@ public sealed class DetectIssueAreaLabelsService(
         foreach (IssueInfo issue in incomingItems)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (ServiceConfiguration.PauseGitHubPolling || ServiceConfiguration.PauseAutoLabelPrediction)
+            {
+                return;
+            }
+
             string processedKey = GetProcessedKey(issue);
 
             if (_processedIssues.Contains(processedKey))
@@ -95,7 +102,8 @@ public sealed class DetectIssueAreaLabelsService(
         ? $"No confident area-label prediction for <{issue.HtmlUrl}>."
         : $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}";
 
-    internal static string GetProcessedKey(IssueInfo issue) => issue.IssueType == IssueType.PullRequest
-        ? $"{issue.HtmlUrl}#updated-{issue.UpdatedAt.Ticks}"
-        : issue.HtmlUrl;
+    internal static string GetProcessedKey(IssueInfo issue) => issue.HtmlUrl;
+
+    internal static string NormalizeProcessedKey(string key) =>
+        key.IndexOf("#updated-", StringComparison.Ordinal) is >= 0 and var index ? key[..index] : key;
 }

@@ -55,6 +55,7 @@
             ("GitHub notification polling", () => Services.PauseGitHubNotificationPolling,      val => Services.PauseGitHubNotificationPolling = val),
             ("NCL mention polling",         () => Services.PauseGitHubNCLMentionPolling,        val => Services.PauseGitHubNCLMentionPolling = val),
             ("duplicate detection",         () => Services.PauseAutoDuplicateDetection,         val => Services.PauseAutoDuplicateDetection = val),
+            ("automatic label prediction",  () => Services.PauseAutoLabelPrediction,            val => Services.PauseAutoLabelPrediction = val),
             ("vector search",               () => Services.DisableVectorSearch,                 val => Services.DisableVectorSearch = val),
             ("full text search",            () => Services.DisableFullTextSearch,               val => Services.DisableFullTextSearch = val),
             ("MCP/API job submissions",      () => Services.DisableRuntimeUtilsApiSubmissions,   val => Services.DisableRuntimeUtilsApiSubmissions = val),

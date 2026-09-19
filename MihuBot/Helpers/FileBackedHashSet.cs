@@ -5,7 +5,7 @@ public sealed class FileBackedHashSet
     private readonly Stream _stream;
     private readonly HashSet<string> _hashSet;
 
-    public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null)
+    public FileBackedHashSet(string filePath, IEqualityComparer<string> comparer = null, Func<string, string> normalizeExistingValue = null)
     {
         filePath = $"{Constants.StateDirectory}/{filePath}";
         comparer ??= StringComparer.Ordinal;
@@ -13,7 +13,7 @@ public sealed class FileBackedHashSet
         if (File.Exists(filePath))
         {
             string[] lines = File.ReadAllLines(filePath);
-            _hashSet = new HashSet<string>(lines, comparer);
+            _hashSet = new HashSet<string>(normalizeExistingValue is null ? lines : lines.Select(normalizeExistingValue), comparer);
         }
         else
         {

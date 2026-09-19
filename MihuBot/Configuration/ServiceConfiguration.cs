@@ -58,6 +58,12 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(PauseAutoDuplicateDetection), value);
     }
 
+    public bool PauseAutoLabelPrediction
+    {
+        get => Get(nameof(PauseAutoLabelPrediction));
+        set => Set(nameof(PauseAutoLabelPrediction), value);
+    }
+
     public bool PauseSelfUpdate
     {
         get => Get(nameof(PauseSelfUpdate));
