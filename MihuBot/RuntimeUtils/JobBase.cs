@@ -7,7 +7,8 @@ using Azure.Core;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Network;
 using Azure.ResourceManager.Resources;
-using Azure.ResourceManager.Resources.Models;
+using Azure.ResourceManager.Resources.Deployments;
+using Azure.ResourceManager.Resources.Deployments.Models;
 using Microsoft.DotNet.Helix.Client;
 using Microsoft.DotNet.Helix.Client.Models;
 using MihuBot.Configuration;
@@ -1240,7 +1241,7 @@ public abstract class JobBase
                     _idleTimeoutCts.CancelAfter(IdleTimeoutMs * 4);
 
                     string deploymentName = $"runner-deployment-{location.Name}-{JobId}";
-                    var armDeployments = resourceGroup.GetArmDeployments();
+                    var armDeployments = ResourcesDeploymentsExtensions.GetArmDeployments(resourceGroup);
                     var deployment = (await armDeployments.CreateOrUpdateAsync(WaitUntil.Completed, deploymentName, deploymentContent, jobTimeout)).Value;
 
                     Log("Azure deployment complete");
