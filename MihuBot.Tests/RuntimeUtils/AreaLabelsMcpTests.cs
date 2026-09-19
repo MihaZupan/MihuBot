@@ -6,9 +6,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
-using MihuBot.Tests.Configuration;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -26,7 +24,7 @@ public sealed class AreaLabelsMcpTests
         services.AddHybridCache();
         await using var provider = services.BuildServiceProvider();
         var cache = provider.GetRequiredService<HybridCache>();
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
+        using var detector = AreaLabelDetectionTests.CreateCachedDetector(cache);
         List<string> logs = [];
         var server = new McpServer(logs.Add, null!, detector);
 
@@ -40,7 +38,7 @@ public sealed class AreaLabelsMcpTests
         string prefix = labelPrefix ?? "area-";
         AreaLabelSuggestion[] expected = [new($"{prefix}Test", 0.9)];
         await cache.SetAsync(
-            $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:{prefix}", expected);
+            AreaLabelDetectionTests.GetPredictionCacheKey(prefix: prefix), expected);
         await app.StartAsync();
 
         string address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();

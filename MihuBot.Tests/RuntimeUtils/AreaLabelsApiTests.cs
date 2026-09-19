@@ -11,15 +11,31 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MihuBot.API;
 using MihuBot.Configuration;
-using MihuBot.Helpers.AI;
+using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.AI;
-using MihuBot.Tests.Configuration;
 using Octokit;
 
 namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class AreaLabelsApiTests
 {
+    [Fact]
+    public async Task RestPredictionEndpointSupportsPullRequests()
+    {
+        var cache = new PredictionCache();
+        await using var app = CreateApp(cache, itemType: IssueType.PullRequest);
+        await app.StartAsync();
+        using var http = CreateClient(app);
+        using var response = await http.PostAsJsonAsync("/api/RuntimeUtils/AreaLabels/Predict",
+            new { repository = "dotnet/runtime", number = 123 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new AreaLabelSuggestion("area-Test", 0.9),
+            Assert.Single((await response.Content.ReadFromJsonAsync<AreaLabelSuggestion[]>())!));
+        Assert.Equal(AreaLabelDetectionTests.GetPredictionCacheKey(type: IssueType.PullRequest), Assert.Single(cache.Keys));
+        Assert.Equal(TimeSpan.FromMinutes(2), cache.EntryOptions?.Expiration);
+    }
+
     [Theory]
     [InlineData("""{"repository":"dotnet/runtime","number":123}""", HttpStatusCode.OK)]
     [InlineData("""{"repository":"dotnet/aspnetcore","number":456}""", HttpStatusCode.OK)]
@@ -49,7 +65,7 @@ public sealed class AreaLabelsApiTests
         if (expectedStatus == HttpStatusCode.OK)
         {
             Assert.Equal(nameof(AreaLabelDetector), Assert.Single(cache.Tags!));
-            Assert.Equal("area-", cache.LabelPrefix);
+            Assert.StartsWith("AreaLabelDetector/PredictAsync/", Assert.Single(cache.Keys), StringComparison.Ordinal);
             using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             Assert.Equal(JsonValueKind.Array, result.RootElement.ValueKind);
             Assert.Equal("area-Test", result.RootElement[0].GetProperty("labelName").GetString());
@@ -116,7 +132,8 @@ public sealed class AreaLabelsApiTests
             Assert.Matches(@" in \d+[.,]\d{2}s:", message);
             Assert.DoesNotContain('\n', message);
         });
-        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-"], cache.Keys);
+        string key = AreaLabelDetectionTests.GetPredictionCacheKey();
+        Assert.Equal([key, key], cache.Keys);
     }
 
     [Fact]
@@ -140,7 +157,7 @@ public sealed class AreaLabelsApiTests
     [InlineData("OS-")]
     public async Task CustomPrefixIsPassedToDetector(string labelPrefix)
     {
-        var cache = new PredictionCache();
+        var cache = new PredictionCache { Suggestions = [new($"{labelPrefix.ToLowerInvariant()}Test", 0.9)] };
         await using var app = CreateApp(cache);
         await app.StartAsync();
         using var http = CreateClient(app);
@@ -148,7 +165,7 @@ public sealed class AreaLabelsApiTests
             new { repository = "dotnet/runtime", number = 123, labelPrefix });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(labelPrefix.ToLowerInvariant(), cache.LabelPrefix);
+        Assert.Equal(AreaLabelDetectionTests.GetPredictionCacheKey(prefix: labelPrefix), Assert.Single(cache.Keys));
         var suggestions = await response.Content.ReadFromJsonAsync<AreaLabelSuggestion[]>();
         Assert.Equal($"{labelPrefix.ToLowerInvariant()}Test", Assert.Single(suggestions!).LabelName);
     }
@@ -230,7 +247,7 @@ public sealed class AreaLabelsApiTests
         }
     }
 
-    private static WebApplication CreateApp(PredictionCache? cache, ILoggerProvider? loggerProvider = null)
+    private static WebApplication CreateApp(PredictionCache? cache, ILoggerProvider? loggerProvider = null, IssueType itemType = IssueType.Issue)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
@@ -249,7 +266,7 @@ public sealed class AreaLabelsApiTests
         });
         if (cache is not null)
         {
-            builder.Services.AddSingleton(_ => new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService()));
+            builder.Services.AddSingleton(_ => AreaLabelDetectionTests.CreateCachedDetector(cache, type: itemType));
         }
         var app = builder.Build();
         app.UseRateLimiter();
@@ -267,8 +284,9 @@ public sealed class AreaLabelsApiTests
         private int _calls;
         public int Calls => _calls;
         public System.Collections.Concurrent.ConcurrentQueue<string> Keys { get; } = new();
-        public string? LabelPrefix { get; private set; }
+        public AreaLabelSuggestion[] Suggestions { get; init; } = [new("area-Test", 0.9)];
         public string[]? Tags { get; private set; }
+        public HybridCacheEntryOptions? EntryOptions { get; private set; }
         public Exception? Error { get; init; }
         public Task? Release { get; init; }
         public TaskCompletionSource TenRequestsStarted { get; } = new();
@@ -278,8 +296,8 @@ public sealed class AreaLabelsApiTests
             HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default)
         {
             Keys.Enqueue(key);
-            LabelPrefix = key.Split(':', 6)[5];
             Tags = tags?.ToArray();
+            EntryOptions = options;
 
             if (Interlocked.Increment(ref _calls) == 10)
             {
@@ -293,8 +311,7 @@ public sealed class AreaLabelsApiTests
             {
                 await Release.WaitAsync(cancellationToken);
             }
-            AreaLabelSuggestion[] suggestions = [new($"{LabelPrefix}Test", 0.9)];
-            return suggestions is T result ? result : throw new InvalidOperationException("Unexpected cache value type.");
+            return Suggestions is T result ? result : throw new InvalidOperationException("Unexpected cache value type.");
         }
 
         public override ValueTask SetAsync<T>(string key, T value, HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default) =>

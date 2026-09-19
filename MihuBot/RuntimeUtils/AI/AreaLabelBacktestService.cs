@@ -5,7 +5,12 @@ using Octokit;
 
 namespace MihuBot.RuntimeUtils.AI;
 
-internal sealed record AreaLabelBacktestRequest(string Repository, int? IssueNumber, int Count, string LabelerActor);
+internal sealed record AreaLabelBacktestRequest(
+    string Repository, int? IssueNumber, int Count, string LabelerActor, bool PullRequests = false, bool IncludePrompt = false)
+{
+    public string ItemName => PullRequests ? "pull request" : "issue";
+    public string ItemPlural => PullRequests ? "pull requests" : "issues";
+}
 
 public sealed class AreaLabelBacktestService
 {
@@ -14,7 +19,7 @@ public sealed class AreaLabelBacktestService
     private readonly GitHubClient _github;
     private readonly GithubGraphQLClient _graphQL;
     private readonly Func<string, CancellationToken, Task<RepositoryInfo>> _getRepository;
-    private readonly Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, CancellationToken, Task<AreaLabelSuggestion[]>> _predict;
+    private readonly Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, Action<string>, CancellationToken, Task<AreaLabelSuggestion[]>> _predict;
     private readonly Func<AreaLabelPredictionSettings> _getPredictionSettings;
     private readonly Action<string> _debugLog;
 
@@ -22,7 +27,7 @@ public sealed class AreaLabelBacktestService
         : this(github, graphQL,
             (repo, ct) => ingestion.TryGetRepositoryInfoAsync(
                 ingestion.Stats.TrackedRepos.FirstOrDefault(r => r.RepoName.Equals(repo, StringComparison.OrdinalIgnoreCase))?.RepoName ?? repo, ct),
-            (repo, issue, settings, ct) => detector.GetSuggestionsAsync(repo, issue, settings, cancellationToken: ct),
+            (repo, issue, settings, onPrompt, ct) => detector.GetSuggestionsAsync(repo, issue, settings, cancellationToken: ct, onPrompt: onPrompt),
             message => logger.DebugLog(message),
             detector.GetPredictionSettings)
     {
@@ -32,7 +37,7 @@ public sealed class AreaLabelBacktestService
         GitHubClient github,
         GithubGraphQLClient graphQL,
         Func<string, CancellationToken, Task<RepositoryInfo>> getRepository,
-        Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, CancellationToken, Task<AreaLabelSuggestion[]>> predict,
+        Func<RepositoryInfo, IssueInfo, AreaLabelPredictionSettings, Action<string>, CancellationToken, Task<AreaLabelSuggestion[]>> predict,
         Action<string> debugLog,
         Func<AreaLabelPredictionSettings> getPredictionSettings)
     {
@@ -47,6 +52,11 @@ public sealed class AreaLabelBacktestService
     internal async Task<AreaLabelBacktestReport> RunAsync(
         AreaLabelBacktestRequest request, CancellationToken cancellationToken, Func<int, int, Task> progress = null)
     {
+        if (request.IncludePrompt && request.IssueNumber is null)
+        {
+            throw new ArgumentException("Prompt export is only available for a single issue or pull request.", nameof(request));
+        }
+
         RepositoryInfo repo = await _getRepository(request.Repository, cancellationToken)
             ?? throw new InvalidOperationException($"Repository '{request.Repository}' is not tracked in the GitHub database.");
 
@@ -61,29 +71,30 @@ public sealed class AreaLabelBacktestService
         }
 
         var settings = _getPredictionSettings();
-        var report = new AreaLabelBacktestReport(request)
-        {
-            Model = settings.Model,
-            ReasoningEffort = settings.ReasoningEffort.ToString(),
-        };
         IReadOnlyList<Issue> issues;
 
         if (request.IssueNumber is { } number)
         {
             Issue issue = await _github.Issue.Get(repo.Id, number).WaitAsyncAndSupressNotObserved(cancellationToken);
 
-            if (issue.PullRequest is not null)
+            if (request.PullRequests && issue.PullRequest is null)
             {
-                throw new InvalidOperationException("Please select an issue, not a pull request.");
+                throw new InvalidOperationException("Please select a pull request, not an issue.");
             }
 
+            request = request with { PullRequests = issue.PullRequest is not null };
             issues = [issue];
         }
         else
         {
-            issues = await GetIssuesAsync(repo.Id, request.Count, cancellationToken);
+            issues = await GetItemsAsync(repo.Id, request.Count, request.PullRequests, cancellationToken);
         }
 
+        var report = new AreaLabelBacktestReport(request)
+        {
+            Model = settings.Model,
+            ReasoningEffort = settings.ReasoningEffort.ToString(),
+        };
         object logLock = new();
         using var progressLock = new SemaphoreSlim(1, 1);
         int completed = 0;
@@ -142,7 +153,8 @@ public sealed class AreaLabelBacktestService
 
                         try
                         {
-                            evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), settings, cancellationToken);
+                            Action<string> onPrompt = request.IncludePrompt ? prompt => evaluation.Prompt = prompt : null;
+                            evaluation.Suggestions = await _predict(repo, CreatePredictionInput(repo, issue), settings, onPrompt, cancellationToken);
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                         {
@@ -189,7 +201,7 @@ public sealed class AreaLabelBacktestService
         }
     }
 
-    private async Task<IReadOnlyList<Issue>> GetIssuesAsync(long repositoryId, int count, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<Issue>> GetItemsAsync(long repositoryId, int count, bool pullRequests, CancellationToken cancellationToken)
     {
         List<Issue> issues = [];
         HashSet<int> seen = [];
@@ -211,7 +223,7 @@ public sealed class AreaLabelBacktestService
 
             foreach (Issue issue in batch)
             {
-                if (issue.PullRequest is null && seen.Add(issue.Number))
+                if ((issue.PullRequest is not null) == pullRequests && seen.Add(issue.Number))
                 {
                     issues.Add(issue);
 
@@ -237,7 +249,7 @@ public sealed class AreaLabelBacktestService
         {
             Repository = repository,
             RepositoryId = repository.Id,
-            IssueType = IssueType.Issue,
+            IssueType = issue.PullRequest is null ? IssueType.Issue : IssueType.PullRequest,
             UserId = issue.User.Id,
             User = new UserInfo { Id = issue.User.Id, Login = issue.User.Login },
             Labels = [],
@@ -246,7 +258,7 @@ public sealed class AreaLabelBacktestService
         };
 
         GitHubDataIngestionService.PopulateBasicIssueInfo(input, issue);
-        // Evaluate the submission, not the subsequent triage discussion or its answer labels.
+        // Omit answer labels and issue triage discussion; PR evidence is fetched live by the detector.
         input.ClosedAt = null;
 
         return input;
@@ -262,6 +274,7 @@ internal sealed class AreaLabelEvaluation(int number, string url, string title, 
     public string[] CurrentLabels { get; } = currentLabels;
     public string[] CurrentAreas => AreaLabelHistory.Areas(CurrentLabels);
     public AreaLabelSuggestion[] Suggestions { get; set; }
+    public string Prompt { get; set; }
     public string[] Predicted => [.. Suggestions.Take(1).Select(s => s.LabelName)];
     public string[] AllPredicted => AreaLabelHistory.Normalize(Suggestions.Select(s => s.LabelName));
     public AreaLabelHistory History { get; set; }
@@ -407,11 +420,56 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
     internal AreaLabelEvaluation[] OriginalScored => [.. PredictedIssues.Where(i => i.History is { ObservedLabeler: true, Consistent: true })];
 
     public string Summary =>
-        $"{(Cancelled ? "Label evaluation CANCELLED (partial report)" : "Label evaluation")}: {Issues.Count}/{request.Count} issues evaluated, {PredictedIssues.Length} predicted, " +
+        $"{(Cancelled ? "Label evaluation CANCELLED (partial report)" : "Label evaluation")}: {Issues.Count}/{request.Count} {request.ItemPlural} evaluated, {PredictedIssues.Length} predicted, " +
         $"{Issues.Count(i => i.Errors.Count > 0)} with errors. " +
         $"Top-answer exact matches: current area labels {CurrentScored.Count(i => AreaLabelHistory.Equal(i.CurrentAreas, i.Predicted))}/{CurrentScored.Length}; " +
-        $"original labeler {OriginalScored.Count(i => AreaLabelHistory.Equal(AreaLabelHistory.Areas(i.History.OriginalLabels), i.Predicted))}/{OriginalScored.Length}. " +
-        "No GitHub labels changed.";
+        $"original labeler {OriginalScored.Count(i => AreaLabelHistory.Equal(AreaLabelHistory.Areas(i.History.OriginalLabels), i.Predicted))}/{OriginalScored.Length}.";
+
+    public string ToSingleItemText()
+    {
+        if (request.IssueNumber is null || Issues.Count > 1)
+        {
+            throw new InvalidOperationException("Compact output requires a single-item evaluation.");
+        }
+
+        if (Issues.Count == 0)
+        {
+            return $"Label evaluation {(Cancelled ? "cancelled" : "failed")} for {request.Repository}#{request.IssueNumber}: no result.";
+        }
+
+        var issue = Issues[0];
+        var text = new StringBuilder();
+        text.AppendLine($"<{issue.Url}>");
+        string prediction = issue.Suggestions is null ? "FAILED" : issue.Suggestions.Length == 0 ? "(abstained)" : FormatSuggestion(issue.Suggestions[0]);
+        text.AppendLine($"Prediction: {OneLine(prediction)}");
+
+        if (issue.Suggestions is { Length: > 1 })
+        {
+            text.AppendLine($"Alternatives: {OneLine(string.Join(", ", issue.Suggestions.Skip(1).Select(FormatSuggestion)))}");
+        }
+
+        text.AppendLine($"Current areas: {Display(issue.CurrentAreas)}");
+        string original = issue.History switch
+        {
+            null => "(timeline unavailable)",
+            { Consistent: false } => "(inconsistent timeline; unscored)",
+            { ObservedLabeler: false } => "(not observed)",
+            { } history => Display(history.OriginalLabels),
+        };
+        text.AppendLine($"Original ({OneLine(request.LabelerActor)}): {original}");
+
+        if (issue.Errors.Count > 0)
+        {
+            text.AppendLine($"Errors: {string.Join("; ", issue.Errors)}");
+        }
+
+        if (Cancelled)
+        {
+            text.AppendLine("Evaluation cancelled (partial result).");
+        }
+
+        return text.ToString().TrimEnd();
+    }
 
     public string ToText()
     {
@@ -421,9 +479,13 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         text.AppendLine(Summary);
         text.AppendLine($"Prediction model: {Model}; reasoning effort: {ReasoningEffort}");
         text.AppendLine($"Original labeler actor: {request.LabelerActor}");
-        text.AppendLine(request.IssueNumber is { } number ? $"Scope: issue #{number}." : "Scope: newest issues, open and closed; no pull requests.");
+        text.AppendLine(request.IssueNumber is { } number ? $"Scope: {request.ItemName} #{number}." : request.PullRequests
+            ? "Scope: newest pull requests, open and closed (including merged); no issues."
+            : "Scope: newest issues, open and closed; no pull requests.");
         text.AppendLine("Scoring: top answer vs full area-label set; no answer / needs-area-label = abstention. Lower suggestions do not change matches.");
-        text.AppendLine("Caveats: current title/body and today's index, not a historical replay. Reference labels are not ground truth.");
+        text.AppendLine(request.PullRequests
+            ? "Caveats: current PR content, changes, and related evidence, not a historical replay. Reference labels are not ground truth."
+            : "Caveats: current title/body and today's index, not a historical replay. Reference labels are not ground truth.");
         text.AppendLine("Original = first actor application; workflow attribution unverified. No event does not prove a skip; human edits need not be corrections.");
         text.AppendLine("Unscored: prediction errors; no current areas (current comparison); unknown/inconsistent history (original comparison).");
         text.AppendLine();
@@ -443,7 +505,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
             .Select(i => (i.CurrentAreas, AreaLabelHistory.Areas(i.History.OriginalLabels))));
 
         text.AppendLine();
-        text.AppendLine("ALL EVALUATED ISSUES");
+        text.AppendLine($"ALL EVALUATED {request.ItemPlural.ToUpperInvariant()}");
 
         foreach (AreaLabelEvaluation issue in Issues)
         {
@@ -545,7 +607,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         }
     }
 
-    private static void AppendPredictionComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, AreaLabelEvaluation Issue)> comparisons)
+    private void AppendPredictionComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, AreaLabelEvaluation Issue)> comparisons)
     {
         var all = comparisons.ToArray();
         AppendComparisons(text, title, all.Select(c => (c.Reference, c.Issue.Predicted)));
@@ -597,7 +659,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         }
     }
 
-    private static void AppendComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, string[] Actual)> comparisons)
+    private void AppendComparisons(StringBuilder text, string title, IEnumerable<(string[] Reference, string[] Actual)> comparisons)
     {
         var all = comparisons.ToArray();
         var differences = all.Where(c => !AreaLabelHistory.Equal(c.Reference, c.Actual)).ToArray();
@@ -627,7 +689,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
 
         foreach (var group in misses.GroupBy(m => m.Label, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            text.AppendLine($"    {group.Key}: missed {group.Count()} of {all.Count(c => c.Reference.Contains(group.Key, StringComparer.OrdinalIgnoreCase))} reference issues");
+            text.AppendLine($"    {group.Key}: missed {group.Count()} of {all.Count(c => c.Reference.Contains(group.Key, StringComparer.OrdinalIgnoreCase))} reference {request.ItemPlural}");
 
             foreach (var replacement in group.GroupBy(m => m.Replacements, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
@@ -640,7 +702,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
 
         if (unexpected.Length > 0)
         {
-            text.AppendLine("  Unexpected labels (issues):");
+            text.AppendLine($"  Unexpected labels ({request.ItemPlural}):");
         }
 
         foreach (var group in unexpected)

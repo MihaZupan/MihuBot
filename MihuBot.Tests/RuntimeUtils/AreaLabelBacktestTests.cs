@@ -20,7 +20,7 @@ public sealed class AreaLabelBacktestTests
 
     private static AreaLabelPredictionSettings GetPredictionSettings()
     {
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService(), null!);
 
         return detector.GetPredictionSettings();
     }
@@ -43,13 +43,13 @@ public sealed class AreaLabelBacktestTests
             configuration.Set(null, "AreaLabelDetector.ReasoningEffort", reasoning);
         }
 
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!);
         using var handler = new GitHubHandler(_ => JsonResponse($"[{IssueJson(10)},{IssueJson(11)}]"));
         using var graphQL = new AreaLabelGraphQLTransport();
         List<AreaLabelPredictionSettings> predictionSettings = [];
         int settingsReads = 0;
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, settings, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, settings, _, _) =>
         {
             predictionSettings.Add(settings);
             configuration.Set(null, "AreaLabelDetector.Model", "next-model");
@@ -69,8 +69,8 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(2, predictionSettings.Count);
         Assert.Same(predictionSettings[0], predictionSettings[1]);
         Assert.Equal(model ?? OpenAIService.DefaultModel, predictionSettings[0].Model);
-        Assert.Equal(reasoning ?? "medium", predictionSettings[0].ReasoningEffort.ToString());
-        Assert.Contains($"Prediction model: {model ?? OpenAIService.DefaultModel}; reasoning effort: {reasoning ?? "medium"}", report.ToText(), StringComparison.Ordinal);
+        Assert.Equal(reasoning ?? "high", predictionSettings[0].ReasoningEffort.ToString());
+        Assert.Contains($"Prediction model: {model ?? OpenAIService.DefaultModel}; reasoning effort: {reasoning ?? "high"}", report.ToText(), StringComparison.Ordinal);
 
         var nextReport = await service.RunAsync(new("o/r", null, 2, Labeler), CancellationToken.None);
 
@@ -101,12 +101,20 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(expected, TestLabelsCommand.FormatProgress(completed, total));
     }
 
+    [Fact]
+    public void PullRequestProgressUsesTheCorrectItemType()
+    {
+        Assert.Equal("`[##########----------]` 50% (25/50 pull requests processed)",
+            TestLabelsCommand.FormatProgress(25, 50, pullRequests: true));
+    }
+
     [Theory]
     [InlineData("123", "dotnet/runtime", 123)]
     [InlineData("#123", "dotnet/runtime", 123)]
     [InlineData("https://github.com/dotnet/aspnetcore/issues/456", "dotnet/aspnetcore", 456)]
     [InlineData("<https://github.com/dotnet/runtime/issues/123>", "dotnet/runtime", 123)]
     [InlineData("https://github.com/dotnet/runtime/issues/123#issuecomment-456", "dotnet/runtime", 123)]
+    [InlineData("https://github.com/dotnet/runtime/pull/123", "dotnet/runtime", 123)]
     public void ParserAcceptsSingleIssue(string argument, string repository, int number)
     {
         Assert.True(TestLabelsCommand.TryParseArguments([argument], out var request));
@@ -115,6 +123,7 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(number, request.IssueNumber);
         Assert.Equal(1, request.Count);
         Assert.Equal(Labeler, request.LabelerActor);
+        Assert.False(request.PullRequests);
     }
 
     [Theory]
@@ -133,6 +142,52 @@ public sealed class AreaLabelBacktestTests
         Assert.Null(request.IssueNumber);
         Assert.Equal(expected, request.Count);
         Assert.Equal(Labeler, request.LabelerActor);
+        Assert.False(request.PullRequests);
+    }
+
+    public static TheoryData<string[]> PullRequestArguments =>
+    [
+        ["backtest", "dotnet/runtime", "100", "--prs"],
+        ["backtest", "dotnet/runtime", "100", "--PRS"],
+        ["backtest", "dotnet/runtime", "100", "--prs", "--labeler-actor", Labeler],
+        ["backtest", "dotnet/runtime", "100", "--labeler-actor", Labeler, "--prs"],
+    ];
+
+    public static TheoryData<string[]> PromptArguments =>
+    [
+        ["123", "--prompt"],
+        ["https://github.com/dotnet/runtime/pull/123", "--PROMPT"],
+        ["123", "--prompt", "--labeler-actor", Labeler],
+        ["123", "--labeler-actor", Labeler, "--prompt"],
+        ["123", "--prs", "--prompt"],
+    ];
+
+    [Theory]
+    [MemberData(nameof(PromptArguments))]
+    public void ParserAcceptsSingleItemPromptExport(string[] arguments)
+    {
+        string[] original = [.. arguments];
+
+        Assert.True(TestLabelsCommand.TryParseArguments(arguments, out var request));
+        Assert.True(request.IncludePrompt);
+        Assert.Equal(123, request.IssueNumber);
+        Assert.Equal(1, request.Count);
+        Assert.Equal(Labeler, request.LabelerActor);
+        Assert.Equal(original, arguments);
+    }
+
+    [Theory]
+    [MemberData(nameof(PullRequestArguments))]
+    public void ParserAcceptsPullRequestBacktestsAndEitherOptionOrder(string[] arguments)
+    {
+        string[] original = [.. arguments];
+
+        Assert.True(TestLabelsCommand.TryParseArguments(arguments, out var request));
+        Assert.True(request.PullRequests);
+        Assert.Equal(100, request.Count);
+        Assert.Equal("dotnet/runtime", request.Repository);
+        Assert.Equal(Labeler, request.LabelerActor);
+        Assert.Equal(original, arguments);
     }
 
     [Theory]
@@ -206,6 +261,15 @@ public sealed class AreaLabelBacktestTests
         ["123", "--labeler-actor", "one", "--labeler-actor", "two"],
         ["backtest", "dotnet/runtime", "10", "--labeler-actor"],
         ["backtest", "--labeler-actor", "actor", "dotnet/runtime", "10"],
+        ["backtest", "dotnet/runtime", "10", "--prs", "--prs"],
+        ["backtest", "dotnet/runtime", "10", "--prs", "extra"],
+        ["backtest", "dotnet/runtime", "10", "--prs", "--labeler-actor"],
+        ["backtest", "dotnet/runtime", "10", "--labeler-actor", "--prs"],
+        ["123", "--prompt", "--prompt"],
+        ["--prompt", "123"],
+        ["123", "--prompt", "extra"],
+        ["backtest", "dotnet/runtime", "1", "--prompt"],
+        ["backtest", "dotnet/runtime", "100", "--prs", "--prompt"],
     ];
 
     [Theory]
@@ -214,6 +278,70 @@ public sealed class AreaLabelBacktestTests
     {
         Assert.False(TestLabelsCommand.TryParseArguments(arguments, out var request));
         Assert.Null(request);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    public async Task SingleItemPromptIsCapturedExactlyOnlyWhenRequested(bool includePrompt, bool pullRequest, bool failPrediction)
+    {
+        string prompt = "PROMPT_BEGIN\r\n" + new string('x', 50_000) + "\nPROMPT_END";
+        using var handler = new GitHubHandler(_ => JsonResponse(IssueJson(10, pullRequest: pullRequest)));
+        using var graphQL = new AreaLabelGraphQLTransport();
+        int predictions = 0;
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync,
+            (_, _, _, onPrompt, _) =>
+            {
+                predictions++;
+                Assert.Equal(includePrompt, onPrompt is not null);
+                onPrompt?.Invoke(prompt);
+
+                return failPrediction
+                    ? Task.FromException<AreaLabelSuggestion[]>(new InvalidOperationException("Model unavailable"))
+                    : Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
+            }, _ => { }, GetPredictionSettings);
+
+        var report = await service.RunAsync(new("o/r", 10, 1, Labeler, IncludePrompt: includePrompt), CancellationToken.None);
+        var evaluation = Assert.Single(report.Issues);
+
+        Assert.Equal(1, predictions);
+        Assert.Equal(includePrompt ? prompt : null, evaluation.Prompt);
+        Assert.DoesNotContain("PROMPT_BEGIN", report.ToSingleItemText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("PROMPT_BEGIN", report.ToText(), StringComparison.Ordinal);
+        Assert.Equal(failPrediction, evaluation.Suggestions is null);
+
+        if (failPrediction)
+        {
+            Assert.Contains("Prediction failed: Model unavailable", evaluation.Errors);
+        }
+    }
+
+    [Fact]
+    public async Task PromptRemainsAbsentWhenPredictionFailsBeforeSubmission()
+    {
+        using var handler = new GitHubHandler(_ => JsonResponse(IssueJson(10)));
+        using var graphQL = new AreaLabelGraphQLTransport();
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync,
+            (_, _, _, _, _) => throw new InvalidOperationException("Evidence lookup failed"), _ => { }, GetPredictionSettings);
+
+        var report = await service.RunAsync(new("o/r", 10, 1, Labeler, IncludePrompt: true), CancellationToken.None);
+
+        Assert.Null(Assert.Single(report.Issues).Prompt);
+        Assert.Contains("Prediction failed: Evidence lookup failed", report.Issues[0].Errors);
+    }
+
+    [Fact]
+    public async Task BulkPromptExportIsRejectedBeforeLoadingData()
+    {
+        var service = new AreaLabelBacktestService(null!, null!,
+            (_, _) => throw new InvalidOperationException("Must not load data."),
+            (_, _, _, _, _) => throw new InvalidOperationException("Must not predict."),
+            Assert.Fail, GetPredictionSettings);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.RunAsync(new("o/r", null, 1, Labeler, IncludePrompt: true), CancellationToken.None));
     }
 
     [Fact]
@@ -965,7 +1093,7 @@ public sealed class AreaLabelBacktestTests
         Assert.DoesNotContain("Current comparison:", entries[3], StringComparison.Ordinal);
         Assert.Contains("not a historical replay", text, StringComparison.Ordinal);
         Assert.Contains("No event does not prove a skip", text, StringComparison.Ordinal);
-        Assert.Contains("No GitHub labels changed", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("No GitHub labels changed", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -978,6 +1106,119 @@ public sealed class AreaLabelBacktestTests
 
         Assert.Contains("Current areas: \"area-\"\"Quoted\"\" label\"", text, StringComparison.Ordinal);
         Assert.Contains("Missing vs current: \"area-\"\"Quoted\"\" label\"", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SingleItemResultShowsOnlyThePredictionAndReferenceLabels()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", 0.99)],
+            Analyze([Event(1, "area-Foo")], ["area-Foo"])));
+
+        string text = report.ToSingleItemText();
+
+        Assert.StartsWith("<https://github.com/dotnet/runtime/issues/1>", text, StringComparison.Ordinal);
+        Assert.Contains("Prediction: area-Foo (99.0", text, StringComparison.Ordinal);
+        Assert.Contains("Current areas: \"area-Foo\"", text, StringComparison.Ordinal);
+        Assert.Contains($"Original ({Labeler}): \"area-Foo\"", text, StringComparison.Ordinal);
+        Assert.Equal(4, text.Split('\n').Length);
+        Assert.True(text.Length < 500, $"Single-item result has {text.Length} characters.");
+        Assert.DoesNotContain("Alternatives:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Accuracy", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Caveats", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Generated:", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SingleItemResultKeepsAlternativesAndTimelineFailuresVisible()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Bar", 0.8), new("area-Foo", 0.6)],
+            null, "Timeline failed: unavailable"));
+
+        string text = report.ToSingleItemText();
+
+        Assert.Contains("Prediction: area-Bar (80.0", text, StringComparison.Ordinal);
+        Assert.Contains("Alternatives: area-Foo (60.0", text, StringComparison.Ordinal);
+        Assert.Contains("(timeline unavailable)", text, StringComparison.Ordinal);
+        Assert.Contains("Errors: Timeline failed: unavailable", text, StringComparison.Ordinal);
+        Assert.True(text.Length < 500, $"Single-item result has {text.Length} characters.");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SingleItemResultDistinguishesPredictionFailureFromAbstention(bool failed)
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, [], failed ? null : [], Analyze([], []),
+            failed ? ["Prediction failed: model unavailable"] : []));
+
+        string text = report.ToSingleItemText();
+
+        Assert.Contains(failed ? "Prediction: FAILED" : "Prediction: (abstained)", text, StringComparison.Ordinal);
+        Assert.Contains("(not observed)", text, StringComparison.Ordinal);
+
+        if (failed)
+        {
+            Assert.Contains("Prediction failed: model unavailable", text, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void SingleItemResultDoesNotPresentAnInconsistentBaselineAsReliable()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", 0.9)],
+            Analyze([Event(1, "area-Foo")], ["area-Foo"]) with { Consistent = false }));
+
+        Assert.Contains($"Original ({Labeler}): (inconsistent timeline; unscored)", report.ToSingleItemText(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SingleItemResultWithoutAnEvaluationIsExplicit(bool cancelled)
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, Labeler)) { Cancelled = cancelled };
+
+        Assert.Equal($"Label evaluation {(cancelled ? "cancelled" : "failed")} for dotnet/runtime#1: no result.", report.ToSingleItemText());
+    }
+
+    [Fact]
+    public void SingleItemResultPreservesLongLabelsActorsAndErrors()
+    {
+        string label = "area-" + new string('x', 1000);
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", 1, 1, new string('a', 1000))) { Cancelled = true };
+        report.Issues.Add(Evaluation(1, [label, label + "y"],
+            [new(label, 0.9), new(label + "y", 0.8)],
+            new("Original", [label, label + "y"], true, true, false, []),
+            new string('e', 4000), "Another\nerror"));
+
+        string text = report.ToSingleItemText();
+
+        Assert.True(text.Length > 2000);
+        Assert.Contains(label, text, StringComparison.Ordinal);
+        Assert.Contains(new string('a', 1000), text, StringComparison.Ordinal);
+        Assert.Contains(new string('e', 4000), text, StringComparison.Ordinal);
+        Assert.Contains("Another\nerror", text, StringComparison.Ordinal);
+        Assert.Contains("Prediction:", text, StringComparison.Ordinal);
+        Assert.Contains("Alternatives:", text, StringComparison.Ordinal);
+        Assert.Contains("Current areas:", text, StringComparison.Ordinal);
+        Assert.Contains("Original (", text, StringComparison.Ordinal);
+        Assert.Contains("Errors:", text, StringComparison.Ordinal);
+        Assert.EndsWith("Evaluation cancelled (partial result).", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BulkBacktestWithOneItemStillUsesDetailedReporting()
+    {
+        var report = new AreaLabelBacktestReport(new("dotnet/runtime", null, 1, Labeler));
+        report.Issues.Add(Evaluation(1, ["area-Foo"], [new("area-Foo", 0.9)]));
+
+        Assert.Throws<InvalidOperationException>(report.ToSingleItemText);
+        Assert.Contains("ALL EVALUATED ISSUES", report.ToText(), StringComparison.Ordinal);
+        Assert.Contains("Accuracy by top-answer confidence", report.ToText(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1073,11 +1314,14 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal("area-Foo", Assert.Single(repository.Labels).Name);
     }
 
-    [Fact]
-    public async Task RunAsyncPaginatesRestIssuesAndGraphQLTimelinesAndPredictsExactlyNUniqueIssues()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsyncPaginatesRestItemsAndGraphQLTimelinesAndPredictsExactlyNUniqueItems(bool pullRequests)
     {
-        string firstPage = "[" + string.Join(",", new[] { IssueJson(10, closed: true, label: "area-Bar") }
-            .Concat(Enumerable.Range(100, 99).Select(number => IssueJson(number, pullRequest: true)))) + "]";
+        string prefix = pullRequests ? "PR" : "I";
+        string firstPage = "[" + string.Join(",", new[] { IssueJson(10, closed: true, pullRequest: pullRequests, label: "area-Bar") }
+            .Concat(Enumerable.Range(100, 99).Select(number => IssueJson(number, pullRequest: !pullRequests)))) + "]";
 
         List<IssueInfo> predictions = [];
         List<string> logs = [];
@@ -1098,7 +1342,7 @@ public sealed class AreaLabelBacktestTests
                     {
                         "1" => JsonResponse(firstPage,
                             next: "https://api.github.com/repositories/1/issues?state=all&sort=created&direction=desc&per_page=100&page=2"),
-                        "2" => JsonResponse($"[{IssueJson(10)},{IssueJson(11)},{IssueJson(12, closed: true)},{IssueJson(13)}]",
+                        "2" => JsonResponse($"[{IssueJson(10, pullRequest: pullRequests)},{IssueJson(11, pullRequest: pullRequests)},{IssueJson(12, closed: true, pullRequest: pullRequests)},{IssueJson(13, pullRequest: pullRequests)}]",
                             next: "https://api.github.com/repositories/1/issues?state=all&sort=created&direction=desc&per_page=100&page=3"),
                         _ => throw new InvalidOperationException($"Unexpected issue page: {uri}"),
                     };
@@ -1113,17 +1357,17 @@ public sealed class AreaLabelBacktestTests
         {
             if (graphQL.Requests.Count == 1)
             {
-                AssertVariables(request, ("issue0", "I_10", null), ("issue1", "I_11", null), ("issue2", "I_12", null));
+                AssertVariables(request, ("issue0", $"{prefix}_10", null), ("issue1", $"{prefix}_11", null), ("issue2", $"{prefix}_12", null));
 
                 return Task.FromResult(GraphResponse(GraphData(
-                    ("issue0", TimelineNode("I_10", [GraphEvent("original", "area-Foo")], true, "next-page")),
-                    ("issue1", TimelineNode("I_11", [GraphEvent("original", "area-Foo")])),
-                    ("issue2", TimelineNode("I_12", [GraphEvent("original", "area-Foo")])))));
+                    ("issue0", TimelineNode($"{prefix}_10", [GraphEvent("original", "area-Foo")], true, "next-page")),
+                    ("issue1", TimelineNode($"{prefix}_11", [GraphEvent("original", "area-Foo")])),
+                    ("issue2", TimelineNode($"{prefix}_12", [GraphEvent("original", "area-Foo")])))));
             }
 
-            AssertVariables(request, ("issue0", "I_10", "next-page"));
+            AssertVariables(request, ("issue0", $"{prefix}_10", "next-page"));
 
-            return Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode("I_10",
+            return Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode($"{prefix}_10",
                 [GraphEvent("removal", "area-Foo", added: false, actor: "maintainer", actorType: "User"),
                     GraphEvent("replacement", "area-Bar", actor: "maintainer", actorType: "User")])))));
         };
@@ -1138,7 +1382,7 @@ public sealed class AreaLabelBacktestTests
             repositoryReads++;
 
             return Task.FromResult(storedRepository);
-        }, (repository, issue, _, ct) =>
+        }, (repository, issue, _, _, ct) =>
         {
             Assert.Equal(cancellation.Token, ct);
             Assert.Same(storedRepository, repository);
@@ -1146,13 +1390,13 @@ public sealed class AreaLabelBacktestTests
             Assert.Equal("o/r", repository.FullName);
             Assert.Equal("o", repository.Owner.Login);
             Assert.Equal(["area-Foo", "area-Bar", "bug"], repository.Labels.Select(label => label.Name));
-            AssertStrippedPredictionInput(issue);
+            AssertStrippedPredictionInput(issue, pullRequests);
             predictions.Add(issue);
 
             return Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
         }, logs.Add, GetPredictionSettings);
 
-        var report = await service.RunAsync(new("o/r", null, 3, Labeler), cancellation.Token);
+        var report = await service.RunAsync(new("o/r", null, 3, Labeler, pullRequests), cancellation.Token);
 
         Assert.Equal([10, 11, 12], report.Issues.Select(issue => issue.Number));
         Assert.Equal([10, 11, 12], predictions.Select(issue => issue.Number));
@@ -1176,16 +1420,29 @@ public sealed class AreaLabelBacktestTests
         Assert.Equal(1, repositoryReads);
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+
+        if (pullRequests)
+        {
+            string text = report.ToText();
+            Assert.Contains("3/3 pull requests evaluated", report.Summary, StringComparison.Ordinal);
+            Assert.Contains("newest pull requests, open and closed (including merged); no issues.", text, StringComparison.Ordinal);
+            Assert.Contains("ALL EVALUATED PULL REQUESTS", text, StringComparison.Ordinal);
+            Assert.Contains("reference pull requests", text, StringComparison.Ordinal);
+            Assert.Contains("Unexpected labels (pull requests):", text, StringComparison.Ordinal);
+        }
     }
 
-    [Fact]
-    public async Task RunAsyncSingleIssueUsesDirectEndpointAndRequestedLabelerActor()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsyncSingleItemDetectsItsTypeAndUsesRequestedLabelerActor(bool pullRequest)
     {
         int predictions = 0;
+        string prefix = pullRequest ? "PR" : "I";
 
         using var handler = new GitHubHandler(uri => uri.AbsolutePath switch
         {
-            "/repositories/1/issues/10" => JsonResponse(IssueJson(10, closed: true)),
+            "/repositories/1/issues/10" => JsonResponse(IssueJson(10, closed: true, pullRequest: pullRequest)),
             _ => throw new InvalidOperationException($"Unexpected request: {uri}"),
         });
 
@@ -1193,19 +1450,19 @@ public sealed class AreaLabelBacktestTests
         {
             Respond = (request, _) =>
             {
-                AssertVariables(request, ("issue0", "I_10", null));
+                AssertVariables(request, ("issue0", $"{prefix}_10", null));
 
-                return Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode("I_10",
+                return Task.FromResult(GraphResponse(GraphData(("issue0", TimelineNode($"{prefix}_10",
                     [GraphEvent("original", "area-Foo", actor: "custom-labeler", actorType: "User")])))));
             },
         };
 
         List<string> logs = [];
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _, _) =>
         {
             predictions++;
-            AssertStrippedPredictionInput(issue);
+            AssertStrippedPredictionInput(issue, pullRequest);
 
             return Task.FromResult<AreaLabelSuggestion[]>([new("area-Foo", 0.9)]);
         }, logs.Add, GetPredictionSettings);
@@ -1225,6 +1482,9 @@ public sealed class AreaLabelBacktestTests
         Assert.StartsWith("Label timeline GraphQL request", Assert.Single(logs), StringComparison.Ordinal);
         Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
         Assert.DoesNotContain(handler.Requests, request => request.Uri.AbsolutePath == "/repositories/1/issues");
+        Assert.Contains($"Scope: {(pullRequest ? "pull request" : "issue")} #10.", report.ToText(), StringComparison.Ordinal);
+        Assert.Contains($"<https://github.com/o/r/{(pullRequest ? "pull" : "issues")}/10>", report.ToSingleItemText(), StringComparison.Ordinal);
+        Assert.True(report.ToSingleItemText().Length < 500);
     }
 
     [Theory]
@@ -1243,7 +1503,7 @@ public sealed class AreaLabelBacktestTests
         List<string> logs = [];
         int predictions = 0;
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, _, _, _, _) =>
         {
             predictions++;
 
@@ -1302,7 +1562,7 @@ public sealed class AreaLabelBacktestTests
                 new JsonArray { GraphError("Later timeline page unavailable", "issue0", "timelineItems") }));
         };
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _, _) =>
         {
             AssertStrippedPredictionInput(issue);
             predictions.Add(issue.Number);
@@ -1352,12 +1612,12 @@ public sealed class AreaLabelBacktestTests
     [InlineData("private", "Label evaluation is only available for public repositories.", 0)]
     [InlineData("no-areas", "The repository has no active area-* labels to predict.", 0)]
     [InlineData("legacy-areas", "The repository has no active area-* labels to predict.", 0)]
-    [InlineData("pull-request", "Please select an issue, not a pull request.", 1)]
+    [InlineData("issue", "Please select a pull request, not an issue.", 1)]
     public async Task RunAsyncRejectsUnsupportedInputsBeforePrediction(string scenario, string error, int requests)
     {
         using var handler = new GitHubHandler(uri => uri.AbsolutePath switch
         {
-            "/repositories/1/issues/10" => JsonResponse(IssueJson(10, pullRequest: true)),
+            "/repositories/1/issues/10" => JsonResponse(IssueJson(10)),
             _ => throw new InvalidOperationException($"Unexpected request: {uri}"),
         });
 
@@ -1374,10 +1634,10 @@ public sealed class AreaLabelBacktestTests
 
         var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client,
             (_, _) => Task.FromResult(scenario == "missing" ? null! : repository),
-            (_, _, _, _) => throw new InvalidOperationException("Prediction must not run"), message => Assert.Fail(message), GetPredictionSettings);
+            (_, _, _, _, _) => throw new InvalidOperationException("Prediction must not run"), message => Assert.Fail(message), GetPredictionSettings);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.RunAsync(new("o/r", 10, 1, Labeler), CancellationToken.None));
+            service.RunAsync(new("o/r", 10, 1, Labeler, PullRequests: scenario == "issue"), CancellationToken.None));
 
         Assert.Equal(error, exception.Message);
         Assert.Equal(requests, handler.Requests.Count);
@@ -1402,7 +1662,7 @@ public sealed class AreaLabelBacktestTests
 
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, ct) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _, ct) =>
         {
             Assert.Equal(cancellation.Token, ct);
             predictions.Add(issue.Number);
@@ -1491,7 +1751,7 @@ public sealed class AreaLabelBacktestTests
             return Task.FromResult(DefaultGraphResponse(request));
         };
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, (_, issue, _, _, _) =>
         {
             predictions.Add(issue.Number);
 
@@ -1558,7 +1818,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _, _) =>
         {
             int index = issue.Number - 10;
             concurrency.Enqueue(Interlocked.Increment(ref active));
@@ -1642,7 +1902,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _, _) =>
         {
             predictions.Enqueue(issue.Number);
 
@@ -1707,7 +1967,7 @@ public sealed class AreaLabelBacktestTests
             JsonResponse("[" + string.Join(",", Enumerable.Range(10, count).Select(number => IssueJson(number))) + "]"));
         using var graphQL = new AreaLabelGraphQLTransport();
 
-        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, ct) =>
+        var service = new AreaLabelBacktestService(handler.CreateClient(), graphQL.Client, GetRepositoryAsync, async (_, issue, _, _, ct) =>
         {
             int index = issue.Number - 10;
             Interlocked.Increment(ref active);
@@ -1802,9 +2062,9 @@ public sealed class AreaLabelBacktestTests
 
     private static string IssueJson(int number, bool closed = false, bool pullRequest = false, string label = "area-Foo") => $$"""
         {
-            "node_id":"I_{{number}}",
+            "node_id":"{{(pullRequest ? "PR" : "I")}}_{{number}}",
             "number":{{number}},
-            "html_url":"https://github.com/o/r/issues/{{number}}",
+            "html_url":"https://github.com/o/r/{{(pullRequest ? "pull" : "issues")}}/{{number}}",
             "title":"Title {{number}}",
             "body":"Body {{number}}",
             "state":"{{(closed ? "closed" : "open")}}",
@@ -1820,15 +2080,15 @@ public sealed class AreaLabelBacktestTests
         }
         """;
 
-    private static void AssertStrippedPredictionInput(IssueInfo issue)
+    private static void AssertStrippedPredictionInput(IssueInfo issue, bool pullRequest = false)
     {
         Assert.Equal(1, issue.RepositoryId);
-        Assert.Equal($"I_{issue.Number}", issue.Id);
+        Assert.Equal($"{(pullRequest ? "PR" : "I")}_{issue.Number}", issue.Id);
         Assert.Equal($"Title {issue.Number}", issue.Title);
         Assert.Equal($"Body {issue.Number}", issue.Body);
         Assert.Equal("author", issue.User.Login);
         Assert.Equal(8, issue.UserId);
-        Assert.Equal(IssueType.Issue, issue.IssueType);
+        Assert.Equal(pullRequest ? IssueType.PullRequest : IssueType.Issue, issue.IssueType);
         Assert.Empty(issue.Labels);
         Assert.Empty(issue.Comments);
         Assert.Empty(issue.Assignees);

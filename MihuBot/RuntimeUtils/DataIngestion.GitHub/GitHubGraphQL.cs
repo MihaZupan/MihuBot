@@ -8,6 +8,129 @@ namespace MihuBot.RuntimeUtils.DataIngestion.GitHub;
 
 public static class GitHubGraphQL
 {
+    internal const int ReferencedLabelItemsBatchSize = 20;
+
+    internal static async Task<(LinkedItemLabelInfoModel[] Items, int Calls, int Cost)> GetReferencedLabelItemsAsync(
+        this GithubGraphQLClient client, (string Repository, int Number)[] references, Action<string> debugLog,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(references.Length, ReferencedLabelItemsBatchSize);
+
+        if (references.Length == 0)
+        {
+            return ([], 0, 0);
+        }
+
+        Dictionary<string, object> variables = [];
+        string[] aliases = [.. Enumerable.Range(0, references.Length).Select(i => $"reference{i}")];
+
+        for (int i = 0; i < references.Length; i++)
+        {
+            if (!GitHubHelper.TryParseRepoOwnerAndName(references[i].Repository, out string? owner, out string? name, out string[]? extra) ||
+                extra.Length != 0)
+            {
+                throw new ArgumentException("Referenced repositories must be in owner/name form.", nameof(references));
+            }
+
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(references[i].Number);
+            variables[$"owner{i}"] = owner;
+            variables[$"name{i}"] = name;
+            variables[$"number{i}"] = references[i].Number;
+        }
+
+        var response = await client.RunAliasedQueryAsync<ReferencedLabelRepositoryModel>(
+            Queries.ReferencedLabelItems(references.Length), variables, aliases, cancellationToken);
+        List<LinkedItemLabelInfoModel> items = [];
+
+        for (int i = 0; i < references.Length; i++)
+        {
+            var field = response.Fields[aliases[i]];
+            string reference = $"{references[i].Repository}#{references[i].Number}";
+
+            if (field.InvalidData is not null ||
+                field.Errors.Any(e => e.RootField != aliases[i] || e.Type is not ("NOT_FOUND" or "FORBIDDEN")))
+            {
+                throw new InvalidOperationException(field.InvalidData ?? $"GitHub referenced item lookup failed: {string.Join("; ", field.Errors.Select(e => e.Message))}");
+            }
+
+            if (field.Errors.Length > 0 || field.Data?.Item is null)
+            {
+                debugLog($"Referenced item {reference} is unavailable or was not found.");
+                continue;
+            }
+
+            if (field.Data.IsPrivate || field.Data.Item.Repository.IsPrivate)
+            {
+                debugLog($"Skipping private referenced item {reference}.");
+                continue;
+            }
+
+            items.Add(field.Data.Item);
+        }
+
+        if (response.RateLimit is null || response.RateLimitErrors.Length > 0)
+        {
+            throw new InvalidOperationException($"GitHub referenced item lookup returned no usable rate-limit metadata: {string.Join("; ", response.RateLimitErrors)}");
+        }
+
+        return ([.. items.DistinctBy(i => i.Url, StringComparer.OrdinalIgnoreCase)], 1, response.RateLimit.Cost);
+    }
+
+    internal static async Task<(PullRequestLabelRepositoryModel? Repository, int Calls, int Cost)> GetPullRequestLabelInfoAsync(
+        this GithubGraphQLClient client, string owner, string name, int number, CancellationToken cancellationToken = default)
+    {
+        var response = await client.RunQueryAsync<PullRequestLabelResponseModel>(
+            Queries.PullRequestLabelInfo, new { owner, name, number }, cancellationToken);
+        return (response.Repository, 1, response.RateLimit?.Cost
+            ?? throw new InvalidOperationException("GitHub pull request lookup returned no usable rate-limit metadata."));
+    }
+
+    internal static async Task<((string Path, PullRequestHistoryModel PullRequest)[] Matches, int Calls, int Cost)> GetPullRequestFileHistoryAsync(
+        this GithubGraphQLClient client, string owner, string name, string baseOid, string[] paths, CancellationToken cancellationToken = default)
+    {
+        if (paths.Length == 0)
+        {
+            return ([], 0, 0);
+        }
+
+        Dictionary<string, object> variables = new() { ["owner"] = owner, ["name"] = name, ["base"] = baseOid };
+
+        for (int i = 0; i < paths.Length; i++)
+        {
+            variables[$"path{i}"] = paths[i];
+        }
+
+        string[] aliases = [.. Enumerable.Range(0, paths.Length).Select(i => $"path{i}")];
+        var response = await client.RunAliasedQueryAsync<PullRequestHistoryRepositoryModel>(
+            Queries.PullRequestFileHistory(paths.Length), variables, aliases, cancellationToken);
+        List<(string Path, PullRequestHistoryModel PullRequest)> results = [];
+
+        for (int i = 0; i < paths.Length; i++)
+        {
+            var field = response.Fields[aliases[i]];
+
+            if (field.InvalidData is not null || field.Errors.Length > 0)
+            {
+                throw new InvalidOperationException(field.InvalidData ?? $"GitHub pull request history lookup failed: {string.Join("; ", field.Errors.Select(e => e.Message))}");
+            }
+
+            var commits = field.Data?.Object?.History.Nodes
+                ?? throw new InvalidOperationException("GitHub returned no base commit for pull request file history.");
+
+            foreach (var commit in commits)
+            {
+                results.AddRange(commit.AssociatedPullRequests.Nodes.Select(pr => (paths[i], pr)));
+            }
+        }
+
+        if (response.RateLimit is null || response.RateLimitErrors.Length > 0)
+        {
+            throw new InvalidOperationException($"GitHub pull request history lookup returned no usable rate-limit metadata: {string.Join("; ", response.RateLimitErrors)}");
+        }
+
+        return ([.. results], 1, response.RateLimit.Cost);
+    }
+
     public static async Task<(string ClosedIssue, string DuplicatedAgainst)[]> GetIssuesMarkedAsDuplicateAsync(this GithubGraphQLClient client, string owner, string name, int count, CancellationToken cancellationToken = default)
     {
         var results = new List<(string ClosedIssue, string DuplicatedAgainst)>();
@@ -410,6 +533,85 @@ public static class GitHubGraphQL
         private const string DiscussionCommentRepliesSize = "20";
         private const string AssigneesPerIssue = "20";
 
+        private const string LinkedItemLabelProperties = """
+            url title body author { login } repository { nameWithOwner isPrivate }
+            labels(first: 100) { nodes { name } }
+            """;
+
+        public const string PullRequestLabelInfo = $$"""
+            query PullRequestLabelInfo($owner: String!, $name: String!, $number: Int!) {
+              rateLimit { cost }
+              repository(owner: $owner, name: $name) {
+                isPrivate
+                pullRequest(number: $number) {
+                  id databaseId: fullDatabaseId url title body author { login __typename } baseRefOid isDraft changedFiles additions deletions
+                  headRefName baseRefName headRepository { nameWithOwner isPrivate }
+                  comments(last: 20) { nodes { body author { login } createdAt } }
+                  closingIssuesReferences(first: 20) {
+                    nodes {
+                      {{LinkedItemLabelProperties}}
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+        public static string ReferencedLabelItems(int count)
+        {
+            var query = new StringBuilder("query ReferencedLabelItems(");
+            query.AppendJoin(", ", Enumerable.Range(0, count).Select(i => $"$owner{i}: String!, $name{i}: String!, $number{i}: Int!"));
+            query.Append(") { rateLimit { cost }");
+
+            for (int i = 0; i < count; i++)
+            {
+                query.Append($$"""
+                    reference{{i}}: repository(owner: $owner{{i}}, name: $name{{i}}) {
+                      isPrivate
+                      item: issueOrPullRequest(number: $number{{i}}) {
+                        ... on Issue { {{LinkedItemLabelProperties}} }
+                        ... on PullRequest { {{LinkedItemLabelProperties}} }
+                      }
+                    }
+                    """);
+            }
+
+            query.Append('}');
+            return query.ToString();
+        }
+
+        public static string PullRequestFileHistory(int count)
+        {
+            var query = new StringBuilder("query PullRequestFileHistory($owner: String!, $name: String!, $base: GitObjectID!");
+
+            for (int i = 0; i < count; i++)
+            {
+                query.Append($", $path{i}: String!");
+            }
+
+            query.Append(") { rateLimit { cost }");
+
+            for (int i = 0; i < count; i++)
+            {
+                query.Append($$"""
+                    path{{i}}: repository(owner: $owner, name: $name) {
+                      object(oid: $base) { ... on Commit {
+                        history(first: 8, path: $path{{i}}) {
+                          nodes { associatedPullRequests(first: 5) { nodes {
+                            url title body mergedAt author { login }
+                            repository { nameWithOwner isPrivate }
+                            labels(first: 100) { nodes { name } }
+                          } } }
+                        }
+                      } }
+                    }
+                    """);
+            }
+
+            query.Append('}');
+            return query.ToString();
+        }
+
         private const string PageInfo =
             """
             pageInfo {
@@ -729,20 +931,28 @@ public static class GitHubGraphQL
                 $$"""
                 {{alias}}: node(id: ${{alias}}Id) {
                   ... on Issue {
-                    id
-                    timelineItems(first: {{SecondaryPageSize}}, after: ${{alias}}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
-                      nodes {
-                        __typename
-                        ... on LabeledEvent { id createdAt actor { ... ActorIds } label { name } }
-                        ... on UnlabeledEvent { id createdAt actor { ... ActorIds } label { name } }
-                      }
-                      {{PageInfo}}
-                    }
+                    {{LabelTimelineProperties(alias)}}
+                  }
+                  ... on PullRequest {
+                    {{LabelTimelineProperties(alias)}}
                   }
                 }
                 """))}}
             }
             {{Fragments.ActorIds}}
+            """;
+
+        private static string LabelTimelineProperties(string alias) =>
+            $$"""
+            id
+            timelineItems(first: {{SecondaryPageSize}}, after: ${{alias}}Cursor, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
+              nodes {
+                __typename
+                ... on LabeledEvent { id createdAt actor { ... ActorIds } label { name } }
+                ... on UnlabeledEvent { id createdAt actor { ... ActorIds } label { name } }
+              }
+              {{PageInfo}}
+            }
             """;
 
         public const string IssuesMarkedAsDuplicate =
@@ -863,6 +1073,25 @@ public static class GitHubGraphQL
     }
 
     private sealed record RepositoryWithCostModel(GithubGraphQLClient.RateLimitInfo RateLimit, RepositoryModel Repository);
+
+    internal sealed record NodesModel<T>(T[] Nodes);
+    internal sealed record ActorLoginModel(string Login, [property: JsonPropertyName("__typename")] string? Type = null);
+    internal sealed record RepositoryIdentityModel(string NameWithOwner, bool IsPrivate);
+    internal sealed record PullRequestLabelCommentModel(string Body, ActorLoginModel? Author, DateTime CreatedAt);
+    internal sealed record LinkedItemLabelInfoModel(
+        string Url, string Title, string Body, ActorLoginModel? Author, RepositoryIdentityModel Repository, NodesModel<LabelNameModel> Labels);
+    internal sealed record PullRequestLabelInfoModel(
+        string Id, long DatabaseId, string Url, string Title, string Body, ActorLoginModel? Author, string BaseRefOid, bool IsDraft,
+        int ChangedFiles, int Additions, int Deletions, NodesModel<PullRequestLabelCommentModel> Comments, NodesModel<LinkedItemLabelInfoModel> ClosingIssuesReferences,
+        string? HeadRefName, string? BaseRefName, RepositoryIdentityModel? HeadRepository);
+    internal sealed record PullRequestLabelRepositoryModel(bool IsPrivate, PullRequestLabelInfoModel? PullRequest);
+    internal sealed record PullRequestHistoryModel(
+        string Url, string Title, string Body, ActorLoginModel? Author, RepositoryIdentityModel Repository, NodesModel<LabelNameModel> Labels, DateTime? MergedAt);
+    private sealed record PullRequestLabelResponseModel(PullRequestLabelRepositoryModel? Repository, GithubGraphQLClient.RateLimitInfo? RateLimit);
+    private sealed record PullRequestHistoryRepositoryModel(PullRequestHistoryCommitModel? Object);
+    private sealed record PullRequestHistoryCommitModel(NodesModel<PullRequestAssociatedCommitModel> History);
+    private sealed record PullRequestAssociatedCommitModel(NodesModel<PullRequestHistoryModel> AssociatedPullRequests);
+    private sealed record ReferencedLabelRepositoryModel([property: JsonRequired] bool IsPrivate, LinkedItemLabelInfoModel? Item);
 
     private sealed record DuplicateIssuesResponseModel(DuplicateIssuesRepositoryModel Repository);
     private sealed record DuplicateIssuesRepositoryModel(ConnectionModel<DuplicateIssueNode> Issues);

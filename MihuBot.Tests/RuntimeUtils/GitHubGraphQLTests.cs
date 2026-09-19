@@ -9,6 +9,80 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class GitHubGraphQLTests
 {
+    [Fact]
+    public async Task ReferencedItemsAreBatchedAndExcludePrivateMissingAndForbiddenItems()
+    {
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(JsonNode.Parse("""
+            {
+              "rateLimit":{"cost":6},
+              "reference0":{"isPrivate":false,"item":{"url":"https://github.com/o/r/issues/1","title":"Public issue","body":"Issue body","author":{"login":"author"},"repository":{"nameWithOwner":"o/r","isPrivate":false},"labels":{"nodes":[{"name":"area-Test"}]}}},
+              "reference1":{"isPrivate":true,"item":{"url":"https://github.com/private/r/issues/2","title":"Private issue","body":"Must not be surfaced","repository":{"nameWithOwner":"private/r","isPrivate":true},"labels":{"nodes":[]}}},
+              "reference2":null,
+              "reference3":{"isPrivate":false,"item":null},
+              "reference4":null,
+              "reference5":{"isPrivate":false,"item":{"url":"https://github.com/o/r/pull/6","title":"Public PR","body":"PR body","author":null,"repository":{"nameWithOwner":"o/r","isPrivate":false},"labels":{"nodes":[]}}}
+            }
+            """), new JsonArray
+            {
+                Error("Not found", "NOT_FOUND", "reference2"),
+                Error("Access denied", "FORBIDDEN", "reference4"),
+            })));
+        List<string> logs = [];
+        var result = await transport.Client.GetReferencedLabelItemsAsync(
+            [("o/r", 1), ("private/r", 2), ("o/r", 3), ("o/r", 4), ("o/r", 5), ("o/r", 6)], logs.Add);
+
+        Assert.Equal(["Public issue", "Public PR"], result.Items.Select(i => i.Title));
+        Assert.Equal(1, result.Calls);
+        Assert.Equal(6, result.Cost);
+        Assert.Equal(4, logs.Count);
+        Assert.DoesNotContain(logs, l => l.Contains("Must not be surfaced", StringComparison.Ordinal));
+        var request = Assert.Single(transport.Requests);
+        string query = request.GetProperty("query").GetString()!;
+        var variables = request.GetProperty("variables");
+        Assert.Contains("... on Issue", query, StringComparison.Ordinal);
+        Assert.Contains("... on PullRequest", query, StringComparison.Ordinal);
+        Assert.Contains("issueOrPullRequest(number: $number0)", query, StringComparison.Ordinal);
+        Assert.Contains("rateLimit { cost }", query, StringComparison.Ordinal);
+        Assert.Equal("private", variables.GetProperty("owner1").GetString());
+        Assert.Equal("r", variables.GetProperty("name1").GetString());
+        Assert.Equal(2, variables.GetProperty("number1").GetInt32());
+    }
+
+    [Fact]
+    public async Task EmptyOrOversizedReferenceBatchesDoNotCallGitHub()
+    {
+        using var transport = new GraphQLTransport((_, _) => throw new InvalidOperationException("Must not send a request."));
+        var empty = await transport.Client.GetReferencedLabelItemsAsync([], Assert.Fail);
+
+        Assert.Empty(empty.Items);
+        Assert.Equal(0, empty.Calls);
+        Assert.Equal(0, empty.Cost);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => transport.Client.GetReferencedLabelItemsAsync(
+            [.. Enumerable.Range(1, ReferencedLabelItemsBatchSize + 1).Select(n => ("o/r", n))], Assert.Fail));
+        Assert.Empty(transport.Requests);
+    }
+
+    [Fact]
+    public async Task UnexpectedReferenceQueryErrorsAreNotReportedAsMissingItems()
+    {
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(
+            JsonNode.Parse("""{"rateLimit":{"cost":1},"reference0":null}"""),
+            new JsonArray { Error("Query failed", "INTERNAL", "reference0") })));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => transport.Client.GetReferencedLabelItemsAsync([("o/r", 1)], Assert.Fail));
+    }
+
+    [Fact]
+    public async Task ReferencedItemsRequireRateLimitMetadata()
+    {
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(
+            JsonNode.Parse("""{"reference0":{"isPrivate":false,"item":null}}"""))));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transport.Client.GetReferencedLabelItemsAsync([("o/r", 1)], _ => { }));
+
+        Assert.Contains("no usable rate-limit metadata", error.Message, StringComparison.Ordinal);
+    }
+
     private const string AliasedQuery = """
         query($id: ID!) {
           first: node(id: $id) { id }
@@ -16,6 +90,114 @@ public sealed class GitHubGraphQLTests
           rateLimit { cost remaining resetAt }
         }
         """;
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9)]
+    public async Task PullRequestLookupReportsActualCostEvenWhenRepositoryIsMissing(int cost)
+    {
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(new JsonObject
+        {
+            ["repository"] = null,
+            ["rateLimit"] = new JsonObject { ["cost"] = cost },
+        })));
+
+        var result = await transport.Client.GetPullRequestLabelInfoAsync("dotnet", "runtime", 42);
+        var request = Assert.Single(transport.Requests);
+
+        Assert.Null(result.Repository);
+        Assert.Equal(1, result.Calls);
+        Assert.Equal(cost, result.Cost);
+        Assert.Contains("rateLimit { cost }", request.GetProperty("query").GetString(), StringComparison.Ordinal);
+        Assert.Equal(42, request.GetProperty("variables").GetProperty("number").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PullRequestLookupsRejectMissingRateLimitMetadata(bool explicitNull)
+    {
+        using var transport = new GraphQLTransport((_, _) =>
+        {
+            var data = JsonNode.Parse("""{"repository":null,"path0":{"object":{"history":{"nodes":[]}}}}""")!.AsObject();
+
+            if (explicitNull)
+            {
+                data["rateLimit"] = null;
+            }
+
+            return Task.FromResult(Response(data));
+        });
+
+        var metadataError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transport.Client.GetPullRequestLabelInfoAsync("dotnet", "runtime", 42));
+        var historyError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transport.Client.GetPullRequestFileHistoryAsync("dotnet", "runtime", "base-sha", ["src/file.cs"]));
+
+        Assert.Contains("no usable rate-limit metadata", metadataError.Message, StringComparison.Ordinal);
+        Assert.Contains("no usable rate-limit metadata", historyError.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PullRequestHistoryUsesPathVariablesAndPreservesAliasAssociations()
+    {
+        string[] paths = ["src/\" tricky\nfile.cs", "src/other.cs"];
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(JsonNode.Parse("""
+            {
+              "rateLimit": {"cost":7},
+              "path1": {"object":{"history":{"nodes":[{"associatedPullRequests":{"nodes":[{"url":"second"}]}}]}}},
+              "path0": {"object":{"history":{"nodes":[{"associatedPullRequests":{"nodes":[{"url":"first"}]}}]}}}
+            }
+            """))));
+
+        var (matches, calls, cost) = await transport.Client.GetPullRequestFileHistoryAsync("dotnet", "runtime", "base-sha", paths);
+        var request = Assert.Single(transport.Requests);
+        string query = request.GetProperty("query").GetString()!;
+        var variables = request.GetProperty("variables");
+
+        for (int i = 0; i < paths.Length; i++)
+        {
+            Assert.DoesNotContain(paths[i], query, StringComparison.Ordinal);
+            Assert.Equal(paths[i], variables.GetProperty($"path{i}").GetString());
+            Assert.Contains($"path: $path{i}", query, StringComparison.Ordinal);
+        }
+
+        Assert.Equal("dotnet", variables.GetProperty("owner").GetString());
+        Assert.Equal("runtime", variables.GetProperty("name").GetString());
+        Assert.Equal("base-sha", variables.GetProperty("base").GetString());
+        Assert.Contains("object(oid: $base)", query, StringComparison.Ordinal);
+        Assert.Equal(paths, matches.Select(m => m.Path));
+        Assert.Equal(["first", "second"], matches.Select(m => m.PullRequest.Url));
+        Assert.Contains("rateLimit { cost }", query, StringComparison.Ordinal);
+        Assert.Equal(1, calls);
+        Assert.Equal(7, cost);
+    }
+
+    [Fact]
+    public async Task EmptyPullRequestHistoryLookupMakesNoRequests()
+    {
+        using var transport = new GraphQLTransport((_, _) => throw new InvalidOperationException("Empty lookup must not send a request."));
+
+        var result = await transport.Client.GetPullRequestFileHistoryAsync("dotnet", "runtime", "base-sha", []);
+
+        Assert.Empty(result.Matches);
+        Assert.Equal(0, result.Calls);
+        Assert.Equal(0, result.Cost);
+        Assert.Empty(transport.Requests);
+    }
+
+    [Fact]
+    public async Task PullRequestHistoryRejectsMissingBaseCommit()
+    {
+        using var transport = new GraphQLTransport((_, _) => Task.FromResult(Response(JsonNode.Parse("""
+            {"path0":{"object":null}}
+            """))));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transport.Client.GetPullRequestFileHistoryAsync("dotnet", "runtime", "base-sha", ["src/file.cs"]));
+
+        Assert.Equal("GitHub returned no base commit for pull request file history.", error.Message);
+    }
 
     [Fact]
     public async Task AliasedQueryDeserializesFieldsByExactAliasAndPreservesTypedMetadata()

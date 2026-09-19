@@ -5,6 +5,34 @@ namespace MihuBot.Tests.Helpers;
 public sealed class GitHubHelperTests
 {
     [Theory]
+    [InlineData("See #123.", "dotnet/runtime", 123)]
+    [InlineData("Backport dotnet/aspnetcore#456", "dotnet/aspnetcore", 456)]
+    [InlineData("[original](https://github.com/dotnet/runtime/pull/123)", "dotnet/runtime", 123)]
+    [InlineData("<https://github.com/dotnet/runtime/issues/123#issuecomment-1>", "dotnet/runtime", 123)]
+    [InlineData("https://github.com/dotnet/runtime/pull/123/files", "dotnet/runtime", 123)]
+    [InlineData("https://github.com/dotnet/runtime/issues/123.", "dotnet/runtime", 123)]
+    [InlineData("HTTP://GITHUB.COM/dotnet/runtime/issues/123/", "dotnet/runtime", 123)]
+    [InlineData("See `#7` or the description.", "dotnet/runtime", 7)]
+    public void ExtractIssueOrPullRequestReferencesSupportsLinksAndNumbers(string text, string repository, int number)
+    {
+        Assert.Equal((repository, number), Assert.Single(GitHubHelper.ExtractIssueOrPullRequestReferences(text, "dotnet/runtime")));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("# Heading\n123\n#0 #2147483648 #123abc")]
+    [InlineData("https://example.com/o/r/issues/123#456")]
+    [InlineData("https://github.com.evil.example/o/r/pull/123#456")]
+    [InlineData("https://github.com/o/r/discussions/123")]
+    [InlineData("https://github.com/o/r/blob/main/file.cs#123")]
+    [InlineData("https://github.com/o/r/issues/not-a-number")]
+    [InlineData("abc#123 /path#456")]
+    public void ExtractIssueOrPullRequestReferencesIgnoresOtherUrlsAndNonReferences(string text)
+    {
+        Assert.Empty(GitHubHelper.ExtractIssueOrPullRequestReferences(text, "dotnet/runtime"));
+    }
+
+    [Theory]
     [InlineData("https://github.com/dotnet/runtime/commit/0123456789abcdef0123456789abcdef01234567", "dotnet/runtime", "0123456789abcdef0123456789abcdef01234567")]
     [InlineData("https://github.com/owner/repo.name/commit/ABCDEF1", "owner/repo.name", "ABCDEF1")]
     public void TryParseGitHubCommit_ValidUrl(string input, string expectedRepository, string expectedCommit)

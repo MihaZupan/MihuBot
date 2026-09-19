@@ -829,6 +829,7 @@ internal sealed class AreaLabelGraphQLTransport : HttpMessageHandler
         Assert.DoesNotContain("mutation", query, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("rateLimit { cost remaining resetAt }", query, StringComparison.Ordinal);
         Assert.Contains("... on Issue", query, StringComparison.Ordinal);
+        Assert.Contains("... on PullRequest", query, StringComparison.Ordinal);
         Assert.Contains("... on LabeledEvent", query, StringComparison.Ordinal);
         Assert.Contains("... on UnlabeledEvent", query, StringComparison.Ordinal);
         Assert.Contains("actor { ... ActorIds }", query, StringComparison.Ordinal);

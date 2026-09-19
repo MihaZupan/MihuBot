@@ -3,7 +3,6 @@ using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.Discord;
-using Octokit;
 
 namespace MihuBot.RuntimeUtils.AI;
 
@@ -32,26 +31,17 @@ public sealed class DetectIssueAreaLabelsService(
     {
         await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
-        DateTime onlyRecentlyUpdated = DateTime.UtcNow - TimeSpan.FromDays(1);
-
-        IssueInfo[] unlabeledIssues = await db.Issues
+        IssueInfo[] incomingItems = await GetIncomingItems(db.Issues, DateTime.UtcNow - TimeSpan.FromDays(1))
             .AsNoTracking()
-            .Where(i => i.UpdatedAt >= onlyRecentlyUpdated)
-            .Where(i => i.Labels.Any(l => l.Name == "needs-area-label"))
-            .Where(i => i.IssueType == IssueType.Issue)
-            .Where(i => i.State == ItemState.Open)
-            .FromDotnetRuntime()
             .Include(i => i.Repository)
             .Include(i => i.User)
             .Include(i => i.Comments)
                 .ThenInclude(c => c.User)
             .Include(i => i.Labels)
-            .OrderByDescending(i => i.CreatedAt)
-            .Take(100)
             .AsSplitQuery()
             .ToArrayAsync(cancellationToken);
 
-        if (unlabeledIssues.Length == 0)
+        if (incomingItems.Length == 0)
         {
             return;
         }
@@ -63,14 +53,12 @@ public sealed class DetectIssueAreaLabelsService(
             .AsSplitQuery()
             .SingleAsync(cancellationToken);
 
-        foreach (IssueInfo issue in unlabeledIssues)
+        foreach (IssueInfo issue in incomingItems)
         {
-            if (issue.Labels.Any(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase)))
-            {
-                continue;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
+            string processedKey = GetProcessedKey(issue);
 
-            if (!_processedIssues.TryAdd(issue.HtmlUrl))
+            if (_processedIssues.Contains(processedKey))
             {
                 continue;
             }
@@ -79,18 +67,35 @@ public sealed class DetectIssueAreaLabelsService(
             {
                 AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(repo, issue, cancellationToken: cancellationToken);
 
-                if (suggestions.Length == 0)
-                {
-                    continue;
-                }
-
-                await Discord.GetTextChannel(Channels.SuggestedLabels).TrySendMessageAsync(
-                    $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}");
+                var channel = Discord.GetTextChannel(Channels.SuggestedLabels)
+                    ?? throw new InvalidOperationException("The suggested-labels channel is unavailable.");
+                await channel.SendMessageAsync(FormatPrediction(issue, suggestions),
+                    allowedMentions: AllowedMentions.None, options: new RequestOptions { CancelToken = cancellationToken });
+                _processedIssues.TryAdd(processedKey);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                await _logger.DebugAsync($"Failed to do issue label detection for <{issue.HtmlUrl}>: {ex}");
+                await _logger.DebugAsync($"Failed to do label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }
     }
+
+    internal static IQueryable<IssueInfo> GetIncomingItems(IQueryable<IssueInfo> issues, DateTime since) =>
+        issues.FromDotnetRuntime()
+            .Where(i => i.CreatedAt >= since || i.UpdatedAt >= since)
+            .Where(i => i.IssueType == IssueType.Issue || i.IssueType == IssueType.PullRequest)
+            .OrderBy(i => i.CreatedAt)
+            .ThenBy(i => i.Number);
+
+    internal static string FormatPrediction(IssueInfo issue, AreaLabelSuggestion[] suggestions) => suggestions.Length == 0
+        ? $"No confident area-label prediction for <{issue.HtmlUrl}>."
+        : $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}";
+
+    internal static string GetProcessedKey(IssueInfo issue) => issue.IssueType == IssueType.PullRequest
+        ? $"{issue.HtmlUrl}#updated-{issue.UpdatedAt.Ticks}"
+        : issue.HtmlUrl;
 }

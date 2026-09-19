@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using MihuBot.DB.GitHub;
 using Octokit;
@@ -91,6 +92,47 @@ public static partial class GitHubHelper
             yield return match.Value;
         }
     }
+
+    public static IEnumerable<(string Repository, int Number)> ExtractIssueOrPullRequestReferences(string text, string defaultRepository)
+    {
+        foreach (Match match in IssueOrPullRequestReferenceRegex().Matches(text ?? ""))
+        {
+            string repository;
+            string numberText;
+
+            if (match.Groups["url"].Success)
+            {
+                string url = match.Value.TrimEnd('.', ',', ';', '!', '?');
+
+                if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
+                    !uri.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
+                    uri.Segments.Length < 5 ||
+                    !(uri.Segments[3].Equals("issues/", StringComparison.OrdinalIgnoreCase) ||
+                      uri.Segments[3].Equals("pull/", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                repository = $"{uri.Segments[1].TrimEnd('/')}/{uri.Segments[2].TrimEnd('/')}";
+                numberText = uri.Segments[4].TrimEnd('/');
+            }
+            else
+            {
+                repository = match.Groups["repository"].Success ? match.Groups["repository"].Value : defaultRepository;
+                numberText = match.Groups["number"].Value;
+            }
+
+            if (TryParseRepoOwnerAndName(repository, out string? owner, out string? name, out string[]? extra) &&
+                extra.Length == 0 && int.TryParse(numberText, NumberStyles.None, CultureInfo.InvariantCulture, out int number) && number > 0)
+            {
+                yield return ($"{owner}/{name}", number);
+            }
+        }
+    }
+
+    [GeneratedRegex(@"(?<url>https?://[^\s<>""'`()\[\]]+)|(?<![\w./:#?&=%-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]+))?#(?<number>[0-9]+)(?!\w)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex IssueOrPullRequestReferenceRegex();
 
     public static async Task<(bool Valid, bool HasAllScopes)> ValidatePatAsync(HttpClient client, string pat, string[] scopes)
     {

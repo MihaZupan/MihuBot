@@ -15,8 +15,245 @@ namespace MihuBot.Tests.RuntimeUtils;
 public sealed class AreaLabelDetectionTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PromptCaptureMatchesTheExactTextPassedToTheChatClient(bool capture)
+    {
+        string prompt = "instructions\r\n```json\n" + new string('x', 50_000) + "\n```\n\u00e9\u4e2d";
+        string? captured = null;
+        int captures = 0;
+        int requests = 0;
+        using var cancellation = new CancellationTokenSource();
+        using var chat = new TestChatClient((messages, options, ct) =>
+        {
+            requests++;
+            Assert.Equal(prompt, Assert.Single(messages).Text);
+            Assert.Equal(cancellation.Token, ct);
+            Assert.NotNull(options?.ResponseFormat);
+            Assert.Equal(capture ? prompt : null, captured);
+            return Task.FromException<ChatResponse>(new InvalidOperationException("Model unavailable"));
+        });
+        Action<string>? onPrompt = capture ? text =>
+        {
+            captures++;
+            captured = text;
+        } : null;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AreaLabelDetector.GetPredictionResponseAsync(chat, prompt, new(), cancellation.Token, onPrompt!));
+
+        Assert.Equal(1, requests);
+        Assert.Equal(capture ? 1 : 0, captures);
+        Assert.Equal(capture ? prompt : null, captured);
+    }
+
+    [Fact]
+    public async Task CancelledSubmissionDoesNotCaptureAnUnusedPrompt()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("Must not submit a request."));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            AreaLabelDetector.GetPredictionResponseAsync(chat, "unused", new(), cancellation.Token, _ => Assert.Fail("Must not capture an unused prompt.")));
+    }
+
+    private sealed class TestChatClient(Func<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken, Task<ChatResponse>> respond) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            respond(messages, options, cancellationToken);
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    internal static string GetPredictionCacheKey(
+        string repository = "dotnet/runtime", int number = 123, string prefix = "area-",
+        string model = OpenAIService.DefaultModel, string effort = "high",
+        IssueType type = IssueType.Issue, DateTime updatedAt = default) =>
+        AreaLabelDetector.GetCacheKey(new IssueInfo
+        {
+            Repository = new() { FullName = repository }, Number = number, IssueType = type, UpdatedAt = updatedAt,
+        }, prefix, new(model, new(effort)));
+
+    internal static AreaLabelDetector CreateCachedDetector(HybridCache cache, TestConfigurationService? configuration = null, IssueType type = IssueType.Issue) =>
+        new((repository, number, _) => Task.FromResult(new IssueInfo
+        {
+            Repository = new() { FullName = repository },
+            Number = number,
+            IssueType = type,
+        }), cache, configuration ?? new TestConfigurationService());
+
+    [Fact]
+    public void PredictionCacheKeysAreBoundedHashesWithNormalizedRepositoryAndPrefix()
+    {
+        string key = GetPredictionCacheKey();
+
+        Assert.Matches(@"^AreaLabelDetector/PredictAsync/[A-Za-z0-9_-]{86}$", key);
+        Assert.Equal(key, GetPredictionCacheKey(repository: "DOTNET/RUNTIME", prefix: "AREA-"));
+        Assert.Equal(key.Length, GetPredictionCacheKey(model: new string('m', 2000), prefix: new string('p', 100)).Length);
+        Assert.NotEqual(key, GetPredictionCacheKey(repository: "dotnet/other"));
+        Assert.NotEqual(key, GetPredictionCacheKey(type: IssueType.Discussion));
+        Assert.NotEqual(GetPredictionCacheKey(model: "a:b", effort: "c"), GetPredictionCacheKey(model: "a", effort: "b:c"));
+    }
+
+    [Fact]
+    public async Task PullRequestSimilarityIncludesHighScoringIssuesAndPullRequests()
+    {
+        var response = CreateSimilarIssueSearchResponse("candidate", 0.9, 3);
+        response.Results[0].Issue.IssueType = IssueType.Issue;
+        response.Results[1].Issue.IssueType = IssueType.PullRequest;
+        response.Results[2].Issue.IssueType = IssueType.Discussion;
+        var results = await AreaLabelDetector.FindSimilarIssuesAsync(
+            new IssueInfo { Id = "target", IssueType = IssueType.PullRequest }, ["area-Test"],
+            (_, _) => Task.FromResult(response), CancellationToken.None);
+
+        Assert.Equal(["candidate-0", "candidate-1"], results.Select(i => i.Id));
+    }
+
+    [Theory]
+    [InlineData(IssueType.Issue, 120)]
+    [InlineData(IssueType.Discussion, 120)]
+    [InlineData(IssueType.PullRequest, 2)]
+    public void PullRequestsHaveShortCacheLifetimes(IssueType type, int minutes)
+    {
+        var options = AreaLabelDetector.GetCacheOptions(type);
+
+        Assert.Equal(TimeSpan.FromMinutes(minutes), options.Expiration);
+
+        if (type == IssueType.PullRequest)
+        {
+            Assert.Equal(options.Expiration, options.LocalCacheExpiration);
+        }
+    }
+
+    [Fact]
+    public async Task PullRequestCacheSeparatesOldIssuePredictionsAndUpdatedDrafts()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<HybridCache>();
+        AreaLabelSuggestion[] old = [new("area-Old", 1)];
+        AreaLabelSuggestion[] initial = [];
+        AreaLabelSuggestion[] updated = [new("area-Current", 0.9)];
+        await cache.SetAsync(GetPredictionCacheKey(), old);
+        await cache.SetAsync(GetPredictionCacheKey(type: IssueType.PullRequest), initial);
+        await cache.SetAsync(GetPredictionCacheKey(type: IssueType.PullRequest, updatedAt: new DateTime(1, DateTimeKind.Utc)), updated);
+        using var detector = CreateCachedDetector(cache, type: IssueType.PullRequest);
+        var issue = new IssueInfo
+        {
+            Repository = new() { FullName = "dotnet/runtime" }, Number = 123, IssueType = IssueType.PullRequest,
+        };
+
+        Assert.Equal(initial, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        issue.UpdatedAt = new DateTime(1, DateTimeKind.Utc);
+        Assert.Equal(updated, await detector.PredictAsync(issue, "area-", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(IssueType.Issue)]
+    [InlineData(IssueType.PullRequest)]
+    public void AutomaticDetectionCanRevisitUpdatedPullRequests(IssueType type)
+    {
+        var issue = new IssueInfo { HtmlUrl = "https://github.com/dotnet/runtime/pull/123", IssueType = type };
+        string original = DetectIssueAreaLabelsService.GetProcessedKey(issue);
+        issue.UpdatedAt = DateTime.UtcNow;
+        string updated = DetectIssueAreaLabelsService.GetProcessedKey(issue);
+
+        Assert.Equal(type == IssueType.Issue, original == updated);
+    }
+
+    [Theory]
+    [InlineData(IssueType.Issue, ItemState.Open, null)]
+    [InlineData(IssueType.Issue, ItemState.Open, "needs-area-label")]
+    [InlineData(IssueType.Issue, ItemState.Closed, "area-VM")]
+    [InlineData(IssueType.PullRequest, ItemState.Open, "area-VM")]
+    [InlineData(IssueType.PullRequest, ItemState.Closed, null)]
+    public void IncomingDetectionIncludesRuntimeItemsRegardlessOfLabelsOrState(IssueType type, ItemState state, string? label)
+    {
+        DateTime since = DateTime.UtcNow.AddDays(-1);
+        var item = new IssueInfo
+        {
+            RepositoryId = 210716005, IssueType = type, State = state, CreatedAt = since,
+            Labels = label is null ? [] : [new() { Name = label }],
+        };
+
+        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), since)));
+    }
+
+    [Fact]
+    public void IncomingDetectionExcludesStaleItemsDiscussionsAndOtherRepositories()
+    {
+        DateTime now = DateTime.UtcNow;
+        DateTime since = now.AddDays(-1);
+        IssueInfo[] items =
+        [
+            new() { RepositoryId = 210716005, CreatedAt = since.AddTicks(-1), UpdatedAt = since.AddTicks(-1), IssueType = IssueType.Issue, Labels = [] },
+            new() { RepositoryId = 210716005, CreatedAt = now, IssueType = IssueType.Discussion },
+            new() { RepositoryId = 1, CreatedAt = now, IssueType = IssueType.PullRequest },
+        ];
+
+        Assert.Empty(DetectIssueAreaLabelsService.GetIncomingItems(items.AsQueryable(), since));
+    }
+
+    [Theory]
+    [InlineData(IssueType.Issue, null)]
+    [InlineData(IssueType.Issue, "area-VM")]
+    [InlineData(IssueType.PullRequest, null)]
+    [InlineData(IssueType.PullRequest, "area-VM")]
+    public void RecentlyUpdatedItemsDoNotRequireNeedsAreaLabelOrOpenState(IssueType type, string? label)
+    {
+        DateTime now = DateTime.UtcNow;
+        var item = new IssueInfo
+        {
+            RepositoryId = 210716005, CreatedAt = now.AddMonths(-1), UpdatedAt = now,
+            IssueType = type, State = ItemState.Open, Labels = label is null ? [] : [new() { Name = label }],
+        };
+
+        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1))));
+
+        item.State = ItemState.Closed;
+        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1))));
+    }
+
+    [Fact]
+    public void IncomingDetectionDoesNotStarveItemsBeyondTheFirstHundred()
+    {
+        DateTime since = DateTime.UtcNow.AddDays(-1);
+        var items = Enumerable.Range(1, 150).Reverse().Select(number => new IssueInfo
+        {
+            Number = number, RepositoryId = 210716005, CreatedAt = since.AddMinutes(number), IssueType = IssueType.Issue,
+        }).AsQueryable();
+
+        Assert.Equal(Enumerable.Range(1, 150),
+            DetectIssueAreaLabelsService.GetIncomingItems(items, since).Select(i => i.Number));
+    }
+
+    [Fact]
+    public void IncomingPredictionsIncludeExplicitAbstentions()
+    {
+        var item = new IssueInfo { HtmlUrl = "https://github.com/dotnet/runtime/pull/123" };
+
+        Assert.Equal($"No confident area-label prediction for <{item.HtmlUrl}>.",
+            DetectIssueAreaLabelsService.FormatPrediction(item, []));
+        string prediction = DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]);
+
+        Assert.Contains(item.HtmlUrl, prediction, StringComparison.Ordinal);
+        Assert.Contains("`area-VM`", prediction, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(0.9, 24)]
     [InlineData(0.9, 48)]
+    [InlineData(0.95, 24)]
+    [InlineData(0.95, 48)]
     [InlineData(0.8, 24)]
     [InlineData(0.8, 48)]
     public async Task SimilarIssuesPreferHigherScoresBeforeMoreRecentDateRanges(double score, int age)
@@ -35,11 +272,13 @@ public sealed class AreaLabelDetectionTests
             CancellationToken.None);
 
         Assert.Equal(older.Results.Select(r => r.Issue), results);
-        Assert.Equal(score == 0.9 && age == 24 ? [12, 24] : new[] { 12, 24, 48 }, searches);
+        Assert.Equal(score >= 0.9 && age == 24 ? [12, 24] : new[] { 12, 24, 48 }, searches);
     }
 
     [Theory]
     [InlineData(0.9)]
+    [InlineData(0.95)]
+    [InlineData(1.0)]
     [InlineData(0.8)]
     [InlineData(0.7)]
     public async Task SimilarIssuesUseTheFirstDateRangeWithFiveMatchesAtTheBestThreshold(double score)
@@ -58,7 +297,7 @@ public sealed class AreaLabelDetectionTests
             CancellationToken.None);
 
         Assert.Equal(recent.Results.Select(r => r.Issue), results);
-        Assert.Equal(score == 0.9 ? [12] : new[] { 12, 24, 48 }, searches);
+        Assert.Equal(score >= 0.9 ? [12] : new[] { 12, 24, 48 }, searches);
     }
 
     [Fact]
@@ -69,7 +308,7 @@ public sealed class AreaLabelDetectionTests
         excluded.Results[0].Issue.Id = "target";
         excluded.Results[1].Issue.Labels = [];
         excluded.Results[2].Issue.Labels = [new() { Name = "area-Other" }];
-        var belowThreshold = CreateSimilarIssueSearchResponse("low", 0.699, 5);
+        var belowThreshold = CreateSimilarIssueSearchResponse("low", 0.6999, 5);
         oldest = oldest with { Results = [.. excluded.Results, .. oldest.Results, .. belowThreshold.Results] };
 
         var results = await AreaLabelDetector.FindSimilarIssuesAsync(
@@ -80,15 +319,72 @@ public sealed class AreaLabelDetectionTests
         Assert.Equal(["oldest-0", "oldest-1"], results.Select(i => i.Id));
     }
 
-    [Fact]
-    public async Task SimilarIssuesReturnEmptyWhenNoMatchesQualify()
+    [Theory]
+    [InlineData(0.7)]
+    [InlineData(0.8)]
+    [InlineData(0.899999)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public async Task PullRequestsRejectMatchesBelowTheHighThreshold(double score)
     {
         var results = await AreaLabelDetector.FindSimilarIssuesAsync(
-            new IssueInfo { Id = "target" }, ["area-Test"],
-            (_, _) => Task.FromResult(CreateSimilarIssueSearchResponse("low", 0.699, 5)),
+            new IssueInfo { Id = "target", IssueType = IssueType.PullRequest }, ["area-Test"],
+            (_, _) => Task.FromResult(CreateSimilarIssueSearchResponse("low", score, 5)),
             CancellationToken.None);
 
         Assert.Empty(results);
+    }
+
+    [Fact]
+    public async Task PullRequestsPreserveSparseStrongMatchesWithoutFillingWithWeakOnes()
+    {
+        var strong = CreateSimilarIssueSearchResponse("strong", 0.95, 1);
+        var weak = CreateSimilarIssueSearchResponse("weak", 0.89, 10);
+        var result = await AreaLabelDetector.FindSimilarIssuesAsync(new() { Id = "target", IssueType = IssueType.PullRequest }, ["area-Test"],
+            (age, _) => Task.FromResult(age == 12 ? strong : weak), CancellationToken.None);
+
+        Assert.Equal("strong-0", Assert.Single(result).Id);
+    }
+
+    [Theory]
+    [InlineData(IssueType.Issue, 0.7f)]
+    [InlineData(IssueType.Discussion, 0.7f)]
+    [InlineData(IssueType.PullRequest, 0.9f)]
+    public void SearchScoreFloorAllowsIssueFallbackButKeepsPrMatchesStrict(IssueType type, float expected)
+    {
+        Assert.Equal(expected, AreaLabelDetector.GetMinimumSearchScore(type));
+    }
+
+    [Theory]
+    [InlineData(0.699999)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public async Task IssuesNeverFallBackBelowPointSeven(double score)
+    {
+        var result = await AreaLabelDetector.FindSimilarIssuesAsync(new() { Id = "target" }, ["area-Test"],
+            (_, _) => Task.FromResult(CreateSimilarIssueSearchResponse("low", score, 5)), CancellationToken.None);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task SimilarIssuesAreRankedDeduplicatedAndCapped()
+    {
+        var response = CreateSimilarIssueSearchResponse("candidate", 0.9, 30);
+        response = response with
+        {
+            Results = [.. response.Results.Select((r, i) => r with { Score = 0.9 + i / 1000d })]
+        };
+        response.Results[29].Issue.Id = response.Results[28].Issue.Id;
+        response.Results[27].Issue.Repository = new() { Private = true };
+        var result = await AreaLabelDetector.FindSimilarIssuesAsync(new() { Id = "target" }, ["area-Test"],
+            (_, _) => Task.FromResult(response), CancellationToken.None);
+
+        Assert.Equal(AreaLabelDetector.MaxSimilarItems, result.Length);
+        Assert.Same(response.Results[29].Issue, result[0]);
+        Assert.Equal(result.Length, result.Select(i => i.Id).Distinct().Count());
+        Assert.DoesNotContain(response.Results[27].Issue, result);
+        Assert.Equal("candidate-26", result[1].Id);
     }
 
     private static GitHubSearchResponse CreateSimilarIssueSearchResponse(string prefix, double score, int count) => new()
@@ -210,7 +506,7 @@ public sealed class AreaLabelDetectionTests
         {
             Labels = [new() { Name = "area-Legacy", Description = "For closed issues only." }]
         };
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService());
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService(), null!);
 
         Assert.Empty(await detector.GetSuggestionsAsync(repository, new IssueInfo(), cancellationToken: CancellationToken.None));
     }
@@ -226,10 +522,10 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] area = [new("area-Test", 0.9)];
         AreaLabelSuggestion[] component = [new("component:Runtime", 0.9)];
         AreaLabelSuggestion[] discussion = [new("area-Discussion", 0.9)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", area);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:component:", component);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:124:area-", discussion);
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
+        await cache.SetAsync(GetPredictionCacheKey(), area);
+        await cache.SetAsync(GetPredictionCacheKey(prefix: "component:"), component);
+        await cache.SetAsync(GetPredictionCacheKey(number: 124), discussion);
+        using var detector = CreateCachedDetector(cache);
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
         Assert.Equal(component, await detector.PredictAsync("DOTNET/RUNTIME", 123, "COMPONENT:", CancellationToken.None));
@@ -250,10 +546,10 @@ public sealed class AreaLabelDetectionTests
         configuration.Set(null, "AreaLabelDetector.GitHubTools", enabled);
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] tools = [new("area-Tools", 0.8)];
-        string key = $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-";
+        string key = GetPredictionCacheKey();
         await cache.SetAsync(key, original);
         await cache.SetAsync($"{key}:github-mcp-v2", tools);
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+        using var detector = CreateCachedDetector(cache, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
     }
@@ -271,9 +567,9 @@ public sealed class AreaLabelDetectionTests
         var configuration = new TestConfigurationService();
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
-        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:medium:dotnet/runtime:123:area-", alternative);
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+        await cache.SetAsync(GetPredictionCacheKey(), original);
+        await cache.SetAsync(GetPredictionCacheKey(model: model), alternative);
+        using var detector = CreateCachedDetector(cache, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
 
@@ -294,10 +590,10 @@ public sealed class AreaLabelDetectionTests
     public void ReasoningConfigurationIsAppliedToChatOptions(string effort)
     {
         var configuration = new TestConfigurationService();
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!);
 
 #pragma warning disable OPENAI001
-        Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+        Assert.Equal("high", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
 
         configuration.Set(null, "AreaLabelDetector.ReasoningEffort", effort);
         Assert.Equal(effort, detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
@@ -313,14 +609,14 @@ public sealed class AreaLabelDetectionTests
         Assert.NotSame(completionOptions, oneShotOptions.RawRepresentationFactory!(null!));
 
         configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
-        Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+        Assert.Equal("high", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
 #pragma warning restore OPENAI001
     }
 
     [Theory]
     [InlineData("none")]
     [InlineData("low")]
-    [InlineData("high")]
+    [InlineData("medium")]
     [InlineData("xhigh")]
     public async Task ReasoningChangesSelectSeparateCachedPredictionsImmediately(string effort)
     {
@@ -332,9 +628,9 @@ public sealed class AreaLabelDetectionTests
         var configuration = new TestConfigurationService();
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:{effort}:dotnet/runtime:123:area-", alternative);
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+        await cache.SetAsync(GetPredictionCacheKey(), original);
+        await cache.SetAsync(GetPredictionCacheKey(effort: effort), alternative);
+        using var detector = CreateCachedDetector(cache, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
 
@@ -350,7 +646,7 @@ public sealed class AreaLabelDetectionTests
     {
         var configuration = new TestConfigurationService();
         configuration.Set(null, "AreaLabelDetector.ReasoningEffort", "high");
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!);
 
         var options = detector.CreateChatCompletionOptions();
         Assert.Equal(32_768, options.MaxOutputTokenCount);
