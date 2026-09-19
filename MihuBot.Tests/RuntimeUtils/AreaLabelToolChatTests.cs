@@ -16,7 +16,7 @@ namespace MihuBot.Tests.RuntimeUtils;
 public sealed class AreaLabelToolChatTests
 {
     [Fact]
-    public async Task ResponsesApiPreservesReasoningAndToolHistoryAndRemovesToolsForTheFinalRequest()
+    public async Task ResponsesApiChainsResponseIdsWithinEachPredictionAndSendsOnlyNewToolResults()
     {
         await using var server = await TestMcpServer.StartAsync();
         await using var mcp = server.CreateClient();
@@ -25,24 +25,27 @@ public sealed class AreaLabelToolChatTests
         server.ResponsesHandler = async context =>
         {
             using var request = await JsonDocument.ParseAsync(context.Request.Body);
-            int call = ++calls;
+            int call = calls++ % (AreaLabelToolChatClient.MaxToolRounds + 1) + 1;
             bool final = call == AreaLabelToolChatClient.MaxToolRounds + 1;
             Assert.Equal("/openai/v1/responses", context.Request.Path);
             Assert.Equal(OpenAIService.DefaultModel, request.RootElement.GetProperty("model").GetString());
             Assert.Equal(AreaLabelDetector.MaxOutputTokens, request.RootElement.GetProperty("max_output_tokens").GetInt32());
             Assert.Equal("medium", request.RootElement.GetProperty("reasoning").GetProperty("effort").GetString());
             Assert.Equal("json_schema", request.RootElement.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
-            Assert.False(request.RootElement.GetProperty("store").GetBoolean());
-            Assert.Contains("reasoning.encrypted_content", request.RootElement.GetProperty("include").EnumerateArray().Select(v => v.GetString()));
-            Assert.False(request.RootElement.TryGetProperty("previous_response_id", out _));
+            Assert.True(request.RootElement.GetProperty("store").GetBoolean());
+            Assert.False(request.RootElement.TryGetProperty("conversation", out _));
 
-            for (int previous = 1; previous < call; previous++)
+            if (call > 1)
             {
-                var input = request.RootElement.GetProperty("input").EnumerateArray().ToArray();
-                var reasoning = Assert.Single(input, item => item.TryGetProperty("id", out var id) && id.GetString() == $"rs_{previous}");
-                Assert.Equal($"encrypted-reasoning-{previous}", reasoning.GetProperty("encrypted_content").GetString());
-                Assert.Contains(input, item => item.GetProperty("type").GetString() == "function_call_output" &&
-                    item.GetProperty("call_id").GetString() == $"call-{previous}");
+                Assert.Equal($"resp_{calls - 1}", request.RootElement.GetProperty("previous_response_id").GetString());
+                var input = Assert.Single(request.RootElement.GetProperty("input").EnumerateArray());
+                Assert.Equal("function_call_output", input.GetProperty("type").GetString());
+                Assert.Equal($"call-{calls - 1}", input.GetProperty("call_id").GetString());
+            }
+            else
+            {
+                Assert.False(request.RootElement.TryGetProperty("previous_response_id", out _));
+                Assert.Equal("user", Assert.Single(request.RootElement.GetProperty("input").EnumerateArray()).GetProperty("role").GetString());
             }
 
             if (final)
@@ -58,38 +61,45 @@ public sealed class AreaLabelToolChatTests
                 ? [
                     new
                     {
-                        id = $"msg_{call}", type = "message", role = "assistant", status = "completed",
+                        id = $"msg_{calls}", type = "message", role = "assistant", status = "completed",
                         content = new[] { new { type = "output_text", text = """{"data":[{"labelName":"area-Networking","confidence":0.9}]}""", annotations = Array.Empty<object>() } },
                     },
                 ]
                 : [
-                    new { id = $"rs_{call}", type = "reasoning", summary = Array.Empty<object>(), encrypted_content = $"encrypted-reasoning-{call}" },
-                    new { id = $"fc_{call}", type = "function_call", status = "completed", call_id = $"call-{call}", name = "search_code", arguments = """{"query":"repo:dotnet/runtime Socket"}""" },
+                    new { id = $"rs_{calls}", type = "reasoning", summary = Array.Empty<object>() },
+                    new { id = $"fc_{calls}", type = "function_call", status = "completed", call_id = $"call-{calls}", name = "search_code", arguments = """{"query":"repo:dotnet/runtime Socket"}""" },
                 ];
             await context.Response.WriteAsJsonAsync(new
             {
-                id = $"resp_{call}", @object = "response", created_at = 1, model = OpenAIService.DefaultModel, status = "completed", store = false,
+                id = $"resp_{calls}", @object = "response", created_at = 1, model = OpenAIService.DefaultModel, status = "completed", store = true,
                 output,
                 usage = new { input_tokens = 10, output_tokens = 3, total_tokens = 13 },
             });
         };
-#pragma warning disable OPENAI001
-        var model = OpenAIService.CreateResponsesClient(server.Endpoint, "test-token").AsIChatClient(OpenAIService.DefaultModel);
-#pragma warning restore OPENAI001
         using var limiter = new TokenRateLimiter(1_000_000, 1_000_000);
-        using var chat = CreateChatClient(new AreaLabelRateLimitedChatClient(model, limiter, _ => { }), _ => { });
-#pragma warning disable OPENAI001
-        var options = AreaLabelDetector.CreateChatOptions(new(OpenAIService.DefaultModel, OpenAI.Chat.ChatReasoningEffortLevel.Medium, true));
-#pragma warning restore OPENAI001
-        options.Tools = [.. tools];
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var result = await chat.GetResponseAsync<AreaLabelSuggestion[]>("Classify the issue.", options,
-            useJsonSchemaResponseFormat: true, cancellationToken: timeout.Token);
+        List<string> logs = [];
 
-        Assert.Equal(new AreaLabelSuggestion("area-Networking", 0.9), Assert.Single(result.Result));
-        Assert.Equal(AreaLabelToolChatClient.MaxToolRounds + 1, calls);
-        Assert.Equal(AreaLabelToolChatClient.MaxToolRounds, server.InvokedTools.Count);
-        Assert.Equal(13 * calls, result.Usage!.TotalTokenCount);
+        for (int prediction = 0; prediction < 2; prediction++)
+        {
+#pragma warning disable OPENAI001
+            var model = OpenAIService.CreateResponsesClient(server.Endpoint, "test-token").AsIChatClient(OpenAIService.DefaultModel);
+            var options = AreaLabelDetector.CreateChatOptions(new(OpenAIService.DefaultModel, OpenAI.Chat.ChatReasoningEffortLevel.Medium, true));
+#pragma warning restore OPENAI001
+            using var chat = CreateChatClient(new AreaLabelRateLimitedChatClient(model, limiter, logs.Add), _ => { });
+            options.Tools = [.. tools];
+            Assert.Null(options.ConversationId);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var result = await chat.GetResponseAsync<AreaLabelSuggestion[]>("Classify the issue.", options,
+                useJsonSchemaResponseFormat: true, cancellationToken: timeout.Token);
+
+            Assert.Equal(new AreaLabelSuggestion("area-Networking", 0.9), Assert.Single(result.Result));
+            Assert.Equal(13 * (AreaLabelToolChatClient.MaxToolRounds + 1), result.Usage!.TotalTokenCount);
+            Assert.Equal($"resp_{calls}", result.ConversationId);
+            Assert.Contains(logs, message => message.EndsWith($"response ID: resp_{calls}", StringComparison.Ordinal));
+        }
+
+        Assert.Equal(2 * (AreaLabelToolChatClient.MaxToolRounds + 1), calls);
+        Assert.Equal(2 * AreaLabelToolChatClient.MaxToolRounds, server.InvokedTools.Count);
     }
 
     [Fact]
@@ -134,6 +144,55 @@ public sealed class AreaLabelToolChatTests
 #pragma warning disable OPENAI001
         Assert.Equal(new Uri(expected), client.Endpoint);
 #pragma warning restore OPENAI001
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StatefulRoundsReserveForStoredContextEvenWhenOnlyToolResultsAreSent(bool missingFirstUsage)
+    {
+        using var limiter = new TokenRateLimiter(1_000_000, 1_000_000);
+        int calls = 0;
+        int previousTokens = 0;
+        using var chat = CreateChatClient(new AreaLabelRateLimitedChatClient(new TestChatClient(async (messages, options, ct) =>
+        {
+            if (calls++ == 0)
+            {
+                Assert.Null(options.ConversationId);
+                previousTokens = missingFirstUsage
+                    ? AreaLabelRateLimitedChatClient.EstimateTokenBudget(messages, options)
+                    : 30_000;
+
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent("call-1", "search_code", new Dictionary<string, object?>())]))
+                {
+                    ConversationId = "resp_first",
+                    Usage = missingFirstUsage ? null : new() { InputTokenCount = 10_000, OutputTokenCount = 20_000, TotalTokenCount = 30_000 },
+                };
+            }
+
+            Assert.Equal("resp_first", options.ConversationId);
+            Assert.Single(Assert.Single(messages).Contents.OfType<FunctionResultContent>());
+            int expectedBudget = previousTokens + AreaLabelRateLimitedChatClient.EstimateTokenBudget(messages, options);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var remaining = await limiter.ReserveAsync(1_000_000 - previousTokens - expectedBudget, timeout.Token);
+            using var probeTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+            try
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => limiter.ReserveAsync(1, probeTimeout.Token));
+            }
+            finally
+            {
+                remaining.Complete(0);
+            }
+
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant, "[]")) { ConversationId = "resp_final" };
+        }), limiter, _ => { }), _ => { });
+        var tool = AIFunctionFactory.Create(() => "Example", "search_code");
+        await chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [tool] });
+
+        Assert.Equal(2, calls);
     }
 
     [Theory]
@@ -232,12 +291,17 @@ public sealed class AreaLabelToolChatTests
                 Enumerable.Range(0, AreaLabelToolChatClient.MaxToolCalls + 1)
                     .Select(i => (AIContent)new FunctionCallContent($"call-{i}", tool.Name, new Dictionary<string, object?>())).ToList())))), _ => { });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [tool] }));
+        var error = await Assert.ThrowsAsync<AggregateException>(() => chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [tool] }));
+        Assert.All(error.InnerExceptions, exception =>
+        {
+            Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains($"exceeded {AreaLabelToolChatClient.MaxToolCalls}", exception.Message, StringComparison.Ordinal);
+        });
         Assert.Equal(AreaLabelToolChatClient.MaxToolCalls, invocations);
     }
 
     [Fact]
-    public async Task McpErrorsFailThePredictionInsteadOfBecomingSuccessShapedEvidence()
+    public async Task PersistentMcpErrorsAreRetriedThenFailThePrediction()
     {
         await using var server = await TestMcpServer.StartAsync();
         server.ToolError = true;
@@ -249,15 +313,48 @@ public sealed class AreaLabelToolChatTests
             calls++;
 
             return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
-                [new FunctionCallContent("call-1", "search_code", new Dictionary<string, object?> { ["query"] = "socket" })])));
+                [new FunctionCallContent($"call-{calls}", "search_code", new Dictionary<string, object?> { ["query"] = "socket" })])));
         }), _ => { });
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [.. tools] }));
 
         Assert.Contains("returned an error", error.Message, StringComparison.Ordinal);
-        Assert.Equal(1, calls);
-        Assert.Single(server.InvokedTools);
+        Assert.InRange(calls, 2, AreaLabelToolChatClient.MaxToolRounds);
+        Assert.Equal(calls, server.InvokedTools.Count);
+    }
+
+    [Fact]
+    public async Task DefaultErrorHandlingAllowsTheModelToRecoverFromAToolFailure()
+    {
+        await using var server = await TestMcpServer.StartAsync();
+        server.ToolError = true;
+        await using var mcp = server.CreateClient();
+        var tools = await mcp.GetToolsAsync(CancellationToken.None);
+        int calls = 0;
+        using var chat = CreateChatClient(new TestChatClient((messages, _, _) =>
+        {
+            calls++;
+
+            if (calls == 2)
+            {
+                Assert.NotNull(Assert.Single(messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>()).Exception);
+                server.ToolError = false;
+            }
+
+            return Task.FromResult(calls <= 2
+                ? new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                    [new FunctionCallContent($"call-{calls}", "search_code", new Dictionary<string, object?> { ["query"] = "socket" })]))
+                : new ChatResponse(new ChatMessage(ChatRole.Assistant, "[]")));
+        }), _ => { });
+        using var defaults = new FunctionInvokingChatClient(new TestChatClient((_, _, _) => throw new NotSupportedException()));
+
+        Assert.Equal(defaults.MaximumConsecutiveErrorsPerRequest, chat.MaximumConsecutiveErrorsPerRequest);
+        var result = await chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [.. tools] });
+
+        Assert.Equal("[]", result.Messages.Last().Text);
+        Assert.Equal(3, calls);
+        Assert.Equal(2, server.InvokedTools.Count);
     }
 
     [Fact]

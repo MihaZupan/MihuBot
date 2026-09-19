@@ -216,8 +216,8 @@ public sealed class AreaLabelDetectionTests
         var responseOptions = Assert.IsType<OpenAI.Responses.CreateResponseOptions>(toolOptions.RawRepresentationFactory!(null!));
         Assert.Equal(effort, responseOptions.ReasoningOptions.ReasoningEffortLevel.ToString());
         Assert.Equal(AreaLabelDetector.MaxOutputTokens, responseOptions.MaxOutputTokenCount);
-        Assert.False(responseOptions.StoredOutputEnabled);
-        Assert.Contains(OpenAI.Responses.IncludedResponseProperty.ReasoningEncryptedContent, responseOptions.IncludedProperties);
+        Assert.True(responseOptions.StoredOutputEnabled);
+        Assert.Empty(responseOptions.IncludedProperties);
         Assert.NotSame(responseOptions, toolOptions.RawRepresentationFactory!(null!));
 
         var oneShotOptions = AreaLabelDetector.CreateChatOptions(settings with { UseGitHubTools = false });

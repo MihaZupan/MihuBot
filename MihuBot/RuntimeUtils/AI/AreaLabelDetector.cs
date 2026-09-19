@@ -75,9 +75,7 @@ public sealed class AreaLabelDetector(
                     ReasoningEffortLevel = new ResponseReasoningEffortLevel(settings.ReasoningEffort.ToString()),
                 },
                 MaxOutputTokenCount = MaxOutputTokens,
-                // Preserve reasoning between tool rounds without storing the conversation server-side.
-                StoredOutputEnabled = false,
-                IncludedProperties = { IncludedResponseProperty.ReasoningEncryptedContent },
+                StoredOutputEnabled = true,
             }
             : CreateChatCompletionOptions(settings),
         MaxOutputTokens = MaxOutputTokens,
@@ -191,9 +189,11 @@ public sealed class AreaLabelDetector(
                 Return only the requested structured label predictions.
                 """;
 
+            void Log(string message) => logger.DebugLog($"Area labels <{issue.HtmlUrl}>: {message}");
+
             using var agent = new AreaLabelToolChatClient(
-                new AreaLabelRateLimitedChatClient(openAI.GetResponsesChat(model, secondary: true), _rateLimiter, message => logger.DebugLog(message)),
-                message => logger.DebugLog(message), settings.FilterTargetData ? issue : null);
+                new AreaLabelRateLimitedChatClient(openAI.GetResponsesChat(model, secondary: true), _rateLimiter, Log),
+                Log, settings.FilterTargetData ? issue : null);
             result = await agent.GetResponseAsync<AreaLabelSuggestion[]>(
                 prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
         }

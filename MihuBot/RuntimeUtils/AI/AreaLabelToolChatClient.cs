@@ -19,7 +19,6 @@ internal sealed class AreaLabelToolChatClient : FunctionInvokingChatClient
         _log = log;
         _filter = filteredTarget is null ? null : new(filteredTarget);
         MaximumIterationsPerRequest = MaxToolRounds;
-        MaximumConsecutiveErrorsPerRequest = 0;
         AllowConcurrentInvocation = true;
     }
 
@@ -65,6 +64,9 @@ internal sealed class AreaLabelRateLimitedChatClient(
     Action<string> log) : DelegatingChatClient(innerClient)
 {
     private int _modelCalls;
+    private readonly List<ChatMessage> _conversationHistory = [];
+    private string _conversationId;
+    private int _storedTokens;
 
     internal static int EstimateTokenBudget(IEnumerable<ChatMessage> messages, ChatOptions options) =>
         AreaLabelDetector.EstimateTokenBudget(JsonSerializer.Serialize(new
@@ -81,17 +83,45 @@ internal sealed class AreaLabelRateLimitedChatClient(
             throw new InvalidOperationException("Area label prediction exceeded its model call budget.");
         }
 
-        ChatMessage[] history = [.. messages];
-        var reservation = await rateLimiter.ReserveAsync(EstimateTokenBudget(history, options), cancellationToken);
-        var response = await base.GetResponseAsync(history, options, cancellationToken);
+        ChatMessage[] request = [.. messages];
+        bool continuingConversation = _conversationId is not null &&
+            string.Equals(_conversationId, options?.ConversationId, StringComparison.Ordinal);
 
-        if (AreaLabelDetector.GetActualTokenCount(response.Usage) is { } actualTokens)
+        if (!continuingConversation)
         {
-            reservation.Complete(actualTokens);
+            _conversationHistory.Clear();
+            _storedTokens = 0;
+        }
+
+        _conversationHistory.AddRange(request);
+        int budget = EstimateTokenBudget(_conversationHistory, options);
+
+        if (continuingConversation)
+        {
+            // Server-held context is billed again, including reasoning absent from visible messages.
+            budget = Math.Max(budget, checked(_storedTokens + EstimateTokenBudget(request, options)));
+        }
+
+        var reservation = await rateLimiter.ReserveAsync(budget, cancellationToken);
+        var response = await base.GetResponseAsync(request, options, cancellationToken);
+        int? actualTokens = AreaLabelDetector.GetActualTokenCount(response.Usage);
+
+        if (actualTokens is { } actual)
+        {
+            reservation.Complete(actual);
         }
         else
         {
             log($"Area label model call {_modelCalls} returned no usable token usage; keeping the full token reservation.");
+        }
+
+        _conversationId = response.ConversationId;
+        _storedTokens = actualTokens ?? budget;
+        _conversationHistory.AddRange(response.Messages);
+
+        if (response.ResponseId is { } responseId)
+        {
+            log($"Area label model call {_modelCalls} response ID: {responseId}");
         }
 
         return response;
