@@ -211,6 +211,20 @@ public sealed class AreaLabelDetectionTests
         configuration.Set(null, "AreaLabelDetector.ReasoningEffort", effort);
         Assert.Equal(effort, detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
 
+        var settings = detector.GetPredictionSettings();
+        var toolOptions = AreaLabelDetector.CreateChatOptions(settings);
+        var responseOptions = Assert.IsType<OpenAI.Responses.CreateResponseOptions>(toolOptions.RawRepresentationFactory!(null!));
+        Assert.Equal(effort, responseOptions.ReasoningOptions.ReasoningEffortLevel.ToString());
+        Assert.Equal(AreaLabelDetector.MaxOutputTokens, responseOptions.MaxOutputTokenCount);
+        Assert.False(responseOptions.StoredOutputEnabled);
+        Assert.Contains(OpenAI.Responses.IncludedResponseProperty.ReasoningEncryptedContent, responseOptions.IncludedProperties);
+        Assert.NotSame(responseOptions, toolOptions.RawRepresentationFactory!(null!));
+
+        var oneShotOptions = AreaLabelDetector.CreateChatOptions(settings with { UseGitHubTools = false });
+        var completionOptions = Assert.IsType<OpenAI.Chat.ChatCompletionOptions>(oneShotOptions.RawRepresentationFactory!(null!));
+        Assert.Equal(effort, completionOptions.ReasoningEffortLevel.ToString());
+        Assert.Equal(AreaLabelDetector.MaxOutputTokens, completionOptions.MaxOutputTokenCount);
+
         configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
         Assert.Equal("medium", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
 #pragma warning restore OPENAI001

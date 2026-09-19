@@ -1,6 +1,8 @@
 using Azure.AI.OpenAI;
 using Azure;
 using OpenAI.Images;
+using OpenAI.Responses;
+using System.ClientModel;
 using MihuBot.Configuration;
 using Microsoft.Extensions.AI;
 
@@ -39,6 +41,8 @@ public sealed class OpenAIService
     private readonly AzureOpenAIClient? _image;
     private readonly AzureOpenAIClient? _secondaryEmbeddingClient;
     private readonly AzureOpenAIClient? _secondaryChatClient;
+    private readonly ResponsesClient _responsesClient;
+    private readonly ResponsesClient? _secondaryResponsesClient;
     private readonly IConfigurationService _configurationService;
 
     /// <summary>False when no image generation endpoint is configured.</summary>
@@ -50,9 +54,10 @@ public sealed class OpenAIService
         _logger = logger;
 
         // Only the primary endpoint is required, the rest fall back to it when not configured.
-        _chat = new AzureOpenAIClient(
-            new Uri("https://mihubotai8467177614.openai.azure.com"),
-            new AzureKeyCredential(configuration["AzureOpenAI:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI Key")));
+        var chatEndpoint = new Uri("https://mihubotai8467177614.openai.azure.com");
+        string chatKey = configuration["AzureOpenAI:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI Key");
+        _chat = new AzureOpenAIClient(chatEndpoint, new AzureKeyCredential(chatKey));
+        _responsesClient = CreateResponsesClient(chatEndpoint, chatKey);
 
         if (configuration.IsConfigured(OptionalFeatures.AzureOpenAIImage))
         {
@@ -70,9 +75,10 @@ public sealed class OpenAIService
 
         if (configuration.IsConfigured(OptionalFeatures.AzureOpenAISecondaryChat))
         {
-            _secondaryChatClient = new AzureOpenAIClient(
-                new Uri(configuration["AzureOpenAI:SecondaryChat:Endpoint"]!),
-                new AzureKeyCredential(configuration["AzureOpenAI:SecondaryChat:Key"]!));
+            var endpoint = new Uri(configuration["AzureOpenAI:SecondaryChat:Endpoint"]!);
+            string key = configuration["AzureOpenAI:SecondaryChat:Key"]!;
+            _secondaryChatClient = new AzureOpenAIClient(endpoint, new AzureKeyCredential(key));
+            _secondaryResponsesClient = CreateResponsesClient(endpoint, key);
         }
     }
 
@@ -104,6 +110,27 @@ public sealed class OpenAIService
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
 
         return chatClient;
+    }
+
+    public IChatClient GetResponsesChat(string deployment, bool secondary = false)
+    {
+        var client = (secondary ? _secondaryResponsesClient : null) ?? _responsesClient;
+        return new LoggingChatClient(client.AsIChatClient(deployment ?? DefaultModel), _logger, _configurationService);
+    }
+
+    internal static ResponsesClient CreateResponsesClient(Uri endpoint, string key)
+    {
+        var builder = new UriBuilder(endpoint);
+        string path = builder.Path.TrimEnd('/');
+
+        if (!path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            path += path.EndsWith("/openai", StringComparison.OrdinalIgnoreCase) ? "/v1" : "/openai/v1";
+        }
+
+        builder.Path = path + "/";
+
+        return new ResponsesClient(new ApiKeyCredential(key), new ResponsesClientOptions { Endpoint = builder.Uri });
     }
 
     public ImageClient? GetImage(ulong? context)

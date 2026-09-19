@@ -8,6 +8,7 @@ using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace MihuBot.RuntimeUtils.AI;
 
@@ -66,7 +67,19 @@ public sealed class AreaLabelDetector(
 
     internal static ChatOptions CreateChatOptions(AreaLabelPredictionSettings settings) => new()
     {
-        RawRepresentationFactory = _ => CreateChatCompletionOptions(settings),
+        RawRepresentationFactory = _ => settings.UseGitHubTools
+            ? new CreateResponseOptions
+            {
+                ReasoningOptions = new ResponseReasoningOptions
+                {
+                    ReasoningEffortLevel = new ResponseReasoningEffortLevel(settings.ReasoningEffort.ToString()),
+                },
+                MaxOutputTokenCount = MaxOutputTokens,
+                // Preserve reasoning between tool rounds without storing the conversation server-side.
+                StoredOutputEnabled = false,
+                IncludedProperties = { IncludedResponseProperty.ReasoningEncryptedContent },
+            }
+            : CreateChatCompletionOptions(settings),
         MaxOutputTokens = MaxOutputTokens,
     };
 
@@ -179,7 +192,7 @@ public sealed class AreaLabelDetector(
                 """;
 
             using var agent = new AreaLabelToolChatClient(
-                new AreaLabelRateLimitedChatClient(openAI.GetChat(model, secondary: true), _rateLimiter, message => logger.DebugLog(message)),
+                new AreaLabelRateLimitedChatClient(openAI.GetResponsesChat(model, secondary: true), _rateLimiter, message => logger.DebugLog(message)),
                 message => logger.DebugLog(message), settings.FilterTargetData ? issue : null);
             result = await agent.GetResponseAsync<AreaLabelSuggestion[]>(
                 prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);

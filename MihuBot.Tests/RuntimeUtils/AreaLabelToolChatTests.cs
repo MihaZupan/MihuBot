@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using MihuBot.Helpers.RateLimiting;
+using MihuBot.Helpers.AI;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.AI;
 using ModelContextProtocol.Client;
@@ -15,53 +16,70 @@ namespace MihuBot.Tests.RuntimeUtils;
 public sealed class AreaLabelToolChatTests
 {
     [Fact]
-    public async Task OpenAIAdapterDoesNotAccumulateToolsAndRemovesThemForTheFinalRequest()
+    public async Task ResponsesApiPreservesReasoningAndToolHistoryAndRemovesToolsForTheFinalRequest()
     {
         await using var server = await TestMcpServer.StartAsync();
         await using var mcp = server.CreateClient();
         var tools = await mcp.GetToolsAsync(CancellationToken.None);
         int calls = 0;
-        server.ChatHandler = async context =>
+        server.ResponsesHandler = async context =>
         {
             using var request = await JsonDocument.ParseAsync(context.Request.Body);
             int call = ++calls;
             bool final = call == AreaLabelToolChatClient.MaxToolRounds + 1;
-            Assert.Equal(AreaLabelDetector.MaxOutputTokens, request.RootElement.GetProperty("max_completion_tokens").GetInt32());
-            Assert.Equal("medium", request.RootElement.GetProperty("reasoning_effort").GetString());
-            Assert.Equal("json_schema", request.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+            Assert.Equal("/openai/v1/responses", context.Request.Path);
+            Assert.Equal(OpenAIService.DefaultModel, request.RootElement.GetProperty("model").GetString());
+            Assert.Equal(AreaLabelDetector.MaxOutputTokens, request.RootElement.GetProperty("max_output_tokens").GetInt32());
+            Assert.Equal("medium", request.RootElement.GetProperty("reasoning").GetProperty("effort").GetString());
+            Assert.Equal("json_schema", request.RootElement.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
+            Assert.False(request.RootElement.GetProperty("store").GetBoolean());
+            Assert.Contains("reasoning.encrypted_content", request.RootElement.GetProperty("include").EnumerateArray().Select(v => v.GetString()));
+            Assert.False(request.RootElement.TryGetProperty("previous_response_id", out _));
+
+            for (int previous = 1; previous < call; previous++)
+            {
+                var input = request.RootElement.GetProperty("input").EnumerateArray().ToArray();
+                var reasoning = Assert.Single(input, item => item.TryGetProperty("id", out var id) && id.GetString() == $"rs_{previous}");
+                Assert.Equal($"encrypted-reasoning-{previous}", reasoning.GetProperty("encrypted_content").GetString());
+                Assert.Contains(input, item => item.GetProperty("type").GetString() == "function_call_output" &&
+                    item.GetProperty("call_id").GetString() == $"call-{previous}");
+            }
 
             if (final)
             {
-                Assert.False(request.RootElement.TryGetProperty("tools", out _));
+                Assert.True(!request.RootElement.TryGetProperty("tools", out var remaining) || remaining.GetArrayLength() == 0);
             }
             else
             {
                 Assert.Equal(GitHubReadOnlyMcp.ToolNames.Length, request.RootElement.GetProperty("tools").GetArrayLength());
             }
 
-            object message = final
-                ? new { role = "assistant", content = """{"data":[{"labelName":"area-Networking","confidence":0.9}]}""" }
-                : new
-                {
-                    role = "assistant",
-                    tool_calls = new[]
+            object[] output = final
+                ? [
+                    new
                     {
-                        new { id = $"call-{call}", type = "function", function = new { name = "search_code", arguments = """{"query":"repo:dotnet/runtime Socket"}""" } },
+                        id = $"msg_{call}", type = "message", role = "assistant", status = "completed",
+                        content = new[] { new { type = "output_text", text = """{"data":[{"labelName":"area-Networking","confidence":0.9}]}""", annotations = Array.Empty<object>() } },
                     },
-                };
+                ]
+                : [
+                    new { id = $"rs_{call}", type = "reasoning", summary = Array.Empty<object>(), encrypted_content = $"encrypted-reasoning-{call}" },
+                    new { id = $"fc_{call}", type = "function_call", status = "completed", call_id = $"call-{call}", name = "search_code", arguments = """{"query":"repo:dotnet/runtime Socket"}""" },
+                ];
             await context.Response.WriteAsJsonAsync(new
             {
-                id = $"completion-{call}", @object = "chat.completion", created = 1, model = "test-model",
-                choices = new[] { new { index = 0, message, finish_reason = final ? "stop" : "tool_calls" } },
-                usage = new { prompt_tokens = 10, completion_tokens = 3, total_tokens = 13 },
+                id = $"resp_{call}", @object = "response", created_at = 1, model = OpenAIService.DefaultModel, status = "completed", store = false,
+                output,
+                usage = new { input_tokens = 10, output_tokens = 3, total_tokens = 13 },
             });
         };
-        var model = new OpenAI.Chat.ChatClient("test-model", new System.ClientModel.ApiKeyCredential("test-token"),
-            new OpenAI.OpenAIClientOptions { Endpoint = server.Endpoint }).AsIChatClient();
+#pragma warning disable OPENAI001
+        var model = OpenAIService.CreateResponsesClient(server.Endpoint, "test-token").AsIChatClient(OpenAIService.DefaultModel);
+#pragma warning restore OPENAI001
         using var limiter = new TokenRateLimiter(1_000_000, 1_000_000);
         using var chat = CreateChatClient(new AreaLabelRateLimitedChatClient(model, limiter, _ => { }), _ => { });
 #pragma warning disable OPENAI001
-        var options = AreaLabelDetector.CreateChatOptions(new("test-model", OpenAI.Chat.ChatReasoningEffortLevel.Medium, true));
+        var options = AreaLabelDetector.CreateChatOptions(new(OpenAIService.DefaultModel, OpenAI.Chat.ChatReasoningEffortLevel.Medium, true));
 #pragma warning restore OPENAI001
         options.Tools = [.. tools];
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -71,6 +89,51 @@ public sealed class AreaLabelToolChatTests
         Assert.Equal(new AreaLabelSuggestion("area-Networking", 0.9), Assert.Single(result.Result));
         Assert.Equal(AreaLabelToolChatClient.MaxToolRounds + 1, calls);
         Assert.Equal(AreaLabelToolChatClient.MaxToolRounds, server.InvokedTools.Count);
+        Assert.Equal(13 * calls, result.Usage!.TotalTokenCount);
+    }
+
+    [Fact]
+    public async Task ToolFreePredictionsStillUseChatCompletionsWithConfiguredReasoning()
+    {
+        await using var server = await TestMcpServer.StartAsync();
+        int calls = 0;
+        server.ChatHandler = async context =>
+        {
+            using var request = await JsonDocument.ParseAsync(context.Request.Body);
+            calls++;
+            Assert.Equal(AreaLabelDetector.MaxOutputTokens, request.RootElement.GetProperty("max_completion_tokens").GetInt32());
+            Assert.Equal("high", request.RootElement.GetProperty("reasoning_effort").GetString());
+            Assert.False(request.RootElement.TryGetProperty("tools", out _));
+            await context.Response.WriteAsJsonAsync(new
+            {
+                id = "completion", @object = "chat.completion", created = 1, model = OpenAIService.DefaultModel,
+                choices = new[] { new { index = 0, message = new { role = "assistant", content = """{"data":[]}""" }, finish_reason = "stop" } },
+            });
+        };
+        using var chat = new OpenAI.Chat.ChatClient(OpenAIService.DefaultModel, new System.ClientModel.ApiKeyCredential("test-token"),
+            new OpenAI.OpenAIClientOptions { Endpoint = server.Endpoint }).AsIChatClient();
+#pragma warning disable OPENAI001
+        var options = AreaLabelDetector.CreateChatOptions(new(OpenAIService.DefaultModel, OpenAI.Chat.ChatReasoningEffortLevel.High, false));
+#pragma warning restore OPENAI001
+        var result = await chat.GetResponseAsync<AreaLabelSuggestion[]>("Classify.", options, useJsonSchemaResponseFormat: true);
+
+        Assert.Empty(result.Result);
+        Assert.Equal(1, calls);
+    }
+
+    [Theory]
+    [InlineData("https://resource.openai.azure.com", "https://resource.openai.azure.com/openai/v1/")]
+    [InlineData("https://resource.openai.azure.com/", "https://resource.openai.azure.com/openai/v1/")]
+    [InlineData("https://resource.openai.azure.com/openai", "https://resource.openai.azure.com/openai/v1/")]
+    [InlineData("https://resource.openai.azure.com/openai/v1/", "https://resource.openai.azure.com/openai/v1/")]
+    [InlineData("https://gateway.example/v1", "https://gateway.example/v1/")]
+    [InlineData("https://gateway.example/prefix/openai/v1", "https://gateway.example/prefix/openai/v1/")]
+    public void ResponsesEndpointUsesV1WithoutDuplicatingExistingPaths(string endpoint, string expected)
+    {
+        var client = OpenAIService.CreateResponsesClient(new Uri(endpoint), "test-token");
+#pragma warning disable OPENAI001
+        Assert.Equal(new Uri(expected), client.Endpoint);
+#pragma warning restore OPENAI001
     }
 
     [Theory]
@@ -397,6 +460,7 @@ public sealed class AreaLabelToolChatTests
     {
         public Uri Endpoint => new(app.Urls.Single());
         public Func<HttpContext, Task>? ChatHandler { get; set; }
+        public Func<HttpContext, Task>? ResponsesHandler { get; set; }
         public bool UnsafeTool { get; set; }
         public bool ToolError { get; set; }
         public int DiscoveryCalls { get; private set; }
@@ -421,6 +485,7 @@ public sealed class AreaLabelToolChatTests
             var server = new TestMcpServer(app);
             app.MapPost("/mcp", server.HandleAsync);
             app.MapPost("/chat/completions", (HttpContext context) => server.ChatHandler!(context));
+            app.MapPost("/openai/v1/responses", (HttpContext context) => server.ResponsesHandler!(context));
             await app.StartAsync();
 
             return server;
