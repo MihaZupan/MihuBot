@@ -5,6 +5,7 @@ using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
+using MihuBot.RuntimeUtils.Search;
 using MihuBot.Tests.Configuration;
 using Octokit;
 using Octokit.Internal;
@@ -13,6 +14,103 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class AreaLabelDetectionTests
 {
+    [Theory]
+    [InlineData(0.9, 24)]
+    [InlineData(0.9, 48)]
+    [InlineData(0.8, 24)]
+    [InlineData(0.8, 48)]
+    public async Task SimilarIssuesPreferHigherScoresBeforeMoreRecentDateRanges(double score, int age)
+    {
+        var recent = CreateSimilarIssueSearchResponse("recent", 0.7, 5);
+        var older = CreateSimilarIssueSearchResponse("older", score, 5);
+        List<int> searches = [];
+
+        var results = await AreaLabelDetector.FindSimilarIssuesAsync(
+            new IssueInfo { Id = "target" }, ["area-Test"],
+            (months, _) =>
+            {
+                searches.Add(months);
+                return Task.FromResult(months >= age ? older : recent);
+            },
+            CancellationToken.None);
+
+        Assert.Equal(older.Results.Select(r => r.Issue), results);
+        Assert.Equal(score == 0.9 && age == 24 ? [12, 24] : new[] { 12, 24, 48 }, searches);
+    }
+
+    [Theory]
+    [InlineData(0.9)]
+    [InlineData(0.8)]
+    [InlineData(0.7)]
+    public async Task SimilarIssuesUseTheFirstDateRangeWithFiveMatchesAtTheBestThreshold(double score)
+    {
+        var recent = CreateSimilarIssueSearchResponse("recent", score, 5);
+        var older = CreateSimilarIssueSearchResponse("older", score, 6);
+        List<int> searches = [];
+
+        var results = await AreaLabelDetector.FindSimilarIssuesAsync(
+            new IssueInfo { Id = "target" }, ["area-Test"],
+            (months, _) =>
+            {
+                searches.Add(months);
+                return Task.FromResult(months == 12 ? recent : older);
+            },
+            CancellationToken.None);
+
+        Assert.Equal(recent.Results.Select(r => r.Issue), results);
+        Assert.Equal(score == 0.9 ? [12] : new[] { 12, 24, 48 }, searches);
+    }
+
+    [Fact]
+    public async Task SimilarIssuesFallBackToTheOldestRangeAndExcludeIneligibleMatches()
+    {
+        var oldest = CreateSimilarIssueSearchResponse("oldest", 0.7, 2);
+        var excluded = CreateSimilarIssueSearchResponse("excluded", 0.95, 3);
+        excluded.Results[0].Issue.Id = "target";
+        excluded.Results[1].Issue.Labels = [];
+        excluded.Results[2].Issue.Labels = [new() { Name = "area-Other" }];
+        var belowThreshold = CreateSimilarIssueSearchResponse("low", 0.699, 5);
+        oldest = oldest with { Results = [.. excluded.Results, .. oldest.Results, .. belowThreshold.Results] };
+
+        var results = await AreaLabelDetector.FindSimilarIssuesAsync(
+            new IssueInfo { Id = "target" }, ["AREA-TEST"],
+            (months, _) => Task.FromResult(months == 48 ? oldest : GitHubSearchResponse.Empty),
+            CancellationToken.None);
+
+        Assert.Equal(["oldest-0", "oldest-1"], results.Select(i => i.Id));
+    }
+
+    [Fact]
+    public async Task SimilarIssuesReturnEmptyWhenNoMatchesQualify()
+    {
+        var results = await AreaLabelDetector.FindSimilarIssuesAsync(
+            new IssueInfo { Id = "target" }, ["area-Test"],
+            (_, _) => Task.FromResult(CreateSimilarIssueSearchResponse("low", 0.699, 5)),
+            CancellationToken.None);
+
+        Assert.Empty(results);
+    }
+
+    private static GitHubSearchResponse CreateSimilarIssueSearchResponse(string prefix, double score, int count) => new()
+    {
+        Results = Enumerable.Range(0, count)
+            .Select(i => new IssueResultGroup
+            {
+                Score = score,
+                Results =
+                [
+                    new()
+                    {
+                        Score = score,
+                        Issue = new IssueInfo { Id = $"{prefix}-{i}", Labels = [new() { Name = "area-Test" }] },
+                        Comment = null,
+                    }
+                ],
+            })
+            .ToArray(),
+        Timings = new(),
+    };
+
     [Theory]
     [InlineData("area-", "area-Test")]
     [InlineData("component:", "component:Runtime")]

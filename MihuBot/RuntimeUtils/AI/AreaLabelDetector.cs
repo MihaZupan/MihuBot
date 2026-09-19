@@ -132,17 +132,7 @@ public sealed class AreaLabelDetector(
             Reactions = null,
         };
 
-        SimilarIssue[] similarIssues = [];
-
-        foreach (int age in new[] { 12, 24, 48 })
-        {
-            if (similarIssues.Length >= 5)
-            {
-                break;
-            }
-
-            similarIssues = await GetSimilarIssuesAsync(issue, labels, DateTime.UtcNow.AddMonths(-age), cancellationToken);
-        }
+        SimilarIssue[] similarIssues = await GetSimilarIssuesAsync(issue, labels, cancellationToken);
 
         var options = CreateChatOptions(settings);
 
@@ -223,18 +213,19 @@ public sealed class AreaLabelDetector(
 
     private record SimilarIssue(string HtmlUrl, string Author, string Title, string Body, string Label);
 
-    private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, DateTime createdAfter, CancellationToken cancellationToken)
+    private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, CancellationToken cancellationToken)
     {
-        GitHubSearchResponse searchResults = await search.SearchIssuesAndCommentsAsync(
-            GitHubSearchService.CreateIssueQuery(issue),
-            new IssueSearchFilters { Repository = issue.Repository.FullName, CreatedAfter = createdAfter },
-            new IssueSearchResponseOptions { MaxResults = 20, IncludeIssueComments = false },
+        DateTime now = DateTime.UtcNow;
+        IssueInfo[] similarIssues = await FindSimilarIssuesAsync(
+            issue, labels,
+            (age, ct) => search.SearchIssuesAndCommentsAsync(
+                GitHubSearchService.CreateIssueQuery(issue),
+                new IssueSearchFilters { Repository = issue.Repository.FullName, CreatedAfter = now.AddMonths(-age) },
+                new IssueSearchResponseOptions { MaxResults = 20, IncludeIssueComments = false },
+                ct),
             cancellationToken);
 
-        return searchResults.Results
-            .TakeWhile(r => r.Score >= 0.7)
-            .Select(r => r.Results[0].Issue)
-            .Where(i => i.Id != issue.Id)
+        return similarIssues
             .Select(i => new SimilarIssue(
                 i.HtmlUrl,
                 i.User.Login,
@@ -242,8 +233,42 @@ public sealed class AreaLabelDetector(
                 (i.Body ?? "").TruncateWithDotDotDot(4000),
                 i.Labels.FirstOrDefault(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase))?.Name
             ))
-            .Where(i => i.Label is not null)
             .ToArray();
+    }
+
+    internal static async Task<IssueInfo[]> FindSimilarIssuesAsync(
+        IssueInfo issue, string[] labels,
+        Func<int, CancellationToken, Task<GitHubSearchResponse>> search,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<int, GitHubSearchResponse> searchResults = [];
+        IssueInfo[] similarIssues = [];
+
+        foreach (double threshold in new[] { 0.9, 0.8, 0.7 })
+        {
+            foreach (int age in new[] { 12, 24, 48 })
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!searchResults.TryGetValue(age, out var results))
+                {
+                    searchResults[age] = results = await search(age, cancellationToken);
+                }
+
+                similarIssues = results.Results
+                    .TakeWhile(r => r.Score >= threshold)
+                    .Select(r => r.Issue)
+                    .Where(i => i.Id != issue.Id && i.Labels.Any(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase)))
+                    .ToArray();
+
+                if (similarIssues.Length >= 5)
+                {
+                    return similarIssues;
+                }
+            }
+        }
+
+        return similarIssues;
     }
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>
