@@ -265,7 +265,7 @@ public sealed class AreaLabelDetector(
                 evidence += $"""
 
 
-                    Previous PRs by this author in this repository during the preceding year, from the local ingested database:
+                    Recent PRs by this author in this repository:
                     ```json
                     {JsonSerializer.Serialize(authorHistory)}
                     ```
