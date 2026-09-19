@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace MihuBot.Discord.Games;
+namespace MihuBot.Games.Blackjack;
 
 internal readonly record struct BlackjackCard(int Rank, int Suit)
 {
@@ -19,12 +19,16 @@ internal sealed class BlackjackShoe
 
     public int Remaining => _cards.Count;
     public int Number { get; private set; }
+    public int DeckCount { get; }
 
-    public BlackjackShoe()
+    public BlackjackShoe(int decks = Decks)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(decks, 2);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(decks, 8);
+        DeckCount = decks;
     }
 
-    internal BlackjackShoe(IEnumerable<BlackjackCard> cards)
+    internal BlackjackShoe(IEnumerable<BlackjackCard> cards) : this()
     {
         _cards.AddRange(cards.Reverse());
         Number = 1;
@@ -39,14 +43,14 @@ internal sealed class BlackjackShoe
         // Reserve enough for four split hands per seat plus the dealer, even in a low-card shoe.
         int reserve = 30 * ((4 * playerCount) + 1);
 
-        if (Remaining > CutCardRemaining && _cards.Sum(c => c.Value) > reserve)
+        if (Remaining > DeckCount * 52 / 4 && _cards.Sum(c => c.Value) > reserve)
         {
             return false;
         }
 
         _cards.Clear();
 
-        for (int deck = 0; deck < Decks; deck++)
+        for (int deck = 0; deck < DeckCount; deck++)
         {
             for (int suit = 0; suit < 4; suit++)
             {

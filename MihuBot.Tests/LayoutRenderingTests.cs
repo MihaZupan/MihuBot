@@ -14,9 +14,10 @@ namespace MihuBot.Tests;
 public sealed class LayoutRenderingTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ShellPreservesNavigationAndAccountVisibility(bool signedIn)
+    [InlineData(false, "Discord")]
+    [InlineData(true, "Discord")]
+    [InlineData(true, "GitHub")]
+    public async Task ShellPreservesNavigationAndAccountVisibility(bool signedIn, string authenticationType)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -28,7 +29,7 @@ public sealed class LayoutRenderingTests
             options.AddPolicy("Admin", policy => policy.RequireAssertion(_ => false));
         });
         services.AddCascadingAuthenticationState();
-        services.AddSingleton<AuthenticationStateProvider>(new TestAuthenticationStateProvider(signedIn));
+        services.AddSingleton<AuthenticationStateProvider>(new TestAuthenticationStateProvider(signedIn, authenticationType));
         services.AddSingleton<NavigationManager, TestNavigationManager>();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
         services.AddSingleton<AvailableFeatures>();
@@ -53,20 +54,23 @@ public sealed class LayoutRenderingTests
         Assert.Contains("id=\"navigation-toggle\"", html, StringComparison.Ordinal);
         Assert.Contains("aria-controls=\"primary-navigation\"", html, StringComparison.Ordinal);
         Assert.Contains("href=\"regex?pattern=Hello%20World\"", html, StringComparison.Ordinal);
+        Assert.Equal(signedIn, html.Contains("href=\"blackjack\"", StringComparison.Ordinal));
+        Assert.Equal(signedIn, html.Contains("bi-suit-spade-fill", StringComparison.Ordinal));
         Assert.DoesNotContain("href=\"runtime-utils\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"admin\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"custom-message\"", html, StringComparison.Ordinal);
-        Assert.Equal(signedIn, html.Contains("href=\"reminders\"", StringComparison.Ordinal));
+        bool discordSignedIn = signedIn && authenticationType == "Discord";
+        Assert.Equal(discordSignedIn, html.Contains("href=\"reminders\"", StringComparison.Ordinal));
         Assert.Equal(signedIn, html.Contains("href=\"Account/Logout\"", StringComparison.Ordinal));
-        Assert.Equal(signedIn, html.Contains("Example &lt;user&gt;", StringComparison.Ordinal));
-        Assert.Equal(!signedIn, html.Contains("Tools &amp; automation", StringComparison.Ordinal));
+        Assert.Equal(discordSignedIn, html.Contains("Example &lt;user&gt;", StringComparison.Ordinal));
+        Assert.Equal(!discordSignedIn, html.Contains("Tools &amp; automation", StringComparison.Ordinal));
     }
 
-    private sealed class TestAuthenticationStateProvider(bool signedIn) : AuthenticationStateProvider
+    private sealed class TestAuthenticationStateProvider(bool signedIn, string authenticationType) : AuthenticationStateProvider
     {
         public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
             Task.FromResult(new AuthenticationState(new ClaimsPrincipal(signedIn
-                ? new ClaimsIdentity([new Claim(ClaimTypes.Name, "Example <user>"), new Claim(ClaimTypes.NameIdentifier, "1")], "Discord")
+                ? new ClaimsIdentity([new Claim(ClaimTypes.Name, "Example <user>"), new Claim(ClaimTypes.NameIdentifier, "1")], authenticationType)
                 : new ClaimsIdentity())));
     }
 

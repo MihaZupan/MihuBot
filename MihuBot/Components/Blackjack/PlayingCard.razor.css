@@ -1,0 +1,92 @@
+.playing-card {
+    width: var(--blackjack-card-width, clamp(46px, 5.5vw, 72px));
+    aspect-ratio: 5 / 7;
+    flex-shrink: 0;
+    perspective: 700px;
+    color: #172d36;
+    animation: deal-in .48s cubic-bezier(.2, .7, .2, 1) both;
+    animation-delay: var(--deal-delay, 0ms);
+}
+
+.card-turn {
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .65s cubic-bezier(.2, .7, .2, 1);
+}
+
+.face-up .card-turn {
+    transform: rotateY(180deg);
+}
+
+.card-front, .card-back {
+    position: absolute;
+    inset: 0;
+    border: 1px solid #fff9;
+    border-radius: 7px;
+    backface-visibility: hidden;
+    box-shadow: 0 4px 9px #0005;
+}
+
+.card-back {
+    display: grid;
+    place-items: center;
+    background: repeating-linear-gradient(45deg, #203f64 0 3px, #2b507b 3px 6px);
+    outline: 3px solid #eee9da;
+    outline-offset: -5px;
+    color: #f3dca4;
+}
+
+.card-back span {
+    border: 1px solid #eddaab;
+    border-radius: 50%;
+    padding: .4em .2em;
+    background: #203f64;
+    font: bold .8rem Georgia, serif;
+}
+
+.card-front {
+    transform: rotateY(180deg);
+    background: linear-gradient(135deg, #fff, #ebe9dd);
+}
+
+.red {
+    color: #bd2941;
+}
+
+.corner {
+    position: absolute;
+    top: 4px;
+    left: 5px;
+    font: bold var(--blackjack-card-rank, clamp(15px, 1.8vw, 21px))/.95 Georgia, serif;
+    text-align: center;
+}
+
+.corner span {
+    display: block;
+    font-size: .8em;
+    margin-top: 2px;
+}
+
+.bottom {
+    inset: auto 5px 4px auto;
+    transform: rotate(180deg);
+}
+
+.pip {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font: var(--blackjack-card-pip, clamp(1.2rem, 2.4vw, 2rem)) Georgia, serif;
+}
+
+@keyframes deal-in {
+    from { opacity: 0; transform: translate(30px, -45px) rotate(12deg) scale(.85); }
+    to { opacity: 1; transform: translate(0, 0) rotate(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .playing-card { animation: none; }
+    .card-turn { transition: none; }
+}

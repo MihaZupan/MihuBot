@@ -1,0 +1,129 @@
+@using MihuBot.Games.Blackjack
+
+<section class="felt" aria-label="Blackjack table">
+    <div class="table-meta">
+        <span><span class="live-dot"></span> LIVE TABLE <strong>@State.Seats.Count / 4</strong></span>
+        <span>@(State.ShoeNumber == 0 ? $"Fresh {State.DeckCount}-deck shoe" : $"{State.DeckCount} decks / Shoe {State.ShoeNumber} / {State.RemainingCards} cards")</span>
+    </div>
+    <div class="dealer" @key="@((State.RoundId, "dealer"))">
+        <div class="hand-heading">
+            <span class="eyebrow">DEALER</span>
+            @if (State.DealerTotal is int total)
+            {
+                <span class="total @(total > 21 ? "bust" : "")">@(total > 21 ? $"Bust / {total}" : total.ToString())</span>
+            }
+        </div>
+        <div class="cards dealer-cards">
+            @if (State.Dealer.Count == 0)
+            {
+                <div class="card-outline"></div>
+                <div class="card-outline"></div>
+            }
+            @for (int i = 0; i < State.Dealer.Count; i++)
+            {
+                <PlayingCard @key="i" Card="State.Dealer[i]" Delay="@(i * 180)" />
+            }
+        </div>
+        <div class="table-lettering">BLACKJACK <span>PAYS 3 TO 2</span></div>
+        <p class="table-rules">Dealer stands on soft 17 <span aria-hidden="true">&middot;</span> Insurance pays 2 to 1</p>
+    </div>
+
+    <div class="table-status" role="status" aria-live="polite" aria-atomic="true">
+        @if (State.Complete)
+        {
+            <strong>Round complete</strong><span>Place a bet to play again.</span>
+        }
+        else if (State.Lobby)
+        {
+            <strong>Betting is open</strong><span>Join a seat. The host can deal early.</span>
+        }
+        else if (State.Active)
+        {
+            <strong>@(State.ActivePlayerId == ViewerId ? "Your turn" : $"{State.Seats.First(p => p.Id == State.ActivePlayerId).Name}'s turn")</strong>
+            <span>@(State.Insurance ? "Insurance? The dealer is showing an ace." : "Hit, stand, or make your move.")</span>
+        }
+        else
+        {
+            <strong>A seat is waiting for you</strong><span>Invite friends and place your first bet.</span>
+        }
+    </div>
+
+    <div class="seats" @key="@((State.RoundId, "seats"))">
+        @foreach (var seat in State.Seats)
+        {
+            <section @key="seat.Id" class="seat @(seat.Id == State.ActivePlayerId ? "current" : "") @(seat.Id == ViewerId ? "your-seat" : "")" aria-label="@($"{seat.Name}'s seat")">
+                <header class="seat-header">
+                    <span class="avatar" aria-hidden="true">@(seat.Name.Length == 0 ? "?" : seat.Name[..1])</span>
+                    <div class="seat-name">
+                        <strong title="@seat.Name">@seat.Name</strong>
+                        <span>@(seat.Id == ViewerId ? "YOU" : "PLAYER")@(seat.Id == State.HostId ? " / HOST" : "")</span>
+                    </div>
+                    <span class="bankroll">@Chips(seat.Balance)<small>chips</small></span>
+                </header>
+                <div class="hands">
+                    @for (int h = 0; h < seat.Hands.Count; h++)
+                    {
+                        var hand = seat.Hands[h];
+                        <div @key="h" class="hand @(hand.Active ? "active-hand" : "")">
+                            <div class="hand-heading">
+                                <span class="wager"><span class="chip" aria-hidden="true"></span>@Chips(hand.Bet)</span>
+                                @if (hand.Cards.Count > 0)
+                                {
+                                    <span class="total @(hand.Total > 21 ? "bust" : "")">
+                                        @(hand.Soft ? "Soft " : "")@hand.Total
+                                    </span>
+                                }
+                            </div>
+                            <div class="cards">
+                                @if (hand.Cards.Count == 0)
+                                {
+                                    <span class="ready">BET PLACED</span>
+                                }
+                                @for (int c = 0; c < hand.Cards.Count; c++)
+                                {
+                                    <PlayingCard @key="c" Card="hand.Cards[c]" Delay="@(c * 100)" />
+                                }
+                            </div>
+                            @if (hand.Result is not null && seat.Hands.Count > 1)
+                            {
+                                <div class="hand-result @(hand.Result.StartsWith("Blackjack", StringComparison.Ordinal) || hand.Result == "Win" ? "win" : "")">@hand.Result</div>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (seat.InsuranceBet > 0)
+                {
+                    <div class="insurance">Insurance @Chips(seat.InsuranceBet)@(State.Complete ? $" / returned {Chips(seat.InsuranceReturned)}" : "")</div>
+                }
+                @if (State.Complete)
+                {
+                    <div class="settlement @(seat.Change > 0 ? "win" : "")">
+                        @if (seat.Hands.Count == 1)
+                        {
+                            <span class="hand-result">@seat.Hands[0].Result</span>
+                        }
+                        <span>@(seat.Change > 0 ? "+" : "")@Chips(seat.Change) chips</span>
+                    </div>
+                }
+            </section>
+        }
+        @for (int i = State.Seats.Count; i < 4; i++)
+        {
+            <section class="seat empty-seat" aria-label="@($"Empty seat {i + 1}")">
+                <span class="empty-mark" aria-hidden="true">+</span>
+                <strong>Seat @(i + 1)</strong>
+                <span>@(State.Active && !State.Lobby ? "Next round" : "Open seat")</span>
+            </section>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public BrowserBlackjackState State { get; set; }
+
+    [Parameter]
+    public ulong ViewerId { get; set; }
+
+    private static string Chips(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

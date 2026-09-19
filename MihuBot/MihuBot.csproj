@@ -46,8 +46,6 @@
     <PackageReference Include="Octokit" Version="14.0.0" />
     <PackageReference Include="Octokit.GraphQL" Version="0.4.0-beta" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
-    <PackageReference Include="SkiaSharp" Version="4.152.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.1" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
     <PackageReference Include="Telegram.Bot" Version="22.10.3.1" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
@@ -63,8 +61,6 @@
   <ItemGroup>
     <EditorConfigFiles Include="$(MSBuildThisFileDirectory)..\CodeAnalysis.globalconfig" />
     <InternalsVisibleTo Include="MihuBot.Tests" />
-    <EmbeddedResource Include="Discord\Games\Fonts\*.ttf" />
-    <Content Include="Discord\Games\Fonts\OFL.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="IncludeRegexSourceGenerator" BeforeTargets="AssignTargetPaths" DependsOnTargets="ResolveReferences">

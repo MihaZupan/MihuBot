@@ -23,6 +23,7 @@ using MihuBot.Discord.Audio;
 using MihuBot.Discord.Location;
 using MihuBot.Discord.Permissions;
 using MihuBot.Discord.Reminders;
+using MihuBot.Games.Blackjack;
 using MihuBot.Helpers.AI;
 using MihuBot.Helpers.Cloud;
 using MihuBot.Helpers.Crypto;
@@ -317,6 +318,9 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<UrlShortenerService>();
 
     services.AddSingleton<ReminderService>();
+
+    services.AddSingleton<BrowserBlackjackService>();
+    services.AddHostedService(s => s.GetRequiredService<BrowserBlackjackService>());
 
     if (builder.Configuration.IsConfigured(OptionalFeatures.OpenWeather))
     {

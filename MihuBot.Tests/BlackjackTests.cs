@@ -1,5 +1,4 @@
-using MihuBot.Discord.Commands;
-using MihuBot.Discord.Games;
+using MihuBot.Games.Blackjack;
 
 namespace MihuBot.Tests;
 
@@ -351,12 +350,6 @@ public sealed class BlackjackTests
 
         Assert.True(shoe.PrepareRound());
         Assert.Equal(312, shoe.Remaining);
-    }
-
-    [Fact]
-    public void RulesFitInADiscordMessage()
-    {
-        Assert.InRange(BlackjackCommand.Rules.Length, 1, 2_000);
     }
 
     [Fact]

@@ -1,0 +1,29 @@
+@using MihuBot.Games.Blackjack
+
+<div class="playing-card @(Card.Rank == 0 ? "" : "face-up") @(Card.Suit is 1 or 2 ? "red" : "")"
+     style="--deal-delay: @(Delay)ms" role="img" aria-label="@Description">
+    <div class="card-turn">
+        <div class="card-back" aria-hidden="true"><span>MB</span></div>
+        <div class="card-front" aria-hidden="true">
+            @if (Card.Rank != 0)
+            {
+                <span class="corner">@Rank<span>@Suit</span></span>
+                <span class="pip">@Suit</span>
+                <span class="corner bottom">@Rank<span>@Suit</span></span>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public BrowserBlackjackCard Card { get; set; }
+
+    [Parameter]
+    public int Delay { get; set; }
+
+    private string Rank => Card.Rank switch { 1 => "A", 11 => "J", 12 => "Q", 13 => "K", _ => Card.Rank.ToString() };
+    private string Suit => Card.Suit switch { 0 => "\u2663", 1 => "\u2666", 2 => "\u2665", _ => "\u2660" };
+    private string Description => Card.Rank == 0 ? "Face-down card" :
+        $"{Card.Rank switch { 1 => "Ace", 11 => "Jack", 12 => "Queen", 13 => "King", _ => Rank }} of {Card.Suit switch { 0 => "clubs", 1 => "diamonds", 2 => "hearts", _ => "spades" }}";
+}

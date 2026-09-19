@@ -351,14 +351,15 @@ public sealed class PullRequestLabelContextTests
             ["area-VM"]);
         string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context, history);
 
-        Assert.Equal(count > 0, prompt.Contains("Previous PRs by this author", StringComparison.Ordinal));
+        Assert.Equal(count > 0, prompt.Contains("Recent PRs by this author in this repository:", StringComparison.Ordinal));
         Assert.Equal(common, prompt.Contains("Common areas in this author's prior PRs", StringComparison.Ordinal));
         Assert.Contains("Historical PR", prompt, StringComparison.Ordinal);
         Assert.Contains("Linked issue body", prompt, StringComparison.Ordinal);
 
         if (count > 0)
         {
-            Assert.Contains("local ingested database", prompt, StringComparison.Ordinal);
+            Assert.DoesNotContain("local ingested database", prompt, StringComparison.Ordinal);
+            Assert.DoesNotContain("preceding year", prompt, StringComparison.Ordinal);
             Assert.Contains($"\"SampledPullRequests\":{count}", prompt, StringComparison.Ordinal);
             Assert.DoesNotContain("LabeledPullRequests", prompt, StringComparison.Ordinal);
             Assert.DoesNotContain("Counts use active candidate labels", prompt, StringComparison.Ordinal);
@@ -366,7 +367,7 @@ public sealed class PullRequestLabelContextTests
         }
 
         string issuePrompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], null!, history);
-        Assert.DoesNotContain("Previous PRs by this author", issuePrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Recent PRs by this author", issuePrompt, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -384,7 +385,7 @@ public sealed class PullRequestLabelContextTests
             ["area-VM"]);
         string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context, history);
 
-        Assert.DoesNotContain("Previous PRs by this author", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Recent PRs by this author", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Author-specific previous PR", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Common areas in this author's prior PRs", prompt, StringComparison.Ordinal);
     }

@@ -87,6 +87,12 @@ article {
     }
 }
 
+@media (min-width: 1000px) and (max-height: 900px) {
+    .page:has(.table-page) article {
+        padding: 1rem !important;
+    }
+}
+
 #blazor-error-ui {
     background: #341a1e;
     color: #ffdcd7;

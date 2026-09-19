@@ -1,0 +1,134 @@
+.felt {
+    --gold: #e7cc8e;
+    --blackjack-card-width: clamp(46px, 6cqw, 72px);
+    position: relative;
+    isolation: isolate;
+    color: #f0f6f2;
+    padding: 1.25rem;
+    border: 8px solid #43382e;
+    border-radius: 2.5rem;
+    background: radial-gradient(ellipse at 50% 0, #276954, transparent 70%), repeating-linear-gradient(110deg, #ffffff02 0 1px, transparent 1px 4px), #123d32;
+    box-shadow: 0 0 0 1px #a28a61, inset 0 0 45px #0005, 0 20px 60px #0004;
+}
+
+.table-meta, .seat-header, .hand-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+}
+
+.table-meta {
+    flex-wrap: wrap;
+    font-size: .68rem;
+    letter-spacing: .07em;
+    color: #c1d6c9;
+}
+
+.table-meta strong { margin-left: .5rem; color: #fff; }
+.live-dot { display: inline-block; width: 6px; height: 6px; background: #87e9b2; border-radius: 50%; margin-right: .4rem; }
+.dealer { padding: 1.5rem 0 .5rem; text-align: center; }
+.dealer .hand-heading { justify-content: center; min-height: 30px; }
+.eyebrow { font-size: .75rem; letter-spacing: .2em; color: #d3e5da; }
+.cards { display: flex; flex-wrap: wrap; gap: 5px; min-height: 102px; align-items: center; padding: .5rem 0; }
+.dealer-cards { justify-content: center; }
+.card-outline { width: 65px; height: 91px; border: 1px dashed #acc8ac55; border-radius: 7px; }
+.table-lettering { font: bold clamp(1.4rem, 3vw, 2rem) Georgia, serif; letter-spacing: .12em; color: var(--gold); margin-top: 1rem; }
+.table-lettering span { display: block; margin-top: .3rem; font: .65rem system-ui, sans-serif; letter-spacing: .3em; }
+.table-rules { color: #c0d5c9; font-size: .7rem; margin: .6rem 0; }
+.table-status { text-align: center; min-height: 66px; margin: .75rem 0; }
+.table-status strong { display: block; color: #fff4d7; font-size: 1.05rem; }
+.table-status > span { color: #d0e1d6; font-size: .8rem; }
+.seats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7rem; align-items: start; }
+.seat { min-width: 0; border: 1px solid #92b4a43d; border-radius: 1rem; padding: .8rem; background: #072b24a6; transition: border-color .3s, box-shadow .3s, background .3s; }
+.seat.current { border-color: var(--gold); box-shadow: 0 0 0 2px #e7cc8e30, 0 0 25px #e7cc8e15; background: #214c37; }
+.seat.your-seat .avatar { background: #d5bc82; color: #183c2d; }
+.seat-header { padding-bottom: .65rem; border-bottom: 1px solid #ffffff18; }
+.avatar { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #ffffff16; font-weight: 700; }
+.seat-name { min-width: 0; flex: 1; }
+.seat-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
+.seat-name > span { display: block; color: #bdd3c6; font-size: .55rem; letter-spacing: .08em; }
+.bankroll { text-align: right; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.bankroll small { display: block; font-size: .6rem; color: #bdd3c6; }
+.hand { padding: .6rem 0 .2rem; }
+.hand + .hand { border-top: 1px dashed #ffffff35; }
+.active-hand .total { background: var(--gold); color: #163c2e; }
+.wager { display: flex; gap: .35rem; align-items: center; color: #f3dca4; font-size: .8rem; font-weight: 600; }
+.chip { display: inline-block; width: 19px; height: 19px; border-radius: 50%; border: 3px dashed #fff1c3; background: #b04443; box-shadow: 0 2px 0 #0006; }
+.total { display: inline-block; padding: .1rem .45rem; background: #ffffff18; border-radius: 1rem; font-size: .8rem; font-weight: 700; }
+.total.bust { color: #ffd0ce; background: #742e38; }
+.ready { font-size: .7rem; letter-spacing: .15em; color: #b9d7c6; margin: auto; }
+.hand-result { font-size: .8rem; font-weight: 600; color: #e9d8c3; }
+.win { color: #adf5bf; }
+.settlement { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .2rem .5rem; margin-top: .5rem; padding-top: .5rem; border-top: 1px solid #ffffff20; font-weight: 700; font-size: .9rem; animation: settle .6s ease-out both; }
+.insurance { font-size: .7rem; color: #ecdaae; }
+.empty-seat { min-height: 209px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: .3rem; background: #072b2433; border-style: dashed; color: #b4cec0; }
+.empty-seat strong { font-size: .8rem; font-weight: 500; }
+.empty-seat > span:last-child { font-size: .7rem; }
+.empty-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px dashed #b4cec060; border-radius: 50%; font-size: 1.4rem; margin-bottom: .5rem; }
+
+@keyframes settle {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@container (max-width: 700px) {
+    .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1000px) and (max-height: 900px) {
+    .felt {
+        --blackjack-card-width: clamp(46px, 8dvh, 60px);
+        --blackjack-card-rank: 16px;
+        --blackjack-card-pip: 1.2rem;
+        padding: .5rem .75rem;
+        border-width: 5px;
+        border-radius: 1.5rem;
+    }
+
+    .dealer { display: flex; align-items: center; justify-content: center; gap: 1.5rem; padding: .25rem 0; }
+    .dealer .hand-heading { min-height: 0; }
+    .table-lettering { margin-top: 0; font-size: 1.2rem; }
+    .table-rules { display: none; }
+    .table-status { display: flex; justify-content: center; align-items: baseline; flex-wrap: wrap; gap: .4rem; min-height: 0; margin: .3rem 0; }
+    .table-status strong { font-size: .9rem; }
+    .table-status > span { font-size: .75rem; }
+    .seat { padding: .5rem; }
+    .seat-header { padding-bottom: .4rem; }
+    .cards { min-height: 0; padding: .3rem 0; }
+    .empty-seat { min-height: 150px; }
+    .hand { padding-top: .4rem; }
+    .settlement { margin-top: .3rem; padding-top: .3rem; }
+}
+
+@media (max-width: 600px) {
+    .felt { padding: .7rem; border-width: 5px; border-radius: 1.5rem; }
+    .seats { gap: .5rem; }
+    .seat { padding: .55rem; }
+    .avatar { display: none; }
+    .table-meta { font-size: .6rem; }
+    .table-rules { font-size: .6rem; }
+    .cards { min-height: 80px; }
+    .empty-seat { min-height: 100px; }
+    .empty-mark { width: 28px; height: 28px; margin-bottom: 0; }
+}
+
+@media (min-width: 1000px) and (max-height: 650px) {
+    .felt { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+    .table-meta { flex-direction: column; align-items: flex-start; justify-content: center; gap: .3rem; }
+    .dealer { padding: 0; gap: .75rem; }
+    .table-lettering { display: none; }
+    .table-status, .seats { grid-column: 1 / -1; }
+    .table-status { margin: .2rem 0; }
+    .seat-header { padding-bottom: .2rem; }
+    .hand { padding-top: .2rem; }
+    .hand .cards { gap: 0; }
+    .hand .cards ::deep .playing-card + .playing-card { margin-left: calc(var(--blackjack-card-width) * -.4); }
+    .settlement { margin-top: .2rem; padding-top: .2rem; font-size: .75rem; }
+    .settlement .hand-result { font-size: .7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .seat { transition: none; }
+    .settlement { animation: none; }
+}

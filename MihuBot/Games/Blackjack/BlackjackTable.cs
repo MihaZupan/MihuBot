@@ -1,4 +1,4 @@
-namespace MihuBot.Discord.Games;
+namespace MihuBot.Games.Blackjack;
 
 internal sealed class BlackjackTable
 {
@@ -28,7 +28,6 @@ internal sealed class BlackjackTable
 
     public decimal GetBalance(ulong userId) => _balances.GetValueOrDefault(userId, StartingChips);
 
-    public string LobbyCustomId(string action) => $"blackjack-{Id}-lobby-{action}";
     public string CustomId(BlackjackAction action) => $"blackjack-{Id}-{Revision}-{action}";
 
     public string Join(ulong userId, string name, decimal bet, DateTime now)
@@ -54,7 +53,7 @@ internal sealed class BlackjackTable
 
         if (balance < bet)
         {
-            return "Not enough chips. Use `!bj balance`, lower your bet, or `!bj rebuy` if below 10.";
+            return "Not enough chips. Lower your bet, or rebuy when your balance is below 10.";
         }
 
         if (existing != null)
@@ -104,16 +103,16 @@ internal sealed class BlackjackTable
         return null;
     }
 
-    public string Deal(ulong userId, DateTime now, bool isAdmin = false)
+    public string Deal(ulong userId, DateTime now)
     {
         if (!IsLobby)
         {
-            return "There is no open betting window. Join with `!bj [bet]`.";
+            return "There is no open betting window. Place a bet to join.";
         }
 
-        if (userId != HostId && !isAdmin)
+        if (userId != HostId)
         {
-            return "Only the host or a bot admin can deal early. Otherwise the table deals automatically.";
+            return "Only the host can deal early. Otherwise the table deals automatically.";
         }
 
         Start(now);
