@@ -463,7 +463,7 @@ public sealed class AreaLabelToolChatTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         Assert.True(chat.AllowConcurrentInvocation);
-        Assert.Equal(20, AreaLabelToolChatClient.MaxToolCalls);
+        Assert.Equal(30, AreaLabelToolChatClient.MaxToolCalls);
         await chat.GetResponseAsync("Classify.", new ChatOptions { Tools = [tool] }, timeout.Token);
 
         Assert.Equal(2, started);
