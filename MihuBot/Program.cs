@@ -382,6 +382,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (gitHubAIEnabled)
     {
+        services.AddSingleton<GitHubReadOnlyMcp>();
         services.AddSingleton<AreaLabelDetector>();
         services.AddSingleton<AreaLabelBacktestService>();
         services.AddSingleton<DetectIssueAreaLabelsService>();

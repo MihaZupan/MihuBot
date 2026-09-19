@@ -116,7 +116,7 @@ public sealed class AreaLabelsApiTests
             Assert.Matches(@" in \d+[.,]\d{2}s:", message);
             Assert.DoesNotContain('\n', message);
         });
-        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-"], cache.Keys);
+        Assert.Equal([$"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-:github-mcp-v2", $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-:github-mcp-v2"], cache.Keys);
     }
 
     [Fact]
@@ -278,7 +278,9 @@ public sealed class AreaLabelsApiTests
             HybridCacheEntryOptions? options = null, IEnumerable<string>? tags = null, CancellationToken cancellationToken = default)
         {
             Keys.Enqueue(key);
-            LabelPrefix = key.Split(':', 6)[5];
+            const string toolSuffix = ":github-mcp-v2";
+            string baseKey = key.EndsWith(toolSuffix, StringComparison.Ordinal) ? key[..^toolSuffix.Length] : key;
+            LabelPrefix = baseKey.Split(':', 6)[5];
             Tags = tags?.ToArray();
 
             if (Interlocked.Increment(ref _calls) == 10)

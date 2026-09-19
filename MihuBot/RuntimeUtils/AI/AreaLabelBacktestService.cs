@@ -60,11 +60,12 @@ public sealed class AreaLabelBacktestService
             throw new InvalidOperationException("The repository has no active area-* labels to predict.");
         }
 
-        var settings = _getPredictionSettings();
+        var settings = _getPredictionSettings() with { FilterTargetData = true };
         var report = new AreaLabelBacktestReport(request)
         {
             Model = settings.Model,
             ReasoningEffort = settings.ReasoningEffort.ToString(),
+            GitHubToolsEnabled = settings.UseGitHubTools,
         };
         IReadOnlyList<Issue> issues;
 
@@ -400,6 +401,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
 {
     public string Model { get; init; }
     public string ReasoningEffort { get; init; }
+    public bool GitHubToolsEnabled { get; init; }
     public List<AreaLabelEvaluation> Issues { get; } = [];
     public bool Cancelled { get; set; }
     internal AreaLabelEvaluation[] PredictedIssues => [.. Issues.Where(i => i.Suggestions is not null)];
@@ -420,6 +422,7 @@ internal sealed class AreaLabelBacktestReport(AreaLabelBacktestRequest request)
         text.AppendLine(string.Create(CultureInfo.InvariantCulture, $"Generated: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm} UTC"));
         text.AppendLine(Summary);
         text.AppendLine($"Prediction model: {Model}; reasoning effort: {ReasoningEffort}");
+        text.AppendLine($"Live GitHub MCP tools: {(GitHubToolsEnabled ? "enabled with target-data filtering (best effort)" : "disabled by configuration")}.");
         text.AppendLine($"Original labeler actor: {request.LabelerActor}");
         text.AppendLine(request.IssueNumber is { } number ? $"Scope: issue #{number}." : "Scope: newest issues, open and closed; no pull requests.");
         text.AppendLine("Scoring: top answer vs full area-label set; no answer / needs-area-label = abstention. Lower suggestions do not change matches.");

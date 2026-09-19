@@ -128,14 +128,43 @@ public sealed class AreaLabelDetectionTests
         AreaLabelSuggestion[] area = [new("area-Test", 0.9)];
         AreaLabelSuggestion[] component = [new("component:Runtime", 0.9)];
         AreaLabelSuggestion[] discussion = [new("area-Discussion", 0.9)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", area);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:component:", component);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:124:area-", discussion);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-:github-mcp-v2", area);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:component::github-mcp-v2", component);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:124:area-:github-mcp-v2", discussion);
         using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, new TestConfigurationService());
 
         Assert.Equal(area, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
         Assert.Equal(component, await detector.PredictAsync("DOTNET/RUNTIME", 123, "COMPONENT:", CancellationToken.None));
         Assert.Equal(discussion, await detector.PredictAsync("dotnet/runtime", 124, "area-", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GitHubToolsDefaultToEnabledAndOptingOutSelectsSeparateCachedPredictions()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHybridCache();
+        await using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<HybridCache>();
+        var configuration = new TestConfigurationService();
+        AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
+        AreaLabelSuggestion[] tools = [new("area-Tools", 0.8)];
+        string key = $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-";
+        await cache.SetAsync(key, original);
+        await cache.SetAsync($"{key}:github-mcp-v2", tools);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
+
+        Assert.True(detector.GetPredictionSettings().UseGitHubTools);
+        Assert.False(detector.GetPredictionSettings().FilterTargetData);
+        Assert.Equal(tools, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Set(null, "AreaLabelDetector.GitHubTools", "false");
+        Assert.False(detector.GetPredictionSettings().UseGitHubTools);
+        Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
+
+        configuration.Remove(null, "AreaLabelDetector.GitHubTools");
+        Assert.True(detector.GetPredictionSettings().UseGitHubTools);
+        Assert.Equal(tools, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
     }
 
     [Theory]
@@ -151,8 +180,8 @@ public sealed class AreaLabelDetectionTests
         var configuration = new TestConfigurationService();
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
-        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:medium:dotnet/runtime:123:area-", alternative);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-:github-mcp-v2", original);
+        await cache.SetAsync($"AreaLabels:{Uri.EscapeDataString(model)}:medium:dotnet/runtime:123:area-:github-mcp-v2", alternative);
         using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
@@ -202,8 +231,8 @@ public sealed class AreaLabelDetectionTests
         var configuration = new TestConfigurationService();
         AreaLabelSuggestion[] original = [new("area-Original", 0.9)];
         AreaLabelSuggestion[] alternative = [new("area-Alternative", 0.8)];
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-", original);
-        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:{effort}:dotnet/runtime:123:area-", alternative);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:area-:github-mcp-v2", original);
+        await cache.SetAsync($"AreaLabels:{OpenAIService.DefaultModel}:{effort}:dotnet/runtime:123:area-:github-mcp-v2", alternative);
         using var detector = new AreaLabelDetector(null!, null!, null!, null!, cache, null!, configuration);
 
         Assert.Equal(original, await detector.PredictAsync("dotnet/runtime", 123, "area-", CancellationToken.None));
