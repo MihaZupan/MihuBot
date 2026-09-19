@@ -56,7 +56,7 @@ public sealed class BlackjackMultiplayerTests
     }
 
     [Fact]
-    public void TableLimitIsFourAndOnlyTheHostCanDealEarly()
+    public void TableLimitIsFourAndNonAdminsCannotDealForTheHost()
     {
         var table = Table(2, 3, 4, 5, 10, 3, 4, 5, 6, 7);
 
@@ -74,6 +74,47 @@ public sealed class BlackjackMultiplayerTests
         Assert.NotNull(table.Join(5, "Late arrival", 10, s_now));
         Assert.NotNull(table.Leave(1, s_now));
         Assert.NotNull(table.Rebuy(1));
+    }
+
+    [Fact]
+    public void AdminCanDealWithoutASeatButCannotRedealAnActiveRound()
+    {
+        var table = Table(10, 10, 8, 7);
+        Assert.NotNull(table.Deal(99, s_now, isAdmin: true));
+        Join(table, 1);
+        Assert.NotNull(table.Deal(99, s_now));
+        Assert.True(table.IsLobby);
+        Assert.Equal(312, table.Shoe.Remaining);
+        Assert.Null(table.Deal(99, s_now, isAdmin: true));
+        Assert.False(table.IsLobby);
+        Assert.Equal(1ul, table.HostId);
+        Assert.Equal(1ul, Assert.Single(table.Seats).Id);
+        Assert.Equal(900, table.GetBalance(1));
+        Assert.Equal(1_000, table.GetBalance(99));
+        Assert.Equal(308, table.Shoe.Remaining);
+        BlackjackGame game = table.Game;
+        Assert.NotNull(table.Deal(99, s_now, isAdmin: true));
+        Assert.Same(game, table.Game);
+        Assert.Equal(308, table.Shoe.Remaining);
+        Assert.Equal(900, table.GetBalance(1));
+    }
+
+    [Fact]
+    public void EachMoveAndNextPlayerGetThirtySeconds()
+    {
+        var table = Table(2, 9, 10, 3, 7, 8, 4);
+        Join(table, 1);
+        Join(table, 2);
+        table.Deal(1, s_now);
+        Assert.Equal(s_now.AddSeconds(30), table.Deadline);
+
+        Assert.True(table.TryAct(1, table.CustomId(BlackjackAction.Hit), s_now.AddSeconds(10)));
+        Assert.Equal(s_now.AddSeconds(40), table.Deadline);
+        Assert.False(table.Expire(s_now.AddSeconds(39)));
+        Assert.True(table.Expire(s_now.AddSeconds(40)));
+        Assert.Equal(2ul, table.Game.ActivePlayer.Id);
+        Assert.Equal(s_now.AddSeconds(70), table.Deadline);
+        Assert.False(table.Game.IsComplete);
     }
 
     [Fact]

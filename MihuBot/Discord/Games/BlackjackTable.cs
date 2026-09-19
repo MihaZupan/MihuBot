@@ -4,7 +4,7 @@ internal sealed class BlackjackTable
 {
     public const decimal StartingChips = 1_000;
     public static readonly TimeSpan BettingTime = TimeSpan.FromSeconds(30);
-    public static readonly TimeSpan TurnTime = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan TurnTime = TimeSpan.FromSeconds(30);
 
     private readonly Dictionary<ulong, decimal> _balances = [];
     private readonly List<BlackjackPlayer> _seats = [];
@@ -104,16 +104,16 @@ internal sealed class BlackjackTable
         return null;
     }
 
-    public string Deal(ulong userId, DateTime now)
+    public string Deal(ulong userId, DateTime now, bool isAdmin = false)
     {
         if (!IsLobby)
         {
             return "There is no open betting window. Join with `!bj [bet]`.";
         }
 
-        if (userId != HostId)
+        if (userId != HostId && !isAdmin)
         {
-            return "Only the host (first seated player) can deal early. Otherwise the table deals automatically.";
+            return "Only the host or a bot admin can deal early. Otherwise the table deals automatically.";
         }
 
         Start(now);

@@ -15,8 +15,9 @@ The dropdown provides preset wagers from 10 to 500; `!bj [bet]` supports any
 whole amount in that range and also changes an existing lobby bet.
 Updates edit the existing board, and selection errors are shown privately
 rather than posting channel messages. The first seated player is the host
-and can **Deal** / `!bj deal` early, including when playing solo; otherwise the
-round starts automatically. Seats are filled in join order.
+and can **Deal** / `!bj deal` early, including when playing solo. Bot admins
+can also deal early, even without a seat; otherwise the round starts
+automatically. Seats are filled in join order.
 
 `!bj leave` / **Leave / refund** returns a lobby wager before cards are dealt.
 If the host leaves, the next seated player becomes host. Once play starts,
@@ -28,7 +29,7 @@ automatically.
 round (including after a failed message update), and `!bj balance` shows your
 channel balance. Players act in seat order, completing all their split hands
 before the next player's turn. Only the highlighted player can act, and old
-buttons cannot act on a newer turn or round. After two minutes without a move,
+buttons cannot act on a newer turn or round. After 30 seconds without a move,
 the bot declines that player's pending insurance or stands on their remaining
 hands. The next player gets their own full turn; a timeout does not auto-play
 everyone else.

@@ -18,8 +18,8 @@ public sealed class BlackjackCommand(Logger logger, IHostApplicationLifetime lif
         **Playing here**
         `!bj [bet]` / `!blackjack [bet]`: four seats, whole-chip bets 10-500 (default 10).
         Use the dropdown to join/change your bet and the buttons to play.
-        Betting lasts 30 seconds; the host can Deal early. Leave / refund works before dealing.
-        Two-minute turn timeout: decline your insurance or stand on your remaining hands.
+        Betting lasts 30 seconds; the host or a bot admin can Deal early. Leave / refund works before dealing.
+        30-second turn timeout: decline your insurance or stand on your remaining hands.
 
         **Table**
         6 decks / blackjack 3:2 / stand on soft 17 / dealer peek / late surrender.
@@ -99,7 +99,7 @@ public sealed class BlackjackCommand(Logger logger, IHostApplicationLifetime lif
 
             if (argument == "deal")
             {
-                error = state.Deal(ctx.AuthorId, DateTime.UtcNow);
+                error = state.Deal(ctx.AuthorId, DateTime.UtcNow, isAdmin: ctx.IsFromAdmin);
             }
             else if (argument == "leave")
             {
@@ -179,7 +179,7 @@ public sealed class BlackjackCommand(Logger logger, IHostApplicationLifetime lif
             }
             else if (id == state.LobbyCustomId("Deal"))
             {
-                error = state.Deal(component.User.Id, DateTime.UtcNow);
+                error = state.Deal(component.User.Id, DateTime.UtcNow, isAdmin: Constants.Admins.Contains(component.User.Id));
             }
             else
             {
@@ -330,7 +330,7 @@ public sealed class BlackjackCommand(Logger logger, IHostApplicationLifetime lif
 
             if (table.IsLobby)
             {
-                builder.WithButton("Deal (host)", table.LobbyCustomId("Deal"), ButtonStyle.Primary, row: 1);
+                builder.WithButton("Deal (host/admin)", table.LobbyCustomId("Deal"), ButtonStyle.Primary, row: 1);
                 builder.WithButton("Leave / refund", table.LobbyCustomId("Leave"), ButtonStyle.Secondary, row: 1);
             }
         }
@@ -361,7 +361,7 @@ public sealed class BlackjackCommand(Logger logger, IHostApplicationLifetime lif
         long deadline = table.IsActive ? new DateTimeOffset(table.Deadline).ToUnixTimeSeconds() : 0;
         string description = table.IsLobby
             ? $"**Betting open: {table.Seats.Count}/4 seats.** Choose a bet below to join or change your wager.\n" +
-                $"Auto-deal <t:{deadline}:R>; host <@{table.HostId}> can deal early."
+                $"Auto-deal <t:{deadline}:R>; host <@{table.HostId}> or a bot admin can deal early."
             : table.Game is { IsComplete: false } game
                 ? $"**Seat {game.ActivePlayerIndex + 1}: <@{game.ActivePlayer.Id}>** - " +
                     (game.OfferingInsurance ? "insurance decision." : $"play hand {game.ActivePlayer.ActiveHandIndex + 1}.") +
