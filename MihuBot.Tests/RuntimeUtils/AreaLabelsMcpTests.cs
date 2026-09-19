@@ -40,7 +40,7 @@ public sealed class AreaLabelsMcpTests
         string prefix = labelPrefix ?? "area-";
         AreaLabelSuggestion[] expected = [new($"{prefix}Test", 0.9)];
         await cache.SetAsync(
-            $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:{prefix}:github-mcp-v2", expected);
+            $"AreaLabels:{OpenAIService.DefaultModel}:medium:dotnet/runtime:123:{prefix}", expected);
         await app.StartAsync();
 
         string address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();

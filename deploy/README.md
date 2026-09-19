@@ -136,10 +136,6 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
 
-Tool-enabled label prediction requires Responses API support on the selected
-Azure OpenAI chat endpoint (secondary when configured, otherwise primary).
-Each prediction starts a new response chain whose history is stored by the provider.
-
 For Molly, use a single instance or instance affinity. Avoid
 process dumps and memory snapshots that retain expired transport secrets.
 The client protocol is documented in [Molly's README](../MihuBot/Molly/README.md).

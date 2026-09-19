@@ -26,13 +26,12 @@ public sealed class AreaLabelBacktestTests
     }
 
     [Theory]
-    [InlineData(null, null, true)]
-    [InlineData("custom-model", "high", false)]
-    [InlineData("custom-model", "none", true)]
-    public async Task ReportIncludesPredictionSettingsCapturedOncePerRun(string? model, string? reasoning, bool useGitHubTools)
+    [InlineData(null, null)]
+    [InlineData("custom-model", "high")]
+    [InlineData("custom-model", "none")]
+    public async Task ReportIncludesPredictionSettingsCapturedOncePerRun(string? model, string? reasoning)
     {
         var configuration = new TestConfigurationService();
-        configuration.Set(null, "AreaLabelDetector.GitHubTools", useGitHubTools ? "true" : "false");
 
         if (model is not null)
         {
@@ -71,10 +70,6 @@ public sealed class AreaLabelBacktestTests
         Assert.Same(predictionSettings[0], predictionSettings[1]);
         Assert.Equal(model ?? OpenAIService.DefaultModel, predictionSettings[0].Model);
         Assert.Equal(reasoning ?? "medium", predictionSettings[0].ReasoningEffort.ToString());
-        Assert.All(predictionSettings, settings => Assert.Equal(useGitHubTools, settings.UseGitHubTools));
-        Assert.All(predictionSettings, settings => Assert.True(settings.FilterTargetData));
-        Assert.Contains($"Live GitHub MCP tools: {(useGitHubTools ? "enabled with target-data filtering" : "disabled by configuration")}",
-            report.ToText(), StringComparison.Ordinal);
         Assert.Contains($"Prediction model: {model ?? OpenAIService.DefaultModel}; reasoning effort: {reasoning ?? "medium"}", report.ToText(), StringComparison.Ordinal);
 
         var nextReport = await service.RunAsync(new("o/r", null, 2, Labeler), CancellationToken.None);
