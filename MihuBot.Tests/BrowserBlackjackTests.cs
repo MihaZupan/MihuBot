@@ -25,7 +25,7 @@ public sealed class BrowserBlackjackTests
             front.Add(card);
         }
 
-        return new BlackjackTable(new BlackjackShoe(front.Concat(cards)));
+        return new BlackjackTable(new BlackjackShoe(front.Concat(cards), decks: 6));
     }
 
     private sealed class Clock : TimeProvider
@@ -82,7 +82,7 @@ public sealed class BrowserBlackjackTests
     }
 
     [Fact]
-    public void BrowserRoomsKeepIndependentMoneyShoesAndHands()
+    public void BrowserRoomsShareAccountMoneyButKeepIndependentShoesAndHands()
     {
         using var game = new Game(10, 10, 8, 7).Start();
         (string second, string? error) = game.Service.CreateRoom(User(1));
@@ -92,29 +92,29 @@ public sealed class BrowserBlackjackTests
 
         Assert.Equal(900, game.Read().Balance);
         Assert.Equal(308, game.Read().RemainingCards);
-        Assert.Equal(1_000, game.Service.Read(second, User(1)).Balance);
+        Assert.Equal(900, game.Service.Read(second, User(1)).Balance);
         Assert.Equal(312, game.Service.Read(second, User(1)).RemainingCards);
         Assert.Empty(game.Service.Read(second, User(1)).Seats);
     }
 
     [Fact]
-    public void FourSeatsBetChangesRefundsAndHostTransferAreSharedAcrossViewers()
+    public void SixSeatsBetChangesRefundsAndHostTransferAreSharedAcrossViewers()
     {
         using var game = new Game().Start();
 
-        for (ulong id = 1; id <= 4; id++)
+        for (ulong id = 1; id <= 6; id++)
         {
             game.Move(id, BrowserBlackjackCommand.Join);
         }
 
-        Assert.NotNull(game.Service.Execute(game.Room, User(5), game.Read().Version, BrowserBlackjackCommand.Join));
+        Assert.Contains("All six seats", game.Service.Execute(game.Room, User(7), game.Read(7).Version, BrowserBlackjackCommand.Join), StringComparison.Ordinal);
         DateTime deadline = game.Read().Deadline;
         game.Move(1, BrowserBlackjackCommand.Join, 250);
         Assert.Equal(750, game.Read().Balance);
         Assert.Equal(deadline, game.Read().Deadline);
         Assert.Equal(1ul, game.Read(2).HostId);
-        Assert.Equal(4, game.Read(2).Seats.Count);
-        Assert.NotNull(game.Service.Execute(game.Room, User(2), game.Read().Version, BrowserBlackjackCommand.Deal));
+        Assert.Equal(6, game.Read(2).Seats.Count);
+        Assert.Contains("Only the host", game.Service.Execute(game.Room, User(2), game.Read(2).Version, BrowserBlackjackCommand.Deal), StringComparison.Ordinal);
         game.Move(1, BrowserBlackjackCommand.Leave);
         Assert.Equal(1_000, game.Read().Balance);
         Assert.Equal(2ul, game.Read().HostId);
@@ -166,15 +166,18 @@ public sealed class BrowserBlackjackTests
     }
 
     [Fact]
-    public void OnlyCurrentPlayerCanActAndConcurrentDuplicateMovesApplyOnce()
+    public void PlayersActIndependentlyAndConcurrentDuplicateMovesApplyOnce()
     {
         using var game = new Game(2, 9, 10, 3, 7, 8, 4, 5).Start();
         game.Move(1, BrowserBlackjackCommand.Join);
         game.Move(2, BrowserBlackjackCommand.Join);
         game.Move(1, BrowserBlackjackCommand.Deal);
         long version = game.Read().Version;
-        Assert.Empty(game.Read(2).Actions);
-        Assert.NotNull(game.Service.Execute(game.Room, User(2), version, BrowserBlackjackCommand.Hit));
+        Assert.Contains(BrowserBlackjackCommand.Hit, game.Read(2).Actions);
+        Assert.True(game.Read(2).YourTurn);
+        Assert.Null(game.Service.Execute(game.Room, User(2), game.Read(2).Version, BrowserBlackjackCommand.Hit));
+        Assert.Equal(version, game.Read().Version);
+        Assert.NotNull(game.Service.Execute(game.Room, User(3), game.Read(3).Version, BrowserBlackjackCommand.Hit));
         Assert.NotNull(game.Service.Execute(game.Room, User(1), version, BrowserBlackjackCommand.Split));
 
         var errors = new string?[2];
@@ -185,10 +188,11 @@ public sealed class BrowserBlackjackTests
 
         Assert.Single(errors, e => e is null);
         Assert.Single(errors, e => e is not null);
-        Assert.Equal(version + 1, game.Read().Version);
+        Assert.Equal(version + 2, game.Read().Version);
         Assert.Equal(3, game.Read().Seats[0].Hands[0].Cards.Count);
         game.Move(1, BrowserBlackjackCommand.Stand);
-        Assert.Equal(2ul, game.Read().ActivePlayerId);
+        Assert.False(game.Read().YourTurn);
+        Assert.True(game.Read(2).YourTurn);
         Assert.Contains(BrowserBlackjackCommand.Hit, game.Read(2).Actions);
         Assert.DoesNotContain(BrowserBlackjackCommand.Hit, game.Read(1).Actions);
     }
@@ -196,35 +200,64 @@ public sealed class BrowserBlackjackTests
     [Fact]
     public void TimersRunWithoutViewersAndLateActionsCannotBeatExpiration()
     {
-        using var game = new Game(2, 9, 10, 3, 7, 8).Start();
+        using var game = new Game(2, 9, 10, 3, 7, 8, 4).Start();
         game.Move(1, BrowserBlackjackCommand.Join);
         game.Move(2, BrowserBlackjackCommand.Join);
         long lobbyVersion = game.Read().Version;
         game.Clock.Now += TimeSpan.FromSeconds(30);
         Assert.NotNull(game.Service.Execute(game.Room, User(1), lobbyVersion, BrowserBlackjackCommand.Leave));
         Assert.False(game.Read().Lobby);
-        Assert.Equal(1ul, game.Read().ActivePlayerId);
-        game.Clock.Now += TimeSpan.FromSeconds(30);
+        Assert.True(game.Read().YourTurn);
+        Assert.True(game.Read(2).YourTurn);
+        game.Clock.Now += TimeSpan.FromSeconds(20);
+        game.Move(1, BrowserBlackjackCommand.Hit);
+        game.Clock.Now += TimeSpan.FromSeconds(10);
         game.Service.Sweep();
-        Assert.Equal(2ul, game.Read().ActivePlayerId);
-        Assert.Contains("timed out", game.Read().Notice, StringComparison.Ordinal);
-        Assert.Equal(game.Clock.Now.UtcDateTime.AddSeconds(30), game.Read().Deadline);
-        game.Clock.Now += TimeSpan.FromSeconds(30);
+        Assert.True(game.Read().YourTurn);
+        Assert.False(game.Read(2).YourTurn);
+        Assert.Contains("Seat 2 timed out", game.Read().Notice, StringComparison.Ordinal);
+        Assert.Equal(game.Clock.Now.UtcDateTime.AddSeconds(20), game.Read().Deadline);
+        Assert.Null(game.Read().Seats[1].Deadline);
+        game.Clock.Now += TimeSpan.FromSeconds(20);
         game.Service.Sweep();
         Assert.True(game.Read().Complete);
-        Assert.Equal(0ul, game.Read().ActivePlayerId);
+        Assert.False(game.Read().YourTurn);
     }
 
     [Fact]
-    public void InsuranceMovesArePrivateToCurrentPlayerAndTimeoutOnlyDeclinesOne()
+    public void ExpiringAnotherPlayerDoesNotInvalidateAnInFlightMove()
+    {
+        using var game = new Game(2, 9, 10, 3, 7, 8, 4, 2).Start();
+        game.Move(1, BrowserBlackjackCommand.Join);
+        game.Move(2, BrowserBlackjackCommand.Join);
+        game.Move(1, BrowserBlackjackCommand.Deal);
+        game.Clock.Now += TimeSpan.FromSeconds(20);
+        game.Move(1, BrowserBlackjackCommand.Hit);
+        long version = game.Read().Version;
+        game.Clock.Now += TimeSpan.FromSeconds(10);
+
+        Assert.Null(game.Service.Execute(game.Room, User(1), version, BrowserBlackjackCommand.Hit));
+        Assert.True(game.Read().YourTurn);
+        Assert.False(game.Read(2).YourTurn);
+        Assert.Equal(4, game.Read().Seats[0].Hands[0].Cards.Count);
+        Assert.Equal(game.Clock.Now.UtcDateTime.AddSeconds(30), game.Read().Deadline);
+        Assert.False(game.Read().Complete);
+    }
+
+    [Fact]
+    public void InsuranceDecisionsAreIndependentAndTimeoutFinishesTheBarrier()
     {
         using var game = new Game(10, 9, 1, 8, 7, 10).Start();
         game.Move(1, BrowserBlackjackCommand.Join);
         game.Move(2, BrowserBlackjackCommand.Join);
         game.Move(1, BrowserBlackjackCommand.Deal);
         Assert.True(game.Read().Insurance);
+        Assert.Contains(BrowserBlackjackCommand.Insure, game.Read(2).Actions);
         Assert.Equal(new[] { BrowserBlackjackCommand.Close, BrowserBlackjackCommand.Insure, BrowserBlackjackCommand.DeclineInsurance }, game.Read().Actions);
         game.Move(1, BrowserBlackjackCommand.Insure);
+        Assert.False(game.Read().YourTurn);
+        Assert.True(game.Read(2).YourTurn);
+        Assert.DoesNotContain(BrowserBlackjackCommand.Hit, game.Read().Actions);
         Assert.Equal(850, game.Read().Balance);
         Assert.Equal(50, game.Read().Seats[0].InsuranceBet);
         Assert.Equal(0, game.Read().Dealer[1].Rank);
@@ -234,6 +267,154 @@ public sealed class BrowserBlackjackTests
         Assert.Equal(1_000, game.Read().Balance);
         Assert.Equal(150, game.Read().Seats[0].InsuranceReturned);
         Assert.Equal(900, game.Read(2).Balance);
+    }
+
+    [Fact]
+    public void SixPlayersCanJoinHitAndStandConcurrentlyWithoutStalePeerErrors()
+    {
+        using var game = new Game(2, 2, 2, 2, 2, 2, 10, 3, 3, 3, 3, 3, 3, 7, 4, 4, 4, 4, 4, 4).Start();
+        var errors = new string?[6];
+        Parallel.For(0, 6, i =>
+            errors[i] = game.Service.Execute(game.Room, User((ulong)i + 1), 0, BrowserBlackjackCommand.Join, 100));
+        Assert.All(errors, error => Assert.Null(error));
+        Assert.Equal(6, game.Read().Seats.Count);
+        game.Move(game.Read().HostId, BrowserBlackjackCommand.Deal);
+        long[] versions = Enumerable.Range(1, 6).Select(id => game.Read((ulong)id).Version).ToArray();
+
+        Parallel.For(0, 6, i =>
+            errors[i] = game.Service.Execute(game.Room, User((ulong)i + 1), versions[i], BrowserBlackjackCommand.Hit));
+        Assert.All(errors, error => Assert.Null(error));
+        var playing = game.Read();
+        Assert.False(playing.Complete);
+        Assert.Equal(2, playing.Dealer.Count);
+        Assert.Equal(0, playing.Dealer[1].Rank);
+        Assert.Equal(292, playing.RemainingCards);
+        Assert.All(playing.Seats, seat =>
+        {
+            Assert.True(seat.Pending);
+            Assert.True(Assert.Single(seat.Hands).Active);
+            Assert.Equal(3, seat.Hands[0].Cards.Count);
+            Assert.Equal(9, seat.Hands[0].Total);
+            Assert.Equal(900, seat.Balance);
+        });
+
+        versions = Enumerable.Range(1, 6).Select(id => game.Read((ulong)id).Version).ToArray();
+        Parallel.For(0, 6, i =>
+            errors[i] = game.Service.Execute(game.Room, User((ulong)i + 1), versions[i], BrowserBlackjackCommand.Stand));
+        Assert.All(errors, error => Assert.Null(error));
+        var settled = game.Read();
+        Assert.True(settled.Complete);
+        Assert.Equal(17, settled.DealerTotal);
+        Assert.Equal(292, settled.RemainingCards);
+        Assert.All(settled.Seats, seat =>
+        {
+            Assert.False(seat.Pending);
+            Assert.Null(seat.Deadline);
+            Assert.Equal(900, seat.Balance);
+        });
+        Assert.NotNull(game.Service.Execute(game.Room, User(1), versions[0], BrowserBlackjackCommand.Stand));
+        Assert.Equal(900, game.Read().Balance);
+    }
+
+    [Fact]
+    public void InsuranceBarrierAcceptsParallelAnswersAndStartsFreshTimersForEveryone()
+    {
+        using var game = new Game(2, 2, 2, 2, 2, 2, 1, 3, 3, 3, 3, 3, 3, 9).Start();
+
+        for (ulong id = 1; id <= 6; id++)
+        {
+            game.Move(id, BrowserBlackjackCommand.Join);
+        }
+
+        game.Move(1, BrowserBlackjackCommand.Deal);
+        long insuranceVersion = game.Read().Version;
+        var errors = new string?[5];
+        Parallel.For(0, 5, i =>
+            errors[i] = game.Service.Execute(game.Room, User((ulong)i + 1), insuranceVersion, BrowserBlackjackCommand.DeclineInsurance));
+        Assert.All(errors, error => Assert.Null(error));
+        Assert.True(game.Read().Insurance);
+        Assert.False(game.Read().YourTurn);
+        Assert.True(game.Read(6).YourTurn);
+        Assert.Equal(0, game.Read().Dealer[1].Rank);
+        long waitingVersion = game.Read().Version;
+        Assert.NotNull(game.Service.Execute(game.Room, User(1), waitingVersion, BrowserBlackjackCommand.Hit));
+        Assert.NotNull(game.Service.Execute(game.Room, User(1), waitingVersion, BrowserBlackjackCommand.Insure));
+        game.Clock.Now += TimeSpan.FromSeconds(20);
+        game.Move(6, BrowserBlackjackCommand.Insure);
+        Assert.False(game.Read().Insurance);
+        Assert.NotNull(game.Service.Execute(game.Room, User(1), waitingVersion, BrowserBlackjackCommand.Hit));
+
+        for (ulong id = 1; id <= 6; id++)
+        {
+            Assert.True(game.Read(id).YourTurn);
+            Assert.Contains(BrowserBlackjackCommand.Hit, game.Read(id).Actions);
+            Assert.Equal(game.Clock.Now.UtcDateTime.AddSeconds(30), game.Read(id).Deadline);
+        }
+
+        game.Clock.Now += TimeSpan.FromSeconds(10);
+        game.Service.Sweep();
+        Assert.False(game.Read().Complete);
+        game.Clock.Now += TimeSpan.FromSeconds(20);
+        game.Service.Sweep();
+        Assert.True(game.Read().Complete);
+        Assert.Equal(20, game.Read().DealerTotal);
+        Assert.Equal(900, game.Read(1).Balance);
+        Assert.Equal(850, game.Read(6).Balance);
+        Assert.Equal(0, game.Read(6).Seats[5].InsuranceReturned);
+    }
+
+    [Fact]
+    public void SimultaneousInsuranceTimeoutsDoNotAlsoTimeoutTheNewPlayingPhase()
+    {
+        using var game = new Game(2, 3, 1, 3, 4, 9).Start();
+        game.Move(1, BrowserBlackjackCommand.Join);
+        game.Move(2, BrowserBlackjackCommand.Join);
+        game.Move(1, BrowserBlackjackCommand.Deal);
+        game.Clock.Now += TimeSpan.FromSeconds(30);
+        game.Service.Sweep();
+        Assert.False(game.Read().Insurance);
+        Assert.False(game.Read().Complete);
+        Assert.True(game.Read().YourTurn);
+        Assert.True(game.Read(2).YourTurn);
+        Assert.Equal(game.Clock.Now.UtcDateTime.AddSeconds(30), game.Read().Deadline);
+        Assert.Equal(game.Read().Deadline, game.Read(2).Deadline);
+        Assert.Contains("Seat 1 timed out", game.Read().Notice, StringComparison.Ordinal);
+        Assert.Contains("Seat 2 timed out", game.Read().Notice, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NaturalsWaitForOtherPlayersWithoutAnActionOrATimer()
+    {
+        using var game = new Game(1, 10, 6, 13, 8, 10, 10).Start();
+        game.Move(1, BrowserBlackjackCommand.Join);
+        game.Move(2, BrowserBlackjackCommand.Join);
+        game.Move(1, BrowserBlackjackCommand.Deal);
+        Assert.False(game.Read().YourTurn);
+        Assert.True(game.Read(2).YourTurn);
+        Assert.Null(game.Read().Seats[0].Deadline);
+        Assert.Equal(0, game.Read().Dealer[1].Rank);
+        Assert.Null(game.Service.Read(game.Room, User(1), true).Advice.Move);
+        game.Move(2, BrowserBlackjackCommand.Stand);
+        Assert.True(game.Read().Complete);
+        Assert.Equal(1_150, game.Read().Balance);
+        Assert.Equal(1_100, game.Read(2).Balance);
+    }
+
+    [Fact]
+    public void StrategyAdviceIsForEachViewersOwnPendingHand()
+    {
+        using var game = new Game(2, 10, 6, 3, 6, 10).Start();
+        game.Move(1, BrowserBlackjackCommand.Join);
+        game.Move(2, BrowserBlackjackCommand.Join);
+        game.Move(1, BrowserBlackjackCommand.Deal);
+        var first = game.Service.Read(game.Room, User(1), true);
+        var second = game.Service.Read(game.Room, User(2), true);
+        Assert.True(first.YourTurn);
+        Assert.True(second.YourTurn);
+        Assert.Equal(BrowserBlackjackCommand.Hit, first.Advice.Move);
+        Assert.Equal(BrowserBlackjackCommand.Stand, second.Advice.Move);
+        Assert.Equal(first.Advice.RunningCount, second.Advice.RunningCount);
+        Assert.Null(game.Service.Read(game.Room, User(3), true).Advice.Move);
     }
 
     [Fact]
@@ -318,10 +499,11 @@ public sealed class BrowserBlackjackTests
     }
 
     [Theory]
+    [InlineData(2)]
     [InlineData(4)]
     [InlineData(6)]
     [InlineData(8)]
-    public void SelectedDeckCountControlsShoeAndDefaultRemainsSixDecks(int decks)
+    public void SelectedDeckCountControlsShoeAndDefaultIsFourDecks(int decks)
     {
         using var service = new BrowserBlackjackService();
         string room = service.CreateRoom(User(1), decks).RoomId;
@@ -331,13 +513,17 @@ public sealed class BrowserBlackjackTests
         var state = service.Read(room, User(1));
         int dealt = state.Dealer.Count + state.Seats.SelectMany(p => p.Hands).Sum(h => h.Cards.Count);
         Assert.Equal(decks * 52, state.RemainingCards + dealt);
+        Assert.Equal(decks == 2 ? 3 : 4, state.MaxHandsPerPlayer);
         var shoe = new BlackjackShoe();
         shoe.PrepareRound();
-        Assert.Equal(6, shoe.DeckCount);
-        Assert.Equal(312, shoe.Remaining);
+        Assert.Equal(4, shoe.DeckCount);
+        Assert.Equal(208, shoe.Remaining);
+        string defaultRoom = service.CreateRoom(User(2)).RoomId;
+        Assert.Equal(4, service.Read(defaultRoom, User(2)).DeckCount);
     }
 
     [Theory]
+    [InlineData(2)]
     [InlineData(4)]
     [InlineData(6)]
     [InlineData(8)]
@@ -362,7 +548,7 @@ public sealed class BrowserBlackjackTests
     [InlineData(-1)]
     [InlineData(0)]
     [InlineData(1)]
-    [InlineData(2)]
+    [InlineData(3)]
     [InlineData(5)]
     [InlineData(9)]
     public void UnsupportedDeckCountsDoNotCreateRooms(int decks)
@@ -430,7 +616,7 @@ public sealed class BrowserBlackjackTests
         Assert.Null(service.Execute(room, User(1), 2, BrowserBlackjackCommand.Stand));
         Assert.Equal(-2, service.Read(room, User(1), true).Advice.RunningCount);
 
-        while (table.Shoe.Remaining > BlackjackShoe.CutCardRemaining)
+        while (table.Shoe.Remaining > table.Shoe.CutCardRemaining)
         {
             table.Shoe.Draw();
         }
@@ -491,7 +677,7 @@ public sealed class BrowserBlackjackTests
         var state = game.Read();
         Assert.Contains(BrowserBlackjackCommand.Close, state.Actions);
         Assert.DoesNotContain(BrowserBlackjackCommand.Close, game.Read(2).Actions);
-        Assert.NotNull(game.Service.Execute(game.Room, User(2), state.Version, BrowserBlackjackCommand.Close));
+        Assert.NotNull(game.Service.Execute(game.Room, User(2), game.Read(2).Version, BrowserBlackjackCommand.Close));
         game.Move(1, BrowserBlackjackCommand.Close);
         Assert.Null(game.Read());
         Assert.Null(game.Read(2));
@@ -508,6 +694,7 @@ public sealed class BrowserBlackjackTests
         using var game = new Game().Start();
         game.Move(1, BrowserBlackjackCommand.Join);
         long version = game.Read().Version;
+        game.Move(1, BrowserBlackjackCommand.Join, 200);
         game.Move(2, BrowserBlackjackCommand.Join);
         Assert.NotNull(game.Service.Execute(game.Room, User(1), version, BrowserBlackjackCommand.Close));
         Assert.NotNull(game.Read());

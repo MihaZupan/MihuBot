@@ -12,14 +12,17 @@ internal readonly record struct BlackjackCard(int Rank, int Suit)
 
 internal sealed class BlackjackShoe
 {
-    public const int Decks = 6;
-    public const int CutCardRemaining = Decks * 52 / 4;
+    public const int Decks = 4;
 
     private readonly List<BlackjackCard> _cards = [];
 
     public int Remaining => _cards.Count;
     public int Number { get; private set; }
     public int DeckCount { get; }
+    public int CutCardRemaining => DeckCount * 52 / 4;
+    public int MaxHandsPerPlayer => GetMaxHandsPerPlayer(DeckCount);
+
+    public static int GetMaxHandsPerPlayer(int decks) => decks == 2 ? 3 : 4;
 
     public BlackjackShoe(int decks = Decks)
     {
@@ -28,7 +31,7 @@ internal sealed class BlackjackShoe
         DeckCount = decks;
     }
 
-    internal BlackjackShoe(IEnumerable<BlackjackCard> cards) : this()
+    internal BlackjackShoe(IEnumerable<BlackjackCard> cards, int decks = Decks) : this(decks)
     {
         _cards.AddRange(cards.Reverse());
         Number = 1;
@@ -40,10 +43,16 @@ internal sealed class BlackjackShoe
         ArgumentOutOfRangeException.ThrowIfGreaterThan(playerCount, BlackjackGame.MaxPlayers);
 
         // Each finished hand uses at most 30 points of cards (aces counted as one).
-        // Reserve enough for four split hands per seat plus the dealer, even in a low-card shoe.
-        int reserve = 30 * ((4 * playerCount) + 1);
+        // Reserve enough for every permitted split hand plus the dealer, even in a low-card shoe.
+        int reserve = 30 * ((MaxHandsPerPlayer * playerCount) + 1);
 
-        if (Remaining > DeckCount * 52 / 4 && _cards.Sum(c => c.Value) > reserve)
+        // A full deck contains 340 points when aces count as one.
+        if (DeckCount * 340 <= reserve)
+        {
+            throw new ArgumentOutOfRangeException(nameof(playerCount), "The shoe is too small to safely support this many players.");
+        }
+
+        if (Remaining > CutCardRemaining && _cards.Sum(c => c.Value) > reserve)
         {
             return false;
         }
@@ -128,6 +137,7 @@ internal sealed class BlackjackPlayer
     public decimal Balance { get; internal set; }
     public decimal InsuranceBet { get; internal set; }
     public decimal InsuranceReturned { get; internal set; }
+    public bool InsuranceDecided { get; internal set; }
     public int ActiveHandIndex { get; internal set; }
     public List<BlackjackHand> Hands { get; } = [];
     public BlackjackHand ActiveHand => ActiveHandIndex < Hands.Count ? Hands[ActiveHandIndex] : null;
@@ -147,25 +157,29 @@ internal sealed class BlackjackPlayer
 
 internal sealed class BlackjackGame
 {
-    public const int MaxPlayers = 4;
+    public const int MaxPlayers = 6;
 
     private readonly Func<BlackjackCard> _draw;
     private readonly List<BlackjackCard> _dealer = [];
 
     public IReadOnlyList<BlackjackPlayer> Players { get; }
+    public int MaxHandsPerPlayer { get; }
     public IReadOnlyList<BlackjackCard> Dealer => _dealer;
     public bool OfferingInsurance { get; private set; }
     public bool IsComplete { get; private set; }
-    public int ActivePlayerIndex { get; private set; }
-    public BlackjackPlayer ActivePlayer => IsComplete ? null : Players[ActivePlayerIndex];
-    public BlackjackHand ActiveHand => ActivePlayer?.ActiveHand;
+    public BlackjackPlayer GetPlayer(ulong userId) => Players.FirstOrDefault(p => p.Id == userId);
 
-    public BlackjackGame(Func<BlackjackCard> draw, IReadOnlyList<BlackjackPlayer> players)
+    public bool NeedsAction(ulong userId) => !IsComplete && GetPlayer(userId) is { } player &&
+        (OfferingInsurance ? !player.InsuranceDecided : player.ActiveHand is not null);
+
+    public BlackjackGame(Func<BlackjackCard> draw, IReadOnlyList<BlackjackPlayer> players, int maxHandsPerPlayer = 4)
     {
         ArgumentNullException.ThrowIfNull(draw);
         ArgumentNullException.ThrowIfNull(players);
         ArgumentOutOfRangeException.ThrowIfLessThan(players.Count, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(players.Count, MaxPlayers);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxHandsPerPlayer, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxHandsPerPlayer, 4);
 
         if (players.Select(p => p.Id).Distinct().Count() != players.Count ||
             players.Any(p => p.Hands.Count != 1 || p.Hands[0].Cards.Count != 0))
@@ -175,6 +189,7 @@ internal sealed class BlackjackGame
 
         _draw = draw;
         Players = players.ToArray();
+        MaxHandsPerPlayer = maxHandsPerPlayer;
 
         for (int pass = 0; pass < 2; pass++)
         {
@@ -194,41 +209,43 @@ internal sealed class BlackjackGame
         }
     }
 
-    public bool CanAct(BlackjackAction action)
+    public bool CanAct(ulong userId, BlackjackAction action)
     {
-        if (IsComplete)
+        if (!NeedsAction(userId))
         {
             return false;
         }
 
+        BlackjackPlayer player = GetPlayer(userId);
+
         if (OfferingInsurance)
         {
             return action == BlackjackAction.DeclineInsurance ||
-                (action == BlackjackAction.Insure && ActivePlayer.Balance >= ActiveHand.Bet / 2);
+                (action == BlackjackAction.Insure && player.Balance >= player.ActiveHand.Bet / 2);
         }
 
-        BlackjackHand hand = ActiveHand;
+        BlackjackHand hand = player.ActiveHand;
 
         return action switch
         {
             BlackjackAction.Hit or BlackjackAction.Stand => true,
-            BlackjackAction.Double => hand.Cards.Count == 2 && ActivePlayer.Balance >= hand.Bet,
-            BlackjackAction.Split => hand.Cards.Count == 2 && ActivePlayer.Hands.Count < 4 &&
-                hand.Cards[0].Value == hand.Cards[1].Value && ActivePlayer.Balance >= hand.Bet,
+            BlackjackAction.Double => hand.Cards.Count == 2 && player.Balance >= hand.Bet,
+            BlackjackAction.Split => hand.Cards.Count == 2 && player.Hands.Count < MaxHandsPerPlayer &&
+                hand.Cards[0].Value == hand.Cards[1].Value && player.Balance >= hand.Bet,
             BlackjackAction.Surrender => !hand.FromSplit && hand.Cards.Count == 2,
             _ => false
         };
     }
 
-    public bool TryAct(BlackjackAction action)
+    public bool TryAct(ulong userId, BlackjackAction action)
     {
-        if (!CanAct(action))
+        if (!CanAct(userId, action))
         {
             return false;
         }
 
-        BlackjackHand hand = ActiveHand;
-        BlackjackPlayer player = ActivePlayer;
+        BlackjackPlayer player = GetPlayer(userId);
+        BlackjackHand hand = player.ActiveHand;
 
         switch (action)
         {
@@ -238,12 +255,11 @@ internal sealed class BlackjackGame
                 goto case BlackjackAction.DeclineInsurance;
 
             case BlackjackAction.DeclineInsurance:
-                ActivePlayerIndex++;
+                player.InsuranceDecided = true;
 
-                if (ActivePlayerIndex == Players.Count)
+                if (Players.All(p => p.InsuranceDecided))
                 {
                     OfferingInsurance = false;
-                    ActivePlayerIndex = 0;
                     Peek();
                 }
 
@@ -286,7 +302,8 @@ internal sealed class BlackjackGame
                 throw new InvalidOperationException($"Unexpected blackjack action: {action}");
         }
 
-        Advance();
+        Advance(player);
+        FinishDealer();
         return true;
     }
 
@@ -294,23 +311,24 @@ internal sealed class BlackjackGame
     {
         while (!IsComplete)
         {
-            AutoStandCurrentPlayer();
+            foreach (BlackjackPlayer player in Players)
+            {
+                AutoStandPlayer(player.Id);
+            }
         }
     }
 
-    public void AutoStandCurrentPlayer()
+    public void AutoStandPlayer(ulong userId)
     {
         if (OfferingInsurance)
         {
-            TryAct(BlackjackAction.DeclineInsurance);
+            TryAct(userId, BlackjackAction.DeclineInsurance);
             return;
         }
 
-        BlackjackPlayer player = ActivePlayer;
-
-        while (!IsComplete && ActivePlayer == player)
+        while (NeedsAction(userId))
         {
-            TryAct(BlackjackAction.Stand);
+            TryAct(userId, BlackjackAction.Stand);
         }
     }
 
@@ -327,37 +345,39 @@ internal sealed class BlackjackGame
         foreach (BlackjackPlayer player in Players)
         {
             player.Hands[0].Finished = player.Hands[0].IsBlackjack;
+            Advance(player);
         }
 
-        Advance();
+        FinishDealer();
     }
 
-    private void Advance()
+    private void Advance(BlackjackPlayer player)
     {
-        while (ActivePlayerIndex < Players.Count)
+        while (player.ActiveHandIndex < player.Hands.Count)
         {
-            BlackjackPlayer player = ActivePlayer;
+            BlackjackHand hand = player.ActiveHand;
 
-            while (player.ActiveHandIndex < player.Hands.Count)
+            // A player's split hands remain sequential, independent of the other seats.
+            if (hand.Cards.Count == 1)
             {
-                BlackjackHand hand = player.ActiveHand;
-
-                // Deal each split hand's second card only when its turn starts.
-                if (hand.Cards.Count == 1)
-                {
-                    hand.Cards.Add(_draw());
-                    hand.Finished = hand.Cards[0].Rank == 1 || hand.Value.Total == 21;
-                }
-
-                if (!hand.Finished)
-                {
-                    return;
-                }
-
-                player.ActiveHandIndex++;
+                hand.Cards.Add(_draw());
+                hand.Finished = hand.Cards[0].Rank == 1 || hand.Value.Total == 21;
             }
 
-            ActivePlayerIndex++;
+            if (!hand.Finished)
+            {
+                return;
+            }
+
+            player.ActiveHandIndex++;
+        }
+    }
+
+    private void FinishDealer()
+    {
+        if (IsComplete || Players.Any(p => p.ActiveHand is not null))
+        {
+            return;
         }
 
         if (Players.SelectMany(p => p.Hands).Any(h => !h.Surrendered && !h.IsBlackjack && h.Value.Total <= 21))

@@ -39,11 +39,13 @@
 .table-status { text-align: center; min-height: 66px; margin: .75rem 0; }
 .table-status strong { display: block; color: #fff4d7; font-size: 1.05rem; }
 .table-status > span { color: #d0e1d6; font-size: .8rem; }
-.seats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .7rem; align-items: start; }
+.seats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .7rem; align-items: start; }
 .seat { min-width: 0; border: 1px solid #92b4a43d; border-radius: 1rem; padding: .8rem; background: #072b24a6; transition: border-color .3s, box-shadow .3s, background .3s; }
 .seat.current { border-color: var(--gold); box-shadow: 0 0 0 2px #e7cc8e30, 0 0 25px #e7cc8e15; background: #214c37; }
 .seat.your-seat .avatar { background: #d5bc82; color: #183c2d; }
 .seat-header { padding-bottom: .65rem; border-bottom: 1px solid #ffffff18; }
+.seat-status { display: flex; justify-content: space-between; gap: .25rem; margin-top: .25rem; color: #bdd3c6; font-size: .65rem; }
+.seat-countdown { color: var(--gold); font-variant-numeric: tabular-nums; }
 .avatar { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #ffffff16; font-weight: 700; }
 .seat-name { min-width: 0; flex: 1; }
 .seat-name strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; }
@@ -72,7 +74,12 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
-@container (max-width: 700px) {
+@container (max-width: 1100px) {
+    .seats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .avatar { display: none; }
+}
+
+@container (max-width: 650px) {
     .seats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -94,6 +101,11 @@
     .table-status strong { font-size: .9rem; }
     .table-status > span { font-size: .75rem; }
     .seat { padding: .5rem; }
+    .seats { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5rem; }
+    .hand .cards { gap: 0; }
+    .hand .cards ::deep .playing-card + .playing-card { margin-left: calc(var(--blackjack-card-width) * -.4); }
+    .wager, .total { font-size: .7rem; }
+    .chip { width: 16px; height: 16px; }
     .seat-header { padding-bottom: .4rem; }
     .cards { min-height: 0; padding: .3rem 0; }
     .empty-seat { min-height: 150px; }

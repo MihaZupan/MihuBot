@@ -2,7 +2,7 @@
 
 <section class="felt" aria-label="Blackjack table">
     <div class="table-meta">
-        <span><span class="live-dot"></span> LIVE TABLE <strong>@State.Seats.Count / 4</strong></span>
+        <span><span class="live-dot"></span> LIVE TABLE <strong>@State.Seats.Count / @BrowserBlackjackService.MaxPlayers</strong></span>
         <span>@(State.ShoeNumber == 0 ? $"Fresh {State.DeckCount}-deck shoe" : $"{State.DeckCount} decks / Shoe {State.ShoeNumber} / {State.RemainingCards} cards")</span>
     </div>
     <div class="dealer" @key="@((State.RoundId, "dealer"))">
@@ -39,8 +39,8 @@
         }
         else if (State.Active)
         {
-            <strong>@(State.ActivePlayerId == ViewerId ? "Your turn" : $"{State.Seats.First(p => p.Id == State.ActivePlayerId).Name}'s turn")</strong>
-            <span>@(State.Insurance ? "Insurance? The dealer is showing an ace." : "Hit, stand, or make your move.")</span>
+            <strong>@(State.YourTurn ? "Your move" : State.Insurance ? "Insurance decisions" : "Players are playing")</strong>
+            <span>@(State.Insurance ? "Everyone decides before the dealer checks." : "Play at your own pace. The dealer waits for everyone.")</span>
         }
         else
         {
@@ -51,7 +51,7 @@
     <div class="seats" @key="@((State.RoundId, "seats"))">
         @foreach (var seat in State.Seats)
         {
-            <section @key="seat.Id" class="seat @(seat.Id == State.ActivePlayerId ? "current" : "") @(seat.Id == ViewerId ? "your-seat" : "")" aria-label="@($"{seat.Name}'s seat")">
+            <section @key="seat.Id" class="seat @(seat.Pending ? "current" : "") @(seat.Id == ViewerId ? "your-seat" : "")" aria-label="@($"{seat.Name}'s seat")">
                 <header class="seat-header">
                     <span class="avatar" aria-hidden="true">@(seat.Name.Length == 0 ? "?" : seat.Name[..1])</span>
                     <div class="seat-name">
@@ -60,6 +60,16 @@
                     </div>
                     <span class="bankroll">@Chips(seat.Balance)<small>chips</small></span>
                 </header>
+                @if (State.Active && !State.Lobby)
+                {
+                    <div class="seat-status">
+                        <span>@(seat.Pending ? State.Insurance ? "Choosing" : "Playing" : "Waiting")</span>
+                        @if (seat.Deadline is { } deadline)
+                        {
+                            <span class="seat-countdown" aria-label="@($"{seat.Name}: {SecondsLeft(deadline)} seconds remaining")">@SecondsLeft(deadline) s</span>
+                        }
+                    </div>
+                }
                 <div class="hands">
                     @for (int h = 0; h < seat.Hands.Count; h++)
                     {
@@ -107,7 +117,7 @@
                 }
             </section>
         }
-        @for (int i = State.Seats.Count; i < 4; i++)
+        @for (int i = State.Seats.Count; i < BrowserBlackjackService.MaxPlayers; i++)
         {
             <section class="seat empty-seat" aria-label="@($"Empty seat {i + 1}")">
                 <span class="empty-mark" aria-hidden="true">+</span>
@@ -124,6 +134,11 @@
 
     [Parameter]
     public ulong ViewerId { get; set; }
+
+    [Parameter]
+    public DateTime Now { get; set; } = DateTime.UtcNow;
+
+    private int SecondsLeft(DateTime deadline) => Math.Clamp((int)Math.Ceiling((deadline - Now).TotalSeconds), 0, 30);
 
     private static string Chips(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 }

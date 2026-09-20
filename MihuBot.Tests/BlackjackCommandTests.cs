@@ -20,7 +20,7 @@ public sealed class BlackjackCommandTests
         Assert.Empty(state.Seats);
         Assert.False(state.Active);
         Assert.Equal(1_000, state.Balance);
-        Assert.Equal(6, state.DeckCount);
+        Assert.Equal(4, state.DeckCount);
         Assert.Equal(1ul, state.HostId);
         Assert.Equal(room, Assert.Single(service.GetOwnedRooms(BrowserBlackjackTests.User(1))));
         Assert.Contains("Sign in with Discord", message, StringComparison.Ordinal);
@@ -70,7 +70,7 @@ public sealed class BlackjackCommandTests
         Assert.Equal(before.Balance, after.Balance);
         Assert.Equal(before.Deadline, after.Deadline);
         Assert.Equal(before.RemainingCards, after.RemainingCards);
-        Assert.Equal(before.ActivePlayerId, after.ActivePlayerId);
+        Assert.Equal(before.YourTurn, after.YourTurn);
     }
 
     [Fact]
@@ -137,8 +137,9 @@ public sealed class BlackjackCommandTests
     private static string RoomId(string message)
     {
         string link = message.Split('\n')[1];
-        Assert.StartsWith($"{Constants.PublicBaseUrl}/blackjack/", link, StringComparison.Ordinal);
-        string room = new Uri(link).Segments[^1];
+        Assert.StartsWith($"<{Constants.PublicBaseUrl}/blackjack/", link, StringComparison.Ordinal);
+        Assert.EndsWith(">", link, StringComparison.Ordinal);
+        string room = new Uri(link[1..^1]).Segments[^1];
         Assert.True(Guid.TryParseExact(room, "N", out _));
         return room;
     }

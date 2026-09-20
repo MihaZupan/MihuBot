@@ -36,9 +36,8 @@ h1 { font: 600 clamp(2rem, 4vw, 3.5rem)/1.05 Georgia, serif; margin: 0; letter-s
 .training-toggle input { accent-color: #e7cc8e; }
 .strategy-coach { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: baseline; margin-top: .6rem; padding-top: .5rem; border-top: 1px solid #ffffff25; font-size: .75rem; font-variant-numeric: tabular-nums; }
 .strategy-coach strong { color: #f4dca3; }
-.strategy-coach details { margin-left: auto; }
-.strategy-coach details[open] { flex-basis: 100%; }
-.strategy-coach p { margin: .4rem 0 0; max-width: 850px; }
+.coach-recommendation { display: flex; flex: 1 1 24rem; flex-wrap: wrap; align-items: baseline; gap: .25rem .6rem; min-width: 0; }
+.coach-explanation { flex: 1 1 16rem; color: #b4c3bb; }
 .countdown { color: #f1d699; font-variant-numeric: tabular-nums; font-weight: 700; }
 .your-balance { margin-left: auto; color: #aabeb3; font-size: .75rem; }
 .your-balance strong { margin-left: .35rem; color: #f8e5b6; font-size: 1rem; font-variant-numeric: tabular-nums; }

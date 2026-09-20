@@ -11,8 +11,8 @@ public sealed class BlackjackTableTests
     private static void Join(BlackjackTable table, ulong player, decimal bet = 100) =>
         Assert.Null(table.Join(player, $"Player {player}", bet, s_now));
 
-    private static void Act(BlackjackTable table, BlackjackAction action) =>
-        Assert.True(table.TryAct(table.Game.ActivePlayer.Id, table.CustomId(action), s_now));
+    private static void Act(BlackjackTable table, BlackjackAction action, ulong playerId = 1) =>
+        Assert.True(table.TryAct(playerId, table.GetRevision(playerId), action, s_now));
 
     [Fact]
     public void ChangingBetsPreservesSeatOrderHostAndDeadlineAndAdjustsOnlyTheDifference()
@@ -60,7 +60,7 @@ public sealed class BlackjackTableTests
 
         Assert.Equal(400, table.GetBalance(1));
         Join(table, 1);
-        int revision = table.Revision;
+        long revision = table.Revision;
         Assert.NotNull(table.Join(1, "Player", 500, s_now));
         Assert.Equal(300, table.GetBalance(1));
         Assert.Equal(100, table.Seats[0].Hands[0].Bet);
@@ -88,22 +88,25 @@ public sealed class BlackjackTableTests
     }
 
     [Fact]
-    public void AllSplitHandsFinishBeforeNextPlayerAndTheSharedDealer()
+    public void SplitHandsRemainSequentialWithoutBlockingOtherPlayers()
     {
         var table = Table(8, 10, 6, 8, 9, 10, 3, 10, 2, 10, 10);
         Join(table, 1);
         Join(table, 2, 50);
         table.Deal(1, s_now);
         Act(table, BlackjackAction.Split);
-        Act(table, BlackjackAction.Double);
-        Assert.Equal(1ul, table.Game.ActivePlayer.Id);
-        Assert.Equal(1, table.Game.ActivePlayer.ActiveHandIndex);
-        Act(table, BlackjackAction.Double);
-        Assert.Equal(2ul, table.Game.ActivePlayer.Id);
+        Act(table, BlackjackAction.Stand, 2);
+        Assert.False(table.Game.NeedsAction(2));
+        Assert.True(table.Game.NeedsAction(1));
+        Assert.False(table.Game.IsComplete);
         Assert.Equal(2, table.Game.Dealer.Count);
-        Assert.Equal(600, table.GetBalance(1));
+        Act(table, BlackjackAction.Double);
+        Assert.Equal(1, table.Game.GetPlayer(1).ActiveHandIndex);
+        Assert.Equal(2, table.Game.Dealer.Count);
+        Assert.Equal(700, table.GetBalance(1));
         Assert.Equal(950, table.GetBalance(2));
-        Act(table, BlackjackAction.Stand);
+        Act(table, BlackjackAction.Double);
+        Assert.True(table.Game.IsComplete);
         Assert.Equal(1_400, table.GetBalance(1));
         Assert.Equal(1_050, table.GetBalance(2));
         Assert.Equal(3, table.Game.Dealer.Count);
@@ -119,10 +122,11 @@ public sealed class BlackjackTableTests
         Act(table, BlackjackAction.Insure);
         Assert.True(table.Game.OfferingInsurance);
         Assert.False(table.Game.IsComplete);
-        Assert.Equal(2ul, table.Game.ActivePlayer.Id);
+        Assert.False(table.Game.NeedsAction(1));
+        Assert.True(table.Game.NeedsAction(2));
         Assert.Equal(850, table.GetBalance(1));
-        Assert.False(table.Game.CanAct(BlackjackAction.Surrender));
-        Act(table, BlackjackAction.DeclineInsurance);
+        Assert.False(table.Game.CanAct(2, BlackjackAction.Surrender));
+        Act(table, BlackjackAction.DeclineInsurance, 2);
         Assert.True(table.Game.IsComplete);
         Assert.Equal(1_000, table.GetBalance(1));
         Assert.Equal(1_000, table.GetBalance(2));
@@ -130,27 +134,29 @@ public sealed class BlackjackTableTests
     }
 
     [Fact]
-    public void TimeoutOnlyStandsTheCurrentPlayersSplitHands()
+    public void TimeoutOnlyStandsTheExpiredPlayersSplitHands()
     {
-        var table = Table(8, 10, 10, 8, 9, 7, 2, 10);
+        var table = Table(8, 2, 10, 8, 3, 7, 2, 4, 10);
         Join(table, 1);
         Join(table, 2);
         table.Deal(1, s_now);
         Act(table, BlackjackAction.Split);
         DateTime deadline = table.Deadline;
+        Assert.True(table.TryAct(2, table.GetRevision(2), BlackjackAction.Hit, s_now.AddSeconds(10)));
         Assert.False(table.Expire(deadline.AddTicks(-1)));
-        Assert.False(table.TryAct(1, table.CustomId(BlackjackAction.Stand), deadline));
+        Assert.False(table.TryAct(1, table.GetRevision(1), BlackjackAction.Stand, deadline));
         Assert.True(table.Expire(deadline));
-        Assert.Equal(2ul, table.Game.ActivePlayer.Id);
+        Assert.False(table.Game.NeedsAction(1));
+        Assert.True(table.Game.NeedsAction(2));
         Assert.All(table.Game.Players[0].Hands, h => Assert.True(h.Finished));
         Assert.False(table.Game.Players[1].Hands[0].Finished);
         Assert.False(table.Game.IsComplete);
-        Assert.Equal(deadline + BlackjackTable.TurnTime, table.Deadline);
+        Assert.Equal(deadline.AddSeconds(10), table.Deadline);
         Assert.False(table.Expire(deadline));
         Assert.True(table.Expire(table.Deadline));
         Assert.True(table.Game.IsComplete);
         Assert.Equal(1_000, table.GetBalance(1));
-        Assert.Equal(1_100, table.GetBalance(2));
+        Assert.Equal(900, table.GetBalance(2));
     }
 
     [Fact]
@@ -159,26 +165,75 @@ public sealed class BlackjackTableTests
         var table = Table(2, 10, 3, 7, 4);
         Join(table, 1);
         table.Deal(1, s_now);
-        string hit = table.CustomId(BlackjackAction.Hit);
-        Assert.False(table.TryAct(2, hit, s_now));
-        Assert.True(table.TryAct(1, hit, s_now));
-        Assert.False(table.TryAct(1, hit, s_now));
-        string stand = table.CustomId(BlackjackAction.Stand);
-        Assert.True(table.TryAct(1, stand, s_now));
+        long revision = table.GetRevision(1);
+        Assert.False(table.TryAct(2, revision, BlackjackAction.Hit, s_now));
+        Assert.True(table.TryAct(1, revision, BlackjackAction.Hit, s_now));
+        Assert.False(table.TryAct(1, revision, BlackjackAction.Hit, s_now));
+        revision = table.GetRevision(1);
+        Assert.True(table.TryAct(1, revision, BlackjackAction.Stand, s_now));
         Join(table, 1);
         table.Deal(1, s_now);
-        Assert.False(table.TryAct(1, stand, s_now));
+        Assert.False(table.TryAct(1, revision, BlackjackAction.Stand, s_now));
+    }
+
+    [Fact]
+    public void TwoDecksSupportSixSeatsSplittingToTheAdvertisedThreeHandLimit()
+    {
+        var cards = Enumerable.Range(0, 2).SelectMany(_ => Enumerable.Range(0, 4)
+            .SelectMany(s => Enumerable.Range(1, 13).Select(r => new BlackjackCard(r, s)))).ToList();
+        int[] ranks = [2, 3, 4, 5, 6, 7, 10, 2, 3, 4, 5, 6, 7, 7,
+            2, 2, 10, 10, 3, 3, 10, 10, 4, 4, 10, 10, 5, 5, 10, 10, 6, 6, 10, 10, 7, 7, 10, 10];
+        var front = new List<BlackjackCard>();
+
+        foreach (int rank in ranks)
+        {
+            int index = cards.FindIndex(c => c.Value == rank);
+            Assert.True(index >= 0);
+            front.Add(cards[index]);
+            cards.RemoveAt(index);
+        }
+
+        var table = new BlackjackTable(new BlackjackShoe(front.Concat(cards), decks: 2));
+
+        for (ulong id = 1; id <= 6; id++)
+        {
+            Join(table, id);
+        }
+
+        Assert.Null(table.Deal(1, s_now));
+        Assert.Equal(3, table.Game.MaxHandsPerPlayer);
+
+        for (ulong id = 1; id <= 6; id++)
+        {
+            Act(table, BlackjackAction.Split, id);
+            Act(table, BlackjackAction.Split, id);
+            Assert.Equal(3, table.Game.GetPlayer(id).Hands.Count);
+            Assert.False(table.Game.CanAct(id, BlackjackAction.Split));
+
+            while (table.Game.NeedsAction(id))
+            {
+                Act(table, BlackjackAction.Stand, id);
+            }
+        }
+
+        Assert.True(table.Game.IsComplete);
+        Assert.Equal(1, table.Shoe.Number);
+        Assert.Equal(66, table.Shoe.Remaining);
     }
 
     [Fact]
     public void ShoeReservesEnoughCardsForEverySeatSplitting()
     {
-        var lowCards = new BlackjackShoe(Enumerable.Repeat(new BlackjackCard(2, 0), 100));
-        Assert.True(lowCards.PrepareRound(4));
+        var lowCards = new BlackjackShoe(Enumerable.Repeat(new BlackjackCard(2, 0), 100), decks: 6);
+        Assert.True(lowCards.PrepareRound(6));
         Assert.Equal(312, lowCards.Remaining);
         Assert.Equal(2, lowCards.Number);
-        var highCards = new BlackjackShoe(Enumerable.Repeat(new BlackjackCard(10, 0), 100));
-        Assert.False(highCards.PrepareRound(4));
+        var highCards = new BlackjackShoe(Enumerable.Repeat(new BlackjackCard(10, 0), 100), decks: 6);
+        Assert.False(highCards.PrepareRound(6));
         Assert.Equal(100, highCards.Remaining);
+        var doubleDeck = new BlackjackShoe(2);
+        Assert.True(doubleDeck.PrepareRound(6));
+        Assert.Equal(104, doubleDeck.Remaining);
+        Assert.Equal(3, doubleDeck.MaxHandsPerPlayer);
     }
 }

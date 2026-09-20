@@ -18,6 +18,6 @@ public sealed class BlackjackCommand(BrowserBlackjackService tables) : CommandBa
     {
         (string roomId, string error) = tables.GetOrCreateDiscordLobby(channelId, authorId);
         return error ?? ($"Blackjack is played in the browser. Join this channel's lobby:\n" +
-            $"{Constants.PublicBaseUrl}/blackjack/{roomId}\nSign in with Discord to take a seat.");
+            $"<{Constants.PublicBaseUrl}/blackjack/{roomId}>\nSign in with Discord to take a seat.");
     }
 }

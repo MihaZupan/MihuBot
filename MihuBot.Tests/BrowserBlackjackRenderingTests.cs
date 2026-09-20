@@ -18,9 +18,14 @@ public sealed class BrowserBlackjackRenderingTests
         Assert.Null(service.Execute(room, user, 0, BrowserBlackjackCommand.Join, 100));
         Assert.Null(service.Execute(room, user, 1, BrowserBlackjackCommand.Deal));
         var state = service.Read(room, user);
-        string html = await Render<BlackjackBoard>(new() { ["State"] = state, ["ViewerId"] = 1ul });
+        string html = await Render<BlackjackBoard>(new()
+        {
+            ["State"] = state,
+            ["ViewerId"] = 1ul,
+            ["Now"] = state.Deadline.AddSeconds(-30)
+        });
 
-        Assert.Contains("Your turn", html, StringComparison.Ordinal);
+        Assert.Contains("Your move", html, StringComparison.Ordinal);
         Assert.Contains("Face-down card", html, StringComparison.Ordinal);
         Assert.Contains("6 of clubs", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Dealer / 16", html, StringComparison.Ordinal);
@@ -50,7 +55,7 @@ public sealed class BrowserBlackjackRenderingTests
     }
 
     [Fact]
-    public async Task EmptyTableRendersFourSeatsAndNoDealerTotal()
+    public async Task EmptyTableRendersSixSeatsAndNoDealerTotal()
     {
         using var service = new BrowserBlackjackService();
         var user = BrowserBlackjackTests.User(1);
@@ -58,13 +63,46 @@ public sealed class BrowserBlackjackRenderingTests
         string html = await Render<BlackjackBoard>(new() { ["State"] = service.Read(room, user), ["ViewerId"] = 1ul });
         Assert.Contains("A seat is waiting for you", html, StringComparison.Ordinal);
 
-        for (int i = 1; i <= 4; i++)
+        for (int i = 1; i <= 6; i++)
         {
             Assert.Contains($"Empty seat {i}", html, StringComparison.Ordinal);
         }
 
-        Assert.Contains("Fresh 6-deck shoe", html, StringComparison.Ordinal);
+        Assert.Contains("Fresh 4-deck shoe", html, StringComparison.Ordinal);
         Assert.DoesNotContain("class=\"total", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BoardShowsAllSixPendingSeatsAndTheirOwnTimers()
+    {
+        using var service = new BrowserBlackjackService(TimeProvider.System, () =>
+            BrowserBlackjackTests.Table(2, 2, 2, 2, 2, 2, 10, 3, 3, 3, 3, 3, 3, 7));
+        var user = BrowserBlackjackTests.User(1);
+        string room = service.CreateRoom(user).RoomId;
+
+        for (ulong id = 1; id <= 6; id++)
+        {
+            var player = BrowserBlackjackTests.User(id);
+            Assert.Null(service.Execute(room, player, service.Read(room, player).Version, BrowserBlackjackCommand.Join));
+        }
+
+        Assert.Null(service.Execute(room, user, service.Read(room, user).Version, BrowserBlackjackCommand.Deal));
+        var state = service.Read(room, user);
+        string html = await Render<BlackjackBoard>(new()
+        {
+            ["State"] = state,
+            ["ViewerId"] = 1ul,
+            ["Now"] = state.Deadline.AddSeconds(-30)
+        });
+        Assert.Contains("6 / 6", html, StringComparison.Ordinal);
+        Assert.Contains("Your move", html, StringComparison.Ordinal);
+
+        for (int i = 1; i <= 6; i++)
+        {
+            Assert.Contains($"Player {i}: 30 seconds remaining", html, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("Empty seat", html, StringComparison.Ordinal);
     }
 
     [Fact]

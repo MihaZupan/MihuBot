@@ -19,7 +19,7 @@ internal static class BlackjackStrategy
 
         if (hand is null)
         {
-            return Advice(null, "Advice appears on your turn. Counts include all cards exposed since the last shuffle.");
+            return Advice(null, "Advice appears when you have a decision to make. Counts include all cards exposed since the last shuffle.");
         }
 
         if (insurance)
@@ -34,7 +34,13 @@ internal static class BlackjackStrategy
                 insure);
         }
 
-        BrowserBlackjackCommand basic = BasicStrategy(hand, dealer, actions);
+        BrowserBlackjackCommand basic = BasicStrategy(hand, dealer, actions, decks);
+
+        if (decks == 2)
+        {
+            return Advice(basic, "Two-deck S17/DAS/late-surrender basic strategy. Shoe-game count indices are not applied to this table.");
+        }
+
         int total = hand.Value.Total;
 
         BrowserBlackjackAdvice Indexed(BrowserBlackjackCommand high, BrowserBlackjackCommand low, int threshold)
@@ -118,16 +124,18 @@ internal static class BlackjackStrategy
     }
 
     internal static BrowserBlackjackCommand BasicStrategy(
-        BlackjackHand hand, int dealer, IReadOnlyList<BrowserBlackjackCommand> actions)
+        BlackjackHand hand, int dealer, IReadOnlyList<BrowserBlackjackCommand> actions, int decks = BlackjackShoe.Decks)
     {
         bool Can(BrowserBlackjackCommand action) => actions.Contains(action);
         int total = hand.Value.Total;
         bool soft = hand.Value.Soft;
         bool pair = hand.Cards.Count == 2 && hand.Cards[0].Value == hand.Cards[1].Value;
         int rank = hand.Cards[0].Value;
+        bool doubleDeck = decks == 2;
 
         if (!soft && Can(BrowserBlackjackCommand.Surrender) &&
-            ((total == 16 && dealer is 9 or 10 or 1 && !(pair && rank == 8 && Can(BrowserBlackjackCommand.Split))) ||
+            ((total == 16 && (dealer is 10 or 1 || (dealer == 9 && !doubleDeck)) &&
+                !(pair && rank == 8 && Can(BrowserBlackjackCommand.Split))) ||
              (total == 15 && dealer == 10)))
         {
             return BrowserBlackjackCommand.Surrender;
@@ -136,9 +144,10 @@ internal static class BlackjackStrategy
         if (pair && Can(BrowserBlackjackCommand.Split) && (rank switch
         {
             1 or 8 => true,
-            2 or 3 or 7 => dealer is >= 2 and <= 7,
+            2 or 3 => dealer is >= 2 and <= 7,
+            7 => dealer is >= 2 and <= 7 || (doubleDeck && dealer == 8),
             4 => dealer is 5 or 6,
-            6 => dealer is >= 2 and <= 6,
+            6 => dealer is >= 2 and <= 6 || (doubleDeck && dealer == 7),
             9 => dealer is (>= 2 and <= 6) or 8 or 9,
             _ => false
         }))
@@ -148,15 +157,15 @@ internal static class BlackjackStrategy
 
         bool doubleDown = soft ? total switch
         {
-            13 or 14 => dealer is 5 or 6,
+            13 or 14 => dealer is 5 or 6 || (doubleDeck && dealer == 4),
             15 or 16 => dealer is >= 4 and <= 6,
             17 or 18 => dealer is >= 3 and <= 6,
             _ => false
         } : total switch
         {
-            9 => dealer is >= 3 and <= 6,
+            9 => dealer is >= 3 and <= 6 || (doubleDeck && dealer == 2),
             10 => dealer is >= 2 and <= 9,
-            11 => dealer != 1,
+            11 => dealer != 1 || doubleDeck,
             _ => false
         };
 
@@ -165,7 +174,8 @@ internal static class BlackjackStrategy
             return BrowserBlackjackCommand.Double;
         }
 
-        bool stand = soft ? total >= 19 || (total == 18 && dealer is >= 2 and <= 8)
+        bool stand = soft ? total >= 19 || (total == 18 &&
+            (dealer is >= 2 and <= 8 || (doubleDeck && dealer == 1 && hand.Cards.Count > 2)))
             : total >= 17 || (total == 12 && dealer is >= 4 and <= 6) || (total is >= 13 and <= 16 && dealer is >= 2 and <= 6);
         return stand ? BrowserBlackjackCommand.Stand : BrowserBlackjackCommand.Hit;
     }

@@ -39,6 +39,50 @@ public sealed class BlackjackStrategyTests
         Assert.Equal(expected, BlackjackStrategy.BasicStrategy(Hand(first, second), dealer, s_actions));
     }
 
+    [Theory]
+    [InlineData(4, 5, 2, BrowserBlackjackCommand.Double)]
+    [InlineData(6, 5, 1, BrowserBlackjackCommand.Double)]
+    [InlineData(1, 2, 4, BrowserBlackjackCommand.Double)]
+    [InlineData(1, 3, 4, BrowserBlackjackCommand.Double)]
+    [InlineData(6, 6, 7, BrowserBlackjackCommand.Split)]
+    [InlineData(7, 7, 8, BrowserBlackjackCommand.Split)]
+    [InlineData(10, 6, 9, BrowserBlackjackCommand.Hit)]
+    [InlineData(10, 6, 10, BrowserBlackjackCommand.Surrender)]
+    [InlineData(10, 6, 1, BrowserBlackjackCommand.Surrender)]
+    [InlineData(1, 7, 1, BrowserBlackjackCommand.Hit)]
+    public void DoubleDeckAdviceUsesItsOwnRulesRatherThanShoeIndices(
+        int first, int second, int dealer, BrowserBlackjackCommand expected)
+    {
+        var advice = BlackjackStrategy.Analyze(2, Counts(0), Hand(first, second), dealer, false, s_actions);
+        Assert.Equal(expected, advice.Move);
+        Assert.Contains("Two-deck", advice.Explanation, StringComparison.Ordinal);
+        Assert.Equal(2, advice.UnseenDecks);
+    }
+
+    [Fact]
+    public void DoubleDeckMulticardSoftEighteenStandsAgainstAce()
+    {
+        var actions = new[] { BrowserBlackjackCommand.Hit, BrowserBlackjackCommand.Stand };
+        Assert.Equal(BrowserBlackjackCommand.Stand,
+            BlackjackStrategy.Analyze(2, Counts(0), Hand(1, 2, 5), 1, false, actions).Move);
+        Assert.Equal(BrowserBlackjackCommand.Hit,
+            BlackjackStrategy.Analyze(4, Counts(0), Hand(1, 2, 5), 1, false, actions).Move);
+    }
+
+    [Fact]
+    public void DoubleDeckInsuranceStillUsesExactUnseenCardOdds()
+    {
+        int[] exposed = Counts(0);
+        exposed[7] = 8;
+        BrowserBlackjackCommand[] actions = [BrowserBlackjackCommand.Insure, BrowserBlackjackCommand.DeclineInsurance];
+        Assert.Equal(BrowserBlackjackCommand.DeclineInsurance,
+            BlackjackStrategy.Analyze(2, exposed, Hand(10, 9), 1, true, actions).Move);
+        exposed[8] = 1;
+        var advice = BlackjackStrategy.Analyze(2, exposed, Hand(10, 9), 1, true, actions);
+        Assert.Equal(BrowserBlackjackCommand.Insure, advice.Move);
+        Assert.Equal(95 / 52d, advice.UnseenDecks);
+    }
+
     [Fact]
     public void UnavailableSplitsDoublesAndSurrenderUseLegalFallbacks()
     {

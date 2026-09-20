@@ -16,7 +16,7 @@
         <div>
             <p class="eyebrow">THE MIHUBOT CARD ROOM</p>
             <h1>Blackjack<span class="title-dot">.</span></h1>
-            <p class="subtitle">One dealer. Four seats. Bring your friends.</p>
+            <p class="subtitle">One dealer. Six seats. Play together.</p>
         </div>
         <span class="play-money">PLAY CHIPS ONLY</span>
     </header>
@@ -31,7 +31,7 @@
             @if (Features.DiscordLogin)
             {
                 <a class="btn btn-light" href="@LoginUrl">Sign in with Discord</a>
-                <span>to take a seat. Play chips belong to each browser table.</span>
+                <span>to take a seat. Your chips are saved to your Discord account.</span>
             }
             else
             {
@@ -48,15 +48,20 @@
                 <PlayingCard Card="@(new BrowserBlackjackCard(13, 2))" Delay="160" />
             </div>
             <h2>Your table, your company.</h2>
-            <p>Start with 1,000 chips. Open a table, share the link, and play together in real time.</p>
+            <p>Start with 1,000 chips per account. Your balance follows you across tables and server restarts.</p>
+            @if (_balance is decimal balance)
+            {
+                <p class="welcome-balance">Your available balance: <strong>@Chips(balance) chips</strong></p>
+            }
             <div class="table-options">
                 <label for="deck-count">Decks in the shoe</label>
                 <select id="deck-count" class="form-select" @bind="_decks">
-                    <option value="4">4 decks</option>
-                    <option value="6">6 decks (standard)</option>
+                    <option value="2">2 decks (up to 3 hands per player)</option>
+                    <option value="4">4 decks (standard)</option>
+                    <option value="6">6 decks</option>
                     <option value="8">8 decks</option>
                 </select>
-                <small>Stand on soft 17 / double after split / late surrender</small>
+                <small>Stand on soft 17 / double after split / late surrender / up to @BlackjackShoe.GetMaxHandsPerPlayer(_decks) hands per player</small>
             </div>
             <button class="btn gold-button" disabled="@(_userId == 0 || _busy || !RendererInfo.IsInteractive)" @onclick="CreateRoom">Create a table</button>
             <div class="join-room">
@@ -88,6 +93,7 @@
     }
     else
     {
+        var displayed = _state;
         <div class="invite-bar">
             <a href="blackjack" class="back-link">&larr; Card room</a>
             <label for="invite-link">Invite friends</label>
@@ -102,27 +108,30 @@
         @if (_confirmClose && Can(BrowserBlackjackCommand.Close))
         {
             <div class="close-confirm alert alert-warning" role="alert">
-                <span>Close this table for everyone? Any current round and all this table's chips will be discarded.</span>
-                <button class="btn btn-danger" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Close)">Confirm close</button>
+                <span>Close this table for everyone? Undealt bets will be refunded; active hands will be stood and settled. Saved balances are kept.</span>
+                <button class="btn btn-danger" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Close, displayed)">Confirm close</button>
                 <button class="btn btn-outline-light" @onclick="() => _confirmClose = false">Keep table</button>
             </div>
         }
 
-        <BlackjackBoard State="_state" ViewerId="_userId" />
+        <BlackjackBoard State="_state" ViewerId="_userId" Now="_now" />
 
         <div class="action-dock">
             <div class="turn-strip">
                 <span>@TurnLabel</span>
-                @if (_state.Active)
+                @if (_state.Lobby || _state.YourTurn)
                 {
                     <span class="countdown" aria-label="@($"{SecondsLeft} seconds remaining")">@SecondsLeft s</span>
                 }
                 <label class="training-toggle">
                     <input type="checkbox" @bind="_showAdvice" @bind:after="Refresh" /> Strategy coach
                 </label>
-                <span class="your-balance">Your chips <strong>@Chips(_state.Balance)</strong></span>
+                @if (_userId != 0)
+                {
+                    <span class="your-balance">Your chips <strong>@Chips(_state.Balance)</strong></span>
+                }
             </div>
-            @if (_state.Active)
+            @if (_state.Lobby || _state.YourTurn)
             {
                 <progress class="turn-progress" value="@SecondsLeft" max="30" aria-label="Time remaining"></progress>
             }
@@ -136,7 +145,7 @@
                         {
                             <button class="bet-preset @(_bet == preset ? "selected" : "")" @onclick="() => _bet = preset">@preset</button>
                         }
-                        <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Join)">
+                        <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Join, displayed)">
                             @(_state.Lobby && _state.Seats.Any(p => p.Id == _userId) ? "Update bet" : "Bet & join")
                         </button>
                     </div>
@@ -146,20 +155,20 @@
                     @foreach (var action in PlayActions)
                     {
                         <button class="btn @(action == BrowserBlackjackCommand.Hit ? "gold-button" : "btn-outline-light")"
-                                disabled="@(_busy || !Can(action))" @onclick="() => Move(action)">@ActionLabel(action)</button>
+                                disabled="@(_busy || !Can(action))" @onclick="() => Move(action, displayed)">@ActionLabel(action)</button>
                     }
                 }
                 @if (Can(BrowserBlackjackCommand.Deal))
                 {
-                    <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Deal)">Deal now</button>
+                    <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Deal, displayed)">Deal now</button>
                 }
                 @if (Can(BrowserBlackjackCommand.Leave))
                 {
-                    <button class="btn btn-outline-light" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Leave)">Leave & refund</button>
+                    <button class="btn btn-outline-light" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Leave, displayed)">Leave & refund</button>
                 }
                 @if (Can(BrowserBlackjackCommand.Rebuy))
                 {
-                    <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Rebuy)">Free rebuy to 1,000</button>
+                    <button class="btn gold-button" disabled="@_busy" @onclick="() => Move(BrowserBlackjackCommand.Rebuy, displayed)">Free rebuy to 1,000</button>
                 }
             </div>
             @if (_state.Advice is { } advice)
@@ -168,22 +177,21 @@
                     <span>Running <strong>@Signed(advice.RunningCount)</strong></span>
                     <span>True <strong>@Signed(advice.TrueCount)</strong></span>
                     <span>Unseen decks <strong>@advice.UnseenDecks.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)</strong></span>
-                    <strong class="recommended-move">@(advice.Move is { } move ? ActionLabel(move) : "Waiting for your turn")@(advice.Deviation ? " / deviation" : "")</strong>
-                    <details>
-                        <summary>Why?</summary>
-                        <p>@advice.Explanation</p>
-                        <p>Hi-Lo basic strategy + Illustrious 18 / Fab 4 index plays, not a full composition-dependent
-                            perfect-play solver. Indices use the floored true count; insurance uses the exact unseen
-                            ten-valued fraction. Counts include previously exposed cards, never the hole card.
-                            Unseen decks include the hole card. This toggle is private to this browser tab.</p>
-                    </details>
+                    <div class="coach-recommendation">
+                        <strong class="recommended-move">@(advice.Move is { } move ? ActionLabel(move) : "No decision pending")@(advice.Deviation ? " / deviation" : "")</strong>
+                        <span class="coach-explanation">@advice.Explanation</span>
+                    </div>
                 </div>
             }
             @if (_state.Notice is not null)
             {
                 <p class="notice" role="status">@_state.Notice</p>
             }
-            @if (_error is not null)
+            @if (_state.StorageError is not null)
+            {
+                <div class="alert alert-danger mt-3 mb-0" role="alert">@_state.StorageError</div>
+            }
+            @if (_error is not null && _error != _state.StorageError)
             {
                 <div class="alert alert-warning mt-3 mb-0" role="alert">@_error</div>
             }
@@ -192,19 +200,28 @@
 
     <details class="rules">
         <summary>Table rules &amp; how to play here</summary>
-        <p>Four players against one dealer. Bets are 10-500 whole chips. The first bet opens a 30-second
-            betting window; the host can deal early. Each move gets 30 seconds. A timeout declines
+        <p>Up to six players act simultaneously against one dealer. Your split hands are played one at a time,
+            but you never wait for another seat to finish. Bets are 10-500 whole chips. The first bet opens a 30-second
+            betting window; the host can deal early. Each player has an independent 30-second timer per move. A timeout declines
             insurance or stands on all your remaining hands, so disconnected players cannot hold up the table.</p>
+        <p>Everyone must decide on insurance before the dealer checks for blackjack or anyone plays their main hand.
+            The dealer reveals and settles once all players have finished.</p>
         <p>@(_state?.DeckCount ?? _decks) decks, shuffled at 75% penetration (earlier if needed for safe splits). Dealer stands on soft 17.
-            Blackjack pays 3:2. Double after splitting; split equal-value cards into up to four hands.
+            Blackjack pays 3:2. Double after splitting; split equal-value cards into up to
+            @(_state?.MaxHandsPerPlayer ?? BlackjackShoe.GetMaxHandsPerPlayer(_decks)) hands per player.
+            Two-deck tables allow three hands per player to safely support all six seats without mid-hand shuffles;
+            larger shoes allow four.
             Split aces get one card each. Late surrender and insurance are available.</p>
         <p>Place a new bet to opt in to each round. Leaving before the deal refunds your bet.
             Closing the tab does not cancel a wager; reopen the same link to return.
-            Free rebuys are available below 10 chips when you have no active bet.
-            Chips and shoes belong to this browser table only.
-            Nothing is bought or paid out. State resets on server restart or after two hours with no viewers and no active round.</p>
+            Free rebuys are available below 10 chips when you have no active wager at any table.
+            Your chip balance is saved per Discord account and shared by all tables.
+            Available chips exclude all your outstanding wagers. Nothing is bought or paid out.
+            Tables and shoes reset on restart, with unfinished wagers returned; saved scores remain.
+            Unviewed tables expire after two hours once their round finishes.</p>
         <p>Anyone with the link can watch or join. Share it only with the people you want at your table.
-            The host can close it for everyone, discarding its round and chips. When no one is seated,
+            Closing a lobby refunds its bets. Closing a live round declines pending insurance,
+            stands unfinished hands, and saves the results before removing the table. When no one is seated,
             the table's creator can close it.</p>
     </details>
 </div>
@@ -224,7 +241,8 @@
     private string _roomCode;
     private string _error;
     private decimal _bet = 10;
-    private int _decks = 6;
+    private decimal? _balance;
+    private int _decks = BlackjackShoe.Decks;
     private bool _showAdvice;
     private bool _busy;
     private bool _copied;
@@ -238,8 +256,10 @@
     private string LoginUrl => $"Account/Login/Discord?returnUrl={Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri))}";
     private int SecondsLeft => Math.Clamp((int)Math.Ceiling((_state.Deadline - _now).TotalSeconds), 0, 30);
     private bool Can(BrowserBlackjackCommand command) => _state?.Actions.Contains(command) == true;
-    private string TurnLabel => _state.Lobby ? "Place your bets" : _state.Complete ? "Ready for another round?"
-        : !_state.Active ? "Take a seat to begin" : _state.ActivePlayerId == _userId ? "Your move" : "Watching the table";
+    private string TurnLabel => _state.StorageError is not null ? "Waiting to save scores"
+        : _state.Lobby ? "Place your bets" : _state.Complete ? "Ready for another round?"
+        : !_state.Active ? "Take a seat to begin" : _state.YourTurn ? "Your move"
+        : _state.Insurance ? "Waiting for insurance decisions" : "Waiting for the other players";
     private BrowserBlackjackCommand[] PlayActions => _state.Insurance
         ? [BrowserBlackjackCommand.Insure, BrowserBlackjackCommand.DeclineInsurance]
         : [BrowserBlackjackCommand.Hit, BrowserBlackjackCommand.Stand, BrowserBlackjackCommand.Double, BrowserBlackjackCommand.Split, BrowserBlackjackCommand.Surrender];
@@ -281,7 +301,7 @@
             {
                 await InvokeAsync(() =>
                 {
-                    if (!_stop.IsCancellationRequested && RoomId is not null)
+                    if (!_stop.IsCancellationRequested)
                     {
                         Refresh();
                         StateHasChanged();
@@ -297,7 +317,14 @@
     private void Refresh()
     {
         _now = DateTime.UtcNow;
+        string previousStorageError = _state?.StorageError;
         _state = Tables.Read(RoomId, _user, includeAdvice: _showAdvice);
+        _balance = _state is not null && _userId != 0 ? _state.Balance : Tables.GetBalance(_user);
+
+        if (previousStorageError is not null && _error == previousStorageError && _state?.StorageError is null)
+        {
+            _error = null;
+        }
     }
 
     private async Task CreateRoom()
@@ -344,7 +371,7 @@
         }
     }
 
-    private async Task Move(BrowserBlackjackCommand command)
+    private async Task Move(BrowserBlackjackCommand command, BrowserBlackjackState displayed)
     {
         if (_busy || _state is null)
         {
@@ -352,13 +379,10 @@
         }
 
         _busy = true;
-        long version = _state.Version;
-        string roomId = RoomId;
-
         try
         {
             _user = (await AuthenticationState).User;
-            _error = Tables.Execute(roomId, _user, version, command, _bet);
+            _error = Tables.Execute(displayed.RoomId, _user, displayed.Version, command, _bet);
             _confirmClose = false;
             Refresh();
         }

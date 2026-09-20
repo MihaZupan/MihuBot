@@ -6,31 +6,47 @@ public sealed class SynchronizedLocalJsonStore<T>
     where T : class, new()
 {
     private readonly string _jsonPath;
-    private readonly T _value;
-    private readonly SemaphoreSlim _asyncLock;
+    private readonly Action<string, string> _replaceFile;
+    private readonly SemaphoreSlim _asyncLock = new(1, 1);
+    private T _value;
     private string _previousJson;
 
     public SynchronizedLocalJsonStore(string jsonPath, Func<SynchronizedLocalJsonStore<T>, T, T> init = null)
+        : this(jsonPath, init, null)
     {
-        _jsonPath = $"{Constants.StateDirectory}/{jsonPath}";
+    }
 
-        if (File.Exists(_jsonPath))
+    internal SynchronizedLocalJsonStore(string jsonPath, Func<SynchronizedLocalJsonStore<T>, T, T> init,
+        Action<string, string> replaceFile)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jsonPath);
+        _jsonPath = Path.GetFullPath(Path.IsPathRooted(jsonPath) ? jsonPath : Path.Combine(Constants.StateDirectory, jsonPath));
+        _replaceFile = replaceFile ?? ((source, destination) => File.Move(source, destination, overwrite: true));
+        string json;
+
+        try
         {
-            _previousJson = File.ReadAllText(_jsonPath);
-            _value = JsonConvert.DeserializeObject<T>(_previousJson);
+            json = File.ReadAllText(_jsonPath);
         }
-        else
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            _previousJson = string.Empty;
-            _value = new T();
+            json = null;
         }
 
-        _asyncLock = new SemaphoreSlim(1, 1);
+        _previousJson = json ?? string.Empty;
+        _value = json is null ? new T() : JsonConvert.DeserializeObject<T>(json);
 
         if (init != null)
         {
             _value = init(this, _value);
         }
+    }
+
+    internal SynchronizedLocalJsonStore(T value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        _value = value;
+        _previousJson = string.Empty;
     }
 
     public T DangerousGetValue() => _value;
@@ -90,32 +106,65 @@ public sealed class SynchronizedLocalJsonStore<T>
     public T Enter()
     {
         _asyncLock.Wait();
-        // Logger.DebugLog($"Entered {_jsonPath}");
         return _value;
     }
 
     public async ValueTask<T> EnterAsync()
     {
         await _asyncLock.WaitAsync();
-        // Logger.DebugLog($"Entered {_jsonPath}");
         return _value;
     }
 
     public void Exit()
     {
-        string newJson = JsonConvert.SerializeObject(_value, Formatting.Indented);
+        try
+        {
+            Save(_value);
+        }
+        finally
+        {
+            _asyncLock.Release();
+        }
+    }
+
+    public void Modify(Action<T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        _asyncLock.Wait();
+
+        try
+        {
+            action(_value);
+            Save(_value);
+        }
+        finally
+        {
+            _asyncLock.Release();
+        }
+    }
+
+    private void Save(T value)
+    {
+        string newJson = JsonConvert.SerializeObject(value, Formatting.Indented);
 
         if (newJson == _previousJson)
         {
-            // Logger.DebugLog($"Exiting {_jsonPath}, no changes");
-        }
-        else
-        {
-            // Logger.DebugLog($"Exiting {_jsonPath}, saving changes");
-            _previousJson = newJson;
-            File.WriteAllText(_jsonPath, newJson);
+            return;
         }
 
-        _asyncLock.Release();
+        if (_jsonPath is not null)
+        {
+            string temporary = _jsonPath + ".tmp";
+
+            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(Encoding.UTF8.GetBytes(newJson));
+                stream.Flush(flushToDisk: true);
+            }
+
+            _replaceFile(temporary, _jsonPath);
+        }
+
+        _previousJson = newJson;
     }
 }

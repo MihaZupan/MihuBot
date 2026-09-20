@@ -30,7 +30,7 @@ public sealed class BlackjackTests
         Assert.Equal(1_016.5m, game.Players[0].Balance);
         Assert.Equal(27.5m, game.Players[0].Hands[0].Returned);
         Assert.Equal(2, game.Dealer.Count);
-        Assert.False(game.TryAct(BlackjackAction.Hit));
+        Assert.False(game.TryAct(42, BlackjackAction.Hit));
         game.AutoStand();
         Assert.Equal(1_016.5m, game.Players[0].Balance);
     }
@@ -42,8 +42,8 @@ public sealed class BlackjackTests
 
         Assert.True(game.IsComplete);
         Assert.Equal(900, game.Players[0].Balance);
-        Assert.False(game.TryAct(BlackjackAction.Surrender));
-        Assert.False(game.TryAct(BlackjackAction.Split));
+        Assert.False(game.TryAct(42, BlackjackAction.Surrender));
+        Assert.False(game.TryAct(42, BlackjackAction.Split));
     }
 
     [Fact]
@@ -63,9 +63,9 @@ public sealed class BlackjackTests
 
         Assert.True(game.OfferingInsurance);
         Assert.False(game.IsComplete);
-        Assert.False(game.TryAct(BlackjackAction.Hit));
-        Assert.False(game.TryAct(BlackjackAction.Surrender));
-        Assert.True(game.TryAct(BlackjackAction.Insure));
+        Assert.False(game.TryAct(42, BlackjackAction.Hit));
+        Assert.False(game.TryAct(42, BlackjackAction.Surrender));
+        Assert.True(game.TryAct(42, BlackjackAction.Insure));
         Assert.True(game.IsComplete);
         Assert.Equal(50, game.Players[0].InsuranceBet);
         Assert.Equal(150, game.Players[0].InsuranceReturned);
@@ -80,7 +80,7 @@ public sealed class BlackjackTests
         BlackjackGame game = Game(1_000, 100, 1, 1, 13, holeCard);
 
         Assert.False(game.IsComplete);
-        Assert.True(game.TryAct(BlackjackAction.Insure));
+        Assert.True(game.TryAct(42, BlackjackAction.Insure));
         Assert.True(game.IsComplete);
         Assert.Equal(1_100, game.Players[0].Balance);
     }
@@ -90,11 +90,11 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 1, 13, 8);
 
-        Assert.True(game.TryAct(BlackjackAction.Insure));
+        Assert.True(game.TryAct(42, BlackjackAction.Insure));
         Assert.False(game.OfferingInsurance);
         Assert.Equal(850, game.Players[0].Balance);
-        Assert.False(game.TryAct(BlackjackAction.Insure));
-        Assert.True(game.TryAct(BlackjackAction.Stand));
+        Assert.False(game.TryAct(42, BlackjackAction.Insure));
+        Assert.True(game.TryAct(42, BlackjackAction.Stand));
         Assert.Equal(1_050, game.Players[0].Balance);
         Assert.Equal(0, game.Players[0].InsuranceReturned);
     }
@@ -104,10 +104,10 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(100, 100, 10, 1, 8, 9);
 
-        Assert.False(game.TryAct(BlackjackAction.Insure));
+        Assert.False(game.TryAct(42, BlackjackAction.Insure));
         Assert.Equal(0, game.Players[0].Balance);
-        Assert.True(game.TryAct(BlackjackAction.DeclineInsurance));
-        Assert.True(game.TryAct(BlackjackAction.Stand));
+        Assert.True(game.TryAct(42, BlackjackAction.DeclineInsurance));
+        Assert.True(game.TryAct(42, BlackjackAction.Stand));
         Assert.Equal(0, game.Players[0].Balance);
     }
 
@@ -116,8 +116,8 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 1, 8, 6);
 
-        game.TryAct(BlackjackAction.DeclineInsurance);
-        game.TryAct(BlackjackAction.Stand);
+        game.TryAct(42, BlackjackAction.DeclineInsurance);
+        game.TryAct(42, BlackjackAction.Stand);
 
         Assert.Equal(2, game.Dealer.Count);
         Assert.Equal((17, true), BlackjackHand.Evaluate(game.Dealer));
@@ -129,8 +129,8 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 1, 8, 5, 10, 2);
 
-        game.TryAct(BlackjackAction.DeclineInsurance);
-        game.TryAct(BlackjackAction.Stand);
+        game.TryAct(42, BlackjackAction.DeclineInsurance);
+        game.TryAct(42, BlackjackAction.Stand);
 
         Assert.Equal(4, game.Dealer.Count);
         Assert.Equal((18, false), BlackjackHand.Evaluate(game.Dealer));
@@ -142,7 +142,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 6, 8, 10, 5);
 
-        Assert.True(game.TryAct(BlackjackAction.Hit));
+        Assert.True(game.TryAct(42, BlackjackAction.Hit));
         Assert.True(game.IsComplete);
         Assert.Equal("Bust", game.Players[0].Hands[0].Result);
         Assert.Equal(900, game.Players[0].Balance);
@@ -154,7 +154,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 6, 8, 10, 10);
 
-        game.TryAct(BlackjackAction.Stand);
+        game.TryAct(42, BlackjackAction.Stand);
 
         Assert.True(game.IsComplete);
         Assert.Equal(1_100, game.Players[0].Balance);
@@ -165,13 +165,13 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 5, 10, 6, 8, 10);
 
-        Assert.True(game.TryAct(BlackjackAction.Double));
+        Assert.True(game.TryAct(42, BlackjackAction.Double));
         Assert.True(game.IsComplete);
         Assert.Equal(3, game.Players[0].Hands[0].Cards.Count);
         Assert.Equal(200, game.Players[0].Hands[0].Bet);
         Assert.Equal(400, game.Players[0].Hands[0].Returned);
         Assert.Equal(1_200, game.Players[0].Balance);
-        Assert.False(game.TryAct(BlackjackAction.Double));
+        Assert.False(game.TryAct(42, BlackjackAction.Double));
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 6, 5, 10, 10);
 
-        game.TryAct(BlackjackAction.Double);
+        game.TryAct(42, BlackjackAction.Double);
 
         Assert.True(game.IsComplete);
         Assert.Equal(800, game.Players[0].Balance);
@@ -190,10 +190,10 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 2, 10, 3, 8, 4);
 
-        game.TryAct(BlackjackAction.Hit);
+        game.TryAct(42, BlackjackAction.Hit);
 
-        Assert.False(game.TryAct(BlackjackAction.Double));
-        Assert.False(game.TryAct(BlackjackAction.Surrender));
+        Assert.False(game.TryAct(42, BlackjackAction.Double));
+        Assert.False(game.TryAct(42, BlackjackAction.Surrender));
         Assert.Equal(900, game.Players[0].Balance);
     }
 
@@ -202,8 +202,8 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(199, 100, 8, 10, 8, 8);
 
-        Assert.False(game.TryAct(BlackjackAction.Double));
-        Assert.False(game.TryAct(BlackjackAction.Split));
+        Assert.False(game.TryAct(42, BlackjackAction.Double));
+        Assert.False(game.TryAct(42, BlackjackAction.Split));
         Assert.Equal(99, game.Players[0].Balance);
         Assert.Single(game.Players[0].Hands);
     }
@@ -213,7 +213,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 11, 10, 6, 6, 10);
 
-        Assert.True(game.TryAct(BlackjackAction.Surrender));
+        Assert.True(game.TryAct(42, BlackjackAction.Surrender));
         Assert.True(game.IsComplete);
         Assert.Equal(994.5m, game.Players[0].Balance);
         Assert.Equal(2, game.Dealer.Count);
@@ -224,15 +224,15 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 8, 6, 8, 10, 3, 10, 2, 10, 10);
 
-        Assert.True(game.TryAct(BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
         Assert.Equal(800, game.Players[0].Balance);
         Assert.Equal(2, game.Players[0].Hands.Count);
         Assert.Single(game.Players[0].Hands[1].Cards);
-        Assert.False(game.CanAct(BlackjackAction.Surrender));
-        Assert.True(game.TryAct(BlackjackAction.Double));
-        Assert.Equal(1, game.ActivePlayer.ActiveHandIndex);
-        Assert.Equal(10, game.ActiveHand.Value.Total);
-        Assert.True(game.TryAct(BlackjackAction.Double));
+        Assert.False(game.CanAct(42, BlackjackAction.Surrender));
+        Assert.True(game.TryAct(42, BlackjackAction.Double));
+        Assert.Equal(1, game.Players[0].ActiveHandIndex);
+        Assert.Equal(10, game.Players[0].ActiveHand.Value.Total);
+        Assert.True(game.TryAct(42, BlackjackAction.Double));
 
         Assert.True(game.IsComplete);
         Assert.Equal(1_400, game.Players[0].Balance);
@@ -244,7 +244,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 1, 10, 1, 7, 13, 1);
 
-        Assert.True(game.TryAct(BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
         Assert.True(game.IsComplete);
         Assert.All(game.Players[0].Hands, h => Assert.Equal(2, h.Cards.Count));
         Assert.All(game.Players[0].Hands, h => Assert.False(h.IsBlackjack));
@@ -258,7 +258,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 10, 10, 13, 7, 1, 1);
 
-        Assert.True(game.TryAct(BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
         Assert.True(game.IsComplete);
         Assert.Equal(1_200, game.Players[0].Balance);
         Assert.All(game.Players[0].Hands, h => Assert.False(h.IsBlackjack));
@@ -269,10 +269,10 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 8, 10, 8, 7, 8, 8, 8, 10, 10, 10);
 
-        Assert.True(game.TryAct(BlackjackAction.Split));
-        Assert.True(game.TryAct(BlackjackAction.Split));
-        Assert.True(game.TryAct(BlackjackAction.Split));
-        Assert.False(game.TryAct(BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
+        Assert.True(game.TryAct(42, BlackjackAction.Split));
+        Assert.False(game.TryAct(42, BlackjackAction.Split));
         Assert.Equal(4, game.Players[0].Hands.Count);
         Assert.Equal(600, game.Players[0].Balance);
         game.AutoStand();
@@ -286,7 +286,7 @@ public sealed class BlackjackTests
     {
         BlackjackGame game = Game(1_000, 100, 8, 10, 9, 7);
 
-        Assert.False(game.TryAct(BlackjackAction.Split));
+        Assert.False(game.TryAct(42, BlackjackAction.Split));
         Assert.Equal(900, game.Players[0].Balance);
     }
 
@@ -306,7 +306,7 @@ public sealed class BlackjackTests
     [Fact]
     public void ShoeContainsSixOfEachCardAndShufflesOnlyBetweenRoundsAtCutCard()
     {
-        var shoe = new BlackjackShoe();
+        var shoe = new BlackjackShoe(6);
 
         Assert.True(shoe.PrepareRound());
         Assert.Equal(312, shoe.Remaining);
@@ -340,7 +340,7 @@ public sealed class BlackjackTests
     [Fact]
     public void CutCardTriggersAtExactlySeventyFivePercent()
     {
-        var shoe = new BlackjackShoe();
+        var shoe = new BlackjackShoe(6);
         shoe.PrepareRound();
 
         for (int i = 0; i < 234; i++)
@@ -352,10 +352,14 @@ public sealed class BlackjackTests
         Assert.Equal(312, shoe.Remaining);
     }
 
-    [Fact]
-    public void FullShoesSupportRepeatedRoundsWithoutMidRoundShufflesOrAccountingDrift()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(4)]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void FullShoesSupportRepeatedRoundsWithoutMidRoundShufflesOrAccountingDrift(int decks)
     {
-        var shoe = new BlackjackShoe();
+        var shoe = new BlackjackShoe(decks);
         var random = new Random(42);
         BlackjackAction[] actions = Enum.GetValues<BlackjackAction>();
 
@@ -366,16 +370,20 @@ public sealed class BlackjackTests
             int shoeNumber = shoe.Number;
             int remaining = shoe.Remaining;
             var game = new BlackjackGame(shoe.Draw, Enumerable.Range(0, seats)
-                .Select(i => new BlackjackPlayer((ulong)i, $"Player {i}", 1_000, random.Next(10, 501))).ToArray());
+                .Select(i => new BlackjackPlayer((ulong)i, $"Player {i}", 1_000, random.Next(10, 501))).ToArray(),
+                shoe.MaxHandsPerPlayer);
             int moves = 0;
 
             while (!game.IsComplete)
             {
-                BlackjackAction[] available = actions.Where(game.CanAct).ToArray();
+                BlackjackPlayer[] pending = game.Players.Where(p => game.NeedsAction(p.Id)).ToArray();
+                Assert.NotEmpty(pending);
+                BlackjackPlayer player = pending[random.Next(pending.Length)];
+                BlackjackAction[] available = actions.Where(a => game.CanAct(player.Id, a)).ToArray();
                 Assert.NotEmpty(available);
-                Assert.True(game.TryAct(available[random.Next(available.Length)]));
+                Assert.True(game.TryAct(player.Id, available[random.Next(available.Length)]));
                 Assert.All(game.Players, p => Assert.InRange(p.Balance, 0, decimal.MaxValue));
-                Assert.InRange(++moves, 1, 100);
+                Assert.InRange(++moves, 1, 150);
             }
 
             Assert.Equal(shoeNumber, shoe.Number);
@@ -383,7 +391,7 @@ public sealed class BlackjackTests
 
             foreach (BlackjackPlayer player in game.Players)
             {
-                Assert.InRange(player.Hands.Count, 1, 4);
+                Assert.InRange(player.Hands.Count, 1, shoe.MaxHandsPerPlayer);
                 Assert.All(player.Hands, h => Assert.True(h.Finished));
                 Assert.Equal(1_000 - player.Hands.Sum(h => h.Bet) - player.InsuranceBet +
                     player.Hands.Sum(h => h.Returned) + player.InsuranceReturned, player.Balance);

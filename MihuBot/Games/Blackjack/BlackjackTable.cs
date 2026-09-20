@@ -7,14 +7,19 @@ internal sealed class BlackjackTable
     public static readonly TimeSpan TurnTime = TimeSpan.FromSeconds(30);
 
     private readonly Dictionary<ulong, decimal> _balances = [];
+    private readonly Dictionary<ulong, long> _playerRevisions = [];
+    private readonly Dictionary<ulong, DateTime> _deadlines = [];
     private readonly List<BlackjackPlayer> _seats = [];
+    private Func<ulong, decimal> _balanceProvider;
+    private long _phaseRevision;
+    private DateTime _bettingDeadline;
 
     public BlackjackShoe Shoe { get; }
     public IReadOnlyList<BlackjackPlayer> Seats => _seats;
     public BlackjackGame Game { get; private set; }
     public string Id { get; private set; } = Guid.NewGuid().ToString("N");
-    public int Revision { get; private set; }
-    public DateTime Deadline { get; private set; }
+    public long Revision { get; private set; }
+    public DateTime Deadline => IsLobby ? _bettingDeadline : _deadlines.Values.DefaultIfEmpty().Min();
     public bool Shuffled { get; private set; }
     public string Notice { get; private set; }
     public bool IsLobby => Game is null && _seats.Count != 0;
@@ -26,9 +31,36 @@ internal sealed class BlackjackTable
         Shoe = shoe ?? new BlackjackShoe();
     }
 
-    public decimal GetBalance(ulong userId) => _balances.GetValueOrDefault(userId, StartingChips);
+    public decimal GetBalance(ulong userId) => _balanceProvider?.Invoke(userId) ?? _balances.GetValueOrDefault(userId, StartingChips);
 
-    public string CustomId(BlackjackAction action) => $"blackjack-{Id}-{Revision}-{action}";
+    public void SetBalanceProvider(Func<ulong, decimal> balanceProvider)
+    {
+        ArgumentNullException.ThrowIfNull(balanceProvider);
+
+        if (_balanceProvider is not null)
+        {
+            throw new InvalidOperationException("This table already has a balance provider.");
+        }
+
+        _balanceProvider = balanceProvider;
+    }
+
+    public void RefreshBalances()
+    {
+        if (_balanceProvider is not null)
+        {
+            foreach (BlackjackPlayer player in _seats)
+            {
+                player.Balance = GetBalance(player.Id);
+            }
+        }
+    }
+
+    public void NotifyBalanceChanged(ulong userId) => Changed(userId);
+
+    public long GetRevision(ulong userId) => Math.Max(_phaseRevision, _playerRevisions.GetValueOrDefault(userId));
+
+    public DateTime? GetDeadline(ulong userId) => _deadlines.TryGetValue(userId, out DateTime deadline) ? deadline : null;
 
     public string Join(ulong userId, string name, decimal bet, DateTime now)
     {
@@ -46,10 +78,10 @@ internal sealed class BlackjackTable
 
         if (IsLobby && existing is null && _seats.Count == BlackjackGame.MaxPlayers)
         {
-            return "All four seats are taken. You can join the next round.";
+            return "All six seats are taken. You can join the next round.";
         }
 
-        decimal balance = existing?.StartingBalance ?? GetBalance(userId);
+        decimal balance = GetBalance(userId) + (existing?.Hands[0].Bet ?? 0);
 
         if (balance < bet)
         {
@@ -61,7 +93,7 @@ internal sealed class BlackjackTable
             existing.Hands[0].Bet = bet;
             existing.Balance = balance - bet;
             _balances[userId] = existing.Balance;
-            Revision++;
+            Changed(userId);
             return null;
         }
 
@@ -70,8 +102,7 @@ internal sealed class BlackjackTable
             _seats.Clear();
             Game = null;
             Id = Guid.NewGuid().ToString("N");
-            Revision = 0;
-            Deadline = now + BettingTime;
+            _bettingDeadline = now + BettingTime;
             Shuffled = false;
         }
 
@@ -79,7 +110,7 @@ internal sealed class BlackjackTable
         _seats.Add(player);
         _balances[userId] = player.Balance;
         Notice = null;
-        Revision++;
+        Changed(userId);
         return null;
     }
 
@@ -99,7 +130,7 @@ internal sealed class BlackjackTable
 
         _balances[userId] = player.StartingBalance;
         _seats.Remove(player);
-        Revision++;
+        Changed(userId);
         return null;
     }
 
@@ -119,42 +150,37 @@ internal sealed class BlackjackTable
         return null;
     }
 
-    public string Rebuy(ulong userId)
+    public void FinishRound(DateTime now)
     {
-        if (IsActive && _seats.Any(p => p.Id == userId))
+        if (Game is { IsComplete: false })
         {
-            return "Finish your current round or leave the betting lobby before rebuying.";
+            RefreshBalances();
+            Game.AutoStand();
+            SaveBalances();
+            Changed(phaseChanged: true);
+            ResetDeadlines(now);
         }
-
-        if (GetBalance(userId) >= 10)
-        {
-            return "Free rebuys are available only when you have fewer than 10 chips.";
-        }
-
-        _balances[userId] = StartingChips;
-        return null;
     }
 
-    public bool TryAct(ulong userId, string customId, DateTime now)
+    public bool TryAct(ulong userId, long revision, BlackjackAction action, DateTime now)
     {
-        if (Game is not { IsComplete: false } || Game.ActivePlayer.Id != userId || now >= Deadline)
+        if (Game is not { IsComplete: false } || revision != GetRevision(userId) ||
+            GetDeadline(userId) is not { } deadline || now >= deadline)
         {
             return false;
         }
 
-        foreach (BlackjackAction action in Enum.GetValues<BlackjackAction>())
+        bool insurance = Game.OfferingInsurance;
+        RefreshBalances();
+
+        if (!Game.TryAct(userId, action))
         {
-            if (customId == CustomId(action) && Game.TryAct(action))
-            {
-                Notice = null;
-                SaveBalances();
-                Revision++;
-                Deadline = now + TurnTime;
-                return true;
-            }
+            return false;
         }
 
-        return false;
+        Notice = null;
+        AfterAction(userId, insurance, now);
+        return true;
     }
 
     public bool Expire(DateTime now)
@@ -167,29 +193,84 @@ internal sealed class BlackjackTable
         if (IsLobby)
         {
             Start(now);
-        }
-        else
-        {
-            int seat = Game.ActivePlayerIndex + 1;
-            Notice = Game.OfferingInsurance
-                ? $"Seat {seat} timed out: insurance declined."
-                : $"Seat {seat} timed out: all their remaining hands stood.";
-            Game.AutoStandCurrentPlayer();
-            SaveBalances();
-            Revision++;
-            Deadline = now + TurnTime;
+            return true;
         }
 
-        return true;
+        var notices = new List<string>();
+        RefreshBalances();
+
+        foreach (BlackjackPlayer player in _seats.Where(p => Game.NeedsAction(p.Id) && GetDeadline(p.Id) <= now).ToArray())
+        {
+            bool insurance = Game.OfferingInsurance;
+            int seat = _seats.IndexOf(player) + 1;
+            notices.Add(insurance ? $"Seat {seat} timed out: insurance declined."
+                : $"Seat {seat} timed out: all their remaining hands stood.");
+            Game.AutoStandPlayer(player.Id);
+            AfterAction(player.Id, insurance, now);
+
+            if (insurance != Game.OfferingInsurance || Game.IsComplete)
+            {
+                break;
+            }
+        }
+
+        Notice = string.Join(' ', notices);
+        return notices.Count != 0;
     }
 
     private void Start(DateTime now)
     {
         Shuffled = Shoe.PrepareRound(_seats.Count);
-        Game = new BlackjackGame(Shoe.Draw, _seats);
+        RefreshBalances();
+        Game = new BlackjackGame(Shoe.Draw, _seats, Shoe.MaxHandsPerPlayer);
         SaveBalances();
+        Changed(phaseChanged: true);
+        ResetDeadlines(now);
+    }
+
+    private void AfterAction(ulong userId, bool wasInsurance, DateTime now)
+    {
+        SaveBalances();
+        bool phaseChanged = wasInsurance != Game.OfferingInsurance || Game.IsComplete;
+        Changed(userId, phaseChanged);
+
+        if (phaseChanged)
+        {
+            ResetDeadlines(now);
+        }
+        else if (Game.NeedsAction(userId))
+        {
+            _deadlines[userId] = now + TurnTime;
+        }
+        else
+        {
+            _deadlines.Remove(userId);
+        }
+    }
+
+    private void ResetDeadlines(DateTime now)
+    {
+        _deadlines.Clear();
+
+        foreach (BlackjackPlayer player in _seats.Where(p => Game.NeedsAction(p.Id)))
+        {
+            _deadlines.Add(player.Id, now + TurnTime);
+        }
+    }
+
+    private void Changed(ulong? userId = null, bool phaseChanged = false)
+    {
         Revision++;
-        Deadline = now + TurnTime;
+
+        if (userId is ulong id)
+        {
+            _playerRevisions[id] = Revision;
+        }
+
+        if (phaseChanged)
+        {
+            _phaseRevision = Revision;
+        }
     }
 
     private void SaveBalances()
