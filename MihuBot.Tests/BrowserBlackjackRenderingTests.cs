@@ -55,6 +55,41 @@ public sealed class BrowserBlackjackRenderingTests
     }
 
     [Fact]
+    public async Task BettingOddsShowApproximatePublishedRatesAndTheirLimitations()
+    {
+        var advice = BlackjackStrategy.RecommendBet(0, 1000, shuffleExpected: false);
+        string html = await Render<BlackjackBetOdds>(new() { ["Advice"] = advice });
+        Assert.Contains("Estimated odds", html, StringComparison.Ordinal);
+        Assert.Contains("42.7%", html, StringComparison.Ordinal);
+        Assert.Contains("8.1%", html, StringComparison.Ordinal);
+        Assert.Contains("49.2%", html, StringComparison.Ordinal);
+        Assert.Contains("-0.3%", html, StringComparison.Ordinal);
+        Assert.Contains("Six-deck estimates; actual odds may differ.", html, StringComparison.Ordinal);
+        Assert.Contains("not exact odds for our rules or strategy", html, StringComparison.Ordinal);
+        Assert.Contains("truecount5.htm", html, StringComparison.Ordinal);
+        Assert.Contains("truecount2.htm", html, StringComparison.Ordinal);
+        Assert.Contains("Reference count: truncated toward zero", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("sampling", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LiveHandAdviceDoesNotRenderBettingOdds()
+    {
+        using var service = new BrowserBlackjackService(TimeProvider.System, () => BrowserBlackjackTests.Table(10, 6, 8, 10));
+        var user = BrowserBlackjackTests.User(1);
+        string room = service.CreateRoom(user).RoomId;
+        Assert.Null(service.Execute(room, user, 0, BrowserBlackjackCommand.Join, 100));
+        Assert.Null(service.Execute(room, user, 1, BrowserBlackjackCommand.Deal));
+        var state = service.Read(room, user, includeAdvice: true);
+        Assert.True(state.YourTurn);
+        Assert.NotNull(state.Advice.Move);
+        Assert.Null(state.Advice.Bet);
+        string html = await Render<BlackjackBetOdds>(new() { ["Advice"] = state.Advice.Bet });
+        Assert.DoesNotContain("betting-odds", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ref TC", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task EmptyTableRendersSixSeatsAndNoDealerTotal()
     {
         using var service = new BrowserBlackjackService(TimeProvider.System);

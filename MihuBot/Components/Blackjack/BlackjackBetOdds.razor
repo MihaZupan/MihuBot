@@ -1,0 +1,30 @@
+@using MihuBot.Games.Blackjack
+
+@if (Advice is { Odds: { } odds })
+{
+    <div class="betting-odds" aria-label="Count-based betting odds">
+        <div class="outcomes">
+            <strong>Estimated odds</strong>
+            <span title="@($"Reference count: truncated toward zero, capped at {BlackjackBettingOdds.MinimumCount} to +{BlackjackBettingOdds.MaximumCount}.")">Ref TC <strong>@odds.ReferenceCount.ToString("+0;-0;0", System.Globalization.CultureInfo.InvariantCulture)</strong></span>
+            <span>Win <strong>~@Percent(odds.Win)</strong></span>
+            <span>Push <strong>~@Percent(odds.Push)</strong></span>
+            <span>Lose <strong>~@Percent(odds.Lose)</strong></span>
+            <span>Edge <strong>~@odds.Edge.ToString("+0.0%;-0.0%;0.0%", System.Globalization.CultureInfo.InvariantCulture)</strong></span>
+        </div>
+        <small>Six-deck estimates; actual odds may differ.</small>
+        <details>
+            <summary>Sources</summary>
+            Full Hi-Lo reference, not exact odds for our rules or strategy:
+            <a href="https://www.blackjackincolor.com/truecount5.htm" target="_blank" rel="noopener noreferrer">odds</a>,
+            <a href="https://www.blackjackincolor.com/truecount2.htm" target="_blank" rel="noopener noreferrer">edge</a>,
+            <a href="https://wizardofodds.com/games/blackjack/variance/" target="_blank" rel="noopener noreferrer">variance</a>.
+        </details>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public BrowserBlackjackBetAdvice Advice { get; set; }
+
+    private static string Percent(double value) => value.ToString("0.0%", System.Globalization.CultureInfo.InvariantCulture);
+}

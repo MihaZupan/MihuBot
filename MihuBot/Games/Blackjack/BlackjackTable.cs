@@ -3,6 +3,8 @@ namespace MihuBot.Games.Blackjack;
 internal sealed class BlackjackTable
 {
     public const decimal StartingChips = 1_000;
+    public const int MinimumBet = 10;
+    public const int MaximumBet = 500;
     public static readonly TimeSpan BettingTime = TimeSpan.FromSeconds(30);
     public static readonly TimeSpan TurnTime = TimeSpan.FromSeconds(30);
 
@@ -64,9 +66,9 @@ internal sealed class BlackjackTable
 
     public string Join(ulong userId, string name, decimal bet, DateTime now)
     {
-        if (bet is < 10 or > 500 || decimal.Truncate(bet) != bet)
+        if (bet is < MinimumBet or > MaximumBet || decimal.Truncate(bet) != bet)
         {
-            return "Bet must be a whole number from 10 to 500.";
+            return $"Bet must be a whole number from {MinimumBet} to {MaximumBet}.";
         }
 
         if (Game is { IsComplete: false } || (IsLobby && now >= Deadline))
@@ -85,7 +87,7 @@ internal sealed class BlackjackTable
 
         if (balance < bet)
         {
-            return "Not enough chips. Lower your bet, or rebuy when your balance is below 10.";
+            return $"Not enough chips. Lower your bet, or rebuy when your balance is below {MinimumBet}.";
         }
 
         if (existing != null)

@@ -132,6 +132,37 @@ index set covers common deviations, not every possible composition exception.
 Two-deck tables use their own basic strategy and exact insurance odds; the
 multi-deck index set is not applied to them.
 
+### Betting odds
+
+While betting is available, the coach also shows approximate win/push/loss
+rates and player edge for the betting true count. These are rounded readings
+from Norm Wattenberger's published [odds](https://www.blackjackincolor.com/truecount5.htm)
+and [advantage](https://www.blackjackincolor.com/truecount2.htm) charts, not
+predictions for the current hand or exact shoe. No simulation, background
+calculation, or runtime web request is performed. Live-hand advice is unchanged
+and does not display odds.
+
+The reference uses six decks, S17/DAS/late surrender, full Hi-Lo deviations,
+half-deck resolution, and true counts truncated toward zero. Our rules and
+limited deviations are not an exact match, particularly at two decks.
+Chart readings are rounded to 0.1 percentage point, TC 0's win rate uses the
+published text, and loss is the complement of win plus push. The lookup covers
+TC -10 through +10; out-of-range counts use the nearest endpoint, with the
+reference count displayed explicitly. These are per-hand rates, not combined
+split-round outcomes. Edge includes payout amounts, not just win/loss frequency.
+
+Suggested bets use approximate half-Kelly: `0.5 * max(edge, 0) / 1.303` of
+available practice chips. The [variance reference](https://wizardofodds.com/games/blackjack/variance/)
+uses comparable basic-strategy rules (including resplitting aces), not
+count-specific variances. Other tables' commitments are excluded and the
+current lobby bet is refundable. Bets round down to ten-chip units, cap at
+500, and allow reserves for every permitted split, double, and insurance.
+Recommendations assume every round must be played: a nonpositive edge or a
+calculated bet below 10 gives the minimum bet, even if full reserves are not
+affordable. Only a balance below 10 prevents a recommendation. An impending
+shuffle uses TC 0 instead of the old shoe's count. Advice never changes wagers
+automatically.
+
 Rule references:
 - [Wizard of Odds: double-deck basic strategy](https://wizardofodds.com/games/blackjack/strategy/2-decks/)
 - [Wizard of Odds: 4-8 deck basic strategy](https://wizardofodds.com/games/blackjack/strategy/4-decks/)

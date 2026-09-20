@@ -160,45 +160,64 @@ public sealed class BlackjackStrategyTests
     [InlineData(-5, 10)]
     [InlineData(0, 10)]
     [InlineData(1.999, 10)]
-    [InlineData(2, 20)]
-    [InlineData(2.999, 20)]
-    [InlineData(3, 30)]
-    [InlineData(3.999, 30)]
-    [InlineData(4, 40)]
-    [InlineData(20, 40)]
-    public void BettingRampUsesWholeTenChipUnitsAndCapsAtFour(double trueCount, int amount)
+    [InlineData(2, 10)]
+    [InlineData(3, 10)]
+    [InlineData(4, 10)]
+    [InlineData(5, 10)]
+    [InlineData(7.999, 10)]
+    [InlineData(8, 20)]
+    [InlineData(10, 20)]
+    [InlineData(20, 20)]
+    public void BettingUsesReferenceEdgeAndApproximateHalfKelly(double trueCount, int amount)
     {
         var advice = BlackjackStrategy.RecommendBet(trueCount, 1_000, shuffleExpected: false);
         Assert.Equal((decimal)amount, advice.Amount);
         Assert.Equal(trueCount, advice.TrueCount);
         Assert.False(advice.ShuffleExpected);
-        Assert.Contains("Training guideline", advice.Explanation, StringComparison.Ordinal);
+        Assert.Equal(BlackjackBettingOdds.ForCount(trueCount), advice.Odds);
     }
 
     [Theory]
     [InlineData(0, 0)]
     [InlineData(9, 0)]
-    [InlineData(39.5, 0)]
-    [InlineData(40, 10)]
-    [InlineData(79.5, 10)]
-    [InlineData(80, 20)]
-    [InlineData(119.5, 20)]
-    [InlineData(120, 30)]
-    [InlineData(159.5, 30)]
-    [InlineData(160, 40)]
-    public void BettingCapReservesThreeBetsAndRoundsDown(decimal balance, int amount)
+    [InlineData(9.5, 0)]
+    [InlineData(10, 10)]
+    [InlineData(10.5, 10)]
+    [InlineData(39.5, 10)]
+    [InlineData(84.5, 10)]
+    [InlineData(85, 10)]
+    [InlineData(388.5, 10)]
+    [InlineData(389, 10)]
+    [InlineData(777.5, 10)]
+    [InlineData(778, 20)]
+    [InlineData(1166.5, 20)]
+    [InlineData(1167, 30)]
+    [InlineData(1555.5, 30)]
+    [InlineData(1556, 40)]
+    [InlineData(20_000, 500)]
+    public void BettingUsesAvailableBankrollRoundsDownAndCapsAtTableLimit(decimal balance, int amount)
     {
         var advice = BlackjackStrategy.RecommendBet(10, balance, shuffleExpected: false);
         Assert.Equal(amount == 0 ? (decimal?)null : amount, advice.Amount);
 
         if (advice.Amount is decimal bet)
         {
-            Assert.True(bet * 4 <= balance);
+            Assert.True(bet <= balance);
             Assert.Equal(0, bet % BlackjackStrategy.BettingUnit);
+
+            if (balance >= BlackjackTable.MinimumBet * 8.5m)
+            {
+                Assert.True(bet * 8.5m <= balance);
+            }
+            else
+            {
+                Assert.Equal(BlackjackTable.MinimumBet, bet);
+                Assert.Contains("limited reserves", advice.Explanation, StringComparison.Ordinal);
+            }
         }
         else
         {
-            Assert.Contains("Sit out", advice.Explanation, StringComparison.Ordinal);
+            Assert.Contains("Minimum bet", advice.Explanation, StringComparison.Ordinal);
         }
     }
 
@@ -206,10 +225,56 @@ public sealed class BlackjackStrategyTests
     public void BettingBeforeAShuffleUsesZeroInsteadOfTheOldCount()
     {
         var advice = BlackjackStrategy.RecommendBet(10, 1_000, shuffleExpected: true);
-        Assert.Equal(10m, advice.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, advice.Amount);
         Assert.Equal(0, advice.TrueCount);
         Assert.True(advice.ShuffleExpected);
+        Assert.Equal(BlackjackBettingOdds.ForCount(0), advice.Odds);
         Assert.Contains("shuffle", advice.Explanation, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1000, -10)]
+    [InlineData(-10.9, -10)]
+    [InlineData(-2.9, -2)]
+    [InlineData(-0.9, 0)]
+    [InlineData(0.9, 0)]
+    [InlineData(2.9, 2)]
+    [InlineData(10.9, 10)]
+    [InlineData(1000, 10)]
+    public void PublishedReferenceUsesTruncatedCountsAndDoesNotExtrapolate(double count, int reference)
+    {
+        Assert.Equal(reference, BlackjackBettingOdds.ForCount(count).ReferenceCount);
+    }
+
+    [Fact]
+    public void ReferenceProbabilitiesAreNormalizedAndEdgeIsNotWinMinusLoss()
+    {
+        for (int count = BlackjackBettingOdds.MinimumCount; count <= BlackjackBettingOdds.MaximumCount; count++)
+        {
+            var odds = BlackjackBettingOdds.ForCount(count);
+            Assert.InRange(odds.Win, 0, 1);
+            Assert.InRange(odds.Push, 0, 1);
+            Assert.InRange(odds.Lose, 0, 1);
+            Assert.Equal(1, odds.Win + odds.Push + odds.Lose, 12);
+        }
+
+        var zero = BlackjackBettingOdds.ForCount(0);
+        Assert.Equal(0.427, zero.Win, 12);
+        Assert.Equal(0.081, zero.Push, 12);
+        Assert.Equal(-0.003, zero.Edge, 12);
+        var positive = BlackjackBettingOdds.ForCount(5);
+        Assert.Equal(0.03, positive.Edge, 12);
+        Assert.True(positive.Win < positive.Lose);
+        Assert.NotEqual(positive.Edge, positive.Win - positive.Lose);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void InvalidCountsAreRejected(double count)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => BlackjackBettingOdds.ForCount(count));
     }
 
     private static int[] Counts(int running)

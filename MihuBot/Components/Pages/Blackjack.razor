@@ -133,8 +133,8 @@
                 {
                     <div class="bet-controls">
                         <label for="bet">Bet</label>
-                        <input id="bet" class="form-control" type="number" min="10" max="500" step="1" @bind="_bet" />
-                        @foreach (int preset in new[] { 10, 25, 100, 500 })
+                        <input id="bet" class="form-control" type="number" min="@BlackjackTable.MinimumBet" max="@BlackjackTable.MaximumBet" step="1" @bind="_bet" />
+                        @foreach (int preset in new[] { BlackjackTable.MinimumBet, 25, 100, BlackjackTable.MaximumBet })
                         {
                             <button class="bet-preset @(_bet == preset ? "selected" : "")" @onclick="() => _bet = preset">@preset</button>
                         }
@@ -174,9 +174,9 @@
                         @if (advice.Bet is { } betAdvice)
                         {
                             <strong class="recommended-move">@(betAdvice.Amount is decimal amount
-                                ? $"Suggested bet: {Chips(amount)} chips ({Chips(amount / BlackjackStrategy.BettingUnit)} units)"
-                                : "Suggested: sit out")</strong>
-                            <span>Betting true count <strong>@Signed(betAdvice.TrueCount)</strong></span>
+                                ? $"Suggested bet: {Chips(amount)} chips"
+                                : "Not enough chips")</strong>
+                            <span>Bet TC <strong>@Signed(betAdvice.TrueCount)</strong></span>
                             <span class="coach-explanation">@betAdvice.Explanation</span>
                         }
                         else
@@ -185,6 +185,7 @@
                             <span class="coach-explanation">@advice.Explanation</span>
                         }
                     </div>
+                    <BlackjackBetOdds Advice="advice.Bet" />
                 </div>
             }
             @if (_state.Notice is not null)
@@ -214,7 +215,7 @@
     private IReadOnlyList<string> _ownedRooms = [];
     private string _roomCode;
     private string _error;
-    private decimal _bet = 10;
+    private decimal _bet = BlackjackTable.MinimumBet;
     private decimal? _balance;
     private int _decks = BlackjackShoe.Decks;
     private bool _showAdvice;

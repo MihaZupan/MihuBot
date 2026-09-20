@@ -36,7 +36,8 @@ public sealed record BrowserBlackjackAdvice(
     int RunningCount, double TrueCount, double UnseenDecks, BrowserBlackjackCommand? Move, string Explanation, bool Deviation,
     BrowserBlackjackBetAdvice Bet = null);
 
-public sealed record BrowserBlackjackBetAdvice(decimal? Amount, double TrueCount, bool ShuffleExpected, string Explanation);
+public sealed record BrowserBlackjackBetAdvice(
+    decimal? Amount, double TrueCount, bool ShuffleExpected, string Explanation, BrowserBlackjackBetOdds Odds);
 
 public sealed class BrowserBlackjackService : BackgroundService
 {
@@ -175,7 +176,7 @@ public sealed class BrowserBlackjackService : BackgroundService
         }
     }
 
-    public string Execute(string roomId, ClaimsPrincipal user, long version, BrowserBlackjackCommand command, decimal bet = 10)
+    public string Execute(string roomId, ClaimsPrincipal user, long version, BrowserBlackjackCommand command, decimal bet = BlackjackTable.MinimumBet)
     {
         if (!TryGetPlayer(user, out ulong id, out string name))
         {
@@ -221,7 +222,7 @@ public sealed class BrowserBlackjackService : BackgroundService
 
                     if (table.GetBalance(id) + (table.IsLobby ? table.Seats.FirstOrDefault(p => p.Id == id)?.Hands[0].Bet ?? 0 : 0) < bet)
                     {
-                        return "Not enough chips. Lower your bet, or rebuy when your balance is below 10.";
+                        return $"Not enough chips. Lower your bet, or rebuy when your balance is below {BlackjackTable.MinimumBet}.";
                     }
 
                     error = table.Join(id, name, bet, UtcNow);
@@ -351,9 +352,9 @@ public sealed class BrowserBlackjackService : BackgroundService
             return "Finish your rounds or leave their betting lobbies before rebuying. This applies across all tables.";
         }
 
-        if (GetAvailableBalance(userId) >= 10)
+        if (GetAvailableBalance(userId) >= BlackjackTable.MinimumBet)
         {
-            return "Free rebuys are available only when you have fewer than 10 chips.";
+            return $"Free rebuys are available only when you have fewer than {BlackjackTable.MinimumBet} chips.";
         }
 
         _balances.Rebuy(userId);
@@ -446,7 +447,7 @@ public sealed class BrowserBlackjackService : BackgroundService
                 }
             }
 
-            if (table.GetBalance(viewerId) < 10 && GetReserved(viewerId) == 0)
+            if (table.GetBalance(viewerId) < BlackjackTable.MinimumBet && GetReserved(viewerId) == 0)
             {
                 actions.Add(BrowserBlackjackCommand.Rebuy);
             }
@@ -474,7 +475,7 @@ public sealed class BrowserBlackjackService : BackgroundService
                 (table.IsLobby ? table.Seats.FirstOrDefault(p => p.Id == viewerId)?.Hands[0].Bet ?? 0 : 0);
             advice = advice with
             {
-                Bet = BlackjackStrategy.RecommendBet(advice.TrueCount, balance, table.Shoe.NeedsShuffle(players))
+                Bet = BlackjackStrategy.RecommendBet(advice.TrueCount, balance, table.Shoe.NeedsShuffle(players), table.Shoe.MaxHandsPerPlayer)
             };
         }
 

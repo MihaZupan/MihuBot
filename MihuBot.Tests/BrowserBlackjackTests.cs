@@ -599,9 +599,11 @@ public sealed class BrowserBlackjackTests
         Assert.Null(service.Read(room, User(1)).Advice);
         Assert.Null(service.Read(room, new ClaimsPrincipal(new ClaimsIdentity()), true).Advice.Bet);
         var state = service.Read(room, User(1), true);
-        Assert.Equal(10m, state.Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, state.Advice.Bet.Amount);
         Assert.True(state.Advice.Bet.ShuffleExpected);
         Assert.Equal(0, state.Advice.Bet.TrueCount);
+        Assert.Equal(0, state.Advice.Bet.Odds.ReferenceCount);
+        Assert.Equal(BlackjackBettingOdds.ForCount(0), state.Advice.Bet.Odds);
         Assert.Equal(0, state.ShoeNumber);
         Assert.Equal(0, state.RemainingCards);
         Assert.Equal(1_000, state.Balance);
@@ -635,7 +637,9 @@ public sealed class BrowserBlackjackTests
         Assert.Equal(970, state.Balance);
         Assert.Equal(15, state.Advice.RunningCount);
         Assert.Equal(15 / (297 / 52d), state.Advice.Bet.TrueCount);
-        Assert.Equal(20m, state.Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, state.Advice.Bet.Amount);
+        Assert.Equal(2, state.Advice.Bet.Odds.ReferenceCount);
+        Assert.Equal(0.01, state.Advice.Bet.Odds.Edge, 12);
         Assert.False(state.Advice.Bet.ShuffleExpected);
 
         foreach (int bet in new[] { 500, 370 })
@@ -647,10 +651,11 @@ public sealed class BrowserBlackjackTests
         game.Move(1, BrowserBlackjackCommand.Join, 80);
         state = game.Service.Read(game.Room, User(1), true);
         Assert.Equal(20, state.Balance);
-        Assert.Equal(20m, state.Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, state.Advice.Bet.Amount);
+        Assert.Equal(2, state.Advice.Bet.Odds.ReferenceCount);
         Assert.Equal(80, state.Seats[0].Hands[0].Bet);
         game.Move(1, BrowserBlackjackCommand.Join, 100);
-        Assert.Equal(20m, game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
 
         string reservedRoom = game.Service.GetOwnedRooms(User(1)).First(r => r != game.Room &&
             game.Service.Read(r, User(1)).Seats[0].Hands[0].Bet == 370);
@@ -658,10 +663,13 @@ public sealed class BrowserBlackjackTests
         Assert.Null(game.Service.Execute(reservedRoom, User(1), game.Service.Read(reservedRoom, User(1)).Version,
             BrowserBlackjackCommand.Join, 410));
         state = game.Service.Read(game.Room, User(1), true);
-        Assert.Equal(10m, state.Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, state.Advice.Bet.Amount);
         game.Move(1, BrowserBlackjackCommand.Leave);
         Assert.Null(game.Service.Execute(reservedRoom, User(1), game.Service.Read(reservedRoom, User(1)).Version,
             BrowserBlackjackCommand.Join, 450));
+        Assert.Equal(BlackjackTable.MinimumBet, game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
+        Assert.Null(game.Service.Execute(reservedRoom, User(1), game.Service.Read(reservedRoom, User(1)).Version,
+            BrowserBlackjackCommand.Join, 461));
         Assert.Null(game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
     }
 
@@ -694,7 +702,8 @@ public sealed class BrowserBlackjackTests
         Assert.True(joining.Advice.Bet.ShuffleExpected);
         Assert.Equal(0, joining.Advice.Bet.TrueCount);
         Assert.True(joining.Advice.TrueCount > 0);
-        Assert.Equal(10m, joining.Advice.Bet.Amount);
+        Assert.Equal(BlackjackTable.MinimumBet, joining.Advice.Bet.Amount);
+        Assert.Equal(BlackjackBettingOdds.ForCount(0), joining.Advice.Bet.Odds);
         Assert.Null(service.Execute(room, User(6), joining.Version, BrowserBlackjackCommand.Join, 10));
         Assert.True(service.Read(room, User(6), true).Advice.Bet.ShuffleExpected);
         Assert.Null(service.Read(room, User(7), true).Advice.Bet);

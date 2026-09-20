@@ -2,33 +2,33 @@ namespace MihuBot.Games.Blackjack;
 
 internal static class BlackjackStrategy
 {
-    internal const decimal BettingUnit = 10;
+    internal const decimal BettingUnit = BlackjackTable.MinimumBet;
+    private const double KellyFraction = 0.5;
 
-    internal static BrowserBlackjackBetAdvice RecommendBet(double trueCount, decimal balance, bool shuffleExpected)
+    internal static BrowserBlackjackBetAdvice RecommendBet(double trueCount, decimal balance, bool shuffleExpected, int maxHands = 4)
     {
         double bettingCount = shuffleExpected ? 0 : trueCount;
-        int units = bettingCount switch
-        {
-            >= 4 => 4,
-            >= 3 => 3,
-            >= 2 => 2,
-            _ => 1
-        };
-        decimal amount = Math.Min(units * BettingUnit, decimal.Floor(balance / (4 * BettingUnit)) * BettingUnit);
+        BrowserBlackjackBetOdds odds = BlackjackBettingOdds.ForCount(bettingCount);
+        decimal fraction = (decimal)(KellyFraction * Math.Max(0, odds.Edge) / BlackjackBettingOdds.Variance);
+        decimal maximumExposure = (BlackjackGame.DoubleBetMultiplier * maxHands) + BlackjackGame.InsuranceBetFraction;
+        decimal cap = Math.Min(BlackjackTable.MaximumBet, balance / maximumExposure);
+        decimal amount = Math.Max(BlackjackTable.MinimumBet,
+            decimal.Floor(Math.Min(balance * fraction, cap) / BettingUnit) * BettingUnit);
         string explanation = shuffleExpected
-            ? "A shuffle is due for the current seats plus you; use a fresh-shoe count of zero. "
-            : "Based on the current shoe; more players joining can trigger a shuffle. ";
+            ? "Using TC 0 after the shuffle. "
+            : "";
 
-        explanation += amount < BettingUnit
-            ? "Sit out: at least 40 available chips are needed to keep three bets in reserve. Leave & refund if already seated."
-            : amount < units * BettingUnit
-                ? "Reduced to keep three bets in reserve for doubles and splits."
-                : bettingCount < 2
-                    ? "Minimum bet; this count is not a signal to raise your wager."
-                    : "Conservative 1-4-unit Hi-Lo ramp.";
+        explanation += balance < BlackjackTable.MinimumBet
+            ? $"Minimum bet is {BlackjackTable.MinimumBet} chips."
+            : balance < BlackjackTable.MinimumBet * maximumExposure
+                ? "Minimum bet; limited reserves."
+                : odds.Edge <= 0
+                    ? "Minimum bet; no positive edge."
+                    : amount == BlackjackTable.MinimumBet
+                        ? "Minimum bet."
+                        : "Half-Kelly with reserves for doubles, splits and insurance.";
 
-        return new(amount >= BettingUnit ? amount : null, bettingCount, shuffleExpected,
-            explanation + " Training guideline, not an optimal wager or a guarantee of profit.");
+        return new(balance >= BlackjackTable.MinimumBet ? amount : null, bettingCount, shuffleExpected, explanation, odds);
     }
 
     internal static BrowserBlackjackAdvice Analyze(

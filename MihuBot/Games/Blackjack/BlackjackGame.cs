@@ -163,6 +163,8 @@ internal sealed class BlackjackPlayer
 internal sealed class BlackjackGame
 {
     public const int MaxPlayers = 6;
+    public const decimal DoubleBetMultiplier = 2;
+    public const decimal InsuranceBetFraction = 0.5m;
 
     private readonly Func<BlackjackCard> _draw;
     private readonly List<BlackjackCard> _dealer = [];
@@ -226,7 +228,7 @@ internal sealed class BlackjackGame
         if (OfferingInsurance)
         {
             return action == BlackjackAction.DeclineInsurance ||
-                (action == BlackjackAction.Insure && player.Balance >= player.ActiveHand.Bet / 2);
+                (action == BlackjackAction.Insure && player.Balance >= player.ActiveHand.Bet * InsuranceBetFraction);
         }
 
         BlackjackHand hand = player.ActiveHand;
@@ -234,7 +236,7 @@ internal sealed class BlackjackGame
         return action switch
         {
             BlackjackAction.Hit or BlackjackAction.Stand => true,
-            BlackjackAction.Double => hand.Cards.Count == 2 && player.Balance >= hand.Bet,
+            BlackjackAction.Double => hand.Cards.Count == 2 && player.Balance >= hand.Bet * (DoubleBetMultiplier - 1),
             BlackjackAction.Split => hand.Cards.Count == 2 && player.Hands.Count < MaxHandsPerPlayer &&
                 hand.Cards[0].Value == hand.Cards[1].Value && player.Balance >= hand.Bet,
             BlackjackAction.Surrender => !hand.FromSplit && hand.Cards.Count == 2,
@@ -255,7 +257,7 @@ internal sealed class BlackjackGame
         switch (action)
         {
             case BlackjackAction.Insure:
-                player.InsuranceBet = hand.Bet / 2;
+                player.InsuranceBet = hand.Bet * InsuranceBetFraction;
                 player.Balance -= player.InsuranceBet;
                 goto case BlackjackAction.DeclineInsurance;
 
@@ -280,8 +282,8 @@ internal sealed class BlackjackGame
                 break;
 
             case BlackjackAction.Double:
-                player.Balance -= hand.Bet;
-                hand.Bet *= 2;
+                player.Balance -= hand.Bet * (DoubleBetMultiplier - 1);
+                hand.Bet *= DoubleBetMultiplier;
                 hand.Cards.Add(_draw());
                 hand.Finished = true;
                 break;

@@ -1,0 +1,6 @@
+.betting-odds { flex-basis: 100%; min-width: 0; }
+.outcomes { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin-bottom: .25rem; font-variant-numeric: tabular-nums; }
+.outcomes strong { color: #f4dca3; }
+small, details { display: block; color: #b4c3bb; }
+summary { cursor: pointer; }
+a { color: #f4dca3; }
