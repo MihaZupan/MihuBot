@@ -52,6 +52,4 @@ internal sealed class BlackjackBalanceStore
         ArgumentOutOfRangeException.ThrowIfZero(userId);
         _store.Modify(balances => balances[userId] = StartingHalfChips);
     }
-
-    public void Save() => _store.Modify(_ => { });
 }

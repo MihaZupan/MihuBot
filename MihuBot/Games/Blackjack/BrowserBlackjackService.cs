@@ -30,7 +30,7 @@ public sealed record BrowserBlackjackState(
     int ShoeNumber, int RemainingCards, bool Shuffled, decimal Balance,
     IReadOnlyList<BrowserBlackjackCard> Dealer, int? DealerTotal,
     IReadOnlyList<BrowserBlackjackSeat> Seats, IReadOnlyList<BrowserBlackjackCommand> Actions,
-    int DeckCount, int MaxHandsPerPlayer, BrowserBlackjackAdvice Advice, string StorageError);
+    int DeckCount, int MaxHandsPerPlayer, BrowserBlackjackAdvice Advice);
 
 public sealed record BrowserBlackjackAdvice(
     int RunningCount, double TrueCount, double UnseenDecks, BrowserBlackjackCommand? Move, string Explanation, bool Deviation,
@@ -50,34 +50,31 @@ public sealed class BrowserBlackjackService : BackgroundService
     private readonly TimeProvider _clock;
     private readonly Func<int, BlackjackTable> _createTable;
     private readonly BlackjackBalanceStore _balances;
-    private readonly Action<Exception> _reportError;
     private bool _disposed;
 
-    public BrowserBlackjackService(Logger logger) : this(
+    public BrowserBlackjackService() : this(
         TimeProvider.System, decks => new BlackjackTable(new BlackjackShoe(decks)),
-        new BlackjackBalanceStore(Path.Combine(Constants.StateDirectory, "BlackjackBalances.json")),
-        error => logger.DebugLog($"Blackjack scores could not be saved: {error}"))
+        new BlackjackBalanceStore(Path.Combine(Constants.StateDirectory, "BlackjackBalances.json")))
     {
     }
 
-    internal BrowserBlackjackService() : this(
-        TimeProvider.System, decks => new BlackjackTable(new BlackjackShoe(decks)), new BlackjackBalanceStore(), null)
+    internal BrowserBlackjackService(TimeProvider clock) : this(
+        clock, decks => new BlackjackTable(new BlackjackShoe(decks)), new BlackjackBalanceStore())
     {
     }
 
     internal BrowserBlackjackService(TimeProvider clock, Func<BlackjackTable> createTable,
-        BlackjackBalanceStore balances = null, Action<Exception> reportError = null)
-        : this(clock, _ => createTable(), balances ?? new BlackjackBalanceStore(), reportError)
+        BlackjackBalanceStore balances = null)
+        : this(clock, _ => createTable(), balances ?? new BlackjackBalanceStore())
     {
     }
 
     private BrowserBlackjackService(TimeProvider clock, Func<int, BlackjackTable> createTable,
-        BlackjackBalanceStore balances, Action<Exception> reportError)
+        BlackjackBalanceStore balances)
     {
         _clock = clock;
         _createTable = createTable;
         _balances = balances;
-        _reportError = reportError ?? (error => System.Diagnostics.Trace.TraceError($"Blackjack scores could not be saved: {error}"));
     }
 
     public decimal? GetBalance(ClaimsPrincipal user)
@@ -158,12 +155,6 @@ public sealed class BrowserBlackjackService : BackgroundService
 
             Expire(room);
 
-            if (room.CloseRequested && room.StorageError is null)
-            {
-                _rooms.Remove(roomId);
-                return null;
-            }
-
             room.LastViewed = UtcNow;
             TryGetPlayer(user, out ulong id, out _);
             return Snapshot(roomId, room, id, includeAdvice);
@@ -200,11 +191,6 @@ public sealed class BrowserBlackjackService : BackgroundService
 
             Expire(room);
 
-            if (room.CloseRequested || room.StorageError is not null)
-            {
-                return room.StorageError ?? "This table has closed. Create a new table.";
-            }
-
             if (version != room.Table.GetRevision(id))
             {
                 return "Your hand or the round phase changed before your move arrived. Check the updated table and try again.";
@@ -221,15 +207,9 @@ public sealed class BrowserBlackjackService : BackgroundService
                         return "Only the host can close this table.";
                     }
 
-                    room.CloseRequested = true;
                     table.FinishRound(UtcNow);
                     UpdateExposedCards(room);
-
-                    if (!SaveCompletedRound(room))
-                    {
-                        return room.StorageError;
-                    }
-
+                    SaveCompletedRound(room);
                     _rooms.Remove(roomId);
                     return null;
 
@@ -284,10 +264,7 @@ public sealed class BrowserBlackjackService : BackgroundService
                 room.Players.Add(id);
                 room.LastViewed = UtcNow;
 
-                if (!SaveCompletedRound(room))
-                {
-                    return room.StorageError;
-                }
+                SaveCompletedRound(room);
             }
 
             return error;
@@ -323,8 +300,7 @@ public sealed class BrowserBlackjackService : BackgroundService
             {
                 Expire(room);
 
-                if (room.StorageError is null && (room.CloseRequested ||
-                    (!room.Table.IsActive && UtcNow - room.LastViewed >= IdleLifetime)))
+                if (!room.Table.IsActive && UtcNow - room.LastViewed >= IdleLifetime)
                 {
                     _rooms.Remove(id);
                 }
@@ -354,47 +330,18 @@ public sealed class BrowserBlackjackService : BackgroundService
     private static decimal RoundChange(BlackjackPlayer player) =>
         player.Hands.Sum(h => h.Returned - h.Bet) + player.InsuranceReturned - player.InsuranceBet;
 
-    private bool SaveCompletedRound(Room room)
+    private void SaveCompletedRound(Room room)
     {
         if (room.Table.Game is not { IsComplete: true } game ||
-            (room.AppliedRoundId == room.Table.Id && room.StorageError is null))
+            room.AppliedRoundId == room.Table.Id)
         {
-            return true;
+            return;
         }
 
-        if (UtcNow < room.NextSaveAttempt)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (room.AppliedRoundId == room.Table.Id)
-            {
-                _balances.Save();
-            }
-            else
-            {
-                _balances.ApplyResults(game.Players.ToDictionary(p => p.Id, p => checked((long)(RoundChange(p) * 2))));
-            }
-
-            room.AppliedRoundId = room.Table.Id;
-            room.StorageError = null;
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            room.AppliedRoundId = room.Table.Id;
-
-            if (room.StorageError is null)
-            {
-                _reportError(ex);
-            }
-
-            room.NextSaveAttempt = UtcNow.AddSeconds(5);
-            room.StorageError = "Scores were updated in memory but could not be saved. This table is paused. Retrying the save automatically.";
-            return false;
-        }
+        var changes = game.Players.ToDictionary(p => p.Id, p => checked((long)(RoundChange(p) * 2)));
+        // The store applies results in memory before writing them to disk.
+        room.AppliedRoundId = room.Table.Id;
+        _balances.ApplyResults(changes);
     }
 
     private string Rebuy(BlackjackTable table, ulong userId)
@@ -409,18 +356,9 @@ public sealed class BrowserBlackjackService : BackgroundService
             return "Free rebuys are available only when you have fewer than 10 chips.";
         }
 
-        try
-        {
-            _balances.Rebuy(userId);
-            table.NotifyBalanceChanged(userId);
-            return null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _reportError(ex);
-            table.NotifyBalanceChanged(userId);
-            return "Your rebuy was applied in memory but could not be saved. It may be lost on restart.";
-        }
+        _balances.Rebuy(userId);
+        table.NotifyBalanceChanged(userId);
+        return null;
     }
 
     private static bool TryGetPlayer(ClaimsPrincipal user, out ulong id, out string name)
@@ -486,7 +424,7 @@ public sealed class BrowserBlackjackService : BackgroundService
         var actions = new List<BrowserBlackjackCommand>();
         bool seated = table.Seats.Any(p => p.Id == viewerId);
 
-        if (viewerId != 0 && room.StorageError is null && !room.CloseRequested)
+        if (viewerId != 0)
         {
             if (viewerId == GetHostId(room))
             {
@@ -553,7 +491,7 @@ public sealed class BrowserBlackjackService : BackgroundService
                     game?.NeedsAction(p.Id) == true && i == p.ActiveHandIndex, h.Result)).ToArray(),
                 game?.NeedsAction(p.Id) == true, table.GetDeadline(p.Id))).ToArray(),
             actions.ToArray(), table.Shoe.DeckCount, table.Shoe.MaxHandsPerPlayer,
-            advice, room.StorageError);
+            advice);
     }
 
     private static BrowserBlackjackCard Card(BlackjackCard card) => new(card.Rank, card.Suit);
@@ -587,8 +525,5 @@ public sealed class BrowserBlackjackService : BackgroundService
         public int[] ExposedCards { get; } = new int[11];
         public int[] RoundCards { get; } = new int[11];
         public string AppliedRoundId { get; set; }
-        public string StorageError { get; set; }
-        public DateTime NextSaveAttempt { get; set; }
-        public bool CloseRequested { get; set; }
     }
 }

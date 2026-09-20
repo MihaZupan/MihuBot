@@ -12,14 +12,7 @@
 <PageTitle>Blackjack - MihuBot</PageTitle>
 
 <div class="blackjack-page @(RoomId is not null && _state is not null ? "table-page" : "")">
-    <header class="page-heading">
-        <div>
-            <p class="eyebrow">THE MIHUBOT CARD ROOM</p>
-            <h1>Blackjack<span class="title-dot">.</span></h1>
-            <p class="subtitle">One dealer. Six seats. Play together.</p>
-        </div>
-        <span class="play-money">PLAY CHIPS ONLY</span>
-    </header>
+    <h1 class="visually-hidden">Blackjack</h1>
 
     @if (_error is not null && (RoomId is null || _state is null))
     {
@@ -198,50 +191,13 @@
             {
                 <p class="notice" role="status">@_state.Notice</p>
             }
-            @if (_state.StorageError is not null)
-            {
-                <div class="alert alert-danger mt-3 mb-0" role="alert">@_state.StorageError</div>
-            }
-            @if (_error is not null && _error != _state.StorageError)
+            @if (_error is not null)
             {
                 <div class="alert alert-warning mt-3 mb-0" role="alert">@_error</div>
             }
         </div>
     }
 
-    <details class="rules">
-        <summary>Table rules &amp; how to play here</summary>
-        <p>Up to six players act simultaneously against one dealer. Your split hands are played one at a time,
-            but you never wait for another seat to finish. Bets are 10-500 whole chips. The first bet opens a 30-second
-            betting window; the host can deal early. Each player has an independent 30-second timer per move. A timeout declines
-            insurance or stands on all your remaining hands, so disconnected players cannot hold up the table.</p>
-        <p>Everyone must decide on insurance before the dealer checks for blackjack or anyone plays their main hand.
-            The dealer reveals and settles once all players have finished.</p>
-        <p>@(_state?.DeckCount ?? _decks) decks, shuffled at 75% penetration (earlier if needed for safe splits). Dealer stands on soft 17.
-            Blackjack pays 3:2. Double after splitting; split equal-value cards into up to
-            @(_state?.MaxHandsPerPlayer ?? BlackjackShoe.GetMaxHandsPerPlayer(_decks)) hands per player.
-            Two-deck tables allow three hands per player to safely support all six seats without mid-hand shuffles;
-            larger shoes allow four.
-            Split aces get one card each. Late surrender and insurance are available.</p>
-        <p>Place a new bet to opt in to each round. Leaving before the deal refunds your bet.
-            Closing the tab does not cancel a wager; reopen the same link to return.
-            Free rebuys are available below 10 chips when you have no active wager at any table.
-            Your chip balance is saved per Discord account and shared by all tables.
-            Available chips exclude all your outstanding wagers. Nothing is bought or paid out.
-            Tables and shoes reset on restart, with unfinished wagers returned; saved scores remain.
-            Unviewed tables expire after two hours once their round finishes.</p>
-        <p>Anyone with the link can watch or join. Share it only with the people you want at your table.
-            Closing a lobby refunds its bets. Closing a live round declines pending insurance,
-            stands unfinished hands, and saves the results before removing the table. When no one is seated,
-            the table's creator can close it.</p>
-        <p>The optional strategy coach suggests pre-deal bets in 10-chip units: 1 unit below true count +2,
-            2 units at +2, 3 at +3, and 4 at +4 or higher. Bets are capped at one quarter of your available chips,
-            rounded down to whole units, leaving room for doubles and splits (not necessarily every possible split).
-            Your refundable bet at this table is included; wagers at other tables are excluded.
-            Below 40 available chips, it suggests sitting out. A pending shuffle resets the betting count to zero.
-            Recommendations refresh as seats change, never place or update a bet automatically, and are approximate
-            training guidelines, not optimal wagers or guarantees of profit.</p>
-    </details>
 </div>
 
 @code {
@@ -274,8 +230,7 @@
     private string LoginUrl => $"Account/Login/Discord?returnUrl={Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri))}";
     private int SecondsLeft => Math.Clamp((int)Math.Ceiling((_state.Deadline - _now).TotalSeconds), 0, 30);
     private bool Can(BrowserBlackjackCommand command) => _state?.Actions.Contains(command) == true;
-    private string TurnLabel => _state.StorageError is not null ? "Waiting to save scores"
-        : _state.Lobby ? "Place your bets" : _state.Complete ? "Ready for another round?"
+    private string TurnLabel => _state.Lobby ? "Place your bets" : _state.Complete ? "Ready for another round?"
         : !_state.Active ? "Take a seat to begin" : _state.YourTurn ? "Your move"
         : _state.Insurance ? "Waiting for insurance decisions" : "Waiting for the other players";
     private BrowserBlackjackCommand[] PlayActions => _state.Insurance
@@ -335,14 +290,8 @@
     private void Refresh()
     {
         _now = DateTime.UtcNow;
-        string previousStorageError = _state?.StorageError;
         _state = Tables.Read(RoomId, _user, includeAdvice: _showAdvice);
         _balance = _state is not null && _userId != 0 ? _state.Balance : Tables.GetBalance(_user);
-
-        if (previousStorageError is not null && _error == previousStorageError && _state?.StorageError is null)
-        {
-            _error = null;
-        }
     }
 
     private async Task CreateRoom()

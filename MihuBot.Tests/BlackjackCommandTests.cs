@@ -9,7 +9,7 @@ public sealed class BlackjackCommandTests
     [Fact]
     public void CommandPostsABrowserLobbyWithoutTakingASeatOrWager()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var command = new BlackjackCommand(service);
         Assert.Equal("blackjack", command.Command);
         Assert.Contains("bj", command.Aliases);
@@ -30,7 +30,7 @@ public sealed class BlackjackCommandTests
     [Fact]
     public void ChannelMembersGetTheSameLobbyAndDifferentChannelsGetDifferentLobbies()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var command = new BlackjackCommand(service);
         string first = command.GetLobbyMessage(100, 1);
         Assert.Equal(first, command.GetLobbyMessage(100, 2));
@@ -43,7 +43,7 @@ public sealed class BlackjackCommandTests
     [Fact]
     public void ConcurrentCommandsCreateOnlyOneLobby()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var command = new BlackjackCommand(service);
         string[] messages = new string[16];
         Parallel.For(0, messages.Length, i => messages[i] = command.GetLobbyMessage(100, (ulong)i + 1));
@@ -76,7 +76,7 @@ public sealed class BlackjackCommandTests
     [Fact]
     public void ClosedLobbyIsReplacedAndOldLinksStayClosed()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var command = new BlackjackCommand(service);
         string first = RoomId(command.GetLobbyMessage(100, 1));
         Assert.Null(service.Execute(first, BrowserBlackjackTests.User(1), 0, BrowserBlackjackCommand.Close));
@@ -108,7 +108,7 @@ public sealed class BlackjackCommandTests
     [Fact]
     public void CreationHonorsRoomQuotasButExistingLobbyLinksRemainAvailable()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var command = new BlackjackCommand(service);
         string existing = command.GetLobbyMessage(100, 1);
         var user = BrowserBlackjackTests.User(2);
@@ -130,7 +130,7 @@ public sealed class BlackjackCommandTests
     [InlineData(100ul, 0ul)]
     public void InvalidDiscordIdentifiersCannotCreateALobby(ulong channel, ulong author)
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         Assert.Throws<ArgumentOutOfRangeException>(() => service.GetOrCreateDiscordLobby(channel, author));
     }
 

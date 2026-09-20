@@ -57,7 +57,7 @@ public sealed class BrowserBlackjackRenderingTests
     [Fact]
     public async Task EmptyTableRendersSixSeatsAndNoDealerTotal()
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         var user = BrowserBlackjackTests.User(1);
         string room = service.CreateRoom(user).RoomId;
         string html = await Render<BlackjackBoard>(new() { ["State"] = service.Read(room, user), ["ViewerId"] = 1ul });

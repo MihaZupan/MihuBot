@@ -505,7 +505,7 @@ public sealed class BrowserBlackjackTests
     [InlineData(8)]
     public void SelectedDeckCountControlsShoeAndDefaultIsFourDecks(int decks)
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         string room = service.CreateRoom(User(1), decks).RoomId;
         Assert.Equal(decks, service.Read(room, User(1)).DeckCount);
         Assert.Null(service.Execute(room, User(1), 0, BrowserBlackjackCommand.Join));
@@ -553,7 +553,7 @@ public sealed class BrowserBlackjackTests
     [InlineData(9)]
     public void UnsupportedDeckCountsDoNotCreateRooms(int decks)
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         Assert.NotNull(service.CreateRoom(User(1), decks).Error);
         Assert.Empty(service.GetOwnedRooms(User(1)));
     }
@@ -594,7 +594,7 @@ public sealed class BrowserBlackjackTests
     [InlineData(8)]
     public void BettingAdviceIsPrivateOptInAndDoesNotPrepareTheShoe(int decks)
     {
-        using var service = new BrowserBlackjackService();
+        using var service = new BrowserBlackjackService(TimeProvider.System);
         string room = service.CreateRoom(User(1), decks).RoomId;
         Assert.Null(service.Read(room, User(1)).Advice);
         Assert.Null(service.Read(room, new ClaimsPrincipal(new ClaimsIdentity()), true).Advice.Bet);

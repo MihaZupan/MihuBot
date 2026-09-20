@@ -265,87 +265,57 @@ public sealed class BlackjackPersistenceTests
     }
 
     [Fact]
-    public void FailedSettlementKeepsResultsInMemoryAndRetriesSavingWithoutApplyingThemAgain()
+    public void FailedSettlementPropagatesWithoutRetryingOrApplyingResultsAgain()
     {
         using var files = new SavedScores();
-        bool fail = true;
-        var errors = new List<Exception>();
-        int index = 0;
-        using (var service = files.Open(
-            () => index++ == 0 ? Table(10, 10, 8, 7) : Table(10, 10, 6, 9),
-            (source, destination) =>
-            {
-                if (fail)
-                {
-                    throw new IOException("Simulated unavailable storage");
-                }
-
-                File.Move(source, destination, overwrite: true);
-            }, errors.Add))
+        int writes = 0;
+        using var service = files.Open(() => Table(10, 10, 8, 7), (_, _) =>
         {
-            string first = Create(service);
-            Move(service, first, 1, BrowserBlackjackCommand.Join);
-            Move(service, first, 1, BrowserBlackjackCommand.Deal);
-            Assert.NotNull(service.Execute(first, User(1), service.Read(first, User(1)).Version, BrowserBlackjackCommand.Stand));
-            Assert.Single(errors);
-            var blocked = service.Read(first, User(1));
-            Assert.True(blocked.Complete);
-            Assert.NotNull(blocked.StorageError);
-            Assert.Empty(blocked.Actions);
-            Assert.Equal(1_100, blocked.Balance);
-            Assert.NotNull(service.Execute(first, User(1), blocked.Version, BrowserBlackjackCommand.Join));
-            Assert.NotNull(service.Execute(first, User(1), blocked.Version, BrowserBlackjackCommand.Close));
-            Assert.False(File.Exists(files.Path));
-            files.Clock.Now += TimeSpan.FromSeconds(5);
-            service.Sweep();
-            Assert.Equal(1_100m, service.GetBalance(User(1)));
-            Assert.Single(errors);
-
-            fail = false;
-            string second = Create(service);
-            Move(service, second, 1, BrowserBlackjackCommand.Join);
-            Move(service, second, 1, BrowserBlackjackCommand.Deal);
-            Move(service, second, 1, BrowserBlackjackCommand.Stand);
-            Assert.Equal(1_000m, service.GetBalance(User(1)));
-            Assert.NotNull(service.Read(first, User(1)).StorageError);
-            files.Clock.Now += TimeSpan.FromSeconds(5);
-            service.Sweep();
-            Assert.Null(service.Read(first, User(1)).StorageError);
-            Assert.Equal(1_000m, service.GetBalance(User(1)));
-            service.Sweep();
-            Assert.Equal(1_000m, service.GetBalance(User(1)));
-            Assert.Single(errors);
-        }
-
-        using var restarted = files.Open();
-        Assert.Equal(1_000m, restarted.GetBalance(User(1)));
-    }
-
-    [Fact]
-    public void FailedCloseKeepsTheTableUntilScoresCanBeSaved()
-    {
-        using var files = new SavedScores();
-        bool fail = true;
-        using var service = files.Open(() => Table(10, 10, 6, 9), (source, destination) =>
-        {
-            if (fail)
-            {
-                throw new IOException("Simulated failure");
-            }
-
-            File.Move(source, destination, overwrite: true);
-        }, _ => { });
+            writes++;
+            throw new IOException("Simulated unavailable storage");
+        });
         string room = Create(service);
         Move(service, room, 1, BrowserBlackjackCommand.Join);
         Move(service, room, 1, BrowserBlackjackCommand.Deal);
-        Assert.NotNull(service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Close));
-        Assert.NotNull(service.Read(room, User(1)).StorageError);
+        Assert.Throws<IOException>(() => service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Stand));
+        var state = service.Read(room, User(1));
+        Assert.True(state.Complete);
+        Assert.Null(state.Notice);
+        Assert.Contains(BrowserBlackjackCommand.Join, state.Actions);
+        Assert.Equal(1_100, state.Balance);
+        Assert.False(File.Exists(files.Path));
+
+        for (int i = 0; i < 3; i++)
+        {
+            files.Clock.Now += TimeSpan.FromSeconds(5);
+            service.Sweep();
+            Assert.Equal(1_100, service.Read(room, User(1)).Balance);
+        }
+
+        Assert.Equal(1, writes);
+    }
+
+    [Fact]
+    public void FailedClosePropagatesWithoutRetrying()
+    {
+        using var files = new SavedScores();
+        int writes = 0;
+        using var service = files.Open(() => Table(10, 10, 6, 9), (_, _) =>
+        {
+            writes++;
+            throw new IOException("Simulated failure");
+        });
+        string room = Create(service);
+        Move(service, room, 1, BrowserBlackjackCommand.Join);
+        Move(service, room, 1, BrowserBlackjackCommand.Deal);
+        Assert.Throws<IOException>(() => service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Close));
         Assert.Equal(900m, service.GetBalance(User(1)));
-        fail = false;
         files.Clock.Now += TimeSpan.FromSeconds(5);
         service.Sweep();
+        Move(service, room, 1, BrowserBlackjackCommand.Close);
         Assert.Null(service.Read(room, User(1)));
         Assert.Equal(900m, service.GetBalance(User(1)));
+        Assert.Equal(1, writes);
     }
 
     [Fact]
@@ -355,8 +325,6 @@ public sealed class BlackjackPersistenceTests
         files.Seed((1, -1_000));
         string before = File.ReadAllText(files.Path);
         bool fail = true;
-        var errors = new List<Exception>();
-
         using (var service = files.Open(() => Table(10, 10, 8, 7), replaceFile: (source, destination) =>
         {
             if (fail)
@@ -365,14 +333,12 @@ public sealed class BlackjackPersistenceTests
             }
 
             File.Move(source, destination, overwrite: true);
-        }, reportError: errors.Add))
+        }))
         {
             string room = Create(service);
             var state = service.Read(room, User(1));
-            Assert.NotNull(service.Execute(room, User(1), state.Version, BrowserBlackjackCommand.Rebuy));
-            Assert.Single(errors);
+            Assert.Throws<IOException>(() => service.Execute(room, User(1), state.Version, BrowserBlackjackCommand.Rebuy));
             Assert.Equal(1_000m, service.GetBalance(User(1)));
-            Assert.NotEqual(state.Version, service.Read(room, User(1)).Version);
             Assert.DoesNotContain(BrowserBlackjackCommand.Rebuy, service.Read(room, User(1)).Actions);
             Assert.Equal(before, File.ReadAllText(files.Path));
             fail = false;
@@ -403,32 +369,17 @@ public sealed class BlackjackPersistenceTests
     }
 
     [Fact]
-    public void FailedBatchKeepsAllChangesInMemoryUntilSaved()
+    public void FailedBatchPropagatesAfterApplyingAllChangesInMemory()
     {
         using var files = new SavedScores();
         files.Seed((1, 250.5m));
         string before = File.ReadAllText(files.Path);
-        bool fail = true;
-        var store = new BlackjackBalanceStore(files.Path, (source, destination) =>
-        {
-            if (fail)
-            {
-                throw new IOException("Simulated failure");
-            }
-
-            File.Move(source, destination, overwrite: true);
-        });
+        var store = new BlackjackBalanceStore(files.Path, (_, _) => throw new IOException("Simulated failure"));
         var changes = new Dictionary<ulong, long> { [1] = 1, [2] = -1 };
         Assert.Throws<IOException>(() => store.ApplyResults(changes));
         Assert.Equal(1_251m, store.GetBalance(1));
         Assert.Equal(999.5m, store.GetBalance(2));
         Assert.Equal(before, File.ReadAllText(files.Path));
-
-        fail = false;
-        store.Save();
-        var restarted = new BlackjackBalanceStore(files.Path);
-        Assert.Equal(1_251m, restarted.GetBalance(1));
-        Assert.Equal(999.5m, restarted.GetBalance(2));
     }
 
     [Fact]
@@ -521,10 +472,8 @@ public sealed class BlackjackPersistenceTests
         public string Path => System.IO.Path.Combine(_directory.FullName, "balances.json");
         public Clock Clock { get; } = new();
 
-        public BrowserBlackjackService Open(Func<BlackjackTable>? table = null,
-            Action<string, string>? replaceFile = null, Action<Exception>? reportError = null) =>
-            new(Clock, table ?? (() => new BlackjackTable()), new BlackjackBalanceStore(Path, replaceFile),
-                reportError ?? (error => Assert.Fail(error.ToString())));
+        public BrowserBlackjackService Open(Func<BlackjackTable>? table = null, Action<string, string>? replaceFile = null) =>
+            new(Clock, table ?? (() => new BlackjackTable()), new BlackjackBalanceStore(Path, replaceFile));
 
         public void Seed(params (ulong Id, decimal Change)[] changes)
         {
