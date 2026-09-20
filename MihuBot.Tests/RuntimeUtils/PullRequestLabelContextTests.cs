@@ -8,6 +8,7 @@ using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
 using Octokit.Internal;
+using static MihuBot.RuntimeUtils.AI.IssueLabelContext;
 using static MihuBot.RuntimeUtils.AI.PullRequestLabelContext;
 using static MihuBot.RuntimeUtils.DataIngestion.GitHub.GitHubGraphQL;
 
@@ -459,8 +460,9 @@ public sealed class PullRequestLabelContextTests
         {
             string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", similar, prContext!);
 
-            Assert.Equal(hasSimilar, prompt.Contains("Semantically similar issues and PRs", StringComparison.Ordinal));
+            Assert.Equal(hasSimilar, prompt.Contains("Semantically similar issues, PRs, and discussions", StringComparison.Ordinal));
             Assert.Equal(hasSimilar, prompt.Contains("Strong semantic match", StringComparison.Ordinal));
+            Assert.Equal(hasSimilar, prompt.Contains("\"Url\":\"https://github.com/dotnet/runtime/issues/55\"", StringComparison.Ordinal));
 
             if (prContext is not null)
             {
@@ -524,6 +526,76 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal(ReferencedLabelItemsBatchSize * 3, references.GetProperty("variables").EnumerateObject().Count());
     }
 
+    [Theory]
+    [InlineData(IssueType.Issue, "issue")]
+    [InlineData(IssueType.Discussion, "discussion")]
+    public async Task IssuesAndDiscussionsIncludeMentionedItemsWithoutFetchingPrEvidence(IssueType type, string kind)
+    {
+        using var transport = new Transport
+        {
+            ReferencedBody = new string('b', 5000),
+            ReferencedTitle = new string('t', 300),
+        };
+        var issue = Target();
+        issue.IssueType = type;
+        issue.HtmlUrl = "https://github.com/dotnet/runtime/issues/42";
+        issue.Body = "See #2, #3, DOTNET/RUNTIME#2, dotnet/other#5, and #42.";
+        var mentioned = await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None);
+
+        Assert.Equal(
+            ["https://github.com/dotnet/runtime/pull/2", "https://github.com/dotnet/runtime/issues/3", "https://github.com/dotnet/other/issues/5"],
+            mentioned.Select(i => i.Url));
+        Assert.All(mentioned, item =>
+        {
+            Assert.Equal(AreaLabelDetector.MaxContextBodyCharacters, item.Body.Length);
+            Assert.Equal(AreaLabelDetector.MaxRelatedTitleCharacters, item.Title.Length);
+        });
+        Assert.Equal(["area-VM"], mentioned[0].Labels);
+        Assert.Equal(["area-VM", "other-label"], mentioned[2].Labels);
+        Assert.Single(transport.GraphRequests);
+        Assert.Empty(transport.RestRequests);
+        Assert.Contains("1 GraphQL API calls, cost 4.", Assert.Single(transport.Logs), StringComparison.Ordinal);
+
+        string prompt = AreaLabelDetector.CreatePrompt(
+            await IssueInfoForPrompt.CreateAsync(issue, null, CancellationToken.None),
+            ["area-VM"], "area-", [], null!, issueType: type, mentionedItems: mentioned);
+
+        Assert.Contains($"Here is the {kind} info:", prompt, StringComparison.Ordinal);
+        Assert.Contains("Items mentioned in the description:", prompt, StringComparison.Ordinal);
+        Assert.Contains(JsonSerializer.Serialize(mentioned), prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"MentionedItems\"", prompt, StringComparison.Ordinal);
+        Assert.Contains("reference-author", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("PR evidence:", prompt, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("#42")]
+    [InlineData(null)]
+    public async Task IssuesWithoutExternalMentionsDoNotCallGitHub(string? body)
+    {
+        using var transport = new Transport();
+        var issue = Target();
+        issue.IssueType = IssueType.Issue;
+        issue.Body = body;
+
+        Assert.Empty(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
+        Assert.Empty(transport.GraphRequests);
+        Assert.Empty(transport.RestRequests);
+    }
+
+    [Fact]
+    public async Task IssueMentionsThatRedirectToSelfAreExcluded()
+    {
+        using var transport = new Transport { ReferenceUrlOverride = "https://github.com/DOTNET/RUNTIME/issues/42" };
+        var issue = Target();
+        issue.IssueType = IssueType.Issue;
+        issue.HtmlUrl = "https://github.com/dotnet/runtime/issues/42";
+        issue.Body = "#99";
+
+        Assert.Empty(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
+    }
+
     [Fact]
     public async Task ReferencesThatRedirectToClosingIssuesAreNotRepeated()
     {
@@ -547,7 +619,8 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal("area-VM", Assert.Single(Assert.Single(context.ClosingIssues).Labels));
         var example = Assert.Single(context.HistoricalPullRequests);
         Assert.Equal(["area-VM", "area-JIT"], example.Labels);
-        Assert.Equal(new HistoryPath("src/vm/file.cpp", false), Assert.Single(example.MatchingPaths));
+        Assert.Equal("src/vm/file.cpp", Assert.Single(example.MatchingPaths));
+        Assert.Contains("\"MatchingPaths\":[\"src/vm/file.cpp\"]", JsonSerializer.Serialize(example), StringComparison.Ordinal);
         Assert.Equal("base-sha", transport.GraphRequests[1].GetProperty("variables").GetProperty("base").GetString());
         Assert.Contains(transport.RestRequests, uri => uri.AbsolutePath.EndsWith("/tasks", StringComparison.Ordinal));
         Assert.DoesNotContain(transport.RestRequests, uri => uri.AbsolutePath.Contains("/tasks/", StringComparison.Ordinal));
@@ -626,7 +699,7 @@ public sealed class PullRequestLabelContextTests
     }
 
     [Fact]
-    public async Task NewFileUsesExplicitlyMarkedDirectoryHistory()
+    public async Task NewFileUsesDirectoryHistoryWithOnlyTheMatchingPath()
     {
         using var transport = new Transport { EmptyFileHistory = true };
         var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
@@ -635,7 +708,8 @@ public sealed class PullRequestLabelContextTests
         Assert.Contains("3 GraphQL API calls, cost 12.", Assert.Single(transport.Logs), StringComparison.Ordinal);
         Assert.Equal("src/vm", transport.GraphRequests[2].GetProperty("variables").GetProperty("path0").GetString());
         var example = Assert.Single(context.HistoricalPullRequests);
-        Assert.Equal(new HistoryPath("src/vm", true), Assert.Single(example.MatchingPaths));
+        Assert.Equal("src/vm", Assert.Single(example.MatchingPaths));
+        Assert.Contains("\"MatchingPaths\":[\"src/vm\"]", JsonSerializer.Serialize(example), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -882,6 +956,7 @@ public sealed class PullRequestLabelContextTests
         private readonly HttpClient _http;
         private readonly object _lock = new();
         public PullRequestLabelContext Service { get; }
+        public IssueLabelContext IssueContext { get; }
         public List<JsonElement> GraphRequests { get; } = [];
         public List<Uri> RestRequests { get; } = [];
         public List<string> Logs { get; } = [];
@@ -911,13 +986,16 @@ public sealed class PullRequestLabelContextTests
             _http = new HttpClient(this, disposeHandler: false);
             var graph = new GithubGraphQLClient("tests", ["test-token"], NullLogger.Instance, _http);
             var rest = new GitHubClient(new Octokit.Connection(new ProductHeaderValue("tests"), new HttpClientAdapter(() => this)));
-            Service = new(rest, graph, message =>
+            Service = new(rest, graph, Log);
+            IssueContext = new(graph, Log);
+        }
+
+        private void Log(string message)
+        {
+            lock (_lock)
             {
-                lock (_lock)
-                {
-                    Logs.Add(message);
-                }
-            });
+                Logs.Add(message);
+            }
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

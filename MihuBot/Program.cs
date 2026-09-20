@@ -386,6 +386,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     if (gitHubAIEnabled)
     {
+        services.AddSingleton<IssueLabelContext>();
         services.AddSingleton<PullRequestLabelContext>();
         services.AddSingleton<AreaLabelDetector>();
         services.AddSingleton<AreaLabelBacktestService>();

@@ -3,6 +3,7 @@ using System.Text.Json;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
+using static MihuBot.RuntimeUtils.AI.IssueLabelContext;
 using static MihuBot.RuntimeUtils.DataIngestion.GitHub.GitHubGraphQL;
 
 namespace MihuBot.RuntimeUtils.AI;
@@ -58,9 +59,10 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
         return new Context(pr, changes, changes.Length < pr.ChangedFiles, paths, examples,
             [.. pr.ClosingIssuesReferences.Nodes
                 .Where(i => !i.Repository.IsPrivate)
-                .Select(CreateRelatedItem)],
+                .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))],
             [.. mentioned.Where(i => !i.Url.Equals(pr.Url, StringComparison.OrdinalIgnoreCase) &&
-                !pr.ClosingIssuesReferences.Nodes.Any(c => c.Url.Equals(i.Url, StringComparison.OrdinalIgnoreCase))).Select(CreateRelatedItem)],
+                !pr.ClosingIssuesReferences.Nodes.Any(c => c.Url.Equals(i.Url, StringComparison.OrdinalIgnoreCase)))
+                .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))],
             prompts, promptStatus);
 
         async Task<(FileEvidence[] Files, HistoryPath[] Paths, HistoricalPullRequest[] Examples, int Calls, int Cost)> GetFileEvidenceAsync()
@@ -73,29 +75,6 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
             var (examples, calls, cost) = await GetHistoryAsync(repository, pr.BaseRefOid, paths, pr.Url, labels, cancellationToken);
             return (changes, paths, examples, calls, cost);
         }
-
-        RelatedItem CreateRelatedItem(LinkedItemLabelInfoModel item) => new RelatedItem(
-            item.Url, Trim(item.Title, AreaLabelDetector.MaxRelatedTitleCharacters), Trim(item.Body, AreaLabelDetector.MaxContextBodyCharacters),
-            item.Author?.Login, GetLabels(item.Labels, labels, item.Repository.NameWithOwner.Equals(issue.Repository.FullName, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    internal static (string Repository, int Number)[] GetDescriptionReferences(
-        string body, string repository, int number, IEnumerable<string> closingIssueUrls)
-    {
-        HashSet<(string Repository, int Number)> seen = [(repository.ToLowerInvariant(), number)];
-
-        foreach (string url in closingIssueUrls)
-        {
-            if (GitHubHelper.TryParseIssueOrPRNumber(url, out string closingRepository, out int closingNumber) && closingRepository is not null)
-            {
-                seen.Add((closingRepository.ToLowerInvariant(), closingNumber));
-            }
-        }
-
-        return [.. GitHubHelper.ExtractIssueOrPullRequestReferences(body, repository)
-            .Select(r => (Repository: r.Repository.ToLowerInvariant(), r.Number))
-            .Where(seen.Add)
-            .Take(ReferencedLabelItemsBatchSize)];
     }
 
     internal static FileEvidence[] CreateFileEvidence(IEnumerable<PullRequestFile> files)
@@ -170,7 +149,7 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
                 var pr = g.First().PullRequest;
                 return new HistoricalPullRequest(pr.Url, Trim(pr.Title, AreaLabelDetector.MaxRelatedTitleCharacters),
                     Trim(pr.Body, AreaLabelDetector.MaxContextBodyCharacters), pr.Author?.Login,
-                    GetLabels(pr.Labels, labels, true), [.. g.Select(m => m.Path).Distinct()]);
+                    GetLabels(pr.Labels, labels, true), [.. g.Select(m => m.Path.Path).Distinct(StringComparer.Ordinal)]);
             })];
 
     private static bool IsEligibleHistory(PullRequestHistoryModel pr, string targetUrl, string repository, string[] labels) =>
@@ -306,11 +285,6 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
 
     private static string Trim(string text, int limit) => (text ?? "").TruncateWithDotDotDot(limit);
 
-    private static string[] GetLabels(NodesModel<LabelNameModel> labels, string[] candidates, bool sameRepository) =>
-        [.. labels.Nodes.Select(l => l.Name)
-            .Where(l => !sameRepository || candidates.Contains(l, StringComparer.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-
     internal sealed record Context(
         PullRequestLabelInfoModel PullRequest, FileEvidence[] Files, bool FilesTruncated, HistoryPath[] HistoryPaths,
         HistoricalPullRequest[] HistoricalPullRequests, RelatedItem[] ClosingIssues, RelatedItem[] MentionedItems,
@@ -318,8 +292,7 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
     internal sealed record FileEvidence(string Path, string PreviousPath, string Status, int Additions, int Deletions, string Patch, bool PatchIncomplete);
     internal sealed record HistoryPath(string Path, bool Directory);
     internal sealed record HistoryMatch(HistoryPath Path, PullRequestHistoryModel PullRequest);
-    internal sealed record HistoricalPullRequest(string Url, string Title, string Body, string Author, string[] Labels, HistoryPath[] MatchingPaths);
-    internal sealed record RelatedItem(string Url, string Title, string Body, string Author, string[] Labels);
+    internal sealed record HistoricalPullRequest(string Url, string Title, string Body, string Author, string[] Labels, string[] MatchingPaths);
     internal sealed record SessionPrompt(DateTimeOffset CreatedAt, string Prompt);
 
     internal sealed class CopilotTaskCollection

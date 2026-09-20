@@ -24,7 +24,8 @@ public sealed class AreaLabelDetector(
     HybridCache cache,
     Logger logger,
     IConfigurationService configuration,
-    PullRequestLabelContext pullRequests) : IDisposable
+    PullRequestLabelContext pullRequests,
+    IssueLabelContext issueContext) : IDisposable
 {
     internal const int TokensPerMinute = 800_000;
     internal const int MaxOutputTokens = 32_768;
@@ -38,12 +39,13 @@ public sealed class AreaLabelDetector(
     internal const int AuthorHistorySampleSize = 50;
     internal const int MinAuthorAreaPullRequests = 5;
     internal const double MinAuthorAreaShare = 0.2;
+    internal const int RecentLabelItemCount = 1000;
 
     private readonly Func<string, int, CancellationToken, Task<IssueInfo>> _getIssue =
         triage is null ? null : triage.GetOrFetchIssueAsync;
 
     internal AreaLabelDetector(Func<string, int, CancellationToken, Task<IssueInfo>> getIssue, HybridCache cache, IConfigurationService configuration)
-        : this(null, null, null, null, cache, null, configuration, null)
+        : this(null, null, null, null, cache, null, configuration, null, null)
     {
         _getIssue = getIssue;
     }
@@ -141,7 +143,7 @@ public sealed class AreaLabelDetector(
         AreaLabelPredictionSettings settings, CancellationToken cancellationToken, Action<string> onPrompt = null)
     {
         long start = Stopwatch.GetTimestamp();
-        string[] labels = GetCandidateLabels(repository, labelPrefix);
+        string[] labels = await GetCandidateLabelsAsync(repository, labelPrefix, cancellationToken);
 
         if (labels.Length == 0)
         {
@@ -153,15 +155,17 @@ public sealed class AreaLabelDetector(
         PullRequestLabelContext.Context prContext = issue.IssueType == IssueType.PullRequest
             ? await pullRequests.GetAsync(issue, labels, cancellationToken)
             : null;
+        var mentionedItems = prContext?.MentionedItems
+            ?? await issueContext.GetMentionedItemsAsync(issue, labels, cancellationToken);
         var issueData = await IssueInfoForPrompt.CreateAsync(issue, githubDb, cancellationToken);
 
-        SimilarIssue[] similarIssues = await GetSimilarIssuesAsync(issue, labels, prContext, cancellationToken);
+        SimilarIssue[] similarIssues = await GetSimilarIssuesAsync(issue, labels, prContext, mentionedItems, cancellationToken);
         AuthorLabelHistory authorHistory = prContext?.PullRequest.Author is { Type: "User" } author
             ? await GetAuthorHistoryAsync(repository, issue, author.Login, labelPrefix, labels, cancellationToken)
             : null;
 
         var options = CreateChatOptions(settings);
-        string prompt = CreatePrompt(issueData, labels, labelPrefix, similarIssues, prContext, authorHistory, issue.IssueType);
+        string prompt = CreatePrompt(issueData, labels, labelPrefix, similarIssues, prContext, authorHistory, issue.IssueType, mentionedItems);
 
         var reservation = await _rateLimiter.ReserveAsync(EstimateTokenBudget(prompt), cancellationToken);
         var result = await GetPredictionResponseAsync(openAI.GetChat(model, secondary: true), prompt, options, cancellationToken, onPrompt);
@@ -194,7 +198,7 @@ public sealed class AreaLabelDetector(
 
     internal static string CreatePrompt(IssueInfoForPrompt item, string[] labels, string labelPrefix,
         SimilarIssue[] similarIssues, PullRequestLabelContext.Context prContext, AuthorLabelHistory authorHistory = null,
-        IssueType issueType = IssueType.Issue)
+        IssueType issueType = IssueType.Issue, IssueLabelContext.RelatedItem[] mentionedItems = null)
     {
         string kind = (prContext is null ? issueType : IssueType.PullRequest) switch
         {
@@ -281,12 +285,25 @@ public sealed class AreaLabelDetector(
             }
         }
 
+        if (prContext is null && mentionedItems is { Length: > 0 })
+        {
+            evidence += $"""
+
+
+                Items mentioned in the description:
+                These are bounded context samples, not necessarily the same problem or area.
+                ```json
+                {JsonSerializer.Serialize(mentionedItems)}
+                ```
+                """;
+        }
+
         if (similarIssues.Length > 0)
         {
             evidence += $"""
 
 
-                Semantically similar issues and PRs, and the labels they were assigned.
+                Semantically similar issues, PRs, and discussions, and the labels they were assigned.
                 Ignore irrelevant examples; semantic similarity does NOT establish file overlap.
                 ```json
                 {JsonSerializer.Serialize(similarIssues)}
@@ -389,7 +406,8 @@ public sealed class AreaLabelDetector(
             Body = $"Changed files:\n{string.Join('\n', prContext.Files.Take(MaxSimilarityQueryFiles).Select(f => f.Path))}\n\n{prContext.PullRequest.Body}",
         });
 
-    private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, PullRequestLabelContext.Context prContext, CancellationToken cancellationToken)
+    private async Task<SimilarIssue[]> GetSimilarIssuesAsync(IssueInfo issue, string[] labels, PullRequestLabelContext.Context prContext,
+        IssueLabelContext.RelatedItem[] mentionedItems, CancellationToken cancellationToken)
     {
         DateTime now = DateTime.UtcNow;
         IssueInfo[] similarIssues = await FindSimilarIssuesAsync(
@@ -404,7 +422,7 @@ public sealed class AreaLabelDetector(
                 },
                 new IssueSearchResponseOptions { MaxResults = 20, IncludeIssueComments = false },
                 ct),
-            cancellationToken);
+            mentionedItems.Select(i => i.Url), cancellationToken);
 
         return similarIssues
             .Select(i => new SimilarIssue(
@@ -423,8 +441,9 @@ public sealed class AreaLabelDetector(
     internal static async Task<IssueInfo[]> FindSimilarIssuesAsync(
         IssueInfo issue, string[] labels,
         Func<int, CancellationToken, Task<GitHubSearchResponse>> search,
-        CancellationToken cancellationToken)
+        IEnumerable<string> excludedUrls, CancellationToken cancellationToken)
     {
+        var excluded = new HashSet<string>(excludedUrls, StringComparer.OrdinalIgnoreCase);
         bool pullRequest = issue.IssueType == IssueType.PullRequest;
         double[] thresholds = pullRequest ? [MinPullRequestSemanticSimilarity] : [0.9, 0.8, MinIssueSemanticSimilarity];
         Dictionary<int, GitHubSearchResponse> searchResults = [];
@@ -451,7 +470,7 @@ public sealed class AreaLabelDetector(
                 candidates.AddRange(results.Results);
                 similarIssues = [.. candidates
                     .Where(r => double.IsFinite(r.Score) && r.Score >= threshold &&
-                        r.Issue.Id != issue.Id && r.Issue.IssueType is IssueType.Issue or IssueType.PullRequest &&
+                        r.Issue.Id != issue.Id && !excluded.Contains(r.Issue.HtmlUrl) &&
                         r.Issue.Repository?.Private != true && r.Issue.Labels.Any(l => labels.Contains(l.Name, StringComparer.OrdinalIgnoreCase)))
                     .OrderByDescending(r => r.Score)
                     .DistinctBy(r => r.Issue.Id)
@@ -466,6 +485,43 @@ public sealed class AreaLabelDetector(
         }
 
         return similarIssues;
+    }
+
+    internal async Task<string[]> GetCandidateLabelsAsync(RepositoryInfo repository, string labelPrefix, CancellationToken cancellationToken)
+    {
+        string[] candidates = GetCandidateLabels(repository, labelPrefix);
+
+        if (candidates.Length == 0)
+        {
+            return [];
+        }
+
+        string[] usedLabels = await cache.GetOrCreateAsync(
+            $"{nameof(AreaLabelDetector)}/RecentLabels/{repository.Id}",
+            async ct =>
+            {
+                await using var db = await githubDb.CreateDbContextAsync(ct);
+                return await QueryRecentlyUsedLabels(db.Issues.AsNoTracking(), repository.Id, DateTime.UtcNow)
+                    .ToArrayAsync(ct);
+            },
+            new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
+            cancellationToken: cancellationToken);
+        var used = usedLabels.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. candidates.Where(used.Contains)];
+    }
+
+    internal static IQueryable<string> QueryRecentlyUsedLabels(IQueryable<IssueInfo> issues, long repositoryId, DateTime now)
+    {
+        DateTime cutoff = now.AddYears(-2);
+
+        return issues
+            .Where(i => i.RepositoryId == repositoryId && i.CreatedAt >= cutoff)
+            .OrderByDescending(i => i.CreatedAt)
+            .ThenByDescending(i => i.Number)
+            .Take(RecentLabelItemCount)
+            .SelectMany(i => i.Labels)
+            .Select(l => l.Name)
+            .Distinct();
     }
 
     internal static string[] GetCandidateLabels(RepositoryInfo repository, string labelPrefix) =>

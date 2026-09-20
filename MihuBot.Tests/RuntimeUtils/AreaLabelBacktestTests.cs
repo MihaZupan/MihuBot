@@ -20,7 +20,7 @@ public sealed class AreaLabelBacktestTests
 
     private static AreaLabelPredictionSettings GetPredictionSettings()
     {
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService(), null!);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, new TestConfigurationService(), null!, null!);
 
         return detector.GetPredictionSettings();
     }
@@ -43,7 +43,7 @@ public sealed class AreaLabelBacktestTests
             configuration.Set(null, "AreaLabelDetector.ReasoningEffort", reasoning);
         }
 
-        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!);
+        using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!, null!);
         using var handler = new GitHubHandler(_ => JsonResponse($"[{IssueJson(10)},{IssueJson(11)}]"));
         using var graphQL = new AreaLabelGraphQLTransport();
         List<AreaLabelPredictionSettings> predictionSettings = [];
