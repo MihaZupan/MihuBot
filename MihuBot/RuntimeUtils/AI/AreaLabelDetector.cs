@@ -235,8 +235,7 @@ public sealed class AreaLabelDetector(
                 Historical PRs are examples from commit history on the base branch. Exact-file matches are stronger
                 than directory matches; shared infrastructure or bulk changes can span unrelated areas.
                 Do not blindly copy every label. Labels on cross-repository closing issues may use a different taxonomy.
-                Items referenced in the description are context, not necessarily issues this PR fixes or changes it contains.
-                Patches, file lists, closing issues, mentioned items, and history are bounded samples, not necessarily complete.
+                Patches, file lists, closing issues, and history are bounded samples, not necessarily complete.
                 Missing patches (including binary files) do not mean no changes. An empty draft may not have changes YET.
                 For empty or placeholder descriptions, use the title, changes, and linked issues.
                 If these signals remain insufficient, return no labels rather than guessing.
@@ -246,7 +245,7 @@ public sealed class AreaLabelDetector(
                 {JsonSerializer.Serialize(new
                 {
                     context.Files, context.FilesTruncated, context.HistoryPaths, context.HistoricalPullRequests,
-                    context.ClosingIssues, context.MentionedItems,
+                    context.ClosingIssues,
                 })}
                 ```
                 """;
@@ -285,7 +284,9 @@ public sealed class AreaLabelDetector(
             }
         }
 
-        if (prContext is null && mentionedItems is { Length: > 0 })
+        mentionedItems ??= prContext?.MentionedItems;
+
+        if (mentionedItems is { Length: > 0 })
         {
             evidence += $"""
 

@@ -509,7 +509,9 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal(3, transport.GraphRequests.Count);
         Assert.Contains("3 GraphQL API calls, cost 11.", Assert.Single(transport.Logs), StringComparison.Ordinal);
         string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context);
-        Assert.Contains("\"MentionedItems\"", prompt, StringComparison.Ordinal);
+        Assert.Contains("Items mentioned in the description:", prompt, StringComparison.Ordinal);
+        Assert.Contains(JsonSerializer.Serialize(context.MentionedItems), prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"MentionedItems\"", prompt, StringComparison.Ordinal);
         Assert.Contains("https://github.com/dotnet/runtime/pull/2", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("ClosingIssuesTruncated", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("MentionedItemsTruncated", prompt, StringComparison.Ordinal);
@@ -584,16 +586,51 @@ public sealed class PullRequestLabelContextTests
         Assert.Empty(transport.RestRequests);
     }
 
-    [Fact]
-    public async Task IssueMentionsThatRedirectToSelfAreExcluded()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MentionsThatRedirectToSelfAreExcluded(bool pullRequest)
     {
-        using var transport = new Transport { ReferenceUrlOverride = "https://github.com/DOTNET/RUNTIME/issues/42" };
+        string url = $"https://github.com/dotnet/runtime/{(pullRequest ? "pull" : "issues")}/42";
+        using var transport = new Transport { Body = "#99", ReferenceUrlOverride = url.ToUpperInvariant() };
         var issue = Target();
-        issue.IssueType = IssueType.Issue;
-        issue.HtmlUrl = "https://github.com/dotnet/runtime/issues/42";
+        issue.IssueType = pullRequest ? IssueType.PullRequest : IssueType.Issue;
+        issue.HtmlUrl = url;
         issue.Body = "#99";
 
-        Assert.Empty(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
+        var mentioned = pullRequest
+            ? (await transport.Service.GetAsync(issue, ["area-VM"], CancellationToken.None)).MentionedItems
+            : await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None);
+
+        Assert.Empty(mentioned);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MentionedItemsUseTheSamePromptSectionForIssuesAndPrs(bool hasMentions)
+    {
+        using var transport = new Transport { Body = hasMentions ? "See #3." : "" };
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+        string prPrompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context,
+            mentionedItems: context.MentionedItems);
+        string issuePrompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], null!,
+            mentionedItems: context.MentionedItems);
+        const string heading = "Items mentioned in the description:";
+
+        foreach (string prompt in new[] { prPrompt, issuePrompt })
+        {
+            Assert.Equal(hasMentions, prompt.Contains(heading, StringComparison.Ordinal));
+            Assert.DoesNotContain("\"MentionedItems\"", prompt, StringComparison.Ordinal);
+        }
+
+        if (hasMentions)
+        {
+            string prSection = prPrompt[prPrompt.IndexOf(heading, StringComparison.Ordinal)..];
+            string issueSection = issuePrompt[issuePrompt.IndexOf(heading, StringComparison.Ordinal)..];
+            Assert.Equal(issueSection, prSection);
+            Assert.Equal(2, prPrompt.Split("Mentioned item body", StringSplitOptions.None).Length);
+        }
     }
 
     [Fact]
@@ -986,8 +1023,8 @@ public sealed class PullRequestLabelContextTests
             _http = new HttpClient(this, disposeHandler: false);
             var graph = new GithubGraphQLClient("tests", ["test-token"], NullLogger.Instance, _http);
             var rest = new GitHubClient(new Octokit.Connection(new ProductHeaderValue("tests"), new HttpClientAdapter(() => this)));
-            Service = new(rest, graph, Log);
             IssueContext = new(graph, Log);
+            Service = new(rest, graph, IssueContext, Log);
         }
 
         private void Log(string message)

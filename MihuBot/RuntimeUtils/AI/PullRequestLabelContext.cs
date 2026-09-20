@@ -8,7 +8,7 @@ using static MihuBot.RuntimeUtils.DataIngestion.GitHub.GitHubGraphQL;
 
 namespace MihuBot.RuntimeUtils.AI;
 
-public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLClient graphQL, Logger logger)
+public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLClient graphQL, IssueLabelContext issueContext, Logger logger)
 {
     internal const int MaxFiles = 300;
     internal const int MaxHistoryPaths = 12;
@@ -25,8 +25,8 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
 
     private readonly Action<string> _debugLog = message => logger.DebugLog(message);
 
-    internal PullRequestLabelContext(GitHubClient github, GithubGraphQLClient graphQL, Action<string> debugLog)
-        : this(github, graphQL, (Logger)null)
+    internal PullRequestLabelContext(GitHubClient github, GithubGraphQLClient graphQL, IssueLabelContext issueContext, Action<string> debugLog)
+        : this(github, graphQL, issueContext, (Logger)null)
     {
         _debugLog = debugLog;
     }
@@ -43,11 +43,9 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
             throw new NotFoundException("Repository is not public.", HttpStatusCode.NotFound);
         }
 
-        var references = GetDescriptionReferences(pr.Body, issue.Repository.FullName, issue.Number,
-            pr.ClosingIssuesReferences.Nodes.Select(i => i.Url));
         var fileEvidenceTask = GetFileEvidenceAsync();
-        var referencesTask = graphQL.GetReferencedLabelItemsAsync(
-            references, _debugLog, cancellationToken);
+        var referencesTask = issueContext.GetMentionedItemsAsync(issue, labels, pr.Body, pr.Url,
+            pr.ClosingIssuesReferences.Nodes.Select(i => i.Url), cancellationToken);
         var sessionsTask = GetCopilotPromptsAsync(issue.Repository.FullName, pr, cancellationToken);
         await Task.WhenAll(fileEvidenceTask, referencesTask, sessionsTask);
 
@@ -60,10 +58,7 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
             [.. pr.ClosingIssuesReferences.Nodes
                 .Where(i => !i.Repository.IsPrivate)
                 .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))],
-            [.. mentioned.Where(i => !i.Url.Equals(pr.Url, StringComparison.OrdinalIgnoreCase) &&
-                !pr.ClosingIssuesReferences.Nodes.Any(c => c.Url.Equals(i.Url, StringComparison.OrdinalIgnoreCase)))
-                .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))],
-            prompts, promptStatus);
+            mentioned, prompts, promptStatus);
 
         async Task<(FileEvidence[] Files, HistoryPath[] Paths, HistoricalPullRequest[] Examples, int Calls, int Cost)> GetFileEvidenceAsync()
         {
