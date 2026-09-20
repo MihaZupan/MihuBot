@@ -77,6 +77,7 @@ public sealed class BrowserBlackjackRenderingTests
         });
 
         Assert.Contains("title=\"Lifetime house profit across all tables\"", html, StringComparison.Ordinal);
+        Assert.Contains("House profit:", html, StringComparison.Ordinal);
         Assert.DoesNotContain("Lifetime house profit:", html, StringComparison.Ordinal);
         Assert.Contains(">-17 chips</strong>", html, StringComparison.Ordinal);
     }
