@@ -199,6 +199,9 @@
         </div>
     }
 
+    <p class="house-profit" title="Lifetime house profit across all tables">
+        <strong>@FormatHouseProfit(_houseProfit) chips</strong>
+    </p>
 </div>
 
 @code {
@@ -217,6 +220,7 @@
     private string _error;
     private decimal _bet = BlackjackTable.MinimumBet;
     private decimal? _balance;
+    private decimal _houseProfit;
     private int _decks = BlackjackShoe.Decks;
     private bool _showAdvice;
     private bool _busy;
@@ -293,6 +297,7 @@
         _now = DateTime.UtcNow;
         _state = Tables.Read(RoomId, _user, includeAdvice: _showAdvice);
         _balance = _state is not null && _userId != 0 ? _state.Balance : Tables.GetBalance(_user);
+        _houseProfit = Tables.HouseProfit;
     }
 
     private async Task CreateRoom()
@@ -372,6 +377,28 @@
         {
             _error = "Clipboard access is unavailable. Select and copy the invite link instead.";
         }
+    }
+
+    internal static string FormatHouseProfit(decimal value)
+    {
+        value = decimal.Round(value, 0, MidpointRounding.AwayFromZero);
+
+        if (Math.Abs(value) < 1_000)
+        {
+            return value.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        bool millions = Math.Abs(value) >= 1_000_000;
+        decimal scaled = value / (millions ? 1_000_000 : 1_000);
+        scaled = decimal.Round(scaled, Math.Abs(scaled) < 10 ? 1 : 0, MidpointRounding.AwayFromZero);
+
+        if (!millions && Math.Abs(scaled) >= 1_000)
+        {
+            scaled /= 1_000;
+            millions = true;
+        }
+
+        return scaled.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + (millions ? "M" : "k");
     }
 
     private static string Chips(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);

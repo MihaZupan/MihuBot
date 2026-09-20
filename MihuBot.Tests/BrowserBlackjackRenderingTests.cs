@@ -1,14 +1,113 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
 using MihuBot.Components.Blackjack;
+using MihuBot.Configuration;
 using MihuBot.Games.Blackjack;
 
 namespace MihuBot.Tests;
 
 public sealed class BrowserBlackjackRenderingTests
 {
+    [Theory]
+    [InlineData(0, "0")]
+    [InlineData(1, "1")]
+    [InlineData(-1, "-1")]
+    [InlineData(33, "17")]
+    [InlineData(-33, "-17")]
+    [InlineData(1998, "999")]
+    [InlineData(1999, "1k")]
+    [InlineData(2000, "1k")]
+    [InlineData(2400, "1.2k")]
+    [InlineData(-2400, "-1.2k")]
+    [InlineData(19900, "10k")]
+    [InlineData(24000, "12k")]
+    [InlineData(24690, "12k")]
+    [InlineData(240000, "120k")]
+    [InlineData(246900, "123k")]
+    [InlineData(1998998, "999k")]
+    [InlineData(1999000, "1M")]
+    [InlineData(-1999000, "-1M")]
+    [InlineData(2000000, "1M")]
+    [InlineData(2400000, "1.2M")]
+    [InlineData(-2400000, "-1.2M")]
+    [InlineData(24000000, "12M")]
+    public void HouseProfitUsesWholeChipsAndCompactUnits(long halfChips, string expected)
+    {
+        Assert.Equal(expected, MihuBot.Components.Pages.Blackjack.FormatHouseProfit(halfChips / 2m));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PageShowsGlobalHouseProfitToPlayersAndSpectators(bool signedIn, bool atTable)
+    {
+        using var service = new BrowserBlackjackService(TimeProvider.System, () => BrowserBlackjackTests.Table(1, 10, 13, 7));
+        var player = BrowserBlackjackTests.User(1);
+        string room = service.CreateRoom(player).RoomId;
+        Assert.Null(service.Execute(room, player, 0, BrowserBlackjackCommand.Join, 11));
+        Assert.Null(service.Execute(room, player, 1, BrowserBlackjackCommand.Deal));
+        string otherRoom = service.CreateRoom(player).RoomId;
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCascadingAuthenticationState();
+        services.AddSingleton<AuthenticationStateProvider>(new TestAuthenticationStateProvider(signedIn));
+        services.AddSingleton<NavigationManager, TestNavigationManager>();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton<AvailableFeatures>();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton(service);
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new PageRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        string html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var component = renderer.BeginRenderingComponent(typeof(MihuBot.Components.Pages.Blackjack),
+                ParameterView.FromDictionary(new Dictionary<string, object?>
+                {
+                    ["RoomId"] = atTable ? otherRoom : null
+                }));
+            await component.QuiescenceTask;
+            return component.ToHtmlString();
+        });
+
+        Assert.Contains("title=\"Lifetime house profit across all tables\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lifetime house profit:", html, StringComparison.Ordinal);
+        Assert.Contains(">-17 chips</strong>", html, StringComparison.Ordinal);
+    }
+
+    private sealed class PageRenderer(IServiceProvider services, ILoggerFactory loggerFactory)
+        : Microsoft.AspNetCore.Components.HtmlRendering.Infrastructure.StaticHtmlRenderer(services, loggerFactory)
+    {
+        protected override IComponent ResolveComponentForRenderMode(Type componentType, int? parentComponentId,
+            IComponentActivator componentActivator, IComponentRenderMode renderMode) =>
+            componentActivator.CreateInstance(componentType);
+    }
+
+    private sealed class TestAuthenticationStateProvider(bool signedIn) : AuthenticationStateProvider
+    {
+        public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
+            Task.FromResult(new AuthenticationState(signedIn ? BrowserBlackjackTests.User(1)
+                : new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity())));
+    }
+
+    private sealed class TestNavigationManager : NavigationManager
+    {
+        public TestNavigationManager() => Initialize("https://localhost/", "https://localhost/blackjack");
+    }
+
+    private sealed class NoJavaScript : IJSRuntime
+    {
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args) => throw new NotSupportedException();
+        public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args) =>
+            throw new NotSupportedException();
+    }
+
     [Fact]
     public async Task BoardEncodesPlayerNamesAndHidesDealerCardAndTotal()
     {

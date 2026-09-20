@@ -78,6 +78,8 @@ public sealed class BrowserBlackjackService : BackgroundService
         _balances = balances;
     }
 
+    public decimal HouseProfit => _balances.HouseProfit;
+
     public decimal? GetBalance(ClaimsPrincipal user)
     {
         if (!TryGetPlayer(user, out ulong id, out _))

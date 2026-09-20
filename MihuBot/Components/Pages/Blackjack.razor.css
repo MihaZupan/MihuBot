@@ -48,6 +48,8 @@
 .bet-preset { border: 1px solid #778b7e; border-radius: 2rem; background: #20362e; color: #e5eee7; min-width: 42px; min-height: 42px; font-size: .75rem; }
 .bet-preset.selected { border-color: #e7cc8e; color: #f4dca3; background: #4a4630; }
 .notice { font-size: .8rem; color: #dec6a6; margin: .75rem 0 0; }
+.house-profit { margin: 1rem 0 0; text-align: center; color: #aabeb3; font-size: .8rem; }
+.house-profit strong { color: #f8e5b6; font-variant-numeric: tabular-nums; }
 
 @media (min-width: 1000px) and (max-height: 1200px) {
     .table-page { padding-bottom: 0; }

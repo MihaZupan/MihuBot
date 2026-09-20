@@ -62,10 +62,22 @@ old links and pending actions no longer work.
 
 ## Saved balances
 
-`State/BlackjackBalances.json` is a plain dictionary mapping Discord user IDs to
-settled balances in integer half chips, including payouts and free rebuys.
+`State/BlackjackBalances.json` maps Discord user IDs to settled balances in integer
+half chips, including payouts and free rebuys. The reserved ID `0` (not a valid
+Discord user ID) stores the house's lifetime net profit across all tables, in the
+same units. Only this entry may be negative.
 Back it up with the other `State` files. Older builds never saved their per-table
 balances, so those cannot be imported automatically.
+
+The blackjack page shows this global house profit, including negative totals when
+players are ahead. The display rounds to whole chips and abbreviates larger totals
+as `1.2k`, `12k`, `120k`, or `1.2M`; saved totals retain half-chip precision.
+Completed rounds add wagers minus returns, including splits,
+doubles, surrender, blackjack payouts, and insurance. Starting chips, free rebuys,
+and refunded or unfinished wagers do not affect it. The total survives restarts
+and table closures and is saved in the same snapshot as player balances.
+Existing balance files without the house entry start tracking from zero; historical
+profit cannot be recovered from balances because past free rebuys were not recorded.
 
 Outstanding wagers are reserved in memory across every table. Only completed
 rounds change the saved score; each round's results are written together.
