@@ -33,7 +33,10 @@ public sealed record BrowserBlackjackState(
     int DeckCount, int MaxHandsPerPlayer, BrowserBlackjackAdvice Advice, string StorageError);
 
 public sealed record BrowserBlackjackAdvice(
-    int RunningCount, double TrueCount, double UnseenDecks, BrowserBlackjackCommand? Move, string Explanation, bool Deviation);
+    int RunningCount, double TrueCount, double UnseenDecks, BrowserBlackjackCommand? Move, string Explanation, bool Deviation,
+    BrowserBlackjackBetAdvice Bet = null);
+
+public sealed record BrowserBlackjackBetAdvice(decimal? Amount, double TrueCount, bool ShuffleExpected, string Explanation);
 
 public sealed class BrowserBlackjackService : BackgroundService
 {
@@ -522,6 +525,21 @@ public sealed class BrowserBlackjackService : BackgroundService
             }
         }
 
+        BrowserBlackjackAdvice advice = includeAdvice ? BlackjackStrategy.Analyze(table.Shoe.DeckCount, room.ExposedCards,
+            yourTurn ? viewer.ActiveHand : null, game?.Dealer[0].Value ?? 0,
+            game?.OfferingInsurance == true, actions) : null;
+
+        if (advice is not null && actions.Contains(BrowserBlackjackCommand.Join))
+        {
+            int players = table.IsLobby ? table.Seats.Count + (seated ? 0 : 1) : 1;
+            decimal balance = table.GetBalance(viewerId) +
+                (table.IsLobby ? table.Seats.FirstOrDefault(p => p.Id == viewerId)?.Hands[0].Bet ?? 0 : 0);
+            advice = advice with
+            {
+                Bet = BlackjackStrategy.RecommendBet(advice.TrueCount, balance, table.Shoe.NeedsShuffle(players))
+            };
+        }
+
         return new(
             roomId, table.Id, table.GetRevision(viewerId), table.IsLobby, complete, table.IsActive,
             GetHostId(room), yourTurn, game?.OfferingInsurance == true, table.GetDeadline(viewerId) ?? table.Deadline, table.Notice,
@@ -535,9 +553,7 @@ public sealed class BrowserBlackjackService : BackgroundService
                     game?.NeedsAction(p.Id) == true && i == p.ActiveHandIndex, h.Result)).ToArray(),
                 game?.NeedsAction(p.Id) == true, table.GetDeadline(p.Id))).ToArray(),
             actions.ToArray(), table.Shoe.DeckCount, table.Shoe.MaxHandsPerPlayer,
-            includeAdvice ? BlackjackStrategy.Analyze(table.Shoe.DeckCount, room.ExposedCards,
-                yourTurn ? viewer.ActiveHand : null, game?.Dealer[0].Value ?? 0,
-                game?.OfferingInsurance == true, actions) : null, room.StorageError);
+            advice, room.StorageError);
     }
 
     private static BrowserBlackjackCard Card(BlackjackCard card) => new(card.Rank, card.Suit);

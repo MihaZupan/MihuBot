@@ -37,7 +37,7 @@ internal sealed class BlackjackShoe
         Number = 1;
     }
 
-    public bool PrepareRound(int playerCount = 1)
+    public bool NeedsShuffle(int playerCount = 1)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(playerCount, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(playerCount, BlackjackGame.MaxPlayers);
@@ -52,7 +52,12 @@ internal sealed class BlackjackShoe
             throw new ArgumentOutOfRangeException(nameof(playerCount), "The shoe is too small to safely support this many players.");
         }
 
-        if (Remaining > CutCardRemaining && _cards.Sum(c => c.Value) > reserve)
+        return Remaining <= CutCardRemaining || _cards.Sum(c => c.Value) <= reserve;
+    }
+
+    public bool PrepareRound(int playerCount = 1)
+    {
+        if (!NeedsShuffle(playerCount))
         {
             return false;
         }

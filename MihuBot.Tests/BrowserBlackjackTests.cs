@@ -587,6 +587,121 @@ public sealed class BrowserBlackjackTests
         Assert.Equal(after.UnseenDecks, game.Service.Read(game.Room, User(1), includeAdvice: true).Advice.UnseenDecks);
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(4)]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void BettingAdviceIsPrivateOptInAndDoesNotPrepareTheShoe(int decks)
+    {
+        using var service = new BrowserBlackjackService();
+        string room = service.CreateRoom(User(1), decks).RoomId;
+        Assert.Null(service.Read(room, User(1)).Advice);
+        Assert.Null(service.Read(room, new ClaimsPrincipal(new ClaimsIdentity()), true).Advice.Bet);
+        var state = service.Read(room, User(1), true);
+        Assert.Equal(10m, state.Advice.Bet.Amount);
+        Assert.True(state.Advice.Bet.ShuffleExpected);
+        Assert.Equal(0, state.Advice.Bet.TrueCount);
+        Assert.Equal(0, state.ShoeNumber);
+        Assert.Equal(0, state.RemainingCards);
+        Assert.Equal(1_000, state.Balance);
+        Assert.Empty(state.Seats);
+
+        Assert.Null(service.Execute(room, User(1), state.Version, BrowserBlackjackCommand.Join, 100));
+        Assert.Null(service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Deal));
+        var dealt = service.Read(room, User(1), true);
+        Assert.True(dealt.Shuffled);
+
+        if (dealt.Active)
+        {
+            Assert.Null(dealt.Advice.Bet);
+        }
+    }
+
+    [Fact]
+    public void BettingAdviceUsesExposedCountRefundableBetAndOtherTablesReservations()
+    {
+        using var game = new Game(Enumerable.Repeat(new[] { 2, 6, 2, 6, 5 }, 3).SelectMany(r => r).ToArray()).Start();
+
+        for (int round = 0; round < 3; round++)
+        {
+            game.Move(1, BrowserBlackjackCommand.Join, 10);
+            game.Move(1, BrowserBlackjackCommand.Deal);
+            Assert.Null(game.Service.Read(game.Room, User(1), true).Advice.Bet);
+            game.Move(1, BrowserBlackjackCommand.Stand);
+        }
+
+        var state = game.Service.Read(game.Room, User(1), true);
+        Assert.Equal(970, state.Balance);
+        Assert.Equal(15, state.Advice.RunningCount);
+        Assert.Equal(15 / (297 / 52d), state.Advice.Bet.TrueCount);
+        Assert.Equal(20m, state.Advice.Bet.Amount);
+        Assert.False(state.Advice.Bet.ShuffleExpected);
+
+        foreach (int bet in new[] { 500, 370 })
+        {
+            string other = game.Service.CreateRoom(User(1)).RoomId;
+            Assert.Null(game.Service.Execute(other, User(1), 0, BrowserBlackjackCommand.Join, bet));
+        }
+
+        game.Move(1, BrowserBlackjackCommand.Join, 80);
+        state = game.Service.Read(game.Room, User(1), true);
+        Assert.Equal(20, state.Balance);
+        Assert.Equal(20m, state.Advice.Bet.Amount);
+        Assert.Equal(80, state.Seats[0].Hands[0].Bet);
+        game.Move(1, BrowserBlackjackCommand.Join, 100);
+        Assert.Equal(20m, game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
+
+        string reservedRoom = game.Service.GetOwnedRooms(User(1)).First(r => r != game.Room &&
+            game.Service.Read(r, User(1)).Seats[0].Hands[0].Bet == 370);
+        game.Move(1, BrowserBlackjackCommand.Join, 60);
+        Assert.Null(game.Service.Execute(reservedRoom, User(1), game.Service.Read(reservedRoom, User(1)).Version,
+            BrowserBlackjackCommand.Join, 410));
+        state = game.Service.Read(game.Room, User(1), true);
+        Assert.Equal(10m, state.Advice.Bet.Amount);
+        game.Move(1, BrowserBlackjackCommand.Leave);
+        Assert.Null(game.Service.Execute(reservedRoom, User(1), game.Service.Read(reservedRoom, User(1)).Version,
+            BrowserBlackjackCommand.Join, 450));
+        Assert.Null(game.Service.Read(game.Room, User(1), true).Advice.Bet.Amount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BettingAdvicePredictsCutCardAndSeatDependentSafetyShuffles(bool cutCard)
+    {
+        BlackjackTable table = Table(2, 6, 2, 6, 5);
+        using var service = new BrowserBlackjackService(new Clock(), () => table);
+        string room = service.CreateRoom(User(1)).RoomId;
+        Assert.Null(service.Execute(room, User(1), 0, BrowserBlackjackCommand.Join, 10));
+        Assert.Null(service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Deal));
+        Assert.Null(service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Stand));
+
+        while (table.Shoe.Remaining > (cutCard ? table.Shoe.CutCardRemaining : 104))
+        {
+            table.Shoe.Draw();
+        }
+
+        Assert.Equal(cutCard, service.Read(room, User(1), true).Advice.Bet.ShuffleExpected);
+
+        for (ulong id = 1; id <= 5; id++)
+        {
+            Assert.Null(service.Execute(room, User(id), service.Read(room, User(id)).Version, BrowserBlackjackCommand.Join, 10));
+        }
+
+        Assert.Equal(cutCard, service.Read(room, User(1), true).Advice.Bet.ShuffleExpected);
+        var joining = service.Read(room, User(6), true);
+        Assert.True(joining.Advice.Bet.ShuffleExpected);
+        Assert.Equal(0, joining.Advice.Bet.TrueCount);
+        Assert.True(joining.Advice.TrueCount > 0);
+        Assert.Equal(10m, joining.Advice.Bet.Amount);
+        Assert.Null(service.Execute(room, User(6), joining.Version, BrowserBlackjackCommand.Join, 10));
+        Assert.True(service.Read(room, User(6), true).Advice.Bet.ShuffleExpected);
+        Assert.Null(service.Read(room, User(7), true).Advice.Bet);
+        Assert.Null(service.Execute(room, User(1), service.Read(room, User(1)).Version, BrowserBlackjackCommand.Deal));
+        Assert.True(service.Read(room, User(1)).Shuffled);
+    }
+
     [Fact]
     public void ChangingOnlyTheUnrevealedHoleCardCannotChangeCountsOrAdvice()
     {

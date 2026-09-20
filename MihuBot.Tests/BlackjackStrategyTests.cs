@@ -156,6 +156,62 @@ public sealed class BlackjackStrategyTests
             BlackjackStrategy.Analyze(6, exposed, Hand(10, 9), 1, true, [BrowserBlackjackCommand.DeclineInsurance]).Move);
     }
 
+    [Theory]
+    [InlineData(-5, 10)]
+    [InlineData(0, 10)]
+    [InlineData(1.999, 10)]
+    [InlineData(2, 20)]
+    [InlineData(2.999, 20)]
+    [InlineData(3, 30)]
+    [InlineData(3.999, 30)]
+    [InlineData(4, 40)]
+    [InlineData(20, 40)]
+    public void BettingRampUsesWholeTenChipUnitsAndCapsAtFour(double trueCount, int amount)
+    {
+        var advice = BlackjackStrategy.RecommendBet(trueCount, 1_000, shuffleExpected: false);
+        Assert.Equal((decimal)amount, advice.Amount);
+        Assert.Equal(trueCount, advice.TrueCount);
+        Assert.False(advice.ShuffleExpected);
+        Assert.Contains("Training guideline", advice.Explanation, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(9, 0)]
+    [InlineData(39.5, 0)]
+    [InlineData(40, 10)]
+    [InlineData(79.5, 10)]
+    [InlineData(80, 20)]
+    [InlineData(119.5, 20)]
+    [InlineData(120, 30)]
+    [InlineData(159.5, 30)]
+    [InlineData(160, 40)]
+    public void BettingCapReservesThreeBetsAndRoundsDown(decimal balance, int amount)
+    {
+        var advice = BlackjackStrategy.RecommendBet(10, balance, shuffleExpected: false);
+        Assert.Equal(amount == 0 ? (decimal?)null : amount, advice.Amount);
+
+        if (advice.Amount is decimal bet)
+        {
+            Assert.True(bet * 4 <= balance);
+            Assert.Equal(0, bet % BlackjackStrategy.BettingUnit);
+        }
+        else
+        {
+            Assert.Contains("Sit out", advice.Explanation, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void BettingBeforeAShuffleUsesZeroInsteadOfTheOldCount()
+    {
+        var advice = BlackjackStrategy.RecommendBet(10, 1_000, shuffleExpected: true);
+        Assert.Equal(10m, advice.Amount);
+        Assert.Equal(0, advice.TrueCount);
+        Assert.True(advice.ShuffleExpected);
+        Assert.Contains("shuffle", advice.Explanation, StringComparison.Ordinal);
+    }
+
     private static int[] Counts(int running)
     {
         int[] counts = new int[11];

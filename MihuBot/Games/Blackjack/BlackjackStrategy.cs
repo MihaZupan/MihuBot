@@ -2,6 +2,35 @@ namespace MihuBot.Games.Blackjack;
 
 internal static class BlackjackStrategy
 {
+    internal const decimal BettingUnit = 10;
+
+    internal static BrowserBlackjackBetAdvice RecommendBet(double trueCount, decimal balance, bool shuffleExpected)
+    {
+        double bettingCount = shuffleExpected ? 0 : trueCount;
+        int units = bettingCount switch
+        {
+            >= 4 => 4,
+            >= 3 => 3,
+            >= 2 => 2,
+            _ => 1
+        };
+        decimal amount = Math.Min(units * BettingUnit, decimal.Floor(balance / (4 * BettingUnit)) * BettingUnit);
+        string explanation = shuffleExpected
+            ? "A shuffle is due for the current seats plus you; use a fresh-shoe count of zero. "
+            : "Based on the current shoe; more players joining can trigger a shuffle. ";
+
+        explanation += amount < BettingUnit
+            ? "Sit out: at least 40 available chips are needed to keep three bets in reserve. Leave & refund if already seated."
+            : amount < units * BettingUnit
+                ? "Reduced to keep three bets in reserve for doubles and splits."
+                : bettingCount < 2
+                    ? "Minimum bet; this count is not a signal to raise your wager."
+                    : "Conservative 1-4-unit Hi-Lo ramp.";
+
+        return new(amount >= BettingUnit ? amount : null, bettingCount, shuffleExpected,
+            explanation + " Training guideline, not an optimal wager or a guarantee of profit.");
+    }
+
     internal static BrowserBlackjackAdvice Analyze(
         int decks, IReadOnlyList<int> exposed, BlackjackHand hand, int dealer, bool insurance,
         IReadOnlyList<BrowserBlackjackCommand> actions)

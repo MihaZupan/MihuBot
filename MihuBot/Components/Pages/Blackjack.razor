@@ -178,8 +178,19 @@
                     <span>True <strong>@Signed(advice.TrueCount)</strong></span>
                     <span>Unseen decks <strong>@advice.UnseenDecks.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)</strong></span>
                     <div class="coach-recommendation">
-                        <strong class="recommended-move">@(advice.Move is { } move ? ActionLabel(move) : "No decision pending")@(advice.Deviation ? " / deviation" : "")</strong>
-                        <span class="coach-explanation">@advice.Explanation</span>
+                        @if (advice.Bet is { } betAdvice)
+                        {
+                            <strong class="recommended-move">@(betAdvice.Amount is decimal amount
+                                ? $"Suggested bet: {Chips(amount)} chips ({Chips(amount / BlackjackStrategy.BettingUnit)} units)"
+                                : "Suggested: sit out")</strong>
+                            <span>Betting true count <strong>@Signed(betAdvice.TrueCount)</strong></span>
+                            <span class="coach-explanation">@betAdvice.Explanation</span>
+                        }
+                        else
+                        {
+                            <strong class="recommended-move">@(advice.Move is { } move ? ActionLabel(move) : "No decision pending")@(advice.Deviation ? " / deviation" : "")</strong>
+                            <span class="coach-explanation">@advice.Explanation</span>
+                        }
                     </div>
                 </div>
             }
@@ -223,6 +234,13 @@
             Closing a lobby refunds its bets. Closing a live round declines pending insurance,
             stands unfinished hands, and saves the results before removing the table. When no one is seated,
             the table's creator can close it.</p>
+        <p>The optional strategy coach suggests pre-deal bets in 10-chip units: 1 unit below true count +2,
+            2 units at +2, 3 at +3, and 4 at +4 or higher. Bets are capped at one quarter of your available chips,
+            rounded down to whole units, leaving room for doubles and splits (not necessarily every possible split).
+            Your refundable bet at this table is included; wagers at other tables are excluded.
+            Below 40 available chips, it suggests sitting out. A pending shuffle resets the betting count to zero.
+            Recommendations refresh as seats change, never place or update a bet automatically, and are approximate
+            training guidelines, not optimal wagers or guarantees of profit.</p>
     </details>
 </div>
 
