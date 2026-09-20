@@ -517,6 +517,107 @@ public sealed class PullRequestLabelContextTests
         Assert.DoesNotContain("MentionedItemsTruncated", prompt, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(IssueType.Issue)]
+    [InlineData(IssueType.PullRequest)]
+    [InlineData(IssueType.Discussion)]
+    public async Task MentionedItemsUseStoredEvidenceWithoutCallingGraphQL(IssueType type)
+    {
+        var stored = Target();
+        stored.Number = 2;
+        stored.HtmlUrl = "https://github.com/dotnet/runtime/pull/2";
+        stored.Repository.FullName = "DotNet/Runtime";
+        stored.Title = new string('t', 300);
+        stored.Body = new string('b', 5000);
+        stored.User = new() { Login = "stored-author" };
+        stored.Labels = [new() { Name = "area-VM" }, new() { Name = "AREA-vm" }, new() { Name = "other" }];
+        using var transport = new Transport
+        {
+            StoredItems = (references, _) =>
+            {
+                Assert.Equal(new[] { ("dotnet/runtime", 2) }, references);
+                return Task.FromResult(new[] { stored });
+            },
+        };
+        var issue = Target();
+        issue.IssueType = type;
+        issue.Body = "#2 and DOTNET/RUNTIME#2";
+        var item = Assert.Single(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
+
+        Assert.Equal(stored.HtmlUrl, item.Url);
+        Assert.Equal("stored-author", item.Author);
+        Assert.Equal(AreaLabelDetector.MaxRelatedTitleCharacters, item.Title.Length);
+        Assert.Equal(AreaLabelDetector.MaxContextBodyCharacters, item.Body.Length);
+        Assert.Equal(["area-VM"], item.Labels);
+        Assert.Empty(transport.GraphRequests);
+        Assert.Contains("0 GraphQL API calls, cost 0.", Assert.Single(transport.Logs), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MentionedItemsFetchOnlyDatabaseMissesAndKeepUnlabelledItems()
+    {
+        var stored = Target();
+        stored.Number = 2;
+        stored.HtmlUrl = "https://github.com/dotnet/runtime/pull/2";
+        stored.Labels = [];
+        var other = Target();
+        other.Number = 5;
+        other.Repository.FullName = "other/repo";
+        other.HtmlUrl = "https://github.com/other/repo/issues/5";
+        other.Labels = [new() { Name = "cross-repo-label" }];
+        using var transport = new Transport { StoredItems = (_, _) => Task.FromResult(new[] { stored, other }) };
+        var issue = Target();
+        issue.Body = "#2, #3, other/repo#5";
+        var items = await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None);
+
+        Assert.Equal(3, items.Length);
+        Assert.Empty(Assert.Single(items, i => i.Url == stored.HtmlUrl).Labels);
+        Assert.Equal(["cross-repo-label"], Assert.Single(items, i => i.Url == other.HtmlUrl).Labels);
+        var variables = Assert.Single(transport.GraphRequests).GetProperty("variables");
+        Assert.Equal(3, variables.EnumerateObject().Count());
+        Assert.Equal(3, variables.GetProperty("number0").GetInt32());
+        Assert.Equal("dotnet", variables.GetProperty("owner0").GetString());
+        Assert.Equal("runtime", variables.GetProperty("name0").GetString());
+        Assert.Contains("1 GraphQL API calls, cost 4.", Assert.Single(transport.Logs), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PrivateStoredMentionsAreExcludedWithoutFetchingThem()
+    {
+        var stored = Target();
+        stored.Number = 2;
+        stored.Repository.Private = true;
+        using var transport = new Transport { StoredItems = (_, _) => Task.FromResult(new[] { stored }) };
+        var issue = Target();
+        issue.Body = "#2";
+
+        Assert.Empty(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
+        Assert.Empty(transport.GraphRequests);
+        Assert.Contains(transport.Logs, log => log.Contains("Skipping private referenced item", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StoredMentionsStillExcludeClosingIssuesAndDeduplicateRedirects()
+    {
+        var stored = Target();
+        stored.Number = 2;
+        stored.HtmlUrl = "https://github.com/dotnet/runtime/pull/2";
+        using var transport = new Transport
+        {
+            Body = "#1, #2, #3, #42",
+            ReferenceUrlOverride = stored.HtmlUrl.ToUpperInvariant(),
+            StoredItems = (references, _) =>
+            {
+                Assert.Equal(new[] { ("dotnet/runtime", 2), ("dotnet/runtime", 3) }, references);
+                return Task.FromResult(new[] { stored });
+            },
+        };
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+
+        Assert.Equal(stored.HtmlUrl, Assert.Single(context.MentionedItems).Url);
+        Assert.Single(context.ClosingIssues);
+    }
+
     [Fact]
     public async Task MentionedItemSamplingRemainsBounded()
     {
@@ -576,7 +677,10 @@ public sealed class PullRequestLabelContextTests
     [InlineData(null)]
     public async Task IssuesWithoutExternalMentionsDoNotCallGitHub(string? body)
     {
-        using var transport = new Transport();
+        using var transport = new Transport
+        {
+            StoredItems = (_, _) => throw new InvalidOperationException("No database lookup should be needed."),
+        };
         var issue = Target();
         issue.IssueType = IssueType.Issue;
         issue.Body = body;
@@ -584,6 +688,7 @@ public sealed class PullRequestLabelContextTests
         Assert.Empty(await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None));
         Assert.Empty(transport.GraphRequests);
         Assert.Empty(transport.RestRequests);
+        Assert.Empty(transport.Logs);
     }
 
     [Theory]
@@ -1017,13 +1122,15 @@ public sealed class PullRequestLabelContextTests
         public string? TaskListJson { get; init; }
         public Dictionary<string, (HttpStatusCode Status, string Json)> TaskDetails { get; init; } = [];
         public Func<string, CancellationToken, Task>? BeforeResponse { get; init; }
+        public Func<(string Repository, int Number)[], CancellationToken, Task<IssueInfo[]>> StoredItems { get; init; } =
+            (_, _) => Task.FromResult<IssueInfo[]>([]);
 
         public Transport()
         {
             _http = new HttpClient(this, disposeHandler: false);
             var graph = new GithubGraphQLClient("tests", ["test-token"], NullLogger.Instance, _http);
             var rest = new GitHubClient(new Octokit.Connection(new ProductHeaderValue("tests"), new HttpClientAdapter(() => this)));
-            IssueContext = new(graph, Log);
+            IssueContext = new(graph, Log, (references, cancellationToken) => StoredItems(references, cancellationToken));
             Service = new(rest, graph, IssueContext, Log);
         }
 

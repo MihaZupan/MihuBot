@@ -1,23 +1,33 @@
+using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using static MihuBot.RuntimeUtils.DataIngestion.GitHub.GitHubGraphQL;
 
 namespace MihuBot.RuntimeUtils.AI;
 
-public sealed class IssueLabelContext(GithubGraphQLClient graphQL, Logger logger)
+public sealed class IssueLabelContext(
+    IDbContextFactory<GitHubDbContext> githubDb, GitHubDataIngestionService dataIngestion, GithubGraphQLClient graphQL, Logger logger)
 {
     private readonly Action<string> _debugLog = message => logger.DebugLog(message);
+    private readonly Func<(string Repository, int Number)[], CancellationToken, Task<IssueInfo[]>> _getStoredItems;
 
-    internal IssueLabelContext(GithubGraphQLClient graphQL, Action<string> debugLog)
-        : this(graphQL, (Logger)null)
+    internal IssueLabelContext(GithubGraphQLClient graphQL, Action<string> debugLog,
+        Func<(string Repository, int Number)[], CancellationToken, Task<IssueInfo[]>> getStoredItems)
+        : this(null, null, graphQL, (Logger)null)
     {
         _debugLog = debugLog;
+        _getStoredItems = getStoredItems;
     }
 
     internal async Task<RelatedItem[]> GetMentionedItemsAsync(IssueInfo issue, string[] labels, CancellationToken cancellationToken)
     {
         var (items, calls, cost) = await GetMentionedItemsAsync(issue, labels, issue.Body, issue.HtmlUrl, [], cancellationToken);
-        _debugLog($"Mentioned label evidence for <{issue.HtmlUrl}>: {calls} GraphQL API calls, cost {cost}.");
+
+        if (items.Length > 0)
+        {
+            _debugLog($"Mentioned label evidence for <{issue.HtmlUrl}>: {calls} GraphQL API calls, cost {cost}.");
+        }
+
         return items;
     }
 
@@ -26,10 +36,62 @@ public sealed class IssueLabelContext(GithubGraphQLClient graphQL, Logger logger
     {
         var excluded = new HashSet<string>(excludedUrls, StringComparer.OrdinalIgnoreCase) { url };
         var references = GetDescriptionReferences(body, issue.Repository.FullName, issue.Number, excluded);
-        var (items, calls, cost) = await graphQL.GetReferencedLabelItemsAsync(references, _debugLog, cancellationToken);
-        return ([.. items
+
+        if (references.Length == 0)
+        {
+            return ([], 0, 0);
+        }
+
+        var stored = await (_getStoredItems ?? GetStoredItemsAsync)(references, cancellationToken);
+        var found = stored.Select(i => (i.Repository.FullName.ToLowerInvariant(), i.Number)).ToHashSet();
+        var (items, calls, cost) = await graphQL.GetReferencedLabelItemsAsync(
+            [.. references.Where(r => !found.Contains(r))], _debugLog, cancellationToken);
+        List<LinkedItemLabelInfoModel> localItems = [];
+
+        foreach (var item in stored)
+        {
+            if (item.Repository.Private)
+            {
+                _debugLog($"Skipping private referenced item {item.Repository.FullName}#{item.Number}.");
+                continue;
+            }
+
+            localItems.Add(new(item.HtmlUrl, item.Title, item.Body, item.User is null ? null : new(item.User.Login),
+                new(item.Repository.FullName, false), new([.. item.Labels.Select(l => new LabelNameModel(l.Name))])));
+        }
+
+        return ([.. localItems.Concat(items)
             .Where(i => !excluded.Contains(i.Url))
+            .DistinctBy(i => i.Url, StringComparer.OrdinalIgnoreCase)
             .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))], calls, cost);
+    }
+
+    private async Task<IssueInfo[]> GetStoredItemsAsync((string Repository, int Number)[] references, CancellationToken cancellationToken)
+    {
+        await using var db = await githubDb.CreateDbContextAsync(cancellationToken);
+        List<IssueInfo> items = [];
+
+        foreach (var group in references.GroupBy(r => r.Repository))
+        {
+            long repositoryId = await dataIngestion.TryGetKnownRepositoryIdAsync(group.Key, cancellationToken);
+
+            if (repositoryId <= 0)
+            {
+                continue;
+            }
+
+            int[] numbers = [.. group.Select(r => r.Number)];
+            items.AddRange(await db.Issues
+                .AsNoTracking()
+                .Where(i => i.RepositoryId == repositoryId && numbers.Contains(i.Number))
+                .Include(i => i.Repository)
+                .Include(i => i.User)
+                .Include(i => i.Labels)
+                .AsSplitQuery()
+                .ToArrayAsync(cancellationToken));
+        }
+
+        return [.. items];
     }
 
     internal static RelatedItem CreateRelatedItem(LinkedItemLabelInfoModel item, string repository, string[] labels) => new(
