@@ -861,6 +861,8 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal(3, transport.GraphRequests.Count);
         Assert.Contains("3 GraphQL API calls, cost 12.", Assert.Single(transport.Logs), StringComparison.Ordinal);
         Assert.Equal("src/vm", transport.GraphRequests[2].GetProperty("variables").GetProperty("path0").GetString());
+        Assert.Equal(["src/vm/file.cpp"], context.HistoryPaths);
+        Assert.Equal("""["src/vm/file.cpp"]""", JsonSerializer.Serialize(context.HistoryPaths));
         var example = Assert.Single(context.HistoricalPullRequests);
         Assert.Equal("src/vm", Assert.Single(example.MatchingPaths));
         Assert.Contains("\"MatchingPaths\":[\"src/vm\"]", JsonSerializer.Serialize(example), StringComparison.Ordinal);

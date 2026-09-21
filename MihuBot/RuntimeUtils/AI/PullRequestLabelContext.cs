@@ -54,7 +54,7 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
         var (prompts, promptStatus) = await sessionsTask;
         _debugLog($"PR label evidence for <{pr.Url}>: {metadataCalls + historyCalls + referenceCalls} GraphQL API calls, cost {metadataCost + historyCost + referenceCost}.");
 
-        return new Context(pr, changes, changes.Length < pr.ChangedFiles, paths, examples,
+        return new Context(pr, changes, changes.Length < pr.ChangedFiles, [.. paths.Select(p => p.Path)], examples,
             [.. pr.ClosingIssuesReferences.Nodes
                 .Where(i => !i.Repository.IsPrivate)
                 .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))],
@@ -281,7 +281,7 @@ public sealed class PullRequestLabelContext(GitHubClient github, GithubGraphQLCl
     private static string Trim(string text, int limit) => (text ?? "").TruncateWithDotDotDot(limit);
 
     internal sealed record Context(
-        PullRequestLabelInfoModel PullRequest, FileEvidence[] Files, bool FilesTruncated, HistoryPath[] HistoryPaths,
+        PullRequestLabelInfoModel PullRequest, FileEvidence[] Files, bool FilesTruncated, string[] HistoryPaths,
         HistoricalPullRequest[] HistoricalPullRequests, RelatedItem[] ClosingIssues, RelatedItem[] MentionedItems,
         SessionPrompt[] CopilotSessionPrompts, string CopilotSessionStatus);
     internal sealed record FileEvidence(string Path, string PreviousPath, string Status, int Additions, int Deletions, string Patch, bool PatchIncomplete);
