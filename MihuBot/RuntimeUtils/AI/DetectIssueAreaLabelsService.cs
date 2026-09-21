@@ -98,9 +98,19 @@ public sealed class DetectIssueAreaLabelsService(
             .OrderBy(i => i.CreatedAt)
             .ThenBy(i => i.Number);
 
-    internal static string FormatPrediction(IssueInfo issue, AreaLabelSuggestion[] suggestions) => suggestions.Length == 0
-        ? $"No confident area-label prediction for <{issue.HtmlUrl}>."
-        : $"Suggested labels for <{issue.HtmlUrl}>:\n{string.Join('\n', suggestions.Select(s => $"- {s.Confidence:F2} `{s.LabelName}`"))}";
+    internal static string FormatPrediction(IssueInfo issue, AreaLabelSuggestion[] suggestions)
+    {
+        string currentLabels = string.Join(", ", issue.Labels
+            .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
+            .Select(l => $"`{l.Name}`"));
+
+        return
+            $"""
+            [`{issue.Title.TruncateWithDotDotDot(100)}` - {(issue.IssueType == IssueType.PullRequest ? "PR " : "")}#{issue.Number}](<{issue.HtmlUrl}>)
+            - Current: {(currentLabels.Length > 0 ? currentLabels : "<none>")}
+            - Suggested: {(suggestions.Length > 0 ? string.Join(", ", suggestions.Select(s => $"`{s.LabelName}` ({s.Confidence:F2})")) : "<none>")}
+            """;
+    }
 
     internal static string GetProcessedKey(IssueInfo issue) => issue.HtmlUrl;
 

@@ -273,17 +273,78 @@ public sealed class AreaLabelDetectionTests
             DetectIssueAreaLabelsService.GetIncomingItems(items, since).Select(i => i.Number));
     }
 
-    [Fact]
-    public void IncomingPredictionsIncludeExplicitAbstentions()
+    [Theory]
+    [InlineData(IssueType.Issue, 0)]
+    [InlineData(IssueType.Issue, 1)]
+    [InlineData(IssueType.Issue, 2)]
+    [InlineData(IssueType.PullRequest, 0)]
+    [InlineData(IssueType.PullRequest, 1)]
+    [InlineData(IssueType.PullRequest, 2)]
+    public void IncomingPredictionsIncludeTitleCurrentAreasAndExplicitAbstentions(IssueType type, int areaCount)
     {
-        var item = new IssueInfo { HtmlUrl = "https://github.com/dotnet/runtime/pull/123" };
+        var item = new IssueInfo
+        {
+            HtmlUrl = $"https://github.com/dotnet/runtime/{(type == IssueType.PullRequest ? "pull" : "issues")}/123",
+            IssueType = type,
+            Number = 123,
+            Title = "Fix runtime allocation",
+            Labels = [new() { Name = "needs-area-label" }],
+        };
 
-        Assert.Equal($"No confident area-label prediction for <{item.HtmlUrl}>.",
+        if (areaCount > 0)
+        {
+            item.Labels.Add(new() { Name = "area-JIT" });
+        }
+
+        if (areaCount > 1)
+        {
+            item.Labels.Add(new() { Name = "AREA-VM" });
+        }
+
+        string currentLabels = areaCount switch
+        {
+            1 => "`area-JIT`",
+            2 => "`area-JIT`, `AREA-VM`",
+            _ => "<none>",
+        };
+        string context =
+            $"""
+            [`Fix runtime allocation` - {(type == IssueType.PullRequest ? "PR " : "")}#123](<{item.HtmlUrl}>)
+            - Current: {currentLabels}
+            - Suggested:
+            """;
+
+        Assert.Equal($"{context} <none>",
             DetectIssueAreaLabelsService.FormatPrediction(item, []));
-        string prediction = DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]);
+        Assert.Equal($"{context} `area-VM` ({0.9:F2})",
+            DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]));
+        Assert.Equal($"{context} `area-VM` ({0.9:F2}), `area-JIT` ({0.75:F2})",
+            DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9), new("area-JIT", 0.75)]));
+    }
 
-        Assert.Contains(item.HtmlUrl, prediction, StringComparison.Ordinal);
-        Assert.Contains("`area-VM`", prediction, StringComparison.Ordinal);
+    [Theory]
+    [InlineData(99)]
+    [InlineData(100)]
+    [InlineData(101)]
+    public void IncomingPredictionTitlesAreLimitedToOneHundredCharacters(int titleLength)
+    {
+        var item = new IssueInfo
+        {
+            HtmlUrl = "https://github.com/dotnet/runtime/pull/123",
+            IssueType = IssueType.PullRequest,
+            Number = 123,
+            Title = new string('t', titleLength),
+            Labels = [],
+        };
+        string expectedTitle = titleLength <= 100 ? new string('t', titleLength) : new string('t', 96) + " ...";
+
+        Assert.Equal(
+            $"""
+            [`{expectedTitle}` - PR #123](<{item.HtmlUrl}>)
+            - Current: <none>
+            - Suggested: <none>
+            """,
+            DetectIssueAreaLabelsService.FormatPrediction(item, []));
     }
 
     [Theory]
