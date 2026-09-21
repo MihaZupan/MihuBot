@@ -245,7 +245,7 @@ public sealed class AreaLabelDetectionTests
     [InlineData(IssueType.Issue, "area-VM")]
     [InlineData(IssueType.PullRequest, null)]
     [InlineData(IssueType.PullRequest, "area-VM")]
-    public void RecentlyUpdatedItemsDoNotRequireNeedsAreaLabelOrOpenState(IssueType type, string? label)
+    public void RecentlyUpdatedOlderItemsAreExcludedRegardlessOfLabelsOrState(IssueType type, string? label)
     {
         DateTime now = DateTime.UtcNow;
         var item = new IssueInfo
@@ -254,10 +254,10 @@ public sealed class AreaLabelDetectionTests
             IssueType = type, State = ItemState.Open, Labels = label is null ? [] : [new() { Name = label }],
         };
 
-        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1))));
+        Assert.Empty(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1)));
 
         item.State = ItemState.Closed;
-        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1))));
+        Assert.Empty(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), now.AddDays(-1)));
     }
 
     [Fact]
@@ -320,6 +320,43 @@ public sealed class AreaLabelDetectionTests
             DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]));
         Assert.Equal($"{context} `area-VM` ({0.9:F2}), `area-JIT` ({0.75:F2})",
             DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9), new("area-JIT", 0.75)]));
+    }
+
+    [Theory]
+    [InlineData(IssueType.PullRequest, "copilot", true)]
+    [InlineData(IssueType.PullRequest, "Copilot[bot]", true)]
+    [InlineData(IssueType.PullRequest, "github-COPILOT-agent", true)]
+    [InlineData(IssueType.PullRequest, "contributor", false)]
+    [InlineData(IssueType.PullRequest, null, false)]
+    [InlineData(IssueType.Issue, "Copilot[bot]", false)]
+    public void IncomingPredictionsMarkOnlyCopilotAuthoredPullRequests(IssueType type, string? login, bool expectedMarker)
+    {
+        var item = new IssueInfo
+        {
+            HtmlUrl = $"https://github.com/dotnet/runtime/{(type == IssueType.PullRequest ? "pull" : "issues")}/123",
+            IssueType = type,
+            Number = 123,
+            Title = "Fix runtime allocation",
+            Labels = [],
+            User = login is null ? null : new() { Login = login },
+        };
+        string expectedHeader = $"[`Fix runtime allocation` - {(type == IssueType.PullRequest ? "PR " : "")}#123](<{item.HtmlUrl}>)"
+            + (expectedMarker ? " (Copilot PR)" : "");
+
+        Assert.Equal(
+            $"""
+            {expectedHeader}
+            - Current: <none>
+            - Suggested: <none>
+            """,
+            DetectIssueAreaLabelsService.FormatPrediction(item, []));
+        Assert.Equal(
+            $"""
+            {expectedHeader}
+            - Current: <none>
+            - Suggested: `area-VM` ({0.9:F2})
+            """,
+            DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]));
     }
 
     [Theory]

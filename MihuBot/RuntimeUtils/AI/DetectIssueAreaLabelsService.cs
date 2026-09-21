@@ -93,7 +93,7 @@ public sealed class DetectIssueAreaLabelsService(
 
     internal static IQueryable<IssueInfo> GetIncomingItems(IQueryable<IssueInfo> issues, DateTime since) =>
         issues.FromDotnetRuntime()
-            .Where(i => i.CreatedAt >= since || i.UpdatedAt >= since)
+            .Where(i => i.CreatedAt >= since)
             .Where(i => i.IssueType == IssueType.Issue || i.IssueType == IssueType.PullRequest)
             .OrderBy(i => i.CreatedAt)
             .ThenBy(i => i.Number);
@@ -104,9 +104,11 @@ public sealed class DetectIssueAreaLabelsService(
             .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
             .Select(l => $"`{l.Name}`"));
 
+        bool isCopilotPr = issue.IssueType == IssueType.PullRequest && (issue.User?.Login.Contains("copilot", StringComparison.OrdinalIgnoreCase) ?? false);
+
         return
             $"""
-            [`{issue.Title.TruncateWithDotDotDot(100)}` - {(issue.IssueType == IssueType.PullRequest ? "PR " : "")}#{issue.Number}](<{issue.HtmlUrl}>)
+            [`{issue.Title.TruncateWithDotDotDot(100)}` - {(issue.IssueType == IssueType.PullRequest ? "PR " : "")}#{issue.Number}](<{issue.HtmlUrl}>){(isCopilotPr ? " (Copilot PR)" : "")}
             - Current: {(currentLabels.Length > 0 ? currentLabels : "<none>")}
             - Suggested: {(suggestions.Length > 0 ? string.Join(", ", suggestions.Select(s => $"`{s.LabelName}` ({s.Confidence:F2})")) : "<none>")}
             """;
