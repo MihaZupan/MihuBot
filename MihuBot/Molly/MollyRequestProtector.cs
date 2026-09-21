@@ -211,8 +211,7 @@ public sealed class MollyRequestProtector : IDisposable
 
         try
         {
-            if (!_keys.TryDeriveSharedSecret(header.Slice(0, RecipientKeyIdLength), header.Slice(RecipientKeyIdLength),
-                shared, out bootstrap))
+            if (!_keys.TryDeriveSharedSecret(header.Slice(0, RecipientKeyIdLength), header.Slice(RecipientKeyIdLength), shared, out bootstrap))
             {
                 return false;
             }

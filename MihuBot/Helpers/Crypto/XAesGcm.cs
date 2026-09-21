@@ -85,7 +85,7 @@ public sealed class XAesGcm : IDisposable
         CryptographicOperations.ZeroMemory(l);
     }
 
-    public void Encrypt(ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> plaintext, Span<byte> ciphertext, Span<byte> tag, ReadOnlySpan<byte> associatedData = default)
+    internal void Encrypt(ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> plaintext, Span<byte> ciphertext, Span<byte> tag, ReadOnlySpan<byte> associatedData = default)
     {
         Span<byte> subkey = stackalloc byte[KeySizeInBytes];
         try
@@ -102,7 +102,7 @@ public sealed class XAesGcm : IDisposable
     }
 
     /// <exception cref="CryptographicException">The tag doesn't match.</exception>
-    public void Decrypt(ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> ciphertext, ReadOnlySpan<byte> tag, Span<byte> plaintext, ReadOnlySpan<byte> associatedData = default)
+    internal void Decrypt(ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> ciphertext, ReadOnlySpan<byte> tag, Span<byte> plaintext, ReadOnlySpan<byte> associatedData = default)
     {
         Span<byte> subkey = stackalloc byte[KeySizeInBytes];
         try
@@ -134,7 +134,12 @@ public sealed class XAesGcm : IDisposable
         Span<byte> nonce = span.Slice(0, NonceSizeInBytes);
         RandomNumberGenerator.Fill(nonce);
 
-        Encrypt(nonce, plaintext, span.Slice(NonceSizeInBytes, plaintext.Length), span.Slice(NonceSizeInBytes + plaintext.Length), associatedData);
+        Encrypt(
+            nonce,
+            plaintext,
+            span.Slice(NonceSizeInBytes, plaintext.Length),
+            span.Slice(NonceSizeInBytes + plaintext.Length),
+            associatedData);
 
         return message;
     }

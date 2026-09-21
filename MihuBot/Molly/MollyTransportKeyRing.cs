@@ -32,8 +32,7 @@ internal sealed class MollyTransportKeyRing : IDisposable
 
     public MollyTransportKeyResponse GetCurrentKey() => ReadSnapshot().Keys[^1].Descriptor;
 
-    public bool TryDeriveSharedSecret(ReadOnlySpan<byte> recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey,
-        Span<byte> shared, out bool bootstrap)
+    public bool TryDeriveSharedSecret(ReadOnlySpan<byte> recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap)
     {
         TransportKey? key = TryGetKey(recipientKeyId, out bootstrap);
         if (key is null)

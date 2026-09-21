@@ -52,8 +52,6 @@ public sealed class MollyService
     private const string DashboardUrl = "https://mihubot.xyz/molly";
 
     private const int ServerHmacLength = 64;
-    private const int NonceLength = XAesGcm.NonceSizeInBytes; // 24
-    private const int TagLength = XAesGcm.TagSizeInBytes; // 16
     private const int IdLength = 16; // Guid
     private const int MinKeyHashLength = 32;
     private const int MaxKeyHashLength = 256;
@@ -1020,45 +1018,26 @@ public sealed class MollyService
 
         idBytes[IdLength] = (byte)field;
 
-        byte[] result = new byte[NonceLength + plaintext.Length + TagLength];
-
-        Span<byte> nonce = result.AsSpan(0, NonceLength);
-        Span<byte> ciphertext = result.AsSpan(NonceLength, plaintext.Length);
-        Span<byte> tag = result.AsSpan(NonceLength + plaintext.Length);
-
-        RandomNumberGenerator.Fill(nonce);
-
         using XAesGcm aead = CreateAead(id);
-        aead.Encrypt(nonce, plaintext, ciphertext, tag, idBytes);
-
-        return result;
+        return aead.Encrypt(plaintext, idBytes);
     }
 
     /// <summary>Reverses <see cref="Encrypt"/>, splitting the nonce and tag back off the payload.</summary>
     /// <exception cref="CryptographicException">The payload is malformed, tampered with, or from a different entry.</exception>
     private byte[] Decrypt(Guid id, ReadOnlySpan<byte> nonceCiphertextAndTag, EncryptedField field)
     {
-        if (nonceCiphertextAndTag.Length < NonceLength + TagLength)
-        {
-            throw new CryptographicException("The encrypted payload is too short to contain a nonce and tag.");
-        }
-
         Span<byte> idBytes = stackalloc byte[IdLength + 1];
         bool wrote = id.TryWriteBytes(idBytes);
         Debug.Assert(wrote);
 
         idBytes[IdLength] = (byte)field;
 
-        int plaintextLength = nonceCiphertextAndTag.Length - NonceLength - TagLength;
-        byte[] plaintext = new byte[plaintextLength];
-
         using XAesGcm aead = CreateAead(id);
-        aead.Decrypt(
-            nonceCiphertextAndTag.Slice(0, NonceLength),
-            nonceCiphertextAndTag.Slice(NonceLength, plaintextLength),
-            nonceCiphertextAndTag.Slice(NonceLength + plaintextLength),
-            plaintext,
-            idBytes);
+
+        if (!aead.TryDecrypt(nonceCiphertextAndTag, out byte[]? plaintext, idBytes))
+        {
+            throw new CryptographicException("The encrypted payload is malformed or failed authentication.");
+        }
 
         return plaintext;
     }
