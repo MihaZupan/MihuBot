@@ -298,10 +298,7 @@ public static partial class GitHubHelper
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(user.Login) ||
-            user.Login.ContainsAny(s_botNameChunks) ||
-            user.Login.EndsWith("Bot", StringComparison.Ordinal) ||
-            user.Login.EndsWith("-bot", StringComparison.OrdinalIgnoreCase))
+        if (!IsLikelyARealUser(user.Login))
         {
             return false;
         }
@@ -314,6 +311,12 @@ public static partial class GitHubHelper
 
         return true;
     }
+
+    public static bool IsLikelyARealUser(string login) =>
+        !string.IsNullOrWhiteSpace(login) &&
+        !login.ContainsAny(s_botNameChunks) &&
+        !login.EndsWith("Bot", StringComparison.Ordinal) &&
+        !login.EndsWith("-bot", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<IReadOnlyList<Issue>> GetAllSubIssuesAsync(this GitHubClient client, long repositoryId, long issueNumber, ApiOptions? options = null)
     {

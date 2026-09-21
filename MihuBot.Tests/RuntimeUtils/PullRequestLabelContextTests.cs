@@ -415,7 +415,9 @@ public sealed class PullRequestLabelContextTests
         {
             Assert.DoesNotContain("local ingested database", prompt, StringComparison.Ordinal);
             Assert.DoesNotContain("preceding year", prompt, StringComparison.Ordinal);
-            Assert.Contains($"\"SampledPullRequests\":{count}", prompt, StringComparison.Ordinal);
+            using var historyJson = JsonDocument.Parse(prompt.Split("Recent PRs by this author in this repository:", 2, StringSplitOptions.None)[1]
+                .Split("```json", 2, StringSplitOptions.None)[1].Split("```", 2, StringSplitOptions.None)[0]);
+            Assert.Equal(count, historyJson.RootElement.GetProperty("SampledPullRequests").GetInt32());
             Assert.DoesNotContain("LabeledPullRequests", prompt, StringComparison.Ordinal);
             Assert.DoesNotContain("Counts use active candidate labels", prompt, StringComparison.Ordinal);
             Assert.DoesNotContain("a bot author is not an area", prompt, StringComparison.Ordinal);
@@ -462,7 +464,17 @@ public sealed class PullRequestLabelContextTests
 
             Assert.Equal(hasSimilar, prompt.Contains("Semantically similar issues, PRs, and discussions", StringComparison.Ordinal));
             Assert.Equal(hasSimilar, prompt.Contains("Strong semantic match", StringComparison.Ordinal));
-            Assert.Equal(hasSimilar, prompt.Contains("\"Url\":\"https://github.com/dotnet/runtime/issues/55\"", StringComparison.Ordinal));
+
+            if (hasSimilar)
+            {
+                using var similarJson = JsonDocument.Parse(prompt.Split("Semantically similar issues, PRs, and discussions", 2, StringSplitOptions.None)[1]
+                    .Split("```json", 2, StringSplitOptions.None)[1].Split("```", 2, StringSplitOptions.None)[0]);
+                Assert.Equal("https://github.com/dotnet/runtime/issues/55", Assert.Single(similarJson.RootElement.EnumerateArray()).GetProperty("Url").GetString());
+            }
+            else
+            {
+                Assert.DoesNotContain("https://github.com/dotnet/runtime/issues/55", prompt, StringComparison.Ordinal);
+            }
 
             if (prContext is not null)
             {
@@ -510,7 +522,7 @@ public sealed class PullRequestLabelContextTests
         Assert.Contains("3 GraphQL API calls, cost 11.", Assert.Single(transport.Logs), StringComparison.Ordinal);
         string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context);
         Assert.Contains("Items mentioned in the description:", prompt, StringComparison.Ordinal);
-        Assert.Contains(JsonSerializer.Serialize(context.MentionedItems), prompt, StringComparison.Ordinal);
+        Assert.Contains(JsonSerializer.Serialize(context.MentionedItems, IssueInfoForPrompt.JsonOptions), prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"MentionedItems\"", prompt, StringComparison.Ordinal);
         Assert.Contains("https://github.com/dotnet/runtime/pull/2", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("ClosingIssuesTruncated", prompt, StringComparison.Ordinal);
@@ -665,7 +677,7 @@ public sealed class PullRequestLabelContextTests
 
         Assert.Contains($"Here is the {kind} info:", prompt, StringComparison.Ordinal);
         Assert.Contains("Items mentioned in the description:", prompt, StringComparison.Ordinal);
-        Assert.Contains(JsonSerializer.Serialize(mentioned), prompt, StringComparison.Ordinal);
+        Assert.Contains(JsonSerializer.Serialize(mentioned, IssueInfoForPrompt.JsonOptions), prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("\"MentionedItems\"", prompt, StringComparison.Ordinal);
         Assert.Contains("reference-author", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("PR evidence:", prompt, StringComparison.Ordinal);
