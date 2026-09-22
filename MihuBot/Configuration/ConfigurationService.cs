@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 
 namespace MihuBot.Configuration;
@@ -15,13 +14,15 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
     private readonly Lock _reloadLock = new();
     private bool _disposed;
 
-    public ConfigurationService(ILogger<ConfigurationService> logger)
-        : this(Constants.StateDirectory, logger)
+    // Logging providers depend on configuration, so reload errors must bypass ILogger.
+    public ConfigurationService()
+        : this(Constants.StateDirectory)
     {
     }
 
-    internal ConfigurationService(string directory, ILogger<ConfigurationService> logger)
+    internal ConfigurationService(string directory, Action<string> logError = null)
     {
+        logError ??= Console.Error.WriteLine;
         directory = Path.GetFullPath(directory);
         _store = new SynchronizedLocalJsonStore<Dictionary<ulong, Dictionary<string, string>>>(Path.Combine(directory, "Configuration.json"),
             (_, dictionary) =>
@@ -76,7 +77,7 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Could not reload {ConfigurationFile}; keeping the previous configuration.", name);
+                        logError($"Could not reload {name}; keeping the previous configuration. Exception: {ex}");
                     }
                 }
             }

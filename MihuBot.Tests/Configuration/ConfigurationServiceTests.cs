@@ -1,10 +1,36 @@
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MihuBot.Configuration;
+using MihuBot.DB;
+using MihuBot.Helpers;
 
 namespace MihuBot.Tests.Configuration;
 
 public sealed class ConfigurationServiceTests
 {
+    [Fact]
+    public void LoggingServiceGraphHasNoCircularDependencies()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton<IConfigurationService, ConfigurationService>();
+        services.AddSingleton<ServiceConfiguration>();
+        services.AddSingleton<HttpClient>();
+        services.AddSingleton<LoggerOptions>(_ => throw new InvalidOperationException("Validation must not instantiate the logger."));
+        services.AddSingleton<Logger>();
+        services.AddSingleton<ILoggerProvider, LoggerAdapterLoggerProvider>();
+        DatabaseSetupHelper.AddPooledDbContextFactory<LogsDbContext>(services, ":memory:");
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateOnBuild = true,
+            ValidateScopes = true
+        });
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -12,7 +38,7 @@ public sealed class ConfigurationServiceTests
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old","Removed":"value"}""");
-        using var service = new ConfigurationService(files.Directory, new TestLogger());
+        using var service = new ConfigurationService(files.Directory);
         ulong? context = global ? null : 42;
         Assert.True(service.TryGet(context, "KEY", out string initial));
         Assert.Equal("old", initial);
@@ -26,7 +52,7 @@ public sealed class ConfigurationServiceTests
         service.Set(context, "Local", "written");
         Assert.True(service.Remove(context, "kEy"));
 
-        using var reopened = new ConfigurationService(files.Directory, new TestLogger());
+        using var reopened = new ConfigurationService(files.Directory);
         Assert.True(reopened.TryGet(context, "added", out string retained));
         Assert.Equal("retained", retained);
         Assert.True(reopened.TryGet(context, "local", out string written));
@@ -40,7 +66,7 @@ public sealed class ConfigurationServiceTests
     public async Task WatchesFilesThatDoNotExistAtStartup(bool global)
     {
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory, new TestLogger());
+        using var service = new ConfigurationService(files.Directory);
         ulong? context = global ? null : 42;
         Assert.False(service.TryGet(context, "Key", out _));
         files.Write(global, """{"Key":"created"}""");
@@ -58,12 +84,15 @@ public sealed class ConfigurationServiceTests
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old"}""");
-        var logger = new TestLogger();
-        using var service = new ConfigurationService(files.Directory, logger);
+        var errors = new ConcurrentQueue<string>();
+        using var service = new ConfigurationService(files.Directory, errors.Enqueue);
         ulong? context = global ? null : 42;
 
         File.WriteAllText(files.Path(global), invalidJson);
-        await WaitFor(() => logger.ErrorCount > 0);
+        await WaitFor(() => !errors.IsEmpty);
+        Assert.Contains(errors, message => message.Contains(
+            $"Could not reload {System.IO.Path.GetFileName(files.Path(global))}; keeping the previous configuration. Exception:",
+            StringComparison.Ordinal));
         Assert.True(service.TryGet(context, "Key", out string previous));
         Assert.Equal("old", previous);
 
@@ -78,12 +107,12 @@ public sealed class ConfigurationServiceTests
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old"}""");
-        var logger = new TestLogger();
-        using var service = new ConfigurationService(files.Directory, logger);
+        var errors = new ConcurrentQueue<string>();
+        using var service = new ConfigurationService(files.Directory, errors.Enqueue);
         ulong? context = global ? null : 42;
 
         File.Delete(files.Path(global));
-        await WaitFor(() => logger.ErrorCount > 0);
+        await WaitFor(() => !errors.IsEmpty);
         Assert.True(service.TryGet(context, "Key", out string previous));
         Assert.Equal("old", previous);
 
@@ -97,7 +126,7 @@ public sealed class ConfigurationServiceTests
         using var files = new Files();
         files.Write(global: true, """{"Key":"old"}""");
         files.Write(global: false, """{"Key":"old"}""");
-        using var service = new ConfigurationService(files.Directory, new TestLogger());
+        using var service = new ConfigurationService(files.Directory);
         service.Dispose();
 
         files.Write(global: true, """{"Key":"new"}""");
@@ -113,7 +142,7 @@ public sealed class ConfigurationServiceTests
     public void SetAndRemoveRemainCaseInsensitiveAndPersistContextRemoval()
     {
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory, new TestLogger());
+        using var service = new ConfigurationService(files.Directory);
         service.Set(42, "Key", "first");
         service.Set(42, "KEY", "second");
         service.Set(null, "Key", "global");
@@ -134,7 +163,7 @@ public sealed class ConfigurationServiceTests
     public async Task ConcurrentWritesAndReloadsPreserveAllValues(bool global)
     {
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory, new TestLogger());
+        using var service = new ConfigurationService(files.Directory);
         ulong? context = global ? null : 42;
         service.Set(context, "Initial", "old");
         files.Write(global, """{"Initial":"edited"}""");
@@ -149,7 +178,7 @@ public sealed class ConfigurationServiceTests
             return ValueTask.CompletedTask;
         });
 
-        using var reopened = new ConfigurationService(files.Directory, new TestLogger());
+        using var reopened = new ConfigurationService(files.Directory);
         Assert.True(reopened.TryGet(context, "Initial", out string initial));
         Assert.Equal("edited", initial);
 
@@ -167,22 +196,6 @@ public sealed class ConfigurationServiceTests
         while (!condition())
         {
             await Task.Delay(25, timeout.Token);
-        }
-    }
-
-    private sealed class TestLogger : ILogger<ConfigurationService>
-    {
-        private int _errorCount;
-        public int ErrorCount => Volatile.Read(ref _errorCount);
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
-        {
-            if (logLevel == LogLevel.Error)
-            {
-                Interlocked.Increment(ref _errorCount);
-            }
         }
     }
 
