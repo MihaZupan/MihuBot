@@ -130,6 +130,7 @@ public sealed class OpenAIServiceTests
 
         Assert.NotNull(metadata);
         Assert.Equal(host, metadata.ProviderUri?.Host);
+        Assert.Equal("/openai/v1/", metadata.ProviderUri?.AbsolutePath);
         Assert.Equal(deployment, metadata.DefaultModelId);
     }
 
@@ -160,7 +161,9 @@ public sealed class OpenAIServiceTests
 
             Assert.NotNull(metadata);
             Assert.Contains(metadata.ProviderUri?.Host, hosts);
+            Assert.Equal("/openai/v1/", metadata.ProviderUri?.AbsolutePath);
             Assert.Equal(deployment, metadata.DefaultModelId);
+            Assert.IsType<OpenAI.Chat.ChatClient>(client.GetService<OpenAI.Chat.ChatClient>());
         }
     }
 

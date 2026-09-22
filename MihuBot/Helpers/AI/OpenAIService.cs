@@ -1,5 +1,5 @@
-using Azure.AI.OpenAI;
-using Azure;
+using System.ClientModel;
+using OpenAI;
 using OpenAI.Images;
 using MihuBot.Configuration;
 using Microsoft.Extensions.AI;
@@ -35,7 +35,7 @@ public sealed class OpenAIService
 
     private readonly Logger _logger;
 
-    private readonly List<(AzureOpenAIClient Client, bool Work, string[] Deployments)> _clients = [];
+    private readonly List<(OpenAIClient Client, bool Work, string[] Deployments)> _clients = [];
     private readonly IConfigurationService _configurationService;
 
     public OpenAIService(IConfiguration configuration, IConfigurationService configurationService, Logger logger)
@@ -63,23 +63,27 @@ public sealed class OpenAIService
         {
             if (configuration.IsConfigured(feature))
             {
-                var client = new AzureOpenAIClient(
-                    new Uri($"https://{resourceName}.openai.azure.com"),
-                    new AzureKeyCredential(configuration[feature.Keys[0]]!));
+                // The v1 API exposes newer reasoning levels without a dated Azure API version.
+                var client = new OpenAIClient(
+                    new ApiKeyCredential(configuration[feature.Keys[0]]!),
+                    new OpenAIClientOptions
+                    {
+                        Endpoint = new Uri($"https://{resourceName}.openai.azure.com/openai/v1/"),
+                    });
 
                 _clients.Add((client, work, deployments));
             }
         }
     }
 
-    private AzureOpenAIClient GetClient(string deployment, bool work)
+    private OpenAIClient GetClient(string deployment, bool work)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deployment);
 
-        List<AzureOpenAIClient> matchingWorkClients = [];
-        List<AzureOpenAIClient> matchingPersonalClients = [];
+        List<OpenAIClient> matchingWorkClients = [];
+        List<OpenAIClient> matchingPersonalClients = [];
 
-        foreach ((AzureOpenAIClient? client, bool isWork, string[] deployments) in _clients)
+        foreach ((OpenAIClient client, bool isWork, string[] deployments) in _clients)
         {
             if (!deployments.Contains(deployment, StringComparer.OrdinalIgnoreCase))
             {
@@ -112,7 +116,7 @@ public sealed class OpenAIService
 
     public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool work)
     {
-        AzureOpenAIClient client = GetClient(deployment, work);
+        OpenAIClient client = GetClient(deployment, work);
         return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator();
     }
 
@@ -128,7 +132,7 @@ public sealed class OpenAIService
     {
         deployment ??= DefaultModel;
 
-        AzureOpenAIClient client = GetClient(deployment, work);
+        OpenAIClient client = GetClient(deployment, work);
         IChatClient chatClient = client.GetChatClient(deployment).AsIChatClient();
 
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
@@ -145,7 +149,7 @@ public sealed class OpenAIService
             return null;
         }
 
-        foreach ((AzureOpenAIClient? client, bool isWork, string[] deployments) in _clients)
+        foreach ((OpenAIClient client, bool isWork, string[] deployments) in _clients)
         {
             if (!isWork && deployments.Contains(deployment, StringComparer.OrdinalIgnoreCase))
             {

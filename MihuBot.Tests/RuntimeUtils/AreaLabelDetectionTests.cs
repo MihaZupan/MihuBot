@@ -862,6 +862,7 @@ public sealed class AreaLabelDetectionTests
     [InlineData("medium")]
     [InlineData("high")]
     [InlineData("xhigh")]
+    [InlineData("max")]
     public void ReasoningConfigurationIsAppliedToChatOptions(string effort)
     {
         var configuration = new TestConfigurationService();
@@ -893,6 +894,7 @@ public sealed class AreaLabelDetectionTests
     [InlineData("low")]
     [InlineData("medium")]
     [InlineData("xhigh")]
+    [InlineData("max")]
     public async Task ReasoningChangesSelectSeparateCachedPredictionsImmediately(string effort)
     {
         var services = new ServiceCollection();
