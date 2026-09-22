@@ -23,7 +23,7 @@ public sealed class IssueLabelContext(
     {
         var (items, calls, cost) = await GetMentionedItemsAsync(issue, labels, issue.Body, issue.HtmlUrl, [], cancellationToken);
 
-        if (items.Length > 0)
+        if (calls > 0)
         {
             _debugLog($"Mentioned label evidence for <{issue.HtmlUrl}>: {calls} GraphQL API calls, cost {cost}.");
         }
