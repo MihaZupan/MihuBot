@@ -18,9 +18,9 @@ public sealed record ModelInfo(
 
 public sealed class OpenAIService
 {
-    public const string DefaultModel = "gpt-5.6-luna";
+    public const string DefaultModel = "gpt-6-luna";
 
-    // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-16).
+    // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-22).
     // Estimates, not Azure region/deployment-specific billing rates. Above LongContextThreshold,
     // input/cache rates double and output rates increase by 50% for the full request.
     public static readonly ModelInfo[] AllModels =
@@ -28,77 +28,97 @@ public sealed class OpenAIService
         new("gpt-5.6-luna", 1_050_000, 0.20m, 0.02m, 1.20m, LongContextThreshold: 272_000),
         new("gpt-5.6-terra", 1_050_000, 2m, 0.20m, 12m, LongContextThreshold: 272_000),
         new("gpt-5.6-sol", 1_050_000, 4m, 0.40m, 20m, LongContextThreshold: 272_000),
+        new("gpt-6-luna", 1_050_000, 0.10m, 0.01m, 0.50m, LongContextThreshold: 272_000),
+        new("gpt-6-sol", 1_050_000, 2m, 0.20m, 10m, LongContextThreshold: 272_000),
         new("gpt-6-astra", 1_050_000, 10m, 1m, 50m, LongContextThreshold: 272_000),
-        new("gpt-5", 400_000, 1.25m, 0.125m, 10m),
-        new("gpt-5-mini", 400_000, 0.25m, 0.025m, 2m),
-        new("gpt-5-nano", 400_000, 0.05m, 0.005m, 0.40m),
     ];
 
     private readonly Logger _logger;
-    private readonly AzureOpenAIClient _chat;
-    private readonly AzureOpenAIClient? _image;
-    private readonly AzureOpenAIClient? _secondaryEmbeddingClient;
-    private readonly AzureOpenAIClient? _secondaryChatClient;
-    private readonly IConfigurationService _configurationService;
 
-    /// <summary>False when no image generation endpoint is configured.</summary>
-    public bool ImageEnabled => _image is not null;
+    private readonly List<(AzureOpenAIClient Client, bool Work, string[] Deployments)> _clients = [];
+    private readonly IConfigurationService _configurationService;
 
     public OpenAIService(IConfiguration configuration, IConfigurationService configurationService, Logger logger)
     {
         _configurationService = configurationService;
         _logger = logger;
 
-        // Only the primary endpoint is required, the rest fall back to it when not configured.
-        var chatEndpoint = new Uri("https://mihubotai8467177614.openai.azure.com");
-        string chatKey = configuration["AzureOpenAI:Key"] ?? throw new InvalidOperationException("Missing AzureOpenAI Key");
-        _chat = new AzureOpenAIClient(chatEndpoint, new AzureKeyCredential(chatKey));
-
-        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAIImage))
+        if (!configuration.IsConfigured(OptionalFeatures.AzureOpenAI))
         {
-            _image = new AzureOpenAIClient(
-                new Uri("https://mihaz-m30zd4gd-eastus.openai.azure.com"),
-                new AzureKeyCredential(configuration["AzureOpenAI:ImageKey"]!));
+            throw new InvalidOperationException("Missing AzureOpenAI:Key");
         }
 
-        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAISecondaryEmbedding))
-        {
-            _secondaryEmbeddingClient = new AzureOpenAIClient(
-                new Uri(configuration["AzureOpenAI:SecondaryEmbedding:Endpoint"]!),
-                new AzureKeyCredential(configuration["AzureOpenAI:SecondaryEmbedding:Key"]!));
-        }
+        string[] gpt56Family = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
+        string[] gpt6LunaSol = ["gpt-6-luna", "gpt-6-sol"];
+        const string Gpt6Astra = "gpt-6-astra";
+        string[] embeddings = ["text-embedding-3-small", "text-embedding-3-large"];
 
-        if (configuration.IsConfigured(OptionalFeatures.AzureOpenAISecondaryChat))
+        AddClient(OptionalFeatures.AzureOpenAI, "mihubotai8467177614", work: false, [.. gpt56Family, Gpt6Astra, .. embeddings]);
+        AddClient(OptionalFeatures.AzureOpenAI2, "mihaz-m30zd4gd-eastus", work: false, [.. gpt56Family, Gpt6Astra]);
+        AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false, gpt6LunaSol);
+        AddClient(OptionalFeatures.AzureOpenAIWork1, "issueshelperhu5783781236", work: true, [.. gpt6LunaSol, .. embeddings]);
+        AddClient(OptionalFeatures.AzureOpenAIWork2, "mizup-ma441ssi-eastus2", work: true, [.. gpt56Family, Gpt6Astra]);
+
+        void AddClient(OptionalFeature feature, string resourceName, bool work, string[] deployments)
         {
-            var endpoint = new Uri(configuration["AzureOpenAI:SecondaryChat:Endpoint"]!);
-            string key = configuration["AzureOpenAI:SecondaryChat:Key"]!;
-            _secondaryChatClient = new AzureOpenAIClient(endpoint, new AzureKeyCredential(key));
+            if (configuration.IsConfigured(feature))
+            {
+                var client = new AzureOpenAIClient(
+                    new Uri($"https://{resourceName}.openai.azure.com"),
+                    new AzureKeyCredential(configuration[feature.Keys[0]]!));
+
+                _clients.Add((client, work, deployments));
+            }
         }
     }
 
-    public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool secondary = false)
+    private AzureOpenAIClient GetClient(string deployment, bool work)
     {
-        AzureOpenAIClient client = (secondary ? _secondaryEmbeddingClient : null) ?? _chat;
+        ArgumentException.ThrowIfNullOrWhiteSpace(deployment);
+
+        AzureOpenAIClient? personalClient = null;
+
+        foreach ((AzureOpenAIClient? client, bool isWork, string[] deployments) in _clients)
+        {
+            if (!deployments.Contains(deployment, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (isWork == work)
+            {
+                return client;
+            }
+
+            if (!isWork)
+            {
+                personalClient ??= client;
+            }
+        }
+
+        return personalClient ?? throw new InvalidOperationException(
+            $"No configured {(work ? "work or personal" : "personal")} Azure OpenAI endpoint hosts deployment '{deployment}'.");
+    }
+
+    public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool work)
+    {
+        AzureOpenAIClient client = GetClient(deployment, work);
         return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator();
     }
 
     public IChatClient GetChat(ulong? context)
     {
         _configurationService.TryGet(context, "ChatGPT.Deployment", out string? deployment);
-        bool secondary = _configurationService.GetOrDefault(context, "ChatGPT.Secondary", false);
-        bool tertiary = _configurationService.GetOrDefault(context, "ChatGPT.Tertiary", false);
+        bool work = _configurationService.GetOrDefault(context, "ChatGPT.Work", false);
 
-        return GetChat(deployment, tertiary ? 3 : secondary ? 2 : 1);
+        return GetChat(deployment, work);
     }
 
-    public IChatClient GetChat(string deployment, bool secondary) =>
-        GetChat(deployment, secondary ? 2 : 1);
-
-    public IChatClient GetChat(string deployment, int deploymentOption = 1)
+    public IChatClient GetChat(string? deployment, bool work)
     {
         deployment ??= DefaultModel;
 
-        AzureOpenAIClient client = (deploymentOption == 3 ? _image : null) ?? (deploymentOption == 2 ? _secondaryChatClient : null) ?? _chat;
+        AzureOpenAIClient client = GetClient(deployment, work);
         IChatClient chatClient = client.GetChatClient(deployment).AsIChatClient();
 
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
@@ -108,16 +128,22 @@ public sealed class OpenAIService
 
     public ImageClient? GetImage(ulong? context)
     {
-        if (_image is null)
+        _configurationService.TryGet(context, "ChatGPT.ImageDeployment", out string? deployment);
+
+        if (string.IsNullOrWhiteSpace(deployment))
         {
             return null;
         }
 
-        _configurationService.TryGet(context, "ChatGPT.ImageDeployment", out string? deployment);
+        foreach ((AzureOpenAIClient? client, bool isWork, string[] deployments) in _clients)
+        {
+            if (!isWork && deployments.Contains(deployment, StringComparer.OrdinalIgnoreCase))
+            {
+                return client.GetImageClient(deployment);
+            }
+        }
 
-        deployment ??= "dall-e-3";
-
-        return _image.GetImageClient(deployment);
+        return null;
     }
 
     public async Task<string> GetSimpleChatCompletionAsync(ulong? context, string prompt)

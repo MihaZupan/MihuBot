@@ -45,7 +45,7 @@ public sealed class Magic8BallCommand : CommandBase
         "Meow", "Meow meow", "Meeeeoooow",
     };
 
-    private static readonly Dictionary<ulong, UserState> s_userStates = new();
+    private static readonly Dictionary<ulong, UserState> s_userStates = [];
     private readonly IConfigurationService _configurationService;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly string[] _commandAndAliases;
@@ -54,7 +54,7 @@ public sealed class Magic8BallCommand : CommandBase
     {
         _configurationService = configurationService;
         // Optional - without it we can only match prompts by prefix.
-        _embeddingGenerator = openAI.FirstOrDefault()?.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel);
+        _embeddingGenerator = openAI.FirstOrDefault()?.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, work: false);
         _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
     }
 

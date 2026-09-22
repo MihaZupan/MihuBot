@@ -46,7 +46,7 @@ public sealed class GitHubSemanticSearchIngestionService : PeriodicBackgroundSer
     {
         _db = db;
         _logger = logger;
-        _embeddingGenerator = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, secondary: true);
+        _embeddingGenerator = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, work: true);
         _configuration = configurationService;
         _qdrantClient = qdrantClient;
         _vectorStore = vectorStore;

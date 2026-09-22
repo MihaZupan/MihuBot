@@ -112,10 +112,11 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | Configuration | Disabled without it |
 | --- | --- |
 | `AppInsights:ConnectionString` | Azure Monitor / OpenTelemetry export |
-| `AzureOpenAI:Key` | Everything AI: `!chatgpt`, `!imagine`, `!duplicates`, GitHub search/triage pages, auto-triage, area label detection, semantic ingestion, the MCP endpoint, and `!magic8ball` prompt similarity |
-| `AzureOpenAI:ImageKey` | Image generation (`!imagine`) |
-| `AzureOpenAI:SecondaryChat:Endpoint` + `:Key` | Secondary chat endpoint (falls back to the primary one) |
-| `AzureOpenAI:SecondaryEmbedding:Endpoint` + `:Key` | Secondary embedding endpoint (falls back to the primary one) |
+| `AzureOpenAI:Key` | AI features and personal deployments at `mihubotai8467177614` |
+| `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
+| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |
+| `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol and embeddings at `issueshelperhu5783781236` |
+| `AzureOpenAI:WorkKey2` | Work GPT-5.6 and GPT-6 Astra at `mizup-ma441ssi-eastus2` |
 | `AzureStorage:ConnectionString` | Archiving Discord attachments to blob storage (files stay on disk) |
 | `AzureStorage:ConnectionString-RuntimeUtils` | Fuzzing coverage reports and jitdiff extra assemblies |
 | `GitHub:Token` | All GitHub API access: runtime-utils jobs and their API/pages, data ingestion, notifications, self-update, `!runtimeutils` |

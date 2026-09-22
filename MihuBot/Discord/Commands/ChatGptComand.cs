@@ -172,7 +172,7 @@ public sealed class ChatGptComand : CommandBase
         var options = new ChatOptions
         {
             ConversationId = $"Discord_{channel.Id}_{author.Id}".GetUtf8Sha3_512HashBase64Url(),
-            MaxOutputTokens = _configurationService.GetOrDefault(channel.Guild.Id, "ChatGPT.SetMaxTokens", true) ? maxTokens : null
+            MaxOutputTokens = _configurationService.GetOrDefault(channel.Guild.Id, "ChatGPT.SetMaxTokens", false) ? maxTokens : null
         };
 
         ChatHistory chatHistory;

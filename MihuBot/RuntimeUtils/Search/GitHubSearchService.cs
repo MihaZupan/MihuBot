@@ -26,7 +26,6 @@ public sealed class GitHubSearchService
     private readonly GitHubDataIngestionService _ingestionService;
     private readonly OpenAIService _openAi;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator2;
     private readonly VectorStore? _vectorStore;
     private readonly HybridCache _cache;
     internal readonly IConfigurationService _configuration;
@@ -50,7 +49,6 @@ public sealed class GitHubSearchService
 
     private string ClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.ClassifierModel", out string name) ? name : OpenAIService.DefaultModel;
     private string FastClassifierModelName => _configuration.TryGet(null, $"{nameof(GitHubSearchService)}.FastClassifierModel", out string name) ? name : OpenAIService.DefaultModel;
-    private bool ClassifierModelSecondary => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.ClassifierModelSecondary", true);
 
     private double VectorSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.VectorScoreMultiplier", 1.0);
     private double FullTextSearchScoreMultiplier => _configuration.GetOrDefault(null, $"{nameof(GitHubSearchService)}.FTSScoreMultiplier", 0.9);
@@ -64,8 +62,7 @@ public sealed class GitHubSearchService
         _db = db;
         _ingestionService = ingestionService;
         _openAi = openAi;
-        _embeddingGenerator = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel);
-        _embeddingGenerator2 = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, secondary: true);
+        _embeddingGenerator = openAi.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, work: true);
         _vectorStore = vectorStores.FirstOrDefault();
         _cache = cache;
         _configuration = configuration;
@@ -458,8 +455,6 @@ public sealed class GitHubSearchService
 
         RawSearchResult[] results = await _cache.GetOrCreateAsync($"{nameof(GitHubSearchService)}/{nameof(VectorSearchAsync)}/{$"{repositoryFilter}/{topVectors}/{query}".GetUtf8Sha3_512HashBase64Url()}", async cancellationToken =>
         {
-            IEmbeddingGenerator<string, Embedding<float>> generator = ClassifierModelSecondary ? _embeddingGenerator2 : _embeddingGenerator;
-
             ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: CancellationToken.None);
             timings.EmbeddingGeneration = stopwatch.Elapsed;
 
@@ -576,7 +571,7 @@ public sealed class GitHubSearchService
             return results;
         }
 
-        IChatClient fastClassifierChat = _openAi.GetChat(preferSpeed ? FastClassifierModelName : ClassifierModelName, ClassifierModelSecondary);
+        IChatClient fastClassifierChat = _openAi.GetChat(preferSpeed ? FastClassifierModelName : ClassifierModelName, work: true);
 
         int maxIssueCount = 50;
         int bodyContextWindow = 80;

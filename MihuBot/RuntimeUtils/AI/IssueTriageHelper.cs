@@ -281,7 +281,7 @@ public sealed class IssueTriageHelper(
 
             string candidatesJson = JsonSerializer.Serialize(candidateInfos, IssueInfoForPrompt.JsonOptions);
 
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string prompt =
                 $"""
@@ -429,7 +429,7 @@ public sealed class IssueTriageHelper(
 
         private async Task<string[]> ExtractSearchQueriesAsync(CancellationToken cancellationToken)
         {
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 
@@ -450,7 +450,7 @@ public sealed class IssueTriageHelper(
 
         private async Task<CandidateClassification> ClassifyCandidateAsync(string newIssueJson, IssueInfo candidate, CancellationToken cancellationToken)
         {
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, secondary: true);
+            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string candidateJson = (await IssueInfoForPrompt.CreateAsync(candidate, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 

@@ -55,7 +55,9 @@ public sealed class ImagineCommand : CommandBase
 
     private async Task ExecuteAsync(MessageContext ctx, string prompt)
     {
-        if (!_openAI.ImageEnabled)
+        ImageClient client = _openAI.GetImage(ctx.Guild.Id);
+
+        if (client is null)
         {
             await ctx.ReplyAsync("Image generation is not configured");
             return;
@@ -90,8 +92,6 @@ public sealed class ImagineCommand : CommandBase
         }
 
         _logger.DebugLog($"{nameof(ImagineCommand)} prompt: {prompt}");
-
-        ImageClient client = _openAI.GetImage(ctx.Guild.Id);
 
         using var typing = ctx.Channel.EnterTypingState();
 

@@ -168,7 +168,7 @@ public sealed class AreaLabelDetector(
         string prompt = CreatePrompt(issueData, labels, labelPrefix, similarIssues, prContext, authorHistory, issue.IssueType, mentionedItems);
 
         var reservation = await _rateLimiter.ReserveAsync(EstimateTokenBudget(prompt), cancellationToken);
-        var result = await GetPredictionResponseAsync(openAI.GetChat(model, secondary: true), prompt, options, cancellationToken, onPrompt);
+        var result = await GetPredictionResponseAsync(openAI.GetChat(model, work: true), prompt, options, cancellationToken, onPrompt);
 
         if (GetActualTokenCount(result.Usage) is { } actualTokens)
         {

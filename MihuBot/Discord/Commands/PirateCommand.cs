@@ -224,10 +224,7 @@ public sealed partial class PirateCommand : CommandBase
         {
             _pendingSelections.TryRemove(id, out _);
 
-            if (message is not null)
-            {
-                message.DeleteAsync().IgnoreExceptions();
-            }
+            message?.DeleteAsync().IgnoreExceptions();
         }
     }
 
@@ -350,10 +347,7 @@ public sealed partial class PirateCommand : CommandBase
         {
             Interlocked.Decrement(ref _activeDownloads);
 
-            if (message is not null)
-            {
-                message.DeleteAsync().IgnoreExceptions();
-            }
+            message?.DeleteAsync().IgnoreExceptions();
 
             // Never use ctx.CancellationToken here -- if the command was cancelled, the torrent
             // would keep downloading in the background instead of being removed.
@@ -435,7 +429,7 @@ public sealed partial class PirateCommand : CommandBase
 
         try
         {
-            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel);
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
 
             string prompt =
                 $"""
@@ -482,7 +476,7 @@ public sealed partial class PirateCommand : CommandBase
 
         try
         {
-            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel);
+            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
 
             string prompt =
                 $"""

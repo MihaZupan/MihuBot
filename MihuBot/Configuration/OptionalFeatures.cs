@@ -19,10 +19,13 @@ public static class OptionalFeatures
     public static readonly OptionalFeature DiscordOAuth = new("Signing in with Discord", $"Discord:ClientSecret{Constants.DevSuffix}");
 
     public static readonly OptionalFeature AppInsights = new("Azure Monitor telemetry", "AppInsights:ConnectionString");
-    public static readonly OptionalFeature AzureOpenAI = new("Everything AI (chat, image generation, GitHub search/triage, MCP server)", "AzureOpenAI:Key");
-    public static readonly OptionalFeature AzureOpenAIImage = new("Image generation", "AzureOpenAI:ImageKey");
-    public static readonly OptionalFeature AzureOpenAISecondaryChat = new("Secondary chat endpoint (falls back to the primary one)", "AzureOpenAI:SecondaryChat:Endpoint", "AzureOpenAI:SecondaryChat:Key");
-    public static readonly OptionalFeature AzureOpenAISecondaryEmbedding = new("Secondary embedding endpoint (falls back to the primary one)", "AzureOpenAI:SecondaryEmbedding:Endpoint", "AzureOpenAI:SecondaryEmbedding:Key");
+
+    public static readonly OptionalFeature AzureOpenAI = new("AI (chat, embeddings, GitHub search/triage, MCP server) and personal AI deployments 1", "AzureOpenAI:Key");
+    public static readonly OptionalFeature AzureOpenAI2 = new("Personal AI deployments 2", "AzureOpenAI:Key2");
+    public static readonly OptionalFeature AzureOpenAI3 = new("Personal AI deployments 3", "AzureOpenAI:Key3");
+    public static readonly OptionalFeature AzureOpenAIWork1 = new("Work AI deployments 1", "AzureOpenAI:WorkKey1");
+    public static readonly OptionalFeature AzureOpenAIWork2 = new("Work AI deployments 2", "AzureOpenAI:WorkKey2");
+
     public static readonly OptionalFeature AzureStorage = new("Archiving Discord attachments to blob storage", "AzureStorage:ConnectionString");
     public static readonly OptionalFeature AzureStorageRuntimeUtils = new("Fuzzing coverage reports and jitdiff extra assemblies", "AzureStorage:ConnectionString-RuntimeUtils");
     public static readonly OptionalFeature GitHub = new("GitHub API access (runtime-utils jobs, data ingestion, self-update)", "GitHub:Token");
@@ -79,9 +82,10 @@ public static class OptionalFeatures
     [
         AppInsights,
         AzureOpenAI,
-        AzureOpenAIImage,
-        AzureOpenAISecondaryChat,
-        AzureOpenAISecondaryEmbedding,
+        AzureOpenAI2,
+        AzureOpenAI3,
+        AzureOpenAIWork1,
+        AzureOpenAIWork2,
         AzureStorage,
         AzureStorageRuntimeUtils,
         DiscordOAuth,
