@@ -1,154 +1,154 @@
-﻿namespace MihuBot.Configuration;
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 
-public sealed class ConfigurationService : IConfigurationService
+namespace MihuBot.Configuration;
+
+public sealed class ConfigurationService : IConfigurationService, IDisposable
 {
-    private readonly Dictionary<ulong, Dictionary<string, string>> _configuration;
-    private readonly Dictionary<string, string> _globalConfiguration;
     private readonly SynchronizedLocalJsonStore<Dictionary<ulong, Dictionary<string, string>>> _store;
     private readonly SynchronizedLocalJsonStore<Dictionary<string, string>> _globalStore;
-    private readonly ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
+    private readonly PhysicalFileProvider _fileProvider;
+    private readonly IDisposable _configurationSubscription;
+    private readonly IDisposable _globalConfigurationSubscription;
+    private readonly Lock _reloadLock = new();
+    private bool _disposed;
 
-    public ConfigurationService()
+    public ConfigurationService(ILogger<ConfigurationService> logger)
+        : this(Constants.StateDirectory, logger)
     {
-        _store = new SynchronizedLocalJsonStore<Dictionary<ulong, Dictionary<string, string>>>("Configuration.json",
+    }
+
+    internal ConfigurationService(string directory, ILogger<ConfigurationService> logger)
+    {
+        directory = Path.GetFullPath(directory);
+        _store = new SynchronizedLocalJsonStore<Dictionary<ulong, Dictionary<string, string>>>(Path.Combine(directory, "Configuration.json"),
             (_, dictionary) =>
             {
                 var configuration = new Dictionary<ulong, Dictionary<string, string>>();
+
                 foreach (var entry in dictionary)
                 {
                     configuration.Add(entry.Key, new Dictionary<string, string>(entry.Value, StringComparer.OrdinalIgnoreCase));
                 }
+
                 return configuration;
             });
 
-        _globalStore = new SynchronizedLocalJsonStore<Dictionary<string, string>>("GlobalConfiguration.json",
+        _globalStore = new SynchronizedLocalJsonStore<Dictionary<string, string>>(Path.Combine(directory, "GlobalConfiguration.json"),
             (_, dictionary) => new Dictionary<string, string>(dictionary, StringComparer.OrdinalIgnoreCase));
 
-        _configuration = _store.DangerousGetValue();
-        _globalConfiguration = _globalStore.DangerousGetValue();
-    }
+        Directory.CreateDirectory(directory);
+        _fileProvider = new PhysicalFileProvider(directory);
+        _configurationSubscription = Watch("Configuration.json", _store.Reload);
+        _globalConfigurationSubscription = Watch("GlobalConfiguration.json", _globalStore.Reload);
 
-    private void EnterWriteLock(ulong? context)
-    {
-        if (context.HasValue)
+        IDisposable Watch(string name, Action reload)
         {
-            _store.Enter();
-        }
-        else
-        {
-            _globalStore.Enter();
-        }
-
-        try
-        {
-            _lock.EnterWriteLock();
-        }
-        catch
-        {
-            _lock.ExitWriteLock();
-            throw;
-        }
-    }
-
-    private void ExitWriteLock(ulong? context)
-    {
-        try
-        {
-            _lock.ExitWriteLock();
-        }
-        finally
-        {
-            if (context.HasValue)
+            IDisposable subscription = ChangeToken.OnChange(() => _fileProvider.Watch(name), () =>
             {
-                _store.Exit();
+                // Editors may emit a change before they have finished writing the file.
+                Thread.Sleep(250);
+                Reload();
+            });
+
+            // Pick up edits made between loading the store and subscribing to changes.
+            if (File.Exists(Path.Combine(directory, name)))
+            {
+                Reload();
             }
-            else
+
+            return subscription;
+
+            void Reload()
             {
-                _globalStore.Exit();
+                lock (_reloadLock)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        reload();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Could not reload {ConfigurationFile}; keeping the previous configuration.", name);
+                    }
+                }
             }
         }
     }
 
     public void Set(ulong? context, string key, string value)
     {
-        EnterWriteLock(context);
-        try
+        if (context.HasValue)
         {
-            Dictionary<string, string> configuration;
-            if (context.HasValue)
+            _store.Modify(configuration =>
             {
-                if (!_configuration.TryGetValue(context.Value, out configuration))
-                    configuration = _configuration[context.Value] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            }
-            else
-            {
-                configuration = _globalConfiguration;
-            }
+                Dictionary<string, string> values = CollectionsMarshal.GetValueRefOrAddDefault(configuration, context.Value, out _) ??= new(StringComparer.OrdinalIgnoreCase);
 
-            configuration[key] = value;
+                values[key] = value;
+            });
         }
-        finally
+        else
         {
-            ExitWriteLock(context);
+            _globalStore.Modify(configuration => configuration[key] = value);
         }
     }
 
     public bool Remove(ulong? context, string key)
     {
-        EnterWriteLock(context);
-        try
+        bool removed = false;
+
+        if (context.HasValue)
         {
-            Dictionary<string, string> configuration;
-            if (context.HasValue)
+            _store.Modify(configuration =>
             {
-                if (!_configuration.TryGetValue(context.Value, out configuration))
-                    return false;
-            }
-            else
-            {
-                configuration = _globalConfiguration;
-            }
+                if (!configuration.TryGetValue(context.Value, out var values))
+                {
+                    return;
+                }
 
-            if (!configuration.Remove(key))
-                return false;
+                removed = values.Remove(key);
 
-            if (configuration.Count == 0 && context.HasValue)
-            {
-                _configuration.Remove(context.Value);
-            }
-
-            return true;
+                if (removed && values.Count == 0)
+                {
+                    configuration.Remove(context.Value);
+                }
+            });
         }
-        finally
+        else
         {
-            ExitWriteLock(context);
+            _globalStore.Modify(configuration => removed = configuration.Remove(key));
         }
+
+        return removed;
     }
 
     public bool TryGet(ulong? context, string key, out string value)
     {
-        _lock.EnterReadLock();
-        try
-        {
-            Dictionary<string, string> configuration;
-            if (context.HasValue)
-            {
-                if (!_configuration.TryGetValue(context.Value, out configuration))
-                {
-                    value = null;
-                    return false;
-                }
-            }
-            else
-            {
-                configuration = _globalConfiguration;
-            }
+        string result = null;
+        bool found = context.HasValue
+            ? _store.Query(configuration => configuration.TryGetValue(context.Value, out var values) && values.TryGetValue(key, out result))
+            : _globalStore.Query(configuration => configuration.TryGetValue(key, out result));
 
-            return configuration.TryGetValue(key, out value);
-        }
-        finally
+        value = result;
+        return found;
+    }
+
+    public void Dispose()
+    {
+        lock (_reloadLock)
         {
-            _lock.ExitReadLock();
+            _disposed = true;
         }
+
+        _configurationSubscription.Dispose();
+        _globalConfigurationSubscription.Dispose();
+        _fileProvider.Dispose();
     }
 }

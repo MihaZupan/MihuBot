@@ -7,6 +7,7 @@ public sealed class SynchronizedLocalJsonStore<T>
 {
     private readonly string _jsonPath;
     private readonly Action<string, string> _replaceFile;
+    private readonly Func<SynchronizedLocalJsonStore<T>, T, T> _init;
     private readonly SemaphoreSlim _asyncLock = new(1, 1);
     private T _value;
     private string _previousJson;
@@ -22,6 +23,7 @@ public sealed class SynchronizedLocalJsonStore<T>
         ArgumentException.ThrowIfNullOrWhiteSpace(jsonPath);
         _jsonPath = Path.GetFullPath(Path.IsPathRooted(jsonPath) ? jsonPath : Path.Combine(Constants.StateDirectory, jsonPath));
         _replaceFile = replaceFile ?? ((source, destination) => File.Move(source, destination, overwrite: true));
+        _init = init;
         string json;
 
         try
@@ -33,7 +35,7 @@ public sealed class SynchronizedLocalJsonStore<T>
             json = null;
         }
 
-        _previousJson = json ?? string.Empty;
+        _previousJson = json;
         _value = json is null ? new T() : JsonConvert.DeserializeObject<T>(json);
 
         if (init != null)
@@ -50,6 +52,36 @@ public sealed class SynchronizedLocalJsonStore<T>
     }
 
     public T DangerousGetValue() => _value;
+
+    internal void Reload()
+    {
+        _asyncLock.Wait();
+
+        try
+        {
+            string json = File.ReadAllText(_jsonPath);
+
+            if (json == _previousJson)
+            {
+                return;
+            }
+
+            T value = JsonConvert.DeserializeObject<T>(json)
+                ?? throw new JsonSerializationException("The JSON store must not be null or empty.");
+
+            if (_init != null)
+            {
+                value = _init(this, value);
+            }
+
+            _value = value;
+            _previousJson = json;
+        }
+        finally
+        {
+            _asyncLock.Release();
+        }
+    }
 
     public async ValueTask<TResult> QueryAsync<TResult>(Func<T, TResult> selector)
     {

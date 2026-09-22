@@ -136,6 +136,65 @@ public sealed class SynchronizedLocalJsonStoreTests
         Assert.Equal(4, await store.QueryAsync(v => v.Number).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    [Fact]
+    public void ReloadReappliesInitializationAndSkipsUnchangedFiles()
+    {
+        using var files = new Files();
+        File.WriteAllText(files.Path, """{"Value":1}""");
+        int initializations = 0;
+        var store = new SynchronizedLocalJsonStore<Value>(files.Path, (_, value) =>
+        {
+            initializations++;
+            value.ValueText = "initialized";
+            return value;
+        });
+        Value original = store.DangerousGetValue();
+        store.Reload();
+        Assert.Same(original, store.DangerousGetValue());
+        Assert.Equal(1, initializations);
+
+        File.WriteAllText(files.Path, """{"Value":2}""");
+        store.Reload();
+        Assert.Equal(2, store.Query(v => v.Number));
+        Assert.Equal("initialized", store.Query(v => v.ValueText));
+        Assert.Equal(2, initializations);
+        store.Modify(v => v.Number = 3);
+        Value modified = store.DangerousGetValue();
+        store.Reload();
+        Assert.Same(modified, store.DangerousGetValue());
+        Assert.Equal(2, initializations);
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("null")]
+    [InlineData("")]
+    public async Task FailedReloadKeepsTheValueAndReleasesTheLock(string json)
+    {
+        using var files = new Files();
+        File.WriteAllText(files.Path, """{"Value":1}""");
+        var store = new SynchronizedLocalJsonStore<Value>(files.Path);
+        Value original = store.DangerousGetValue();
+        File.WriteAllText(files.Path, json);
+        Assert.ThrowsAny<JsonException>(store.Reload);
+        Assert.Same(original, store.DangerousGetValue());
+        Assert.Equal(1, await store.QueryAsync(v => v.Number).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        File.WriteAllText(files.Path, """{"Value":2}""");
+        store.Reload();
+        Assert.Equal(2, store.Query(v => v.Number));
+    }
+
+    [Fact]
+    public void ReloadRejectsEmptyFileCreatedAfterInitialization()
+    {
+        using var files = new Files();
+        var store = new SynchronizedLocalJsonStore<Value>(files.Path);
+        File.WriteAllText(files.Path, string.Empty);
+        Assert.Throws<JsonSerializationException>(store.Reload);
+        Assert.Equal(0, store.Query(v => v.Number));
+    }
+
     public sealed class Value
     {
         [JsonProperty("Value")]

@@ -40,6 +40,10 @@ replaceable build separate without any symlinks.
 The storage location is controlled by `MIHUBOT_STORAGE_DIRECTORY` (set to
 `/storage` by the image); when unset the app falls back to `State/Files`.
 
+Edits to `State/Configuration.json` and `State/GlobalConfiguration.json` are
+reloaded automatically. Invalid edits leave the last valid configuration in use
+and are logged.
+
 ## Runtime assets
 
 Browsers need access to `cdn.jsdelivr.net` and `cdnjs.cloudflare.com` for frontend
