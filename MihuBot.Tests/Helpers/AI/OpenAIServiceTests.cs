@@ -27,6 +27,8 @@ public sealed class OpenAIServiceTests
 
         AssertChat(service.GetChat(deployment, work: false), deployment, personalHosts);
         AssertChat(service.GetChat(deployment, work: true), deployment, workHost);
+        AssertResponsesChat(service.GetResponsesChat(deployment, work: false), deployment, personalHosts);
+        AssertResponsesChat(service.GetResponsesChat(deployment, work: true), deployment, workHost);
     }
 
     [Theory]
@@ -41,6 +43,7 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService("Key3", otherWorkKey);
 
         AssertChat(service.GetChat(deployment, work: true), deployment, host);
+        AssertResponsesChat(service.GetResponsesChat(deployment, work: true), deployment, host);
     }
 
     [Theory]
@@ -64,6 +67,7 @@ public sealed class OpenAIServiceTests
         var error = Assert.Throws<InvalidOperationException>(() => service.GetChat("gpt-6-luna", work));
 
         Assert.Contains("gpt-6-luna", error.Message, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("gpt-6-luna", work));
     }
 
     [Fact]
@@ -72,6 +76,7 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService("WorkKey1");
 
         Assert.Throws<InvalidOperationException>(() => service.GetChat("gpt-6-luna", work: false));
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("gpt-6-luna", work: false));
         AssertChat(service.GetChat("gpt-6-luna", work: true), "gpt-6-luna", Work1);
     }
 
@@ -83,6 +88,7 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService("Key2", "Key3", "WorkKey1", "WorkKey2");
 
         Assert.Throws<InvalidOperationException>(() => service.GetChat("unknown", work));
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("unknown", work));
     }
 
     [Theory]
@@ -164,6 +170,23 @@ public sealed class OpenAIServiceTests
             Assert.Equal("/openai/v1/", metadata.ProviderUri?.AbsolutePath);
             Assert.Equal(deployment, metadata.DefaultModelId);
             Assert.IsType<OpenAI.Chat.ChatClient>(client.GetService<OpenAI.Chat.ChatClient>());
+        }
+    }
+
+    private static void AssertResponsesChat(IChatClient client, string deployment, params string[] hosts)
+    {
+        using (client)
+        {
+            var metadata = client.GetService<ChatClientMetadata>();
+
+            Assert.NotNull(metadata);
+            Assert.Contains(metadata.ProviderUri?.Host, hosts);
+            Assert.Equal("/openai/v1/", metadata.ProviderUri?.AbsolutePath);
+            Assert.Equal(deployment, metadata.DefaultModelId);
+#pragma warning disable OPENAI001
+            Assert.IsAssignableFrom<OpenAI.Responses.ResponsesClient>(client.GetService<OpenAI.Responses.ResponsesClient>());
+#pragma warning restore OPENAI001
+            Assert.Null(client.GetService<OpenAI.Chat.ChatClient>());
         }
     }
 

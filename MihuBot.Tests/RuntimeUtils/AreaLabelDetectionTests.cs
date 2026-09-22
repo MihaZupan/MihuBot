@@ -1,3 +1,8 @@
+using System.ClientModel;
+using System.ClientModel.Primitives;
+using System.Net;
+using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -16,6 +21,76 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class AreaLabelDetectionTests
 {
+    [Theory]
+    [InlineData("none")]
+    [InlineData("high")]
+    [InlineData("xhigh")]
+    [InlineData("max")]
+    public async Task PredictionUsesResponsesApiWithConfiguredReasoningAndStructuredOutput(string effort)
+    {
+        int requests = 0;
+        using var transport = new PredictionTransport(async (request, cancellationToken) =>
+        {
+            requests++;
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("https://test.openai.azure.com/openai/v1/responses", request.RequestUri?.AbsoluteUri);
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var root = body.RootElement;
+            Assert.Equal(OpenAIService.DefaultModel, root.GetProperty("model").GetString());
+            Assert.Equal(effort, root.GetProperty("reasoning").GetProperty("effort").GetString());
+            Assert.Equal(AreaLabelDetector.MaxOutputTokens, root.GetProperty("max_output_tokens").GetInt32());
+            Assert.False(root.GetProperty("store").GetBoolean());
+            Assert.False(root.TryGetProperty("reasoning_effort", out _));
+            Assert.False(root.TryGetProperty("previous_response_id", out _));
+            Assert.True(!root.TryGetProperty("tools", out var tools) || tools.GetArrayLength() == 0);
+
+            var format = root.GetProperty("text").GetProperty("format");
+            Assert.Equal("json_schema", format.GetProperty("type").GetString());
+            Assert.True(format.GetProperty("schema").GetProperty("properties").TryGetProperty("data", out _));
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {
+                      "id": "resp_test", "object": "response", "created_at": 1,
+                      "model": "gpt-6-luna", "status": "completed", "store": false,
+                      "output": [{
+                        "id": "msg_test", "type": "message", "role": "assistant", "status": "completed",
+                        "content": [{
+                          "type": "output_text",
+                          "text": "{\"data\":[{\"labelName\":\"area-Networking\",\"confidence\":0.9}]}",
+                          "annotations": []
+                        }]
+                      }],
+                      "usage": { "input_tokens": 10, "output_tokens": 3, "total_tokens": 13 }
+                    }
+                    """, Encoding.UTF8, "application/json"),
+            };
+        });
+        using var http = new HttpClient(transport);
+        var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), new OpenAI.OpenAIClientOptions
+        {
+            Endpoint = new Uri("https://test.openai.azure.com/openai/v1/"),
+            Transport = new HttpClientPipelineTransport(http),
+        });
+#pragma warning disable OPENAI001
+        using var chat = client.GetResponsesClient().AsIChatClient(OpenAIService.DefaultModel);
+        var options = AreaLabelDetector.CreateChatOptions(new(OpenAIService.DefaultModel, new(effort)));
+#pragma warning restore OPENAI001
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var result = await AreaLabelDetector.GetPredictionResponseAsync(chat, "Classify this issue.", options, timeout.Token);
+
+        Assert.Equal(new AreaLabelSuggestion("area-Networking", 0.9), Assert.Single(result.Result!));
+        Assert.Equal(13, AreaLabelDetector.GetActualTokenCount(result.Usage!));
+        Assert.Equal(1, requests);
+    }
+
+    private sealed class PredictionTransport(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request, cancellationToken);
+    }
+
     [Fact]
     public void AutomaticLabelPredictionPauseIsStoredIndependentlyOfOtherServices()
     {
@@ -869,23 +944,24 @@ public sealed class AreaLabelDetectionTests
         using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!, null!);
 
 #pragma warning disable OPENAI001
-        Assert.Equal("high", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+        Assert.Equal("high", detector.CreateResponseOptions().ReasoningOptions.ReasoningEffortLevel.ToString());
 
         configuration.Set(null, "AreaLabelDetector.ReasoningEffort", effort);
-        Assert.Equal(effort, detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+        Assert.Equal(effort, detector.CreateResponseOptions().ReasoningOptions.ReasoningEffortLevel.ToString());
 
         var settings = detector.GetPredictionSettings();
         var oneShotOptions = AreaLabelDetector.CreateChatOptions(settings);
         Assert.Null(oneShotOptions.Tools);
         Assert.Equal(AreaLabelDetector.MaxOutputTokens, oneShotOptions.MaxOutputTokens);
-        var completionOptions = Assert.IsType<OpenAI.Chat.ChatCompletionOptions>(oneShotOptions.RawRepresentationFactory!(null!));
-        Assert.Equal(effort, completionOptions.ReasoningEffortLevel.ToString());
+        var completionOptions = Assert.IsType<OpenAI.Responses.CreateResponseOptions>(oneShotOptions.RawRepresentationFactory!(null!));
+        Assert.Equal(effort, completionOptions.ReasoningOptions.ReasoningEffortLevel.ToString());
         Assert.Equal(AreaLabelDetector.MaxOutputTokens, completionOptions.MaxOutputTokenCount);
+        Assert.False(completionOptions.StoredOutputEnabled);
         Assert.Empty(completionOptions.Tools);
         Assert.NotSame(completionOptions, oneShotOptions.RawRepresentationFactory!(null!));
 
         configuration.Remove(null, "AreaLabelDetector.ReasoningEffort");
-        Assert.Equal("high", detector.CreateChatCompletionOptions().ReasoningEffortLevel.ToString());
+        Assert.Equal("high", detector.CreateResponseOptions().ReasoningOptions.ReasoningEffortLevel.ToString());
 #pragma warning restore OPENAI001
     }
 
@@ -925,12 +1001,12 @@ public sealed class AreaLabelDetectionTests
         configuration.Set(null, "AreaLabelDetector.ReasoningEffort", "high");
         using var detector = new AreaLabelDetector(null!, null!, null!, null!, null!, null!, configuration, null!, null!);
 
-        var options = detector.CreateChatCompletionOptions();
+#pragma warning disable OPENAI001
+        var options = detector.CreateResponseOptions();
         Assert.Equal(32_768, options.MaxOutputTokenCount);
         Assert.Equal(AreaLabelDetector.MaxOutputTokens, options.MaxOutputTokenCount);
 
-#pragma warning disable OPENAI001
-        Assert.Equal("high", options.ReasoningEffortLevel.ToString());
+        Assert.Equal("high", options.ReasoningOptions.ReasoningEffortLevel.ToString());
 #pragma warning restore OPENAI001
     }
 

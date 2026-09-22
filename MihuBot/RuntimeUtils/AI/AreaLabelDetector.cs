@@ -7,14 +7,14 @@ using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
-using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace MihuBot.RuntimeUtils.AI;
 
 public sealed record AreaLabelSuggestion(string LabelName, double? Confidence);
 
 internal sealed record AreaLabelPredictionSettings(
-    string Model, ChatReasoningEffortLevel ReasoningEffort);
+    string Model, ResponseReasoningEffortLevel ReasoningEffort);
 
 public sealed class AreaLabelDetector(
     OpenAIService openAI,
@@ -73,20 +73,24 @@ public sealed class AreaLabelDetector(
 
     internal AreaLabelPredictionSettings GetPredictionSettings() => new(Model,
         configuration.TryGet(null, $"{nameof(AreaLabelDetector)}.ReasoningEffort", out string effort)
-            ? new ChatReasoningEffortLevel(effort)
-            : ChatReasoningEffortLevel.High);
+            ? new ResponseReasoningEffortLevel(effort)
+            : ResponseReasoningEffortLevel.High);
 
-    internal ChatCompletionOptions CreateChatCompletionOptions() => CreateChatCompletionOptions(GetPredictionSettings());
+    internal CreateResponseOptions CreateResponseOptions() => CreateResponseOptions(GetPredictionSettings());
 
-    private static ChatCompletionOptions CreateChatCompletionOptions(AreaLabelPredictionSettings settings) => new()
+    private static CreateResponseOptions CreateResponseOptions(AreaLabelPredictionSettings settings) => new()
     {
-        ReasoningEffortLevel = settings.ReasoningEffort,
+        ReasoningOptions = new ResponseReasoningOptions
+        {
+            ReasoningEffortLevel = settings.ReasoningEffort,
+        },
         MaxOutputTokenCount = MaxOutputTokens,
+        StoredOutputEnabled = false,
     };
 
     internal static ChatOptions CreateChatOptions(AreaLabelPredictionSettings settings) => new()
     {
-        RawRepresentationFactory = _ => CreateChatCompletionOptions(settings),
+        RawRepresentationFactory = _ => CreateResponseOptions(settings),
         MaxOutputTokens = MaxOutputTokens,
     };
 
@@ -151,7 +155,6 @@ public sealed class AreaLabelDetector(
         }
 
         string model = settings.Model;
-        ChatCompletionOptions completionOptions = CreateChatCompletionOptions(settings);
         PullRequestLabelContext.Context prContext = issue.IssueType == IssueType.PullRequest
             ? await pullRequests.GetAsync(issue, labels, cancellationToken)
             : null;
@@ -168,7 +171,7 @@ public sealed class AreaLabelDetector(
         string prompt = CreatePrompt(issueData, labels, labelPrefix, similarIssues, prContext, authorHistory, issue.IssueType, mentionedItems);
 
         var reservation = await _rateLimiter.ReserveAsync(EstimateTokenBudget(prompt), cancellationToken);
-        var result = await GetPredictionResponseAsync(openAI.GetChat(model, work: true), prompt, options, cancellationToken, onPrompt);
+        var result = await GetPredictionResponseAsync(openAI.GetResponsesChat(model, work: true), prompt, options, cancellationToken, onPrompt);
 
         if (GetActualTokenCount(result.Usage) is { } actualTokens)
         {
@@ -183,7 +186,7 @@ public sealed class AreaLabelDetector(
         string predictions = suggestions.Length == 0 ? "none" : string.Join(", ", suggestions.Select(s => $"{s.LabelName} ({s.Confidence:P0})"));
         string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
-        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} (reasoning: {completionOptions.ReasoningEffortLevel}) in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+        logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} (reasoning: {settings.ReasoningEffort}) in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
         return suggestions;
     }
 

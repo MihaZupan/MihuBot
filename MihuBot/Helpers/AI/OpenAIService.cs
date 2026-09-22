@@ -140,6 +140,16 @@ public sealed class OpenAIService
         return chatClient;
     }
 
+    public IChatClient GetResponsesChat(string? deployment, bool work)
+    {
+        deployment ??= DefaultModel;
+
+        OpenAIClient client = GetClient(deployment, work);
+        IChatClient chatClient = client.GetResponsesClient().AsIChatClient(deployment);
+
+        return new LoggingChatClient(chatClient, _logger, _configurationService);
+    }
+
     public ImageClient? GetImage(ulong? context)
     {
         _configurationService.TryGet(context, "ChatGPT.ImageDeployment", out string? deployment);
