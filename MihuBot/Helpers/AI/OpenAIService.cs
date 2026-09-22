@@ -76,7 +76,8 @@ public sealed class OpenAIService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deployment);
 
-        AzureOpenAIClient? personalClient = null;
+        List<AzureOpenAIClient> matchingWorkClients = [];
+        List<AzureOpenAIClient> matchingPersonalClients = [];
 
         foreach ((AzureOpenAIClient? client, bool isWork, string[] deployments) in _clients)
         {
@@ -85,18 +86,27 @@ public sealed class OpenAIService
                 continue;
             }
 
-            if (isWork == work)
+            if (isWork && work)
             {
-                return client;
+                matchingWorkClients.Add(client);
             }
-
-            if (!isWork)
+            else if (!isWork)
             {
-                personalClient ??= client;
+                matchingPersonalClients.Add(client);
             }
         }
 
-        return personalClient ?? throw new InvalidOperationException(
+        if (matchingWorkClients.Count > 0)
+        {
+            return matchingWorkClients.Random();
+        }
+
+        if (matchingPersonalClients.Count > 0)
+        {
+            return matchingPersonalClients.Random();
+        }
+
+        throw new InvalidOperationException(
             $"No configured {(work ? "work or personal" : "personal")} Azure OpenAI endpoint hosts deployment '{deployment}'.");
     }
 

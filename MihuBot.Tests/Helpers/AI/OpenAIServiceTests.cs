@@ -9,22 +9,23 @@ namespace MihuBot.Tests.Helpers.AI;
 public sealed class OpenAIServiceTests
 {
     private const string Personal1 = "mihubotai8467177614.openai.azure.com";
+    private const string Personal2 = "mihaz-m30zd4gd-eastus.openai.azure.com";
     private const string Personal3 = "mizup-mud33obs-swedencentral.openai.azure.com";
     private const string Work1 = "issueshelperhu5783781236.openai.azure.com";
     private const string Work2 = "mizup-ma441ssi-eastus2.openai.azure.com";
 
     [Theory]
-    [InlineData("gpt-6-luna", Personal3, Work1)]
-    [InlineData("gpt-6-sol", Personal3, Work1)]
-    [InlineData("gpt-6-astra", Personal1, Work2)]
-    [InlineData("gpt-5.6-luna", Personal1, Work2)]
-    [InlineData("gpt-5.6-terra", Personal1, Work2)]
-    [InlineData("gpt-5.6-sol", Personal1, Work2)]
-    public void GetChat_RoutesByDeploymentAndSubscription(string deployment, string personalHost, string workHost)
+    [InlineData("gpt-6-luna", Work1, Personal3)]
+    [InlineData("gpt-6-sol", Work1, Personal3)]
+    [InlineData("gpt-6-astra", Work2, Personal1, Personal2)]
+    [InlineData("gpt-5.6-luna", Work2, Personal1, Personal2)]
+    [InlineData("gpt-5.6-terra", Work2, Personal1, Personal2)]
+    [InlineData("gpt-5.6-sol", Work2, Personal1, Personal2)]
+    public void GetChat_RoutesByDeploymentAndSubscription(string deployment, string workHost, params string[] personalHosts)
     {
         OpenAIService service = CreateService("Key2", "Key3", "WorkKey1", "WorkKey2");
 
-        AssertChat(service.GetChat(deployment, work: false), deployment, personalHost);
+        AssertChat(service.GetChat(deployment, work: false), deployment, personalHosts);
         AssertChat(service.GetChat(deployment, work: true), deployment, workHost);
     }
 
@@ -105,7 +106,7 @@ public sealed class OpenAIServiceTests
         configuration.Set(42, "ChatGPT.Tertiary", "true");
         OpenAIService service = CreateService(configuration, "Key2", "WorkKey2");
 
-        AssertChat(service.GetChat(42ul), "gpt-6-astra", Personal1);
+        AssertChat(service.GetChat(42ul), "gpt-6-astra", Personal1, Personal2);
 
         configuration.Set(42, "ChatGPT.Work", "true");
 
@@ -151,14 +152,14 @@ public sealed class OpenAIServiceTests
         Assert.Null(service.GetImage(42ul));
     }
 
-    private static void AssertChat(IChatClient client, string deployment, string host)
+    private static void AssertChat(IChatClient client, string deployment, params string[] hosts)
     {
         using (client)
         {
             var metadata = client.GetService<ChatClientMetadata>();
 
             Assert.NotNull(metadata);
-            Assert.Equal(host, metadata.ProviderUri?.Host);
+            Assert.Contains(metadata.ProviderUri?.Host, hosts);
             Assert.Equal(deployment, metadata.DefaultModelId);
         }
     }
