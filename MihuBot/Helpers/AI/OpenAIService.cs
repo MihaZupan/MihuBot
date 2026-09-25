@@ -3,6 +3,7 @@ using OpenAI;
 using OpenAI.Images;
 using MihuBot.Configuration;
 using Microsoft.Extensions.AI;
+using MihuBot.RuntimeUtils;
 
 #nullable enable
 
@@ -117,7 +118,10 @@ public sealed class OpenAIService
     public IEmbeddingGenerator<string, Embedding<float>> GetEmbeddingGenerator(string deployment, bool work)
     {
         OpenAIClient client = GetClient(deployment, work);
-        return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator();
+        return client.GetEmbeddingClient(deployment).AsIEmbeddingGenerator()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: MihuBotAIActivitySource.Instance.Name)
+            .Build();
     }
 
     public IChatClient GetChat(ulong? context)
@@ -137,7 +141,9 @@ public sealed class OpenAIService
 
         chatClient = new LoggingChatClient(chatClient, _logger, _configurationService);
 
-        return chatClient;
+        return chatClient.AsBuilder()
+            .UseOpenTelemetry(sourceName: MihuBotAIActivitySource.Instance.Name)
+            .Build();
     }
 
     public IChatClient GetResponsesChat(string? deployment, bool work)
@@ -147,7 +153,10 @@ public sealed class OpenAIService
         OpenAIClient client = GetClient(deployment, work);
         IChatClient chatClient = client.GetResponsesClient().AsIChatClient(deployment);
 
-        return new LoggingChatClient(chatClient, _logger, _configurationService);
+        return new LoggingChatClient(chatClient, _logger, _configurationService)
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: MihuBotAIActivitySource.Instance.Name)
+            .Build();
     }
 
     public ImageClient? GetImage(ulong? context)
@@ -172,7 +181,7 @@ public sealed class OpenAIService
 
     public async Task<string> GetSimpleChatCompletionAsync(ulong? context, string prompt)
     {
-        IChatClient chatClient = GetChat(context);
+        using IChatClient chatClient = GetChat(context);
 
         ChatResponse chatResponse = await chatClient.GetResponseAsync(prompt);
 

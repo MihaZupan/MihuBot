@@ -250,6 +250,11 @@ public sealed class IssueTriageHelper(
 
         public async IAsyncEnumerable<string> TriageAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("TriageIssue");
+            activity?.SetOperation("triage", "synthesize");
+            activity?.SetIssueContext(Issue);
+            activity?.SetTag("gen_ai.request.model", Model.Name);
+
             Logger.DebugLog($"Starting triage for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
 
             OnToolLog($"{Issue.Repository.FullName}#{Issue.Number}: {Issue.Title} by {Issue.User.Login}");
@@ -263,9 +268,12 @@ public sealed class IssueTriageHelper(
             IssueResultGroup[] candidates = await SearchForRelatedIssuesAsync(searchQueries, maxCandidates: TriageMaxCandidates, cancellationToken);
 
             OnToolLog($"Found {candidates.Length} candidate issues");
+            activity?.SetTag("candidates.count", candidates.Length);
 
             if (candidates.Length == 0)
             {
+                activity?.SetSuccess();
+
                 string noResults = "No related issues found.";
                 yield return ConvertMarkdownToHtml(noResults, partial: false);
                 yield break;
@@ -281,7 +289,7 @@ public sealed class IssueTriageHelper(
 
             string candidatesJson = JsonSerializer.Serialize(candidateInfos, IssueInfoForPrompt.JsonOptions);
 
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
+            using IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string prompt =
                 $"""
@@ -316,13 +324,22 @@ public sealed class IssueTriageHelper(
 
             Logger.DebugLog($"Triage: Finished triaging issue #{Issue.Number} with model {Model.Name}:\n{markdownResponse}");
 
-            yield return ConvertMarkdownToHtml(markdownResponse, partial: false);
+            string html = ConvertMarkdownToHtml(markdownResponse, partial: false);
+            activity?.SetTag("response.count", markdownResponse.Length);
+            activity?.SetSuccess();
+
+            yield return html;
         }
 
         private sealed record CandidateClassification(double? Certainty, string Summary);
 
         public async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectDuplicateIssuesAsync(CancellationToken cancellationToken, IssueInfo[] issuesToClassify = null)
         {
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("DetectDuplicateIssues");
+            activity?.SetOperation("triage", "duplicates");
+            activity?.SetIssueContext(Issue);
+            activity?.SetTag("gen_ai.request.model", Model.Name);
+
             Logger.DebugLog($"Starting duplicate detection for {Issue.HtmlUrl} with model {Model.Name} for {GitHubUserLogin}");
 
             if (issuesToClassify is null || issuesToClassify.Length == 0)
@@ -339,11 +356,16 @@ public sealed class IssueTriageHelper(
 
                 if (candidates.Length == 0)
                 {
+                    activity?.SetTag("results.count", 0);
+                    activity?.SetSuccess();
+
                     return [];
                 }
 
                 issuesToClassify = [.. candidates.Select(c => c.Results[0].Issue)];
             }
+
+            activity?.SetTag("candidates.count", issuesToClassify.Length);
 
             // Step 3: Classify each candidate independently
             string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, maxComments: MaxCommentsPerIssue)).AsJson();
@@ -358,16 +380,27 @@ public sealed class IssueTriageHelper(
 
             Logger.DebugLog($"Finished duplicate detection on issue #{Issue.Number} with model {Model.Name}:\n{JsonSerializer.Serialize(results.Select(r => new { r.Issue.Number, r.Certainty, r.Summary }))}");
 
-            return results
+            var duplicates = results
                 .Where(r => r.Certainty > 0)
                 .GroupBy(r => r.Issue.Id)
                 .Select(g => g.MaxBy(i => i.Certainty))
                 .OrderByDescending(i => i.Certainty)
                 .ToArray();
+
+            activity?.SetTag("results.count", duplicates.Length);
+            activity?.SetSuccess();
+
+            return duplicates;
         }
 
         private async Task<IssueResultGroup[]> SearchForRelatedIssuesAsync(string[] searchQueries, int maxCandidates, CancellationToken cancellationToken)
         {
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("SearchForRelatedIssues");
+            activity?.SetOperation("search", "relatedIssues");
+            activity?.SetIssueContext(Issue);
+            activity?.SetTag("search.terms", searchQueries);
+            activity?.SetTag("options.maxResults", maxCandidates);
+
             string issueQuery = GitHubSearchService.CreateIssueQuery(Issue);
             var filters = new IssueSearchFilters
             {
@@ -420,16 +453,26 @@ public sealed class IssueTriageHelper(
             var sameRepo = allResults.Where(r => r.Issue.Repository.Id == currentRepo);
             var otherRepo = allResults.Where(r => r.Issue.Repository.Id != currentRepo).Take(maxOtherRepoResults);
 
-            return sameRepo
+            var results = sameRepo
                 .Concat(otherRepo)
                 .OrderByDescending(r => r.Score)
                 .Take(maxCandidates)
                 .ToArray();
+
+            activity?.SetTag("results.count", results.Length);
+            activity?.SetSuccess();
+
+            return results;
         }
 
         private async Task<string[]> ExtractSearchQueriesAsync(CancellationToken cancellationToken)
         {
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("ExtractSearchQueries");
+            activity?.SetOperation("search", "extractQueries");
+            activity?.SetIssueContext(Issue);
+            activity?.SetTag("gen_ai.request.model", Model.Name);
+
+            using IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string issueJson = (await IssueInfoForPrompt.CreateAsync(Issue, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 
@@ -445,12 +488,23 @@ public sealed class IssueTriageHelper(
 
             ChatResponse<string[]> response = await chatClient.GetResponseAsync<string[]>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
+            activity?.SetAiResponse(response, logFullModelResponse: false);
+            activity?.SetTag("results.count", response.Result?.Length ?? 0);
+            activity?.SetSuccess();
+
             return response.Result ?? [];
         }
 
         private async Task<CandidateClassification> ClassifyCandidateAsync(string newIssueJson, IssueInfo candidate, CancellationToken cancellationToken)
         {
-            IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("ClassifyDuplicateCandidate");
+            activity?.SetOperation("triage", "classifyDuplicate");
+            activity?.SetIssueContext(Issue);
+            activity?.SetTag("candidate.number", candidate.Number);
+            activity?.SetTag("candidate.repository", candidate.Repository.FullName);
+            activity?.SetTag("gen_ai.request.model", Model.Name);
+
+            using IChatClient chatClient = OpenAI.GetChat(Model.Name, work: true);
 
             string candidateJson = (await IssueInfoForPrompt.CreateAsync(candidate, GitHubDb, cancellationToken, ContextLimitForIssueBody, ContextLimitForCommentBody, MaxCommentsPerIssue)).AsJson();
 
@@ -470,6 +524,10 @@ public sealed class IssueTriageHelper(
                 """;
 
             ChatResponse<CandidateClassification> response = await chatClient.GetResponseAsync<CandidateClassification>(prompt, ReasoningChatOptions, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+
+            activity?.SetAiResponse(response, logFullModelResponse: false);
+            activity?.SetTag("candidate.certainty", response.Result?.Certainty);
+            activity?.SetSuccess();
 
             return response.Result ?? new CandidateClassification(0, string.Empty);
         }
@@ -498,6 +556,11 @@ public sealed class IssueTriageHelper(
 
         public async Task<IssueInfoForPrompt[]> SearchDotnetGitHubAsync(string[] searchTerms, string extraSearchContext, IssueSearchFilters filters, CancellationToken cancellationToken)
         {
+            using var activity = MihuBotAIActivitySource.Instance.StartActivity("SearchDotnetGitHub");
+            activity?.SetOperation("search", "tool");
+            activity?.SetTag("search.terms", searchTerms);
+            activity?.SetTag("search.context", extraSearchContext);
+
             OnToolLog($"[Tool] Searching for {string.Join(", ", searchTerms)} ({filters})");
 
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -522,6 +585,10 @@ public sealed class IssueTriageHelper(
 
             filters.MinScore = SearchMinCertainty;
 
+            activity?.SetIssueSearchContext(filters);
+            activity?.SetIssueSearchContext(bulkFilters);
+            activity?.SetIssueSearchContext(options);
+
             GitHubSearchResponse results = await Search.SearchIssuesAndCommentsAsync(searchTerms, bulkFilters, filters, options, cancellationToken);
 
             IssueInfoForPrompt[] issues = await results.Results
@@ -530,6 +597,10 @@ public sealed class IssueTriageHelper(
                 .ToArrayAsync(cancellationToken);
 
             OnToolLog($"[Tool] Found {issues.Length} issues, {issues.Sum(i => i.Comments.Length)} comments ({(int)stopwatch.ElapsedMilliseconds} ms)");
+
+            activity?.SetTag("results.count", issues.Length);
+            activity?.SetIssueSearchTimings(results.Timings);
+            activity?.SetSuccess();
 
             return issues;
         }

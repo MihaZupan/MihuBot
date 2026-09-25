@@ -429,7 +429,7 @@ public sealed partial class PirateCommand : CommandBase
 
         try
         {
-            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
+            using IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
 
             string prompt =
                 $"""
@@ -476,7 +476,7 @@ public sealed partial class PirateCommand : CommandBase
 
         try
         {
-            IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
+            using IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: false);
 
             string prompt =
                 $"""

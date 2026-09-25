@@ -113,7 +113,7 @@ public sealed class AIOverviewCommand : CommandBase
             return;
         }
 
-        IChatClient client = _openAI.GetChat(ctx.Guild.Id);
+        using IChatClient client = _openAI.GetChat(ctx.Guild.Id);
 
         if (!_configurationService.TryGet(ctx.Guild.Id, "AIOverview.SystemPrompt", out string systemPrompt))
         {

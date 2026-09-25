@@ -102,13 +102,26 @@ public sealed class AreaLabelDetector(
 
     internal async Task<AreaLabelSuggestion[]> PredictAsync(IssueInfo issue, string labelPrefix, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("PredictIssueLabels");
+        activity?.SetOperation("triage", "predictLabels");
+        activity?.SetIssueContext(issue);
+        activity?.SetTag("labels.prefix", labelPrefix);
+
         var settings = GetPredictionSettings();
-        return await cache.GetOrCreateAsync(
+        activity?.SetTag("gen_ai.request.model", settings.Model);
+        activity?.SetTag("gen_ai.request.reasoning_effort", settings.ReasoningEffort.ToString());
+
+        var suggestions = await cache.GetOrCreateAsync(
             GetCacheKey(issue, labelPrefix, settings),
             ct => new ValueTask<AreaLabelSuggestion[]>(GetSuggestionsAsync(issue.Repository, issue, labelPrefix, settings, ct)),
             GetCacheOptions(issue.IssueType),
             tags: [nameof(AreaLabelDetector)],
             cancellationToken: cancellationToken);
+
+        activity?.SetTag("results.count", suggestions.Length);
+        activity?.SetSuccess();
+
+        return suggestions;
     }
 
     internal static string GetCacheKey(IssueInfo issue, string labelPrefix, AreaLabelPredictionSettings settings) =>
@@ -146,11 +159,22 @@ public sealed class AreaLabelDetector(
     private async Task<AreaLabelSuggestion[]> GetSuggestionsAsync(RepositoryInfo repository, IssueInfo issue, string labelPrefix,
         AreaLabelPredictionSettings settings, CancellationToken cancellationToken, Action<string> onPrompt = null)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("GetLabelSuggestions");
+        activity?.SetOperation("triage", "classifyLabels");
+        activity?.SetIssueContext(issue);
+        activity?.SetTag("labels.prefix", labelPrefix);
+        activity?.SetTag("gen_ai.request.model", settings.Model);
+        activity?.SetTag("gen_ai.request.reasoning_effort", settings.ReasoningEffort.ToString());
+
         long start = Stopwatch.GetTimestamp();
         string[] labels = await GetCandidateLabelsAsync(repository, labelPrefix, cancellationToken);
+        activity?.SetTag("labels.count", labels.Length);
 
         if (labels.Length == 0)
         {
+            activity?.SetTag("results.count", 0);
+            activity?.SetSuccess();
+
             return [];
         }
 
@@ -163,6 +187,8 @@ public sealed class AreaLabelDetector(
         var issueData = await IssueInfoForPrompt.CreateAsync(issue, githubDb, cancellationToken);
 
         SimilarIssue[] similarIssues = await GetSimilarIssuesAsync(issue, labels, prContext, mentionedItems, cancellationToken);
+        activity?.SetTag("similarIssues.count", similarIssues.Length);
+
         AuthorLabelHistory authorHistory = prContext?.PullRequest.Author is { Type: "User" } author
             ? await GetAuthorHistoryAsync(repository, issue, author.Login, labelPrefix, labels, cancellationToken)
             : null;
@@ -170,8 +196,17 @@ public sealed class AreaLabelDetector(
         var options = CreateChatOptions(settings);
         string prompt = CreatePrompt(issueData, labels, labelPrefix, similarIssues, prContext, authorHistory, issue.IssueType, mentionedItems);
 
-        var reservation = await _rateLimiter.ReserveAsync(EstimateTokenBudget(prompt), cancellationToken);
-        var result = await GetPredictionResponseAsync(openAI.GetResponsesChat(model, work: true), prompt, options, cancellationToken, onPrompt);
+        TokenRateLimiter.Reservation reservation;
+        using (var rateLimitActivity = MihuBotAIActivitySource.Instance.StartActivity("WaitForLabelPredictionTokens"))
+        {
+            int tokenBudget = EstimateTokenBudget(prompt);
+            rateLimitActivity?.SetTag("tokens.budget", tokenBudget);
+            reservation = await _rateLimiter.ReserveAsync(tokenBudget, cancellationToken);
+            rateLimitActivity?.SetSuccess();
+        }
+
+        using var chat = openAI.GetResponsesChat(model, work: true);
+        var result = await GetPredictionResponseAsync(chat, prompt, options, cancellationToken, onPrompt);
 
         if (GetActualTokenCount(result.Usage) is { } actualTokens)
         {
@@ -187,16 +222,37 @@ public sealed class AreaLabelDetector(
         string inputTokens = result.Usage?.InputTokenCount is { } inputCount ? TokenUsageHelpers.FormatTokenCount(inputCount) : "unknown";
         string outputTokens = result.Usage?.OutputTokenCount is { } outputCount ? TokenUsageHelpers.FormatTokenCount(outputCount) : "unknown";
         logger.DebugLog($"Area label prediction for <{issue.HtmlUrl}> using {model} (reasoning: {settings.ReasoningEffort}) in {Stopwatch.GetElapsedTime(start).TotalSeconds:F2}s: {predictions}; {inputTokens} tokens in, {outputTokens} out");
+
+        activity?.SetTag("results.count", suggestions.Length);
+        activity?.SetSuccess();
+
         return suggestions;
     }
 
-    internal static Task<ChatResponse<AreaLabelSuggestion[]>> GetPredictionResponseAsync(
+    internal static async Task<ChatResponse<AreaLabelSuggestion[]>> GetPredictionResponseAsync(
         IChatClient chat, string prompt, ChatOptions options, CancellationToken cancellationToken, Action<string> onPrompt = null)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        onPrompt?.Invoke(prompt);
-        return chat.GetResponseAsync<AreaLabelSuggestion[]>(
-            prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("PredictLabelResponse");
+        activity?.SetOperation("triage", "labelResponse");
+        activity?.SetTag("prompt.length", prompt.Length);
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            onPrompt?.Invoke(prompt);
+            var response = await chat.GetResponseAsync<AreaLabelSuggestion[]>(
+                prompt, options, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
+
+            activity?.SetAiResponse(response, logFullModelResponse: false);
+            activity?.SetSuccess();
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetError(ex);
+            throw;
+        }
     }
 
     internal static string CreatePrompt(IssueInfoForPrompt item, string[] labels, string labelPrefix,
@@ -460,6 +516,10 @@ public sealed class AreaLabelDetector(
         Func<int, CancellationToken, Task<GitHubSearchResponse>> search,
         IEnumerable<string> excludedUrls, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("FindSimilarIssuesForLabels");
+        activity?.SetOperation("search", "labelExamples");
+        activity?.SetIssueContext(issue);
+
         var excluded = new HashSet<string>(excludedUrls, StringComparer.OrdinalIgnoreCase);
         bool pullRequest = issue.IssueType == IssueType.PullRequest;
         double[] thresholds = pullRequest ? [MinPullRequestSemanticSimilarity] : [0.9, 0.8, MinIssueSemanticSimilarity];
@@ -496,10 +556,18 @@ public sealed class AreaLabelDetector(
 
                 if (similarIssues.Length >= 5)
                 {
+                    activity?.SetTag("results.count", similarIssues.Length);
+                    activity?.SetTag("search.minScore", threshold);
+                    activity?.SetTag("search.ageMonths", age);
+                    activity?.SetSuccess();
+
                     return similarIssues;
                 }
             }
         }
+
+        activity?.SetTag("results.count", similarIssues.Length);
+        activity?.SetSuccess();
 
         return similarIssues;
     }

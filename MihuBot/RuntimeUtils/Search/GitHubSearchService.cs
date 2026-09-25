@@ -108,6 +108,9 @@ public sealed class GitHubSearchService
         {
             _logger.LogInformation("Nothing to search for, returning empty results.");
 
+            activity?.SetTag("results.count", 0);
+            activity?.SetSuccess();
+
             return GitHubSearchResponse.Empty;
         }
 
@@ -169,6 +172,8 @@ public sealed class GitHubSearchService
         }));
 
         activity?.SetIssueSearchTimings(combinedTimings);
+        activity?.SetTag("results.count", combinedGroups.Length);
+        activity?.SetSuccess();
 
         return new GitHubSearchResponse { Results = combinedGroups, Timings = combinedTimings };
     }
@@ -445,9 +450,17 @@ public sealed class GitHubSearchService
 
     private async Task<RawSearchResult[]> VectorSearchAsync(string query, int topVectors, long repositoryFilter, SearchTimings timings, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("VectorSearch");
+        activity?.SetOperation("search", "vector");
+        activity?.SetTag("repository.id", repositoryFilter);
+        activity?.SetTag("options.maxResults", topVectors);
+
         if (_vectorStore is null || _serviceConfiguration.DisableVectorSearch)
         {
             _logger.LogDebug("Vector search is disabled, skipping search for '{Query}'", query);
+            activity?.SetTag("search.disabled", true);
+            activity?.SetSuccess();
+
             return [];
         }
 
@@ -455,6 +468,8 @@ public sealed class GitHubSearchService
 
         RawSearchResult[] results = await _cache.GetOrCreateAsync($"{nameof(GitHubSearchService)}/{nameof(VectorSearchAsync)}/{$"{repositoryFilter}/{topVectors}/{query}".GetUtf8Sha3_512HashBase64Url()}", async cancellationToken =>
         {
+            using var queryActivity = MihuBotAIActivitySource.Instance.StartActivity("VectorSearchUncached");
+
             ReadOnlyMemory<float> queryEmbedding = await _embeddingGenerator.GenerateVectorAsync(query, cancellationToken: CancellationToken.None);
             timings.EmbeddingGeneration = stopwatch.Elapsed;
 
@@ -478,19 +493,33 @@ public sealed class GitHubSearchService
                 }
             }
 
+            queryActivity?.SetTag("results.count", results.Count);
+            queryActivity?.SetSuccess();
+
             return results.ToArray();
         }, new HybridCacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, [nameof(GitHubSearchService)], cancellationToken);
 
         timings.VectorSearch = stopwatch.Elapsed - timings.EmbeddingGeneration;
+
+        activity?.SetTag("results.count", results.Length);
+        activity?.SetSuccess();
 
         return results;
     }
 
     private async Task<RawSearchResult[]> FullTextSearchAsync(string query, int count, long repositoryFilter, SearchTimings timings, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("FullTextSearch");
+        activity?.SetOperation("search", "fullText");
+        activity?.SetTag("repository.id", repositoryFilter);
+        activity?.SetTag("options.maxResults", count);
+
         if (_serviceConfiguration.DisableFullTextSearch)
         {
             _logger.LogDebug("Full-text search is disabled, skipping search for '{Query}'", query);
+            activity?.SetTag("search.disabled", true);
+            activity?.SetSuccess();
+
             return [];
         }
 
@@ -507,11 +536,16 @@ public sealed class GitHubSearchService
 
         if (query.Length < 3)
         {
+            activity?.SetTag("results.count", 0);
+            activity?.SetSuccess();
+
             return [];
         }
 
         RawSearchResult[] results = await _cache.GetOrCreateAsync($"{nameof(GitHubSearchService)}/{nameof(FullTextSearchAsync)}/{$"{repositoryFilter}/{count}/{query}".GetUtf8Sha3_512HashBase64Url()}", async cancellationToken =>
         {
+            using var queryActivity = MihuBotAIActivitySource.Instance.StartActivity("FullTextSearchUncached");
+
             await using GitHubDbContext db = await _db.CreateDbContextAsync(cancellationToken);
 
             IQueryable<TextEntry> dbQuery = db.TextEntries.AsNoTracking();
@@ -537,12 +571,18 @@ public sealed class GitHubSearchService
 
             double scoreMultiplier = FullTextSearchScoreMultiplier;
 
+            queryActivity?.SetTag("results.count", textResults.Length);
+            queryActivity?.SetSuccess();
+
             return textResults
                 .Select(r => new RawSearchResult(scoreMultiplier * r.Rank, r.RepositoryId, r.IssueId, r.SubIdentifier))
                 .ToArray();
         }, new HybridCacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, [nameof(GitHubSearchService)], cancellationToken);
 
         timings.FullTextSearch = stopwatch.Elapsed;
+
+        activity?.SetTag("results.count", results.Length);
+        activity?.SetSuccess();
 
         return results;
     }
@@ -571,7 +611,8 @@ public sealed class GitHubSearchService
             return results;
         }
 
-        IChatClient fastClassifierChat = _openAi.GetChat(preferSpeed ? FastClassifierModelName : ClassifierModelName, work: true);
+        string classifierModel = preferSpeed ? FastClassifierModelName : ClassifierModelName;
+        activity?.SetTag("gen_ai.request.model", classifierModel);
 
         int maxIssueCount = 50;
         int bodyContextWindow = 80;
@@ -642,27 +683,45 @@ public sealed class GitHubSearchService
                 {
                     const int Retries = 3;
 
+                    using IChatClient fastClassifierChat = _openAi.GetChat(classifierModel, work: true);
                     Stopwatch localStopwatch = Stopwatch.StartNew();
 
                     ChatResponse<IssueRelevance[]>? relevances = null;
                     for (int i = 0; i < Retries; i++)
                     {
+                        using var classificationActivity = MihuBotAIActivitySource.Instance.StartActivity("ClassifySearchRelevance");
+                        classificationActivity?.SetOperation("search", "classifyRelevance");
+                        classificationActivity?.SetTag("gen_ai.request.model", classifierModel);
+                        classificationActivity?.SetTag("attempt", i + 1);
+                        classificationActivity?.SetTag("candidates.count", Math.Min(issueCount, results.Count));
+                        classificationActivity?.SetTag("prompt.length", prompt.Length);
+
                         try
                         {
                             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                             cts.CancelAfter(TimeSpan.FromMinutes(2));
 
                             relevances = await fastClassifierChat.GetResponseAsync<IssueRelevance[]>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cts.Token);
+                            classificationActivity?.SetAiResponse(relevances, logFullModelResponse: false);
+                            classificationActivity?.SetSuccess();
+
                             break;
                         }
-                        catch (Exception ex) when (i < Retries - 1 && !cancellationToken.IsCancellationRequested)
+                        catch (Exception ex)
                         {
+                            classificationActivity?.SetError(ex);
+
+                            if (i == Retries - 1 || cancellationToken.IsCancellationRequested)
+                            {
+                                throw;
+                            }
+
                             _logger.LogError(ex, "Relevance classification for failed (attempt {Count})", i + 1);
                         }
                     }
 
                     _logger.LogDebug("Relevance classification took {ElapsedMs} ms for {IssueCount} issues ({ClassifierModel}, len={PromptLength})",
-                        (int)localStopwatch.ElapsedMilliseconds, Math.Min(issueCount, results.Count), FastClassifierModelName, prompt.Length);
+                        (int)localStopwatch.ElapsedMilliseconds, Math.Min(issueCount, results.Count), classifierModel, prompt.Length);
 
                     return relevances!.Result.Where(s => s.Score > 0.05).ToArray();
                 }, new HybridCacheEntryOptions { Expiration = TimeSpan.FromHours(1) }, [nameof(GitHubSearchService)], cancellationToken);

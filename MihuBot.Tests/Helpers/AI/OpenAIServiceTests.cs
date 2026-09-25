@@ -132,6 +132,7 @@ public sealed class OpenAIServiceTests
     {
         OpenAIService service = workConfigured ? CreateService("WorkKey1", "WorkKey2") : CreateService("WorkKey2");
         using var generator = service.GetEmbeddingGenerator(deployment, work);
+        Assert.False(Assert.IsType<OpenTelemetryEmbeddingGenerator<string, Embedding<float>>>(generator).EnableSensitiveData);
         var metadata = generator.GetService<EmbeddingGeneratorMetadata>();
 
         Assert.NotNull(metadata);
@@ -163,6 +164,7 @@ public sealed class OpenAIServiceTests
     {
         using (client)
         {
+            Assert.False(Assert.IsType<OpenTelemetryChatClient>(client).EnableSensitiveData);
             var metadata = client.GetService<ChatClientMetadata>();
 
             Assert.NotNull(metadata);
@@ -177,6 +179,7 @@ public sealed class OpenAIServiceTests
     {
         using (client)
         {
+            Assert.False(Assert.IsType<OpenTelemetryChatClient>(client).EnableSensitiveData);
             var metadata = client.GetService<ChatClientMetadata>();
 
             Assert.NotNull(metadata);

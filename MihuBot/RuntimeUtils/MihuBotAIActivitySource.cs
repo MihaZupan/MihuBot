@@ -11,7 +11,7 @@ public static class MihuBotAIActivitySource
     public static Activity SetIssueContext(this Activity activity, IssueInfo issue)
     {
         activity?.SetTag("issue.number", issue.Number);
-        activity?.SetTag("issue.repository", issue.Repository.FullName);
+        activity?.SetTag("issue.repository", issue.Repository?.FullName);
         activity?.SetTag("issue.title", issue.Title);
         return activity!;
     }
@@ -90,6 +90,7 @@ public static class MihuBotAIActivitySource
     {
         activity?.SetTag("options.maxResults", options.MaxResults);
         activity?.SetTag("options.include.issueComments", options.IncludeIssueComments);
+        activity?.SetTag("options.preferSpeed", options.PreferSpeed);
         return activity!;
     }
 
@@ -110,4 +111,3 @@ public static class MihuBotAIActivitySource
         return activity!;
     }
 }
-

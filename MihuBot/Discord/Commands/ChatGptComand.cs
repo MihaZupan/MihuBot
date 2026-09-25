@@ -167,7 +167,7 @@ public sealed class ChatGptComand : CommandBase
             }
         }
 
-        IChatClient client = _openAI.GetChat(channel.Guild.Id);
+        using IChatClient client = _openAI.GetChat(channel.Guild.Id);
 
         var options = new ChatOptions
         {
