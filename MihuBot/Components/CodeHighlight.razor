@@ -27,13 +27,13 @@
 
     private ElementReference _element;
     private IJSObjectReference _module;
-    private string _highlightedCode;
+    private string _highlightedElementId;
     private string _highlightedLanguage;
     private bool _highlightError;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_highlightError || string.IsNullOrEmpty(Code) || (_highlightedCode == Code && _highlightedLanguage == Language))
+        if (_highlightError || string.IsNullOrEmpty(Code) || (_highlightedElementId == _element.Id && _highlightedLanguage == Language))
         {
             return;
         }
@@ -45,8 +45,12 @@
             ElementReference element = _element;
             _module ??= await JS.InvokeAsync<IJSObjectReference>("import", $"./{Assets["Components/CodeHighlight.razor.js"]}");
             await _module.InvokeVoidAsync("highlight", element, code);
-            _highlightedCode = code;
-            _highlightedLanguage = language;
+
+            if (_element.Id == element.Id && Language == language)
+            {
+                _highlightedElementId = element.Id;
+                _highlightedLanguage = language;
+            }
         }
         catch (JSDisconnectedException)
         {
