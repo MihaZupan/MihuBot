@@ -118,9 +118,13 @@ public class MihuBotService : IHostedService
                     _ = Task.Run(async () =>
                     {
                         _runningCommands.TryAdd(context.Message.Id, cts);
+
                         try
                         {
-                            await command.ExecuteAsync(context);
+                            await MihuBotDiscordActivitySource.RunAsync("ExecuteDiscordCommand", command.Command,
+                                context.Guild.Id, context.Message.Channel.Id, context.Message.Id, context.AuthorId,
+                                () => command.ExecuteAsync(context),
+                                invokedAs: context.Command, cancellationToken: cts.Token);
                         }
                         catch (Exception ex)
                         {
@@ -210,7 +214,10 @@ public class MihuBotService : IHostedService
                     component.Message.Id,
                     component.User.Id);
 
-                await match.Value.HandleMessageComponentAsync(component);
+                await MihuBotDiscordActivitySource.RunAsync("HandleDiscordMessageComponent", match.Value.Command,
+                    component.Channel.Guild()?.Id, component.Channel.Id, component.Message.Id, component.User.Id,
+                    () => match.Value.HandleMessageComponentAsync(component),
+                    interactionId: component.Id, componentType: component.Data.Type);
             }
         }
         catch (Exception ex)

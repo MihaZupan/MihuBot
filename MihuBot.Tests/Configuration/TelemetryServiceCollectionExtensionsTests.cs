@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MihuBot.Configuration;
+using MihuBot.Discord;
 using MihuBot.RuntimeUtils;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
@@ -105,6 +106,11 @@ public sealed class TelemetryServiceCollectionExtensionsTests
             Assert.NotNull(activity);
         }
 
+        using (var activity = MihuBotDiscordActivitySource.Instance.StartActivity("discord-export-test"))
+        {
+            Assert.NotNull(activity);
+        }
+
         Assert.True(traces.ForceFlush());
         Assert.True(metrics.ForceFlush());
 
@@ -112,6 +118,8 @@ public sealed class TelemetryServiceCollectionExtensionsTests
             e.Path == "/v1/traces" && e.Body.Contains("telemetry-export-test", StringComparison.Ordinal));
         Assert.Contains("library-export-test", traceExport.Body, StringComparison.Ordinal);
         Assert.Contains("MihuBot.Ai", traceExport.Body, StringComparison.Ordinal);
+        Assert.Contains("discord-export-test", traceExport.Body, StringComparison.Ordinal);
+        Assert.Contains("MihuBot.Discord", traceExport.Body, StringComparison.Ordinal);
 
         var metricExport = Assert.Single(handler.Exports, e =>
             e.Path == "/v1/metrics" && e.Body.Contains("mihubot.test.duration", StringComparison.Ordinal));
