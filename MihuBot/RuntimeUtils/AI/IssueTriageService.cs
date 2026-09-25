@@ -50,13 +50,17 @@ public sealed class IssueTriageService(
             return;
         }
 
-        await TriageIssuesAsync(cancellationToken);
+        await MihuBotAIActivitySource.RunAutomaticAsync("AutomaticIssueTriage",
+            _ => TriageIssuesAsync(cancellationToken));
     }
 
     private async Task TriageIssuesAsync(CancellationToken cancellationToken)
     {
         foreach (RepoConfig repoConfig in s_repoConfigs)
         {
+            using var repositoryActivity = MihuBotAIActivitySource.Instance.StartActivity("AutomaticTriageRepository");
+            repositoryActivity?.SetTag("repository.name", repoConfig.RepoName);
+
             await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
             long repoId = await DataIngestion.TryGetKnownRepositoryIdAsync(repoConfig.RepoName, cancellationToken);
@@ -93,32 +97,54 @@ public sealed class IssueTriageService(
 
             foreach (IssueInfo issue in issues)
             {
-                TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issue.Id, cancellationToken);
+                using var issueActivity = MihuBotAIActivitySource.Instance.StartActivity("AutomaticTriageIssue");
+                issueActivity?.SetOperation("triage", "automatic");
+                issueActivity?.SetIssueContext(issue);
 
-                if (triagedIssue is null)
+                try
                 {
-                    triagedIssue = new TriagedIssueRecord { IssueId = issue.Id };
-                    db.TriagedIssues.Add(triagedIssue);
+                    TriagedIssueRecord triagedIssue = await db.TriagedIssues.FirstOrDefaultAsync(i => i.IssueId == issue.Id, cancellationToken);
+
+                    if (triagedIssue is null)
+                    {
+                        triagedIssue = new TriagedIssueRecord { IssueId = issue.Id };
+                        db.TriagedIssues.Add(triagedIssue);
+                    }
+
+                    triagedIssue.UpdatedAt = DateTime.UtcNow;
+
+                    bool isNewIssue = triagedIssue.TriageReportIssueNumber == 0;
+
+                    if (DateTime.UtcNow - issue.CreatedAt <= TimeSpan.FromDays(7) &&
+                        issue.State == ItemState.Open &&
+                        issue.IssueType == IssueType.Issue &&
+                        (isNewIssue || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
+                        !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase) &&
+                        (isNewIssue || await db.BodyEditHistory.AsNoTracking().Where(e => e.ResourceIdentifier == issue.Id).CountAsync(cancellationToken) < 5))
+                    {
+                        triagedIssue.Body = issue.Body;
+
+                        await TriageIssueAsync(issue, triagedIssue, repoConfig.FilterDescription, cancellationToken);
+
+                        triaged++;
+
+                        await db.SaveChangesAsync(CancellationToken.None);
+
+                        issueActivity?.SetTag("report.issue.number", triagedIssue.TriageReportIssueNumber);
+                    }
+                    else
+                    {
+                        issueActivity?.SetTag("issue.skipped", true);
+                    }
+
+                    issueActivity?.SetSuccess();
                 }
-
-                triagedIssue.UpdatedAt = DateTime.UtcNow;
-
-                bool isNewIssue = triagedIssue.TriageReportIssueNumber == 0;
-
-                if (DateTime.UtcNow - issue.CreatedAt <= TimeSpan.FromDays(7) &&
-                    issue.State == ItemState.Open &&
-                    issue.IssueType == IssueType.Issue &&
-                    (isNewIssue || !issue.Body.ContainsAny(s_issueBodiesToSkipOnUpdate)) &&
-                    !string.Equals(issue.Body, triagedIssue.Body, StringComparison.OrdinalIgnoreCase) &&
-                    (isNewIssue || await db.BodyEditHistory.AsNoTracking().Where(e => e.ResourceIdentifier == issue.Id).CountAsync(cancellationToken) < 5))
+                catch (Exception ex)
                 {
-                    triagedIssue.Body = issue.Body;
-
-                    await TriageIssueAsync(issue, triagedIssue, repoConfig.FilterDescription, cancellationToken);
-
-                    triaged++;
-
-                    await db.SaveChangesAsync(CancellationToken.None);
+                    issueActivity?.SetTag("run.cancelled", ex is OperationCanceledException);
+                    issueActivity?.SetError(ex);
+                    repositoryActivity?.SetError(ex);
+                    throw;
                 }
             }
 
@@ -128,6 +154,8 @@ public sealed class IssueTriageService(
             {
                 _logger.DebugLog($"[{nameof(IssueTriageService)}]: {triaged} issues triaged for {repoConfig.RepoName}.");
             }
+
+            repositoryActivity?.SetSuccess();
         }
     }
 
@@ -154,6 +182,11 @@ public sealed class IssueTriageService(
 
     private async Task TriageIssueAsync(IssueInfo issue, TriagedIssueRecord triagedIssue, string repoFilterDescription, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("PublishIssueTriage");
+        activity?.SetOperation("triage", "publishReport");
+        activity?.SetIssueContext(issue);
+        activity?.SetTag("report.action", triagedIssue.TriageReportIssueNumber == 0 ? "create" : "update");
+
         ConcurrentQueue<string> toolLogs = [];
 
         var options = new IssueTriageHelper.TriageOptions(TriageHelper.DefaultModel, "MihuBot", issue, toolLogs.Enqueue, SkipCommentsOnCurrentIssue: false, AllowReasoning: true);
@@ -207,8 +240,16 @@ public sealed class IssueTriageService(
             }
             catch (Exception ex)
             {
+                activity?.SetError(ex);
                 _logger.DebugLog($"Failed to update existing triage report for <{issue.HtmlUrl}>: {ex}");
             }
+        }
+
+        activity?.SetTag("report.issue.number", triagedIssue.TriageReportIssueNumber);
+
+        if (activity?.Status != ActivityStatusCode.Error)
+        {
+            activity?.SetSuccess();
         }
     }
 }

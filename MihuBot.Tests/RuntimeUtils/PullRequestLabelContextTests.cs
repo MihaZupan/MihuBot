@@ -1,5 +1,6 @@
 using System.Net;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,6 +9,7 @@ using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
 using Octokit.Internal;
+using RecordedActivities = MihuBot.Tests.RuntimeUtils.AiSearchActivityTests.RecordedActivities;
 using static MihuBot.RuntimeUtils.AI.IssueLabelContext;
 using static MihuBot.RuntimeUtils.AI.PullRequestLabelContext;
 using static MihuBot.RuntimeUtils.DataIngestion.GitHub.GitHubGraphQL;
@@ -16,6 +18,134 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class PullRequestLabelContextTests
 {
+    [Fact]
+    public async Task ContextActivitiesDescribeParallelEvidenceAndHistoryFallbackWithoutContent()
+    {
+        using var activities = new RecordedActivities();
+        using var transport = new Transport { Body = "#2", Copilot = true, EmptyFileHistory = true };
+
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+
+        var parent = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestLabelContext");
+        Assert.Equal(activities.Root.SpanId, parent.ParentSpanId);
+        Assert.Equal(ActivityStatusCode.Ok, parent.Status);
+        Assert.Equal(42, parent.GetTagItem("issue.number"));
+        Assert.Equal("dotnet/runtime", parent.GetTagItem("issue.repository"));
+        Assert.Single(context.ClosingIssues);
+        Assert.Single(context.MentionedItems);
+        Assert.Single(context.CopilotSessionPrompts);
+        activities.AssertNoStatistics();
+
+        foreach (string name in new[] { "GetPullRequestLabelMetadata", "GetPullRequestFileEvidence", "GetMentionedLabelContext", "GetPullRequestCopilotPrompts" })
+        {
+            var child = Assert.Single(activities.Stopped, a => a.OperationName == name);
+            Assert.Equal(parent.SpanId, child.ParentSpanId);
+            Assert.Equal(ActivityStatusCode.Ok, child.Status);
+        }
+
+        var history = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestLabelHistory");
+        Assert.Equal(ActivityStatusCode.Ok, history.Status);
+        Assert.Equal(new[] { "file", "directory" }, activities.Stopped
+            .Where(a => a.OperationName == "GetPullRequestHistoryBatch")
+            .Select(a => a.GetTagItem("history.kind")));
+        Assert.All(activities.Stopped, a =>
+        {
+            Assert.Null(a.GetTagItem("copilot.tasks.discoveryLimit"));
+            Assert.Null(a.GetTagItem("timeout.seconds"));
+        });
+
+        string[] tagValues = [.. activities.Stopped.SelectMany(a => a.TagObjects)
+            .Select(t => t.Value).OfType<string>()];
+
+        foreach (string content in new[] { "Stale title", "Stale body", "Current PR title", "+new code", "src/vm/file.cpp", "Mentioned item body", "Fix VM allocation" })
+        {
+            Assert.DoesNotContain(tagValues, value => value.Contains(content, StringComparison.Ordinal));
+        }
+    }
+
+    [Theory]
+    [InlineData("none", 0, 0, 0)]
+    [InlineData("local", 1, 0, 1)]
+    [InlineData("remote", 1, 1, 1)]
+    [InlineData("private", 1, 0, 0)]
+    public async Task MentionActivitiesRecordLocalAndRemoteEvidence(string source, int references, int calls, int count)
+    {
+        using var activities = new RecordedActivities();
+        var stored = Target();
+        stored.Number = 2;
+        stored.HtmlUrl = "https://github.com/dotnet/runtime/issues/2";
+        stored.Repository.Private = source == "private";
+        using var transport = new Transport
+        {
+            StoredItems = (_, _) => Task.FromResult<IssueInfo[]>(source is "local" or "private" ? [stored] : []),
+        };
+        var issue = Target();
+        issue.Body = source == "none" ? "" : "#2";
+
+        var results = await transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None);
+
+        Assert.Equal(count, results.Length);
+        var activity = Assert.Single(activities.Stopped, a => a.OperationName == "GetMentionedLabelContext");
+        Assert.Equal(ActivityStatusCode.Ok, activity.Status);
+        Assert.Equal(calls, transport.GraphRequests.Count);
+        activities.AssertNoStatistics();
+
+        if (references > 0)
+        {
+            var database = Assert.Single(activities.Stopped, a => a.OperationName == "GetStoredLabelReferences");
+            Assert.Equal(activity.SpanId, database.ParentSpanId);
+        }
+        else
+        {
+            Assert.Single(activities.Stopped);
+        }
+    }
+
+    [Fact]
+    public async Task MentionActivitiesRecordDatabaseFailureWithoutLeakingExceptionContent()
+    {
+        using var activities = new RecordedActivities();
+        var failure = new InvalidOperationException("Private database error details");
+        using var transport = new Transport
+        {
+            StoredItems = (_, _) => Task.FromException<IssueInfo[]>(failure),
+        };
+        var issue = Target();
+        issue.Body = "#2";
+
+        Assert.Same(failure, await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transport.IssueContext.GetMentionedItemsAsync(issue, ["area-VM"], CancellationToken.None)));
+
+        Assert.Empty(transport.GraphRequests);
+        Assert.Equal(2, activities.Stopped.Count);
+        Assert.All(activities.Stopped, activity =>
+        {
+            Assert.Equal(ActivityStatusCode.Error, activity.Status);
+            Assert.Equal(nameof(InvalidOperationException), activity.StatusDescription);
+        });
+    }
+
+    [Theory]
+    [InlineData(false, "noMatch")]
+    [InlineData(true, "noPrompts")]
+    public async Task CopilotActivitiesDistinguishNoMatchFromEmptySessions(bool matchingTask, string outcome)
+    {
+        using var activities = new RecordedActivities();
+        using var transport = new Transport
+        {
+            ApiTask = matchingTask,
+            TaskDetails = new() { ["task-id"] = (HttpStatusCode.OK, """{"sessions":[]}""") },
+        };
+
+        var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
+
+        Assert.Empty(context.CopilotSessionPrompts);
+        var activity = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestCopilotPrompts");
+        Assert.Equal(ActivityStatusCode.Ok, activity.Status);
+        Assert.Equal(outcome, activity.GetTagItem("context.outcome"));
+        activities.AssertNoStatistics();
+    }
+
     [Theory]
     [InlineData(IssueType.Issue, "issue")]
     [InlineData(IssueType.PullRequest, "PR")]
@@ -198,6 +328,7 @@ public sealed class PullRequestLabelContextTests
     [Fact]
     public async Task TaskDetailsRunConcurrentlyAndKeepPromptsWhenAnotherTaskIsForbidden()
     {
+        using var activities = new RecordedActivities();
         int started = 0;
         TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -242,6 +373,16 @@ public sealed class PullRequestLabelContextTests
         Assert.Contains("HTTP 403", context.CopilotSessionStatus, StringComparison.Ordinal);
         Assert.Single(context.ClosingIssues);
 
+        var sessionActivity = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestCopilotPrompts");
+        Assert.Equal("partial", sessionActivity.GetTagItem("context.outcome"));
+        activities.AssertNoStatistics();
+        Assert.Equal(ActivityStatusCode.Error, sessionActivity.Status);
+        var failedRequest = Assert.Single(activities.Stopped, a => a.OperationName == "GetCopilotTaskData" && a.Status == ActivityStatusCode.Error);
+        Assert.Equal("taskDetails", failedRequest.GetTagItem("copilot.request"));
+        Assert.Equal(403, failedRequest.GetTagItem("http.response.status_code"));
+        Assert.Equal(sessionActivity.SpanId, failedRequest.ParentSpanId);
+        Assert.Equal(ActivityStatusCode.Ok, Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestLabelContext").Status);
+
         string prompt = AreaLabelDetector.CreatePrompt(await PromptItem(), ["area-VM"], "area-", [], context);
         Assert.Contains("Visible prompt", prompt, StringComparison.Ordinal);
         Assert.Contains("Copilot session prompts:", prompt, StringComparison.Ordinal);
@@ -276,6 +417,7 @@ public sealed class PullRequestLabelContextTests
     [InlineData("timeout-cancellation")]
     public async Task SessionTransportFailuresDoNotPreventPredictionEvidence(string failure)
     {
+        using var activities = new RecordedActivities();
         using var transport = new Transport
         {
             Empty = true, ApiTask = true,
@@ -297,6 +439,12 @@ public sealed class PullRequestLabelContextTests
         Assert.DoesNotContain("Copilot session prompts:", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain(context.CopilotSessionStatus, prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("CopilotSessionStatus", prompt, StringComparison.Ordinal);
+
+        var request = Assert.Single(activities.Stopped, a => a.OperationName == "GetCopilotTaskData");
+        Assert.Equal(failure == "http" ? "transportError" : "timeout", request.GetTagItem("context.outcome"));
+        Assert.Equal(ActivityStatusCode.Error, request.Status);
+        var sessions = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestCopilotPrompts");
+        Assert.Equal("unavailable", sessions.GetTagItem("context.outcome"));
     }
 
     [Theory]
@@ -317,6 +465,7 @@ public sealed class PullRequestLabelContextTests
     [Fact]
     public async Task CallerCancellationIsNotMisreportedAsSessionAccessFailure()
     {
+        using var activities = new RecordedActivities();
         using var cancellation = new CancellationTokenSource();
         TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         using var transport = new Transport
@@ -344,11 +493,23 @@ public sealed class PullRequestLabelContextTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
         Assert.DoesNotContain(transport.Logs, log => log.StartsWith("Copilot session prompts unavailable", StringComparison.Ordinal));
+
+        foreach (string name in new[] { "GetPullRequestCopilotPrompts", "GetCopilotTaskData" })
+        {
+            var activity = Assert.Single(activities.Stopped, a => a.OperationName == name);
+            Assert.Equal("cancelled", activity.GetTagItem("context.outcome"));
+            Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        }
+
+        var parent = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestLabelContext");
+        Assert.Equal(true, parent.GetTagItem("context.cancelled"));
+        Assert.Equal(ActivityStatusCode.Error, parent.Status);
     }
 
     [Fact]
     public async Task RequiredFileLookupFailuresStillPropagate()
     {
+        using var activities = new RecordedActivities();
         using var transport = new Transport
         {
             Body = "#2",
@@ -363,6 +524,9 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal("File lookup failed", error.Message);
         Assert.Contains(transport.GraphRequests, r => r.GetProperty("query").GetString()!.Contains("ReferencedLabelItems", StringComparison.Ordinal));
         Assert.Contains(transport.RestRequests, r => r.AbsolutePath.EndsWith("/tasks", StringComparison.Ordinal));
+
+        Assert.Equal(ActivityStatusCode.Error, Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestLabelContext").Status);
+        Assert.Equal(ActivityStatusCode.Error, Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestFileEvidence").Status);
     }
 
     [Theory]
@@ -535,6 +699,7 @@ public sealed class PullRequestLabelContextTests
     [InlineData(IssueType.Discussion)]
     public async Task MentionedItemsUseStoredEvidenceWithoutCallingGraphQL(IssueType type)
     {
+        using var activities = new RecordedActivities();
         var stored = Target();
         stored.Number = 2;
         stored.HtmlUrl = "https://github.com/dotnet/runtime/pull/2";
@@ -562,7 +727,10 @@ public sealed class PullRequestLabelContextTests
         Assert.Equal(AreaLabelDetector.MaxContextBodyCharacters, item.Body.Length);
         Assert.Equal(["area-VM"], item.Labels);
         Assert.Empty(transport.GraphRequests);
-        Assert.Contains("0 GraphQL API calls, cost 0.", Assert.Single(transport.Logs), StringComparison.Ordinal);
+        Assert.Empty(transport.Logs);
+        var activity = Assert.Single(activities.Stopped, a => a.OperationName == "GetMentionedLabelContext");
+        Assert.Equal(ActivityStatusCode.Ok, activity.Status);
+        activities.AssertNoStatistics();
     }
 
     [Fact]
@@ -912,6 +1080,7 @@ public sealed class PullRequestLabelContextTests
     [Fact]
     public async Task FilePaginationAndTruncationAreExplicitlyBounded()
     {
+        using var activities = new RecordedActivities();
         using var transport = new Transport { PaginateFiles = true };
         var context = await transport.Service.GetAsync(Target(), ["area-VM"], CancellationToken.None);
 
@@ -920,6 +1089,10 @@ public sealed class PullRequestLabelContextTests
         Assert.True(context.FilesTruncated);
         Assert.Equal(MaxHistoryPaths, context.HistoryPaths.Length);
         Assert.True(context.Files.Sum(f => f.Patch.Length) <= MaxPatchCharacters);
+
+        var activity = Assert.Single(activities.Stopped, a => a.OperationName == "GetPullRequestFileEvidence");
+        Assert.Equal(true, activity.GetTagItem("files.truncated"));
+        activities.AssertNoStatistics();
     }
 
     [Fact]

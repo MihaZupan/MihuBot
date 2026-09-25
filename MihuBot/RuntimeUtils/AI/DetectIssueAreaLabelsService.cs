@@ -25,10 +25,11 @@ public sealed class DetectIssueAreaLabelsService(
             return;
         }
 
-        await DoDetectionAsync(cancellationToken);
+        await MihuBotAIActivitySource.RunAutomaticAsync("AutomaticLabelPrediction",
+            activity => DoDetectionAsync(activity, cancellationToken));
     }
 
-    private async Task DoDetectionAsync(CancellationToken cancellationToken)
+    private async Task DoDetectionAsync(Activity activity, CancellationToken cancellationToken)
     {
         await using GitHubDbContext db = GitHubDb.CreateDbContext();
 
@@ -60,6 +61,7 @@ public sealed class DetectIssueAreaLabelsService(
 
             if (ServiceConfiguration.PauseGitHubPolling || ServiceConfiguration.PauseAutoLabelPrediction)
             {
+                activity?.SetTag("run.paused", true);
                 return;
             }
 
@@ -70,6 +72,10 @@ public sealed class DetectIssueAreaLabelsService(
                 continue;
             }
 
+            using var issueActivity = MihuBotAIActivitySource.Instance.StartActivity("AutomaticLabelPredictionIssue");
+            issueActivity?.SetOperation("triage", "automaticLabels");
+            issueActivity?.SetIssueContext(issue);
+
             try
             {
                 AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(repo, issue, cancellationToken: cancellationToken);
@@ -79,13 +85,20 @@ public sealed class DetectIssueAreaLabelsService(
                 await channel.SendMessageAsync(FormatPrediction(issue, suggestions),
                     allowedMentions: AllowedMentions.None, options: new RequestOptions { CancelToken = cancellationToken });
                 _processedIssues.TryAdd(processedKey);
+
+                issueActivity?.SetSuccess();
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
             {
+                issueActivity?.SetTag("run.cancelled", true);
+                issueActivity?.SetError(ex);
                 throw;
             }
             catch (Exception ex)
             {
+                issueActivity?.SetError(ex);
+                activity?.SetError(ex);
+
                 await _logger.DebugAsync($"Failed to do label detection for <{issue.HtmlUrl}>: {ex}");
             }
         }

@@ -34,36 +34,71 @@ public sealed class IssueLabelContext(
     internal async Task<(RelatedItem[] Items, int Calls, int Cost)> GetMentionedItemsAsync(
         IssueInfo issue, string[] labels, string body, string url, IEnumerable<string> excludedUrls, CancellationToken cancellationToken)
     {
-        var excluded = new HashSet<string>(excludedUrls, StringComparer.OrdinalIgnoreCase) { url };
-        var references = GetDescriptionReferences(body, issue.Repository.FullName, issue.Number, excluded);
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("GetMentionedLabelContext");
+        activity?.SetOperation("context", "mentions");
+        activity?.SetTag("issue.number", issue.Number);
+        activity?.SetTag("issue.repository", issue.Repository.FullName);
 
-        if (references.Length == 0)
+        try
         {
-            return ([], 0, 0);
-        }
+            var excluded = new HashSet<string>(excludedUrls, StringComparer.OrdinalIgnoreCase) { url };
+            var references = GetDescriptionReferences(body, issue.Repository.FullName, issue.Number, excluded);
+            activity?.SetTag("references.limitReached", references.Length == ReferencedLabelItemsBatchSize);
 
-        var stored = await (_getStoredItems ?? GetStoredItemsAsync)(references, cancellationToken);
-        var found = stored.Select(i => (i.Repository.FullName.ToLowerInvariant(), i.Number)).ToHashSet();
-        var (items, calls, cost) = await graphQL.GetReferencedLabelItemsAsync(
-            [.. references.Where(r => !found.Contains(r))], _debugLog, cancellationToken);
-        List<LinkedItemLabelInfoModel> localItems = [];
-
-        foreach (var item in stored)
-        {
-            if (item.Repository.Private)
+            if (references.Length == 0)
             {
-                _debugLog($"Skipping private referenced item {item.Repository.FullName}#{item.Number}.");
-                continue;
+                activity?.SetSuccess();
+
+                return ([], 0, 0);
             }
 
-            localItems.Add(new(item.HtmlUrl, item.Title, item.Body, item.User is null ? null : new(item.User.Login),
-                new(item.Repository.FullName, false), new([.. item.Labels.Select(l => new LabelNameModel(l.Name))])));
-        }
+            IssueInfo[] stored;
+            using (var storedActivity = MihuBotAIActivitySource.Instance.StartActivity("GetStoredLabelReferences"))
+            {
+                try
+                {
+                    stored = await (_getStoredItems ?? GetStoredItemsAsync)(references, cancellationToken);
+                    storedActivity?.SetSuccess();
+                }
+                catch (Exception ex)
+                {
+                    storedActivity?.SetError(ex.GetType().Name);
+                    throw;
+                }
+            }
 
-        return ([.. localItems.Concat(items)
-            .Where(i => !excluded.Contains(i.Url))
-            .DistinctBy(i => i.Url, StringComparer.OrdinalIgnoreCase)
-            .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))], calls, cost);
+            var found = stored.Select(i => (i.Repository.FullName.ToLowerInvariant(), i.Number)).ToHashSet();
+            var missing = references.Where(r => !found.Contains(r)).ToArray();
+
+            var (items, calls, cost) = await graphQL.GetReferencedLabelItemsAsync(missing, _debugLog, cancellationToken);
+            List<LinkedItemLabelInfoModel> localItems = [];
+
+            foreach (var item in stored)
+            {
+                if (item.Repository.Private)
+                {
+                    _debugLog($"Skipping private referenced item {item.Repository.FullName}#{item.Number}.");
+                    continue;
+                }
+
+                localItems.Add(new(item.HtmlUrl, item.Title, item.Body, item.User is null ? null : new(item.User.Login),
+                    new(item.Repository.FullName, false), new([.. item.Labels.Select(l => new LabelNameModel(l.Name))])));
+            }
+
+            RelatedItem[] results = [.. localItems.Concat(items)
+                .Where(i => !excluded.Contains(i.Url))
+                .DistinctBy(i => i.Url, StringComparer.OrdinalIgnoreCase)
+                .Select(i => CreateRelatedItem(i, issue.Repository.FullName, labels))];
+            activity?.SetSuccess();
+
+            return (results, calls, cost);
+        }
+        catch (Exception ex)
+        {
+            activity?.SetTag("context.cancelled", cancellationToken.IsCancellationRequested);
+            activity?.SetError(ex.GetType().Name);
+            throw;
+        }
     }
 
     private async Task<IssueInfo[]> GetStoredItemsAsync((string Repository, int Number)[] references, CancellationToken cancellationToken)

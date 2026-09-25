@@ -8,6 +8,28 @@ public static class MihuBotAIActivitySource
 {
     public static readonly ActivitySource Instance = new("MihuBot.Ai", "1.0.0");
 
+    internal static async Task RunAutomaticAsync(string name, Func<Activity, Task> action)
+    {
+        using var activity = Instance.StartActivity(name);
+        activity?.SetOperation("background", name);
+
+        try
+        {
+            await action(activity);
+
+            if (activity?.Status != ActivityStatusCode.Error)
+            {
+                activity?.SetSuccess();
+            }
+        }
+        catch (Exception ex)
+        {
+            activity?.SetTag("run.cancelled", ex is OperationCanceledException);
+            activity?.SetError(ex);
+            throw;
+        }
+    }
+
     public static Activity SetIssueContext(this Activity activity, IssueInfo issue)
     {
         activity?.SetTag("issue.number", issue.Number);

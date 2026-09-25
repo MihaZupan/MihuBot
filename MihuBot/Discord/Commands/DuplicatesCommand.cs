@@ -6,6 +6,7 @@ using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.DB.GitHub;
 using MihuBot.Helpers.AI;
+using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Octokit;
@@ -142,6 +143,12 @@ public sealed class DuplicatesCommand : CommandBase
             return;
         }
 
+        await MihuBotAIActivitySource.RunAutomaticAsync("AutomaticDuplicateDetection",
+            _ => QueueAutomatedDuplicateDetectionAsync(cancellationToken));
+    }
+
+    private async Task QueueAutomatedDuplicateDetectionAsync(CancellationToken cancellationToken)
+    {
         await using GitHubDbContext db = _db.CreateDbContext();
 
         DateTime startDate = DateTime.UtcNow.Subtract(TimeSpan.FromHours(1));
@@ -163,36 +170,52 @@ public sealed class DuplicatesCommand : CommandBase
 
         foreach (IssueInfo issue in issues)
         {
+            using var issueActivity = MihuBotAIActivitySource.Instance.StartActivity("AutomaticDuplicateCandidate");
+            issueActivity?.SetOperation("triage", "duplicateEligibility");
+            issueActivity?.SetIssueContext(issue);
+
             if (!issue.User.IsLikelyARealUser() ||
                 !_configuration.GetOrDefault(null, $"{Command}.Enabled.{issue.RepoName()}", false))
             {
+                issueActivity?.SetTag("skip.reason", "authorOrRepositoryDisabled");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
             if (DateTime.UtcNow.Subtract(issue.CreatedAt).TotalMinutes < 3)
             {
                 // Give it 3 minutes before processing in case the author references the duplicate in a comment.
+                issueActivity?.SetTag("skip.reason", "tooRecent");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(issue.Body))
             {
+                issueActivity?.SetTag("skip.reason", "emptyBody");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
             if (!_processedIssuesForDuplicateDetection.TryAdd(issue.Id))
             {
+                issueActivity?.SetTag("skip.reason", "alreadyProcessed");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
             if (IsPublicAnnouncementIssue(issue))
             {
+                issueActivity?.SetTag("skip.reason", "announcement");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
             if (await IsLikelySpamOrUnfilledIssueAsync(issue, CancellationToken.None))
             {
                 _logger.DebugLog($"{nameof(DuplicatesCommand)}: Skipping likely spam/unfilled issue <{issue.HtmlUrl}>");
+                issueActivity?.SetTag("skip.reason", "spamOrUnfilled");
+                issueActivity?.SetSuccess();
                 continue;
             }
 
@@ -202,15 +225,29 @@ public sealed class DuplicatesCommand : CommandBase
             {
                 await RunDuplicateDetectionAsync(issue, automated: true, message: null);
             }, CancellationToken.None);
+
+            issueActivity?.SetTag("issue.queued", true);
+            issueActivity?.SetSuccess();
         }
     }
 
     private async Task RunDuplicateDetectionAsync(IssueInfo issue, bool automated, MessageContext message)
     {
-        await _sempahore.WaitAsync();
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("RunIssueDuplicateDetection");
+        activity?.SetOperation("triage", "duplicatesWorkflow");
+        activity?.SetIssueContext(issue);
+        activity?.SetTag("run.trigger", automated ? "automatic" : "manual");
+
+        using (var queueActivity = MihuBotAIActivitySource.Instance.StartActivity("WaitForDuplicateDetectionSlot"))
+        {
+            await _sempahore.WaitAsync();
+            queueActivity?.SetSuccess();
+        }
+
         try
         {
             var result = await RunMultiPassDuplicateDetectionAsync(issue, backtesting: !automated, message?.CancellationToken ?? default);
+            activity?.SetTag("report.autoPostEligible", result.WouldAutoPost);
 
             if (result.AllDuplicates.Length == 0)
             {
@@ -220,6 +257,8 @@ public sealed class DuplicatesCommand : CommandBase
                 {
                     await message.ReplyAsync("No duplicates found.");
                 }
+
+                activity?.SetSuccess();
 
                 return;
             }
@@ -244,10 +283,13 @@ public sealed class DuplicatesCommand : CommandBase
 
                 if (result.WouldAutoPost && automated)
                 {
+                    activity?.SetTag("report.action", "autoPost");
                     await PostGhCommentSummary(issue, ghComment);
                 }
                 else
                 {
+                    activity?.SetTag("report.action", "manualVerification");
+
                     if (result.SecondaryTestDuplicates.Length == 0)
                     {
                         reply = $"**Note:** Secondary test did not find overlapping useful duplicates.\n\n{reply}";
@@ -274,9 +316,14 @@ public sealed class DuplicatesCommand : CommandBase
             reply = reply.TruncateWithDotDotDot(1800);
 
             await (message?.Channel ?? channel).SendTextFileAsync($"Duplicates-{issue.Number}.txt", summary, reply, components);
+
+            activity?.SetSuccess();
         }
         catch (Exception ex)
         {
+            activity?.SetTag("run.cancelled", ex is OperationCanceledException);
+            activity?.SetError(ex);
+
             await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error during duplicate detection for issue <{issue.HtmlUrl}>", ex);
         }
         finally
@@ -299,7 +346,7 @@ public sealed class DuplicatesCommand : CommandBase
         bool candidatePreFilter(IssueInfo issue, IssueInfo duplicate) => UsefulIssueToReportPreFilter(issue, duplicate, backtesting);
 
         // First pass (no reasoning)
-        (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: false, candidateIssues: [], candidatePreFilter, cancellationToken);
+        (IssueInfo Issue, double Certainty, string Summary)[] duplicates = await DetectIssueDuplicatesAsync(issue, pass: 1, allowReasoning: false, candidateIssues: [], candidatePreFilter, cancellationToken);
 
         (IssueInfo Issue, double Certainty, string Summary)[] issuesToReport = [.. duplicates.Where(d => IsLikelyUsefulToReport(issue, d.Issue, d.Certainty, certaintyThreshold, backtesting))];
 
@@ -309,7 +356,7 @@ public sealed class DuplicatesCommand : CommandBase
         }
 
         // Second pass (with reasoning, reusing candidates from first pass)
-        var secondaryTest = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
+        var secondaryTest = await DetectIssueDuplicatesAsync(issue, pass: 2, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
 
         issuesToReport = [.. issuesToReport.Where(d => secondaryTest.Any(s => s.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, s.Issue, s.Certainty, certaintyThreshold, backtesting)))];
 
@@ -322,7 +369,7 @@ public sealed class DuplicatesCommand : CommandBase
         (IssueInfo Issue, double Certainty, string Summary)[] thirdTestDuplicates = [];
         if (DoThirdVerificationCheck)
         {
-            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
+            thirdTestDuplicates = await DetectIssueDuplicatesAsync(issue, pass: 3, allowReasoning: true, [.. issuesToReport.Select(i => i.Issue)], candidatePreFilter, cancellationToken);
 
             issuesToReport = [.. issuesToReport.Where(d => thirdTestDuplicates.Any(t => t.Issue.Id == d.Issue.Id && IsLikelyUsefulToReport(issue, t.Issue, t.Certainty, certaintyThreshold, backtesting)))];
         }
@@ -573,14 +620,22 @@ public sealed class DuplicatesCommand : CommandBase
         }
     }
 
-    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, bool allowReasoning, IssueInfo[] candidateIssues, Func<IssueInfo, IssueInfo, bool> candidatePreFilter, CancellationToken cancellationToken)
+    private async Task<(IssueInfo Issue, double Certainty, string Summary)[]> DetectIssueDuplicatesAsync(IssueInfo issue, int pass, bool allowReasoning, IssueInfo[] candidateIssues, Func<IssueInfo, IssueInfo, bool> candidatePreFilter, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("DuplicateDetectionPass");
+        activity?.SetOperation("triage", "verifyDuplicates");
+        activity?.SetIssueContext(issue);
+        activity?.SetTag("verification.pass", pass);
+        activity?.SetTag("reasoning.enabled", allowReasoning);
+
         ModelInfo model = _triageHelper.DefaultModel;
 
         if (_configuration.TryGet(null, "Duplicates.Model", out string modelName))
         {
             model = OpenAIService.AllModels.FirstOrDefault(m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase)) ?? model;
         }
+
+        activity?.SetTag("gen_ai.request.model", model.Name);
 
         var options = new IssueTriageHelper.TriageOptions(
             model,
@@ -594,11 +649,30 @@ public sealed class DuplicatesCommand : CommandBase
         int attemptCount = 0;
         while (true)
         {
+            attemptCount++;
+            using var attemptActivity = MihuBotAIActivitySource.Instance.StartActivity("DuplicateDetectionAttempt");
+            attemptActivity?.SetTag("attempt", attemptCount);
+
             try
             {
-                return await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken, candidateIssues);
+                var results = await _triageHelper.DetectDuplicateIssuesAsync(options, cancellationToken, candidateIssues);
+                attemptActivity?.SetSuccess();
+                activity?.SetSuccess();
+
+                return results;
             }
-            catch (JsonException) when (++attemptCount < 3) { }
+            catch (Exception ex)
+            {
+                attemptActivity?.SetError(ex);
+
+                if (ex is JsonException && attemptCount < 3)
+                {
+                    continue;
+                }
+
+                activity?.SetError(ex);
+                throw;
+            }
         }
     }
 
@@ -761,6 +835,10 @@ public sealed class DuplicatesCommand : CommandBase
 
     private async Task<bool> IsLikelySpamOrUnfilledIssueAsync(IssueInfo issue, CancellationToken cancellationToken)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("ClassifyDuplicateIssueEligibility");
+        activity?.SetOperation("triage", "spamCheck");
+        activity?.SetIssueContext(issue);
+
         try
         {
             using IChatClient chatClient = _openAI.GetChat(OpenAIService.DefaultModel, work: true);
@@ -792,10 +870,14 @@ public sealed class DuplicatesCommand : CommandBase
 
             ChatResponse<bool> response = await chatClient.GetResponseAsync<bool>(prompt, useJsonSchemaResponseFormat: true, cancellationToken: cancellationToken);
 
+            activity?.SetTag("issue.spamOrUnfilled", response.Result);
+            activity?.SetSuccess();
+
             return response.Result;
         }
         catch (Exception ex)
         {
+            activity?.SetError(ex);
             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Error checking if issue is spam/unfilled <{issue.HtmlUrl}>: {ex.Message}");
         }
 
@@ -812,16 +894,24 @@ public sealed class DuplicatesCommand : CommandBase
 
     private async Task PostGhCommentSummary(IssueInfo issue, string comment)
     {
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("PublishDuplicateSummary");
+        activity?.SetOperation("triage", "publishDuplicates");
+        activity?.SetIssueContext(issue);
+
         try
         {
             IssueComment newComment = await _github.Issue.Comment.Create(issue.Repository.Id, issue.Number, comment);
+            activity?.SetTag("report.comment.id", newComment.Id);
 
             _logger.DebugLog($"{nameof(DuplicatesCommand)}: Posted comment <{newComment.HtmlUrl}>");
 
             await _discord.GetTextChannel(Channels.DuplicatesPosted).TrySendMessageAsync($"<{newComment.HtmlUrl}>");
+            activity?.SetSuccess();
         }
         catch (Exception ex)
         {
+            activity?.SetError(ex);
+
             await _logger.DebugAsync($"{nameof(DuplicatesCommand)}: Error posting duplicate summary comment for issue <{issue.HtmlUrl}>", ex);
         }
     }

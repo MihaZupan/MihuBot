@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -10,6 +11,92 @@ namespace MihuBot.Tests.RuntimeUtils;
 
 public sealed class AiSearchActivityTests
 {
+    [Theory]
+    [InlineData("success")]
+    [InlineData("failure")]
+    [InlineData("cancellation")]
+    [InlineData("handledFailure")]
+    public async Task AutomaticRunRecordsOutcomeAndPreservesFailures(string outcome)
+    {
+        using var activities = new RecordedActivities();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Exception failure = outcome == "cancellation"
+            ? new OperationCanceledException(cancellation.Token)
+            : new InvalidOperationException("Background run failed");
+
+        var run = MihuBotAIActivitySource.RunAutomaticAsync("AutomaticTestRun", async activity =>
+        {
+            Assert.Same(activity, Activity.Current);
+            activity.SetTag("run.phase", "processing");
+            await Task.Yield();
+
+            if (outcome == "handledFailure")
+            {
+                activity.SetError(failure);
+            }
+            else if (outcome != "success")
+            {
+                throw failure;
+            }
+        });
+
+        if (outcome is "failure" or "cancellation")
+        {
+            Assert.Same(failure, await Record.ExceptionAsync(() => run));
+        }
+        else
+        {
+            await run;
+        }
+
+        var activity = Assert.Single(activities.Stopped);
+        Assert.Equal("AutomaticTestRun", activity.OperationName);
+        Assert.Equal(activities.Root.SpanId, activity.ParentSpanId);
+        Assert.Equal("background", activity.GetTagItem("operation.type"));
+        Assert.Null(activity.GetTagItem("run.trigger"));
+        Assert.Equal("processing", activity.GetTagItem("run.phase"));
+        activities.AssertNoStatistics();
+        Assert.Equal(outcome == "success" ? ActivityStatusCode.Ok : ActivityStatusCode.Error, activity.Status);
+        Assert.Same(activities.Root, Activity.Current);
+
+        if (outcome == "cancellation")
+        {
+            Assert.Equal(true, activity.GetTagItem("run.cancelled"));
+        }
+    }
+
+    [Fact]
+    public async Task QueuedAutomaticWorkRetainsParentAfterPollingRunCompletes()
+    {
+        using var activities = new RecordedActivities();
+        var continueWorker = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task worker = Task.CompletedTask;
+
+        await MihuBotAIActivitySource.RunAutomaticAsync("AutomaticTestPoll", _ =>
+        {
+            worker = Task.Run(async () =>
+            {
+                await continueWorker.Task;
+                using var issueActivity = MihuBotAIActivitySource.Instance.StartActivity("AutomaticTestIssue");
+                Assert.NotNull(issueActivity);
+                issueActivity.SetSuccess();
+            });
+            return Task.CompletedTask;
+        });
+
+        var poll = Assert.Single(activities.Stopped);
+        Assert.Equal(ActivityStatusCode.Ok, poll.Status);
+        continueWorker.SetResult();
+        await worker;
+
+        var issue = Assert.Single(activities.Stopped, a => a.OperationName == "AutomaticTestIssue");
+        Assert.Equal(poll.TraceId, issue.TraceId);
+        Assert.Equal(poll.SpanId, issue.ParentSpanId);
+        Assert.Equal(ActivityStatusCode.Ok, issue.Status);
+        Assert.Same(activities.Root, Activity.Current);
+    }
+
     [Theory]
     [InlineData("success")]
     [InlineData("failure")]
@@ -112,10 +199,10 @@ public sealed class AiSearchActivityTests
         Assert.Equal(ActivityStatusCode.Ok, activity.Status);
     }
 
-    private sealed class RecordedActivities : IDisposable
+    internal sealed class RecordedActivities : IDisposable
     {
         public Activity Root { get; } = new Activity("AiSearchActivityTest").Start();
-        public List<Activity> Stopped { get; } = [];
+        public ConcurrentQueue<Activity> Stopped { get; } = new();
         private readonly ActivityListener _listener;
 
         public RecordedActivities()
@@ -130,7 +217,7 @@ public sealed class AiSearchActivityTests
                 {
                     if (activity.TraceId == Root.TraceId)
                     {
-                        Stopped.Add(activity);
+                        Stopped.Enqueue(activity);
                     }
                 },
             };
@@ -141,6 +228,19 @@ public sealed class AiSearchActivityTests
         {
             _listener.Dispose();
             Root.Dispose();
+        }
+
+        public void AssertNoStatistics()
+        {
+            Assert.All(Stopped, activity => Assert.DoesNotContain(activity.TagObjects, tag =>
+                tag.Key.StartsWith("items.", StringComparison.Ordinal) ||
+                tag.Key.StartsWith("timings.", StringComparison.Ordinal) ||
+                tag.Key.EndsWith(".count", StringComparison.Ordinal) ||
+                tag.Key.EndsWith(".length", StringComparison.Ordinal) ||
+                tag.Key.EndsWith(".characters", StringComparison.Ordinal) ||
+                tag.Key is "graphql.calls" or "graphql.cost" or "files.fetched" or "files.total" or "patches.incomplete" or
+                    "references.stored" or "references.remote" or "references.remote.results" or "references.stored.privateExcluded" or
+                    "copilot.tasks.listed" or "copilot.tasks.selected" or "copilot.tasks.failed" or "tokens.budget"));
         }
     }
 
