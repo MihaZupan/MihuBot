@@ -91,7 +91,7 @@ public sealed class GitHubSearchService
         IssueSearchResponseOptions options,
         CancellationToken cancellationToken)
     {
-        using var activity = MihuBotActivitySource.Instance.StartActivity("BulkSearchIssuesAndComments");
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("BulkSearchIssuesAndComments");
         activity?.SetTag("search.terms", searchTerms);
         activity?.SetIssueSearchContext(bulkFilters);
         activity?.SetIssueSearchContext(filters);
@@ -180,7 +180,7 @@ public sealed class GitHubSearchService
         IssueSearchResponseOptions options,
         CancellationToken cancellationToken)
     {
-        using var activity = MihuBotActivitySource.Instance.StartActivity("BulkInnerSearchIssuesAndComments");
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("BulkInnerSearchIssuesAndComments");
         activity?.SetTag("search.term", term);
 
         IssueSearchResponseOptions vectorSearchOptions = options with
@@ -249,7 +249,7 @@ public sealed class GitHubSearchService
         IssueSearchResponseOptions options,
         CancellationToken cancellationToken)
     {
-        using var activity = MihuBotActivitySource.Instance.StartActivity("SearchIssuesAndComments");
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("SearchIssuesAndComments");
         activity?.SetTag("search.query", query);
         activity?.SetIssueSearchContext(filters);
         activity?.SetIssueSearchContext(options);
@@ -553,7 +553,7 @@ public sealed class GitHubSearchService
         bool preferSpeed,
         CancellationToken cancellationToken)
     {
-        using var activity = MihuBotActivitySource.Instance.StartActivity("FilterOutUnrelatedResults");
+        using var activity = MihuBotAIActivitySource.Instance.StartActivity("FilterOutUnrelatedResults");
         activity?.SetTag("search.context", searchContext);
         activity?.SetTag("search.results.count", results.Count);
         activity?.SetOperation("search", "filter");

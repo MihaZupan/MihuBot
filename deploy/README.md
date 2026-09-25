@@ -115,7 +115,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 
 | Configuration | Disabled without it |
 | --- | --- |
-| `AppInsights:ConnectionString` | Azure Monitor / OpenTelemetry export |
+| `Telemetry:Endpoint` | OTLP/HTTP trace and metric export |
 | `AzureOpenAI:Key` | AI features and personal deployments at `mihubotai8467177614` |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
 | `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |

@@ -18,7 +18,7 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature DiscordOAuth = new("Signing in with Discord", $"Discord:ClientSecret{Constants.DevSuffix}");
 
-    public static readonly OptionalFeature AppInsights = new("Azure Monitor telemetry", "AppInsights:ConnectionString");
+    public static readonly OptionalFeature Telemetry = new("OpenTelemetry traces and metrics", "Telemetry:Endpoint");
 
     public static readonly OptionalFeature AzureOpenAI = new("AI (chat, embeddings, GitHub search/triage, MCP server) and personal AI deployments 1", "AzureOpenAI:Key");
     public static readonly OptionalFeature AzureOpenAI2 = new("Personal AI deployments 2", "AzureOpenAI:Key2");
@@ -80,7 +80,6 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature[] All =
     [
-        AppInsights,
         AzureOpenAI,
         AzureOpenAI2,
         AzureOpenAI3,
@@ -103,6 +102,7 @@ public static class OptionalFeatures
         Qdrant,
         Spotify,
         Telegram,
+        Telemetry,
         Tenor,
         Youtube,
     ];

@@ -21,7 +21,6 @@
     <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.5.2" />
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
-    <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.6.0" />
     <PackageReference Include="Azure.ResourceManager.Network" Version="1.17.0" />
     <PackageReference Include="Azure.ResourceManager.Resources" Version="1.12.0" />
     <PackageReference Include="Azure.ResourceManager.Resources.Deployments" Version="1.0.0" />
@@ -45,6 +44,10 @@
     <PackageReference Include="MZ.YarpTunnel" Version="0.2.0" />
     <PackageReference Include="Octokit" Version="14.0.0" />
     <PackageReference Include="Octokit.GraphQL" Version="0.4.0-beta" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.19.1" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.19.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.19.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.19.0" />
     <PackageReference Include="SharpCollections" Version="0.1.4" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
     <PackageReference Include="Telegram.Bot" Version="22.10.3.1" />

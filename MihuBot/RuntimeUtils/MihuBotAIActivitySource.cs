@@ -4,7 +4,7 @@ using MihuBot.RuntimeUtils.Search;
 
 namespace MihuBot.RuntimeUtils;
 
-public static class MihuBotActivitySource
+public static class MihuBotAIActivitySource
 {
     public static readonly ActivitySource Instance = new("MihuBot.Ai", "1.0.0");
 

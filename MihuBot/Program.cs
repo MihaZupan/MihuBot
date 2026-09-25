@@ -2,7 +2,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using Azure.Core;
 using Azure.Identity;
-using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using Microsoft.AspNetCore.Authentication;
@@ -35,9 +34,6 @@ using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using MihuBot.Storage;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
@@ -198,43 +194,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
 
     string devSuffix = Constants.DevSuffix;
 
-    if (ProgramState.AzureEnabled && OperatingSystem.IsLinux() &&
-        builder.Configuration.IsConfigured(OptionalFeatures.AppInsights))
-    {
-        builder.Services.AddOpenTelemetry()
-            .UseAzureMonitor(options =>
-            {
-                options.ConnectionString = builder.Configuration["AppInsights:ConnectionString"];
-            })
-            .ConfigureResource(builder =>
-            {
-                builder.AddAttributes(new Dictionary<string, object>
-                {
-                    { "service.name", "mihubot" },
-                    { "service.namespace", "mihubot" },
-                    { "service.instance.id", "mihubot" },
-                    { "service.version", BuildInfo.GetCommitId() }
-                });
-            })
-            .WithTracing(builder =>
-            {
-                builder.AddAspNetCoreInstrumentation();
-                builder.AddHttpClientInstrumentation();
-                builder.AddSource("Yarp.ReverseProxy");
-            })
-            .WithLogging()
-            .WithMetrics(m =>
-            {
-                m.AddView("http.client.open_connections", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-                m.AddView("http.client.active_requests", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-                m.AddView("http.client.request.time_in_queue", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-                m.AddView("http.client.connection.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-                m.AddView("http.client.request.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-
-                m.AddView("http.server.request.duration", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-                m.AddView("http.server.active_requests", new MetricStreamConfiguration() { TagKeys = ["network.protocol.version"] });
-            });
-    }
+    services.AddMihuBotTelemetry(builder.Configuration);
 
     services.AddHttpLogging(logging =>
     {
