@@ -20,6 +20,7 @@ public sealed record ModelInfo(
 public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-6-luna";
+    public const string DefaultAgentModel = "gpt-6.1-sol";
 
     // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-29).
     // Estimates, not Azure region/deployment-specific billing rates. Above LongContextThreshold,

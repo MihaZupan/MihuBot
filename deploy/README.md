@@ -116,6 +116,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | Configuration | Disabled without it |
 | --- | --- |
 | `Telemetry:Endpoint` | OTLP/HTTP trace and metric export |
+| `Copilot:GitHubToken` | Local Copilot agent (`!agent`) |
 | `AzureOpenAI:Key` | AI features and personal deployments at `mihubotai8467177614` |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
 | `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol and GPT-6.1 Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |
@@ -144,6 +145,28 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 For Molly, use a single instance or instance affinity. Avoid
 process dumps and memory snapshots that retain expired transport secrets.
 The client protocol is documented in [Molly's README](../MihuBot/Molly/README.md).
+
+## Local Copilot agent
+
+Set `Copilot:GitHubToken` to a dedicated Copilot-enabled token (for a fine-grained
+PAT, enable the **Copilot Requests** permission). Do not reuse the bot's general
+GitHub token; classic PATs are not supported. The SDK bundles its pinned runtime
+into the app's build/publish output; retain the `runtimes/` directory alongside
+the executable.
+
+Rebuild/recreate the container to install Python, pip, and venv support; an app
+self-update alone does not update OS packages. Outside Docker, install these
+tools yourself.
+
+Workspaces default to `mihubot-agents` under the OS temporary directory,
+separate from bot state. Optionally set `Copilot:WorkspaceRoot` to a dedicated
+absolute directory outside the bot's working, application, and storage
+directories. Do not share this root between bot instances; leftover agent run
+directories there are removed on startup.
+
+The agent runs with the bot's OS permissions, **not in a sandbox**. Granting
+`agent.run` grants effective shell access; see [command permissions and
+usage](../MihuBot/Agents/README.md).
 
 ## Runtime-utils permissions
 

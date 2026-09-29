@@ -7,6 +7,23 @@ namespace MihuBot.Helpers.AI;
 
 public static class TokenUsageHelpers
 {
+    public static string FormatUsageFooter(string? model, long? inputTokens, long? outputTokens, decimal? estimatedCostUsd)
+    {
+        string footer = WithoutSnapshotDate(model ?? "Unknown model");
+
+        if (inputTokens.HasValue || outputTokens.HasValue)
+        {
+            string input = inputTokens is { } inputCount ? FormatTokenCount(inputCount) : "unknown";
+            string output = outputTokens is { } outputCount ? FormatTokenCount(outputCount) : "unknown";
+            footer = $"{input} tokens in, {output} out • {footer}";
+        }
+
+        string cost = estimatedCostUsd is { } usd
+            ? string.Create(CultureInfo.InvariantCulture, $"~${usd:0.00} USD")
+            : "USD estimate unavailable";
+        return $"{footer} • {cost}";
+    }
+
     public static string WithoutSnapshotDate(string model)
     {
         // Responses may identify a dated snapshot instead of the configured model alias.

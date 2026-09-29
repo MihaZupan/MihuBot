@@ -5,6 +5,15 @@ namespace MihuBot.Tests.Helpers.AI;
 
 public sealed class TokenUsageHelpersTests
 {
+    [Fact]
+    public void FormatUsageFooter_UsesSharedTokenAndCostFormatting()
+    {
+        Assert.Equal("123.7k tokens in, 1.2k out • gpt-6.1-sol • ~$0.25 USD",
+            TokenUsageHelpers.FormatUsageFooter("gpt-6.1-sol-2026-09-29", 123_742, 1_234, 0.25m));
+        Assert.Equal("unknown tokens in, 10 out • unknown-model • USD estimate unavailable",
+            TokenUsageHelpers.FormatUsageFooter("unknown-model", null, 10, null));
+    }
+
     [Theory]
     [InlineData("gpt-6-astra", "1.5")]
     [InlineData("GPT-6-ASTRA", "1.5")]
