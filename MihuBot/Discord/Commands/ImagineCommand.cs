@@ -39,7 +39,7 @@ public sealed class ImagineCommand : CommandBase
         await ExecuteAsync(ctx, ctx.ArgumentStringTrimmed);
     }
 
-    public static (string Content, SocketGuildUser Author) GetContentFromMessageReference(MessageContext ctx)
+    public static (string Content, IUser Author) GetContentFromMessageReference(MessageContext ctx)
     {
         if (ctx.Message.ReferencedMessage is { } referencedMessage &&
             referencedMessage.Content is not null &&
@@ -47,7 +47,7 @@ public sealed class ImagineCommand : CommandBase
             !string.IsNullOrWhiteSpace(cleanContent) &&
             referencedMessage.Attachments is null or { Count: 0 })
         {
-            return (cleanContent, ctx.Author);
+            return (cleanContent, referencedMessage.Author);
         }
 
         return (null, null);
@@ -63,21 +63,66 @@ public sealed class ImagineCommand : CommandBase
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            prompt = GetContentFromMessageReference(ctx).Content;
-        }
+        using var typing = ctx.Channel.EnterTypingState();
 
-        if (string.IsNullOrWhiteSpace(prompt))
+        try
         {
-            if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImagePromptPrompt", out string promptPrompt))
+            if (string.IsNullOrWhiteSpace(prompt))
             {
-                promptPrompt = "What's a cool prompt for Dall-e 3? Please reply with only the prompt, without quotes.";
+                prompt = GetContentFromMessageReference(ctx).Content;
             }
 
-            prompt = await _openAI.GetSimpleChatCompletionAsync(ctx.Guild.Id, promptPrompt);
-        }
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                if (!_configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImagePromptPrompt", out string promptPrompt) ||
+                    string.IsNullOrWhiteSpace(promptPrompt))
+                {
+                    promptPrompt = "What's a cool prompt for image generation? Please reply with only the prompt, without quotes.";
+                }
 
+                prompt = await _openAI.GetSimpleChatCompletionAsync(ctx.Guild.Id, promptPrompt, ctx.CancellationToken);
+            }
+
+            (prompt, GeneratedImageSize size) = ParsePrompt(prompt);
+
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                throw new InvalidOperationException("The image prompt is empty.");
+            }
+
+            _logger.DebugLog($"{nameof(ImagineCommand)} prompt: {prompt}");
+
+            GeneratedImage image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
+            {
+                EndUserId = $"Discord_{ctx.Channel.Id}_{ctx.AuthorId}".GetUtf8Sha3_512HashBase64Url(),
+                Quality = GeneratedImageQuality.High,
+                Size = size,
+            }, ctx.CancellationToken)).Value;
+
+            if (image?.ImageBytes is not { } bytes || bytes.IsEmpty)
+            {
+                throw new InvalidOperationException("Image generation returned no image data.");
+            }
+
+            using Stream stream = bytes.ToStream();
+            await ctx.Channel.SendFileAsync(stream, $"{ctx.Message.Id}.png");
+        }
+        catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Activity.Current?.SetStatus(ActivityStatusCode.Error, ex.GetType().Name);
+            _logger.DebugLog($"Imagine command failed for prompt '{prompt}': {ex}");
+            await ctx.Message.AddReactionAsync(Emotes.RedCross);
+            await ctx.ReplyAsync("Unable to generate or send the image. Please try again later.");
+        }
+    }
+
+    internal static (string Prompt, GeneratedImageSize Size) ParsePrompt(string prompt)
+    {
+        prompt = prompt?.TrimStart() ?? string.Empty;
         GeneratedImageSize size = GeneratedImageSize.W1024xH1024;
 
         if (prompt.StartsWith("large ", StringComparison.OrdinalIgnoreCase))
@@ -91,28 +136,6 @@ public sealed class ImagineCommand : CommandBase
             size = GeneratedImageSize.W1024xH1792;
         }
 
-        _logger.DebugLog($"{nameof(ImagineCommand)} prompt: {prompt}");
-
-        using var typing = ctx.Channel.EnterTypingState();
-
-        GeneratedImage image;
-        try
-        {
-            image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
-            {
-                EndUserId = $"Discord_{ctx.Channel.Id}_{ctx.AuthorId}".GetUtf8Sha3_512HashBase64Url(),
-                ResponseFormat = GeneratedImageFormat.Bytes,
-                Quality = GeneratedImageQuality.High,
-                Size = size,
-            })).Value;
-        }
-        catch (Exception ex)
-        {
-            _logger.DebugLog($"Image generation failed for prompt '{prompt}': {ex}");
-            await ctx.Message.AddReactionAsync(Emotes.RedCross);
-            return;
-        }
-
-        await ctx.Channel.SendFileAsync(image.ImageBytes.ToStream(), $"{ctx.Message.Id}.png");
+        return (prompt.Trim(), size);
     }
 }

@@ -57,7 +57,7 @@ public sealed class OpenAIService
 
         AddClient(OptionalFeatures.AzureOpenAI, "mihubotai8467177614", work: false, [.. gpt56Family, Gpt6Astra, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAI2, "mihaz-m30zd4gd-eastus", work: false, [.. gpt56Family, Gpt6Astra]);
-        AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false, gpt6LunaSol);
+        AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false, [.. gpt6LunaSol, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
         AddClient(OptionalFeatures.AzureOpenAIWork1, "issueshelperhu5783781236", work: true, [.. gpt6LunaSol, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAIWork2, "mizup-ma441ssi-eastus2", work: true, [.. gpt56Family, Gpt6Astra]);
 
@@ -180,11 +180,11 @@ public sealed class OpenAIService
         return null;
     }
 
-    public async Task<string> GetSimpleChatCompletionAsync(ulong? context, string prompt)
+    public async Task<string> GetSimpleChatCompletionAsync(ulong? context, string prompt, CancellationToken cancellationToken = default)
     {
         using IChatClient chatClient = GetChat(context);
 
-        ChatResponse chatResponse = await chatClient.GetResponseAsync(prompt);
+        ChatResponse chatResponse = await chatClient.GetResponseAsync(prompt, cancellationToken: cancellationToken);
 
         string response = chatResponse.Text;
 

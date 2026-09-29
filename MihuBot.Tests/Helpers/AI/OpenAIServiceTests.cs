@@ -164,10 +164,34 @@ public sealed class OpenAIServiceTests
     }
 
     [Theory]
+    [InlineData("gpt-image-2.5-flare", false)]
+    [InlineData("gpt-image-2.5-flare", true)]
+    [InlineData("gpt-image-2.5-sunburst", false)]
+    [InlineData("gpt-image-2.5-sunburst", true)]
+    public void GetImage_RoutesToSwedenCentral(string deployment, bool work)
+    {
+        var configuration = new TestConfigurationService();
+        configuration.Set(42, "ChatGPT.ImageDeployment", deployment);
+        configuration.Set(42, "ChatGPT.Work", work.ToString());
+        OpenAIService service = CreateService(configuration, "Key2", "Key3", "WorkKey1", "WorkKey2");
+
+        var client = service.GetImage(42ul);
+
+        Assert.NotNull(client);
+#pragma warning disable OPENAI001
+        Assert.Equal(Personal3, client.Endpoint.Host);
+        Assert.Equal("/openai/v1/", client.Endpoint.AbsolutePath);
+        Assert.Equal(deployment, client.Model);
+#pragma warning restore OPENAI001
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData(" ")]
     [InlineData("dall-e-3")]
+    [InlineData("gpt-image-2.5-flare")]
+    [InlineData("gpt-image-2.5-sunburst")]
     public void GetImage_UnavailableDeploymentReturnsNull(string? deployment)
     {
         var configuration = new TestConfigurationService();
