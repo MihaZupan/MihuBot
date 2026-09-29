@@ -17,6 +17,7 @@ public sealed class OpenAIServiceTests
     [Theory]
     [InlineData("gpt-6-luna", Work1, Personal3)]
     [InlineData("gpt-6-sol", Work1, Personal3)]
+    [InlineData("gpt-6.1-sol", Work1, Personal3)]
     [InlineData("gpt-6-astra", Work2, Personal1, Personal2)]
     [InlineData("gpt-5.6-luna", Work2, Personal1, Personal2)]
     [InlineData("gpt-5.6-terra", Work2, Personal1, Personal2)]
@@ -32,8 +33,23 @@ public sealed class OpenAIServiceTests
     }
 
     [Theory]
+    [InlineData(false, Personal3)]
+    [InlineData(true, Work1)]
+    public void GetChat_ContextCanSelectGpt61Sol(bool work, string host)
+    {
+        var configuration = new TestConfigurationService();
+        configuration.Set(42, "ChatGPT.Deployment", "gpt-6.1-sol");
+        configuration.Set(42, "ChatGPT.Work", work.ToString());
+        OpenAIService service = CreateService(configuration, "Key3", "WorkKey1");
+
+        AssertChat(service.GetChat(42ul), "gpt-6.1-sol", host);
+        Assert.Equal(1_050_000, Assert.Single(OpenAIService.AllModels, m => m.Name == "gpt-6.1-sol").ContextSize);
+    }
+
+    [Theory]
     [InlineData("gpt-6-luna", "WorkKey2", Personal3)]
     [InlineData("gpt-6-sol", "WorkKey2", Personal3)]
+    [InlineData("gpt-6.1-sol", "WorkKey2", Personal3)]
     [InlineData("gpt-6-astra", "WorkKey1", Personal1)]
     [InlineData("gpt-5.6-luna", "WorkKey1", Personal1)]
     [InlineData("gpt-5.6-terra", "WorkKey1", Personal1)]
@@ -49,6 +65,7 @@ public sealed class OpenAIServiceTests
     [Theory]
     [InlineData("gpt-6-luna", Personal3)]
     [InlineData("gpt-6-sol", Personal3)]
+    [InlineData("gpt-6.1-sol", Personal3)]
     [InlineData("gpt-6-astra", Personal1)]
     public void GetChat_NoWorkCredentialsFallsBackToPersonal(string deployment, string host)
     {
@@ -58,26 +75,31 @@ public sealed class OpenAIServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void GetChat_MissingDeploymentFailsInsteadOfUsingWrongEndpoint(bool work)
+    [InlineData("gpt-6-luna", false)]
+    [InlineData("gpt-6-luna", true)]
+    [InlineData("gpt-6.1-sol", false)]
+    [InlineData("gpt-6.1-sol", true)]
+    public void GetChat_MissingDeploymentFailsInsteadOfUsingWrongEndpoint(string deployment, bool work)
     {
         OpenAIService service = CreateService("Key2", "WorkKey2");
 
-        var error = Assert.Throws<InvalidOperationException>(() => service.GetChat("gpt-6-luna", work));
+        var error = Assert.Throws<InvalidOperationException>(() => service.GetChat(deployment, work));
 
-        Assert.Contains("gpt-6-luna", error.Message, StringComparison.Ordinal);
-        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("gpt-6-luna", work));
+        Assert.Contains(deployment, error.Message, StringComparison.Ordinal);
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat(deployment, work));
     }
 
-    [Fact]
-    public void GetChat_PersonalRequestsNeverUseWorkEndpoints()
+    [Theory]
+    [InlineData("gpt-6-luna")]
+    [InlineData("gpt-6.1-sol")]
+    public void GetChat_PersonalRequestsNeverUseWorkEndpoints(string deployment)
     {
         OpenAIService service = CreateService("WorkKey1");
 
-        Assert.Throws<InvalidOperationException>(() => service.GetChat("gpt-6-luna", work: false));
-        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("gpt-6-luna", work: false));
-        AssertChat(service.GetChat("gpt-6-luna", work: true), "gpt-6-luna", Work1);
+        Assert.Throws<InvalidOperationException>(() => service.GetChat(deployment, work: false));
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat(deployment, work: false));
+        AssertChat(service.GetChat(deployment, work: true), deployment, Work1);
+        AssertResponsesChat(service.GetResponsesChat(deployment, work: true), deployment, Work1);
     }
 
     [Theory]

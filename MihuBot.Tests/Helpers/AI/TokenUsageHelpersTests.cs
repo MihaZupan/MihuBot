@@ -10,6 +10,9 @@ public sealed class TokenUsageHelpersTests
     [InlineData("GPT-6-ASTRA", "1.5")]
     [InlineData("gpt-6-luna", "0.015")]
     [InlineData("gpt-6-sol", "0.3")]
+    [InlineData("gpt-6.1-sol", "0.3")]
+    [InlineData("GPT-6.1-SOL", "0.3")]
+    [InlineData("gpt-6.1-sol-2026-09-29", "0.3")]
     [InlineData("gpt-6-luna-2026-09-22", "0.015")]
     [InlineData("GPT-6-Luna-2026-09-22", "0.015")]
     public void EstimateCostUsd_UsesModelRates(string model, string expected)
@@ -19,8 +22,10 @@ public sealed class TokenUsageHelpersTests
         Assert.Equal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), TokenUsageHelpers.EstimateCostUsd(model, usage));
     }
 
-    [Fact]
-    public void EstimateCostUsd_DiscountsCacheWithoutDoubleCountingReasoning()
+    [Theory]
+    [InlineData("gpt-6-luna", "0.0078")]
+    [InlineData("gpt-6.1-sol", "0.148")]
+    public void EstimateCostUsd_DiscountsCacheWithoutDoubleCountingReasoning(string model, string expected)
     {
         var usage = new UsageDetails
         {
@@ -30,7 +35,7 @@ public sealed class TokenUsageHelpersTests
             ReasoningTokenCount = 9_000,
         };
 
-        Assert.Equal(0.0078m, TokenUsageHelpers.EstimateCostUsd("gpt-6-luna", usage));
+        Assert.Equal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), TokenUsageHelpers.EstimateCostUsd(model, usage));
     }
 
     [Theory]
@@ -40,6 +45,8 @@ public sealed class TokenUsageHelpersTests
     [InlineData("gpt-6-sol", 272_001, "1.238004")]
     [InlineData("gpt-6-astra", 272_000, "3.22")]
     [InlineData("gpt-6-astra", 272_001, "6.19002")]
+    [InlineData("gpt-6.1-sol", 272_000, "0.644")]
+    [InlineData("gpt-6.1-sol", 272_001, "1.238004")]
     public void EstimateCostUsd_AppliesLongContextThreshold(string model, long inputTokens, string expected)
     {
         var usage = new UsageDetails { InputTokenCount = inputTokens, OutputTokenCount = 10_000 };
@@ -51,6 +58,7 @@ public sealed class TokenUsageHelpersTests
     [InlineData("gpt-6-luna", "0.0315")]
     [InlineData("gpt-6-sol", "0.63")]
     [InlineData("gpt-6-astra", "3.15")]
+    [InlineData("gpt-6.1-sol", "0.59")]
     public void EstimateCostUsd_LongContextIncludesCachedTokens(string model, string expected)
     {
         var usage = new UsageDetails { InputTokenCount = 300_000, CachedInputTokenCount = 200_000, OutputTokenCount = 10_000 };

@@ -21,7 +21,7 @@ public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-6-luna";
 
-    // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-22).
+    // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-29).
     // Estimates, not Azure region/deployment-specific billing rates. Above LongContextThreshold,
     // input/cache rates double and output rates increase by 50% for the full request.
     public static readonly ModelInfo[] AllModels =
@@ -32,6 +32,7 @@ public sealed class OpenAIService
         new("gpt-6-luna", 1_050_000, 0.10m, 0.01m, 0.50m, LongContextThreshold: 272_000),
         new("gpt-6-sol", 1_050_000, 2m, 0.20m, 10m, LongContextThreshold: 272_000),
         new("gpt-6-astra", 1_050_000, 10m, 1m, 50m, LongContextThreshold: 272_000),
+        new("gpt-6.1-sol", 1_050_000, 2m, 0.10m, 10m, LongContextThreshold: 272_000),
     ];
 
     private readonly Logger _logger;
@@ -50,7 +51,7 @@ public sealed class OpenAIService
         }
 
         string[] gpt56Family = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];
-        string[] gpt6LunaSol = ["gpt-6-luna", "gpt-6-sol"];
+        string[] gpt6LunaSol = ["gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"];
         const string Gpt6Astra = "gpt-6-astra";
         string[] embeddings = ["text-embedding-3-small", "text-embedding-3-large"];
 

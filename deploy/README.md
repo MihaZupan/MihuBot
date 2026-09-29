@@ -118,8 +118,8 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Telemetry:Endpoint` | OTLP/HTTP trace and metric export |
 | `AzureOpenAI:Key` | AI features and personal deployments at `mihubotai8467177614` |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
-| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |
-| `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol and embeddings at `issueshelperhu5783781236` |
+| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol and GPT-6.1 Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |
+| `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol, GPT-6.1 Sol, and embeddings at `issueshelperhu5783781236` |
 | `AzureOpenAI:WorkKey2` | Work GPT-5.6 and GPT-6 Astra at `mizup-ma441ssi-eastus2` |
 | `AzureStorage:ConnectionString` | Archiving Discord attachments to blob storage (files stay on disk) |
 | `AzureStorage:ConnectionString-RuntimeUtils` | Fuzzing coverage reports and jitdiff extra assemblies |
