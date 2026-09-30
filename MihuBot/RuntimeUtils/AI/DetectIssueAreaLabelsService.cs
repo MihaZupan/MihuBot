@@ -14,6 +14,11 @@ public sealed class DetectIssueAreaLabelsService(
     AreaLabelDetector Detector)
     : PeriodicBackgroundService(new PeriodicTaskOptions { Interval = TimeSpan.FromMinutes(1) }, Logger)
 {
+    // Repositories using dotnet/issue-labeler that overlap with /data-ingestion.
+    // ASP.NET Core removed its ML labeler in dotnet/aspnetcore#69019.
+    private static readonly string[] s_labelerRepositories =
+        ["dotnet/runtime", "dotnet/extensions", "dotnet/roslyn", "dotnet/sdk"];
+
     private readonly Logger _logger = Logger;
     private readonly FileBackedHashSet _processedIssues = new(
         "ProcessedIssuesWithNeedsAreaLabel.txt", StringComparer.OrdinalIgnoreCase, NormalizeProcessedKey);
@@ -36,6 +41,7 @@ public sealed class DetectIssueAreaLabelsService(
         IssueInfo[] incomingItems = await GetIncomingItems(db.Issues, DateTime.UtcNow - TimeSpan.FromDays(1))
             .AsNoTracking()
             .Include(i => i.Repository)
+                .ThenInclude(r => r.Labels)
             .Include(i => i.User)
             .Include(i => i.Comments)
                 .ThenInclude(c => c.User)
@@ -47,13 +53,6 @@ public sealed class DetectIssueAreaLabelsService(
         {
             return;
         }
-
-        RepositoryInfo repo = await db.Repositories
-            .AsNoTracking()
-            .OnlyDotnetRuntime()
-            .Include(r => r.Labels)
-            .AsSplitQuery()
-            .SingleAsync(cancellationToken);
 
         foreach (IssueInfo issue in incomingItems)
         {
@@ -78,7 +77,7 @@ public sealed class DetectIssueAreaLabelsService(
 
             try
             {
-                AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(repo, issue, cancellationToken: cancellationToken);
+                AreaLabelSuggestion[] suggestions = await Detector.GetSuggestionsAsync(issue.Repository, issue, cancellationToken: cancellationToken);
 
                 var channel = Discord.GetTextChannel(Channels.SuggestedLabels)
                     ?? throw new InvalidOperationException("The suggested-labels channel is unavailable.");
@@ -105,7 +104,7 @@ public sealed class DetectIssueAreaLabelsService(
     }
 
     internal static IQueryable<IssueInfo> GetIncomingItems(IQueryable<IssueInfo> issues, DateTime since) =>
-        issues.FromDotnetRuntime()
+        issues.Where(i => !i.Repository.Private && s_labelerRepositories.Contains(i.Repository.FullName))
             .Where(i => i.CreatedAt >= since)
             .Where(i => i.IssueType == IssueType.Issue || i.IssueType == IssueType.PullRequest)
             .OrderBy(i => i.CreatedAt)
@@ -113,15 +112,24 @@ public sealed class DetectIssueAreaLabelsService(
 
     internal static string FormatPrediction(IssueInfo issue, AreaLabelSuggestion[] suggestions)
     {
-        string currentLabels = string.Join(", ", issue.Labels
+        string[] currentAreas = issue.Labels
             .Where(l => l.Name.StartsWith("area-", StringComparison.OrdinalIgnoreCase))
-            .Select(l => $"`{l.Name}`"));
+            .Select(l => l.Name)
+            .ToArray();
+        string currentLabels = string.Join(", ", currentAreas.Select(l => $"`{l}`"));
+        string indicator = (currentAreas.Length > 0, suggestions.Length > 0) switch
+        {
+            (true, true) => AreaLabelHistory.Equal(currentAreas, suggestions.Select(s => s.LabelName)) ? "✅" : "❌",
+            (false, false) => "⚪",
+            _ => "➖",
+        };
 
         bool isCopilotPr = issue.IssueType == IssueType.PullRequest && (issue.User?.Login.Contains("copilot", StringComparison.OrdinalIgnoreCase) ?? false);
+        string itemReference = issue.Repository is { } repo ? $"{repo.FullName}#{issue.Number}" : $"#{issue.Number}";
 
         return
             $"""
-            [`{issue.Title.TruncateWithDotDotDot(100)}` - {(issue.IssueType == IssueType.PullRequest ? "PR " : "")}#{issue.Number}](<{issue.HtmlUrl}>){(isCopilotPr ? " (Copilot PR)" : "")}
+            {indicator} [`{issue.Title.TruncateWithDotDotDot(100)}` - {(issue.IssueType == IssueType.PullRequest ? "PR " : "")}{itemReference}](<{issue.HtmlUrl}>){(isCopilotPr ? " (Copilot PR)" : "")}
             - Current: {(currentLabels.Length > 0 ? currentLabels : "<none>")}
             - Suggested: {(suggestions.Length > 0 ? string.Join(", ", suggestions.Select(s => $"`{s.LabelName}` ({s.Confidence:F2})")) : "<none>")}
             """;

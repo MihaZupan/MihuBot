@@ -293,11 +293,72 @@ public sealed class AreaLabelDetectionTests
         DateTime since = DateTime.UtcNow.AddDays(-1);
         var item = new IssueInfo
         {
-            RepositoryId = 210716005, IssueType = type, State = state, CreatedAt = since,
+            RepositoryId = 210716005, Repository = new() { FullName = "dotnet/runtime" },
+            IssueType = type, State = state, CreatedAt = since,
             Labels = label is null ? [] : [new() { Name = label }],
         };
 
         Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), since)));
+    }
+
+    [Theory]
+    [InlineData("dotnet/runtime", IssueType.Issue)]
+    [InlineData("dotnet/runtime", IssueType.PullRequest)]
+    [InlineData("dotnet/extensions", IssueType.Issue)]
+    [InlineData("dotnet/extensions", IssueType.PullRequest)]
+    [InlineData("dotnet/roslyn", IssueType.Issue)]
+    [InlineData("dotnet/roslyn", IssueType.PullRequest)]
+    [InlineData("dotnet/sdk", IssueType.Issue)]
+    [InlineData("dotnet/sdk", IssueType.PullRequest)]
+    public void IncomingDetectionIncludesIngestedMlLabelerRepositories(string repository, IssueType type)
+    {
+        DateTime since = DateTime.UtcNow.AddDays(-1);
+        var item = new IssueInfo
+        {
+            Repository = new() { FullName = repository },
+            CreatedAt = since, IssueType = type,
+        };
+
+        Assert.Same(item, Assert.Single(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), since)));
+    }
+
+    [Theory]
+    [InlineData("dotnet/aspnetcore")]
+    [InlineData("dotnet/efcore")]
+    [InlineData("dotnet/maui")]
+    [InlineData("dotnet/issue-labeler")]
+    [InlineData("danmoseley/runtime2")]
+    public void IncomingDetectionExcludesRepositoriesOutsideTheOverlap(string repository)
+    {
+        DateTime since = DateTime.UtcNow.AddDays(-1);
+        var item = new IssueInfo
+        {
+            Repository = new() { FullName = repository },
+            CreatedAt = since, IssueType = IssueType.Issue,
+        };
+
+        Assert.Empty(DetectIssueAreaLabelsService.GetIncomingItems(new[] { item }.AsQueryable(), since));
+    }
+
+    [Fact]
+    public void IncomingDetectionQueryTranslatesRepositoryScopeAndLoadsRepositoryLabels()
+    {
+        using var db = new GitHubDbContext(new DbContextOptionsBuilder<GitHubDbContext>()
+            .UseNpgsql("Host=localhost;Database=automatic_labels_query_test").Options);
+        string sql = DetectIssueAreaLabelsService.GetIncomingItems(db.Issues, DateTime.UtcNow.AddDays(-1))
+            .AsNoTracking()
+            .Include(i => i.Repository)
+                .ThenInclude(r => r.Labels)
+            .ToQueryString();
+
+        foreach (string repository in new[] { "dotnet/runtime", "dotnet/extensions", "dotnet/roslyn", "dotnet/sdk" })
+        {
+            Assert.Contains(repository, sql, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("\"FullName\"", sql, StringComparison.Ordinal);
+        Assert.Contains("\"Private\"", sql, StringComparison.Ordinal);
+        Assert.Contains("labels", sql, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -307,9 +368,10 @@ public sealed class AreaLabelDetectionTests
         DateTime since = now.AddDays(-1);
         IssueInfo[] items =
         [
-            new() { RepositoryId = 210716005, CreatedAt = since.AddTicks(-1), UpdatedAt = since.AddTicks(-1), IssueType = IssueType.Issue, Labels = [] },
-            new() { RepositoryId = 210716005, CreatedAt = now, IssueType = IssueType.Discussion },
-            new() { RepositoryId = 1, CreatedAt = now, IssueType = IssueType.PullRequest },
+            new() { Repository = new() { FullName = "dotnet/runtime" }, CreatedAt = since.AddTicks(-1), UpdatedAt = since.AddTicks(-1), IssueType = IssueType.Issue, Labels = [] },
+            new() { Repository = new() { FullName = "dotnet/runtime" }, CreatedAt = now, IssueType = IssueType.Discussion },
+            new() { Repository = new() { FullName = "dotnet/aspnetcore" }, CreatedAt = now, IssueType = IssueType.PullRequest },
+            new() { Repository = new() { FullName = "dotnet/sdk", Private = true }, CreatedAt = now, IssueType = IssueType.Issue },
         ];
 
         Assert.Empty(DetectIssueAreaLabelsService.GetIncomingItems(items.AsQueryable(), since));
@@ -325,7 +387,8 @@ public sealed class AreaLabelDetectionTests
         DateTime now = DateTime.UtcNow;
         var item = new IssueInfo
         {
-            RepositoryId = 210716005, CreatedAt = now.AddMonths(-1), UpdatedAt = now,
+            RepositoryId = 210716005, Repository = new() { FullName = "dotnet/runtime" },
+            CreatedAt = now.AddMonths(-1), UpdatedAt = now,
             IssueType = type, State = ItemState.Open, Labels = label is null ? [] : [new() { Name = label }],
         };
 
@@ -341,7 +404,8 @@ public sealed class AreaLabelDetectionTests
         DateTime since = DateTime.UtcNow.AddDays(-1);
         var items = Enumerable.Range(1, 150).Reverse().Select(number => new IssueInfo
         {
-            Number = number, RepositoryId = 210716005, CreatedAt = since.AddMinutes(number), IssueType = IssueType.Issue,
+            Number = number, RepositoryId = 210716005, Repository = new() { FullName = "dotnet/runtime" },
+            CreatedAt = since.AddMinutes(number), IssueType = IssueType.Issue,
         }).AsQueryable();
 
         Assert.Equal(Enumerable.Range(1, 150),
@@ -389,12 +453,51 @@ public sealed class AreaLabelDetectionTests
             - Suggested:
             """;
 
-        Assert.Equal($"{context} <none>",
+        Assert.Equal($"{(areaCount == 0 ? "⚪" : "➖")} {context} <none>",
             DetectIssueAreaLabelsService.FormatPrediction(item, []));
-        Assert.Equal($"{context} `area-VM` ({0.9:F2})",
+        Assert.Equal($"{(areaCount == 0 ? "➖" : "❌")} {context} `area-VM` ({0.9:F2})",
             DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9)]));
-        Assert.Equal($"{context} `area-VM` ({0.9:F2}), `area-JIT` ({0.75:F2})",
+        Assert.Equal($"{(areaCount == 0 ? "➖" : areaCount == 2 ? "✅" : "❌")} {context} `area-VM` ({0.9:F2}), `area-JIT` ({0.75:F2})",
             DetectIssueAreaLabelsService.FormatPrediction(item, [new("area-VM", 0.9), new("area-JIT", 0.75)]));
+    }
+
+    [Theory]
+    [InlineData("Area-Compiler", "area-compiler", "✅")]
+    [InlineData("Area-Compiler", "Area-Workspace", "❌")]
+    [InlineData("Area-Compiler", null, "➖")]
+    [InlineData(null, "Area-Compiler", "➖")]
+    [InlineData(null, null, "⚪")]
+    public void IncomingPredictionIndicatorsDistinguishComparisonAndMissingResults(string? current, string? suggested, string indicator)
+    {
+        var item = new IssueInfo
+        {
+            Repository = new() { FullName = "dotnet/roslyn" },
+            HtmlUrl = "https://github.com/dotnet/roslyn/issues/123",
+            IssueType = IssueType.Issue,
+            Number = 123,
+            Title = "Compiler issue",
+            Labels = current is null ? [new() { Name = "bug" }] : [new() { Name = current }],
+        };
+
+        string post = DetectIssueAreaLabelsService.FormatPrediction(item, suggested is null ? [] : [new(suggested, 0.9)]);
+
+        Assert.StartsWith($"{indicator} [`Compiler issue` - dotnet/roslyn#123]", post, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IncomingPredictionMatchingUsesCompleteLabelSetsRegardlessOfOrderCasingOrDuplicates()
+    {
+        var item = new IssueInfo
+        {
+            Title = "Issue", Labels = [new() { Name = "area-A" }, new() { Name = "Area-B" }],
+        };
+
+        Assert.StartsWith("✅ ", DetectIssueAreaLabelsService.FormatPrediction(item,
+            [new("AREA-B", 0.9), new("area-a", 0.8), new("area-a", 0.7)]), StringComparison.Ordinal);
+        Assert.StartsWith("❌ ", DetectIssueAreaLabelsService.FormatPrediction(item,
+            [new("area-A", 0.9)]), StringComparison.Ordinal);
+        Assert.StartsWith("❌ ", DetectIssueAreaLabelsService.FormatPrediction(item,
+            [new("area-A", 0.9), new("Area-B", 0.8), new("area-C", 0.7)]), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -420,14 +523,14 @@ public sealed class AreaLabelDetectionTests
 
         Assert.Equal(
             $"""
-            {expectedHeader}
+            ⚪ {expectedHeader}
             - Current: <none>
             - Suggested: <none>
             """,
             DetectIssueAreaLabelsService.FormatPrediction(item, []));
         Assert.Equal(
             $"""
-            {expectedHeader}
+            ➖ {expectedHeader}
             - Current: <none>
             - Suggested: `area-VM` ({0.9:F2})
             """,
@@ -452,7 +555,7 @@ public sealed class AreaLabelDetectionTests
 
         Assert.Equal(
             $"""
-            [`{expectedTitle}` - PR #123](<{item.HtmlUrl}>)
+            ⚪ [`{expectedTitle}` - PR #123](<{item.HtmlUrl}>)
             - Current: <none>
             - Suggested: <none>
             """,
