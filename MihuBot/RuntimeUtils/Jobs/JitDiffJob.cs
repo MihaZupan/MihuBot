@@ -8,6 +8,8 @@ public sealed class JitDiffJob : JobBase
 {
     public override string JobTitlePrefix => $"JitDiff {Architecture}";
 
+    private bool ShouldPostDiffsComment => GetConfigFlag("ShouldPostDiffsComment", true);
+
     public JitDiffJob(RuntimeUtilsService parent, BranchReference branch, string githubCommenterLogin, string arguments)
         : base(parent, branch, githubCommenterLogin, arguments)
     { }
@@ -60,8 +62,22 @@ public sealed class JitDiffJob : JobBase
 
         LastSystemInfo = null;
 
-        await SetFinalTrackingIssueBodyAsync(HasDiffExamples
-            ? $"[Browse JIT diff results and examples]({DiffExamplesUrl})"
-            : "");
+        DiffExamplesReport report = null;
+
+        if (HasDiffExamples)
+        {
+            var (_, reports, _) = await Parent.GetDiffExamplesAsync(ExternalId, jobTimeout);
+            report = reports.Single();
+        }
+
+        await SetFinalTrackingIssueBodyAsync(report?.ToIssueSummaryMarkdown(DiffExamplesUrl) ?? "");
+
+        if (report is not null && ShouldPostDiffsComment && TrackingIssue is not null)
+        {
+            foreach (string comment in report.GetIssueExampleComments(DiffExamplesUrl, CommentLengthLimit))
+            {
+                await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, comment);
+            }
+        }
     }
 }

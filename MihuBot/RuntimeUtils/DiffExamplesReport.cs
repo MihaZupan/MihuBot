@@ -27,6 +27,89 @@ public sealed class DiffExamplesReport
     public static bool IsPublicId(string externalId) =>
         externalId is { Length: > 0 and <= 11 } && Snowflake.TryGetFromString(externalId, out _);
 
+    public string ToIssueSummaryMarkdown(string reportUrl)
+    {
+        string details = string.Join("\n\n", [Summary, .. Notes]);
+        return $"### Diffs\n\n[Browse JIT diff results and examples]({reportUrl})\n\n{CodeBlock(LimitIssueText(details, 16_000))}";
+    }
+
+    public IEnumerable<string> GetIssueExampleComments(string reportUrl, int maxCharacters)
+    {
+        string footer = $"\n\n[Browse all JIT diff results and examples]({reportUrl})";
+
+        foreach (var (category, title) in new[]
+        {
+            ("regression", "JIT diff regressions"),
+            ("improvement", "JIT diff improvements"),
+            ("same-size", "Same-size JIT changes"),
+        })
+        {
+            DiffExampleEntry[] entries = [.. Entries.Where(e => e.Category == category)
+                .OrderByDescending(e => Math.Abs(e.RelativeSizeDelta))];
+
+            if (entries.Length == 0)
+            {
+                continue;
+            }
+
+            var comment = new StringBuilder($"### {title}\n\n");
+            int included = 0;
+
+            foreach (DiffExampleEntry entry in entries)
+            {
+                string example =
+                    $"""
+                    <details>
+                    <summary>{System.Net.WebUtility.HtmlEncode(entry.Method)} ({System.Net.WebUtility.HtmlEncode(entry.Description)})</summary>
+
+                    Assembly: <code>{System.Net.WebUtility.HtmlEncode(entry.Assembly)}</code>
+
+                    {CodeBlock(LimitIssueText(entry.Diff, 16_000), "diff")}
+                    {(entry.Truncated ? "\nNote: this example has reduced context or was truncated by the runner.\n" : "")}
+                    </details>
+
+
+                    """;
+
+                if (comment.Length + example.Length + footer.Length + 256 > maxCharacters)
+                {
+                    continue;
+                }
+
+                comment.Append(example);
+                included++;
+
+                if (included == 20)
+                {
+                    break;
+                }
+            }
+
+            comment.Append($"Showing {included} of {entries.Length} reported examples in this category.");
+            comment.Append(footer);
+            yield return comment.ToString();
+        }
+    }
+
+    private static string LimitIssueText(string text, int limit) => text.Length <= limit
+        ? text
+        : $"{text[..limit]}\n... truncated for GitHub; see the full report in the diff browser ...";
+
+    private static string CodeBlock(string text, string language = "")
+    {
+        int longestRun = 0;
+        int currentRun = 0;
+
+        foreach (char character in text)
+        {
+            currentRun = character == '`' ? currentRun + 1 : 0;
+            longestRun = Math.Max(longestRun, currentRun);
+        }
+
+        string fence = new('`', Math.Max(3, longestRun + 1));
+        return $"{fence}{language}\n{text}\n{fence}";
+    }
+
     public static async Task<DiffExamplesReport> ReadAsync(Stream stream, CancellationToken cancellationToken)
     {
         if (stream.CanSeek && stream.Length - stream.Position > MaxArtifactBytes)
