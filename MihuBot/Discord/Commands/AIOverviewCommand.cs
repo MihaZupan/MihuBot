@@ -18,7 +18,7 @@ public sealed class AIOverviewCommand : CommandBase
     private const string FocusMarker = ">>";
 
     public override string Command => "aioverview";
-    public override string[] Aliases => ["overview", "tldr", "tldrtldr", "summarize"];
+    public override string[] Aliases => ["overview", "tldr", "tldrtldr", "tltldr", "tldrtldrtldr", "tltltldr", "summarize"];
 
     protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
     protected override int CooldownToleranceCount => 3;
@@ -146,13 +146,23 @@ public sealed class AIOverviewCommand : CommandBase
                 """;
         }
 
-        if (ctx.Command == "tldrtldr")
+        if (ctx.Command is "tldrtldr" or "tltldr")
         {
             systemPrompt =
                 $"""
                 {systemPrompt}
 
                 Make this summary extra short: use at most 3 brief bullet points and no more than 75 words total.
+                Include only the most important takeaways, with no introduction or repetition.
+                """;
+        }
+        else if (ctx.Command is "tldrtldrtldr" or "tltltldr")
+        {
+            systemPrompt =
+                $"""
+                {systemPrompt}
+
+                Make this summary extra short: instead of bullet points, write a single paragraph, max 50 words total.
                 Include only the most important takeaways, with no introduction or repetition.
                 """;
         }
