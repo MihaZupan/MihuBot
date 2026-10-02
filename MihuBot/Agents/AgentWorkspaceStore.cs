@@ -34,22 +34,25 @@ internal sealed class AgentWorkspaceStore : IDisposable
 
         Directory.CreateDirectory(_root);
         _ownerLock = new FileStream(Path.Combine(_root, ".owner.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
 
-        try
+    public int Cleanup(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        int deleted = 0;
+
+        foreach (string directory in Directory.EnumerateDirectories(_root))
         {
-            foreach (string directory in Directory.EnumerateDirectories(_root))
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (IsRunDirectory(directory))
             {
-                if (IsRunDirectory(directory))
-                {
-                    Delete(directory);
-                }
+                Delete(directory);
+                deleted++;
             }
         }
-        catch
-        {
-            _ownerLock.Dispose();
-            throw;
-        }
+
+        return deleted;
     }
 
     public string Create()

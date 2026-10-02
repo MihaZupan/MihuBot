@@ -1,7 +1,6 @@
 using MihuBot.Configuration;
 using MihuBot.Discord.Permissions;
 using SharpCollections.Generic;
-using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -16,13 +15,15 @@ public class MihuBotService : IHostedService
     private readonly CompactPrefixTree<CommandBase> _commands = new(ignoreCase: true);
     private readonly List<INonCommandHandler> _nonCommandHandlers = new();
 
-    private readonly ConcurrentDictionary<ulong, CancellationTokenSource> _runningCommands = [];
+    private readonly RunningDiscordCommands _runningCommands;
 
-    public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions)
+    public MihuBotService(IServiceProvider services, InitializedDiscordClient discord, Logger logger, IPermissionsService permissions, IHostApplicationLifetime lifetime)
     {
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _permissions = permissions ?? throw new ArgumentNullException(nameof(permissions));
+        _runningCommands = new RunningDiscordCommands(lifetime.ApplicationStopping,
+            ex => _logger.DebugLog($"Failure while cancelling running command: {ex}"));
 
         foreach (var type in Assembly
             .GetExecutingAssembly()
@@ -66,10 +67,7 @@ public class MihuBotService : IHostedService
         {
             if (reaction.Emote?.Name == Emotes.RedCross.Name && (Constants.Admins.Contains(reaction.UserId) || reaction.UserId == reaction.Message.GetValueOrDefault()?.Author?.Id))
             {
-                if (_runningCommands.TryRemove(reaction.MessageId, out CancellationTokenSource cts))
-                {
-                    TryCancelRunningCommand(cts);
-                }
+                await _runningCommands.CancelAsync(reaction.MessageId);
             }
         }
         catch (Exception ex)
@@ -110,99 +108,130 @@ public class MihuBotService : IHostedService
             {
                 CommandBase command = match.Value;
 
-                var cts = new CancellationTokenSource();
-                var context = new CommandContext(_discord, message, match.Key, _logger, _permissions, cts.Token);
+                var run = _runningCommands.TryStart(message.Id);
 
-                if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
+                if (run is null)
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        _runningCommands.TryAdd(context.Message.Id, cts);
-
-                        try
-                        {
-                            await MihuBotDiscordActivitySource.RunAsync("ExecuteDiscordCommand", command.Command,
-                                context.Guild.Id, context.Message.Channel.Id, context.Message.Id, context.AuthorId,
-                                () => command.ExecuteAsync(context),
-                                invokedAs: context.Command, cancellationToken: cts.Token);
-                        }
-                        catch (Exception ex)
-                        {
-                            if (cts.Token.IsCancellationRequested)
-                            {
-                                context.DebugLog($"Error during cancellation: {ex}");
-                            }
-                            else
-                            {
-                                await context.DebugAsync(ex);
-                            }
-                        }
-                        finally
-                        {
-                            _runningCommands.TryRemove(context.Message.Id, out _);
-                        }
-                    });
+                    return;
                 }
-                else if (shouldWarn)
+
+                var context = new CommandContext(_discord, message, match.Key, _logger, _permissions, run.Token);
+                bool queued = false;
+
+                try
                 {
-                    await context.WarnCooldownAsync(cooldown);
+                    if (command.TryEnter(context, out TimeSpan cooldown, out bool shouldWarn))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            using (run)
+                            {
+                                await ObserveCommandAsync(context, async () =>
+                                {
+                                    run.Token.ThrowIfCancellationRequested();
+                                    await MihuBotDiscordActivitySource.RunAsync("ExecuteDiscordCommand", command.Command,
+                                        context.Guild.Id, context.Message.Channel.Id, context.Message.Id, context.AuthorId,
+                                        () => command.ExecuteAsync(context),
+                                        invokedAs: context.Command, cancellationToken: run.Token);
+                                });
+                            }
+                        });
+                        queued = true;
+                    }
+                    else if (shouldWarn)
+                    {
+                        await context.WarnCooldownAsync(cooldown);
+                    }
+                }
+                finally
+                {
+                    if (!queued)
+                    {
+                        run.Dispose();
+                    }
                 }
             }
         }
         else
         {
-            var cts = new CancellationTokenSource();
-            var messageContext = new MessageContext(_discord, message, _logger, cts.Token);
+            _ = _runningCommands.RunAsync(message.Id, token => HandleNonCommandMessageAsync(message, token));
+        }
+    }
 
-            foreach (var handler in _nonCommandHandlers)
+    private async Task HandleNonCommandMessageAsync(SocketUserMessage message, CancellationToken cancellationToken)
+    {
+        var messageContext = new MessageContext(_discord, message, _logger, cancellationToken);
+        List<Task> pending = null;
+
+        foreach (var handler in _nonCommandHandlers)
+        {
+            if (cancellationToken.IsCancellationRequested)
             {
-                try
-                {
-                    Task task = handler.HandleAsync(messageContext);
+                break;
+            }
 
-                    if (task.IsCompleted)
-                    {
-                        await task;
-                    }
-                    else
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            _runningCommands.TryAdd(messageContext.Message.Id, cts);
-                            try
-                            {
-                                await task;
-                            }
-                            catch (Exception ex)
-                            {
-                                if (cts.Token.IsCancellationRequested)
-                                {
-                                    messageContext.DebugLog($"Error during cancellation: {ex}");
-                                }
-                                else
-                                {
-                                    await messageContext.DebugAsync(ex);
-                                }
-                            }
-                            finally
-                            {
-                                _runningCommands.TryRemove(messageContext.Message.Id, out _);
-                            }
-                        });
-                    }
-                }
-                catch (Exception ex)
+            try
+            {
+                Task task = handler.HandleAsync(messageContext);
+
+                if (task.IsCompleted)
                 {
-                    _ = Task.Run(async () => await messageContext.DebugAsync(ex));
+                    await task;
                 }
+                else
+                {
+                    (pending ??= []).Add(ObserveCommandAsync(messageContext, () => task));
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                (pending ??= []).Add(messageContext.DebugAsync(ex));
+            }
+        }
+
+        if (pending is not null)
+        {
+            await Task.WhenAll(pending);
+        }
+    }
+
+    private static async Task ObserveCommandAsync(MessageContext context, Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException) when (context.CancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            if (context.CancellationToken.IsCancellationRequested)
+            {
+                context.DebugLog($"Error during cancellation: {ex}");
+            }
+            else
+            {
+                await context.DebugAsync(ex);
             }
         }
     }
 
     private async Task HandleMessageComponentAsync(SocketMessageComponent component)
     {
+        using var run = _runningCommands.TryStart(component.Message.Id);
+
+        if (run is null)
+        {
+            return;
+        }
+
         try
         {
+            run.Token.ThrowIfCancellationRequested();
             string id = component.Data.CustomId;
             int dashIndex = id.IndexOf('-');
 
@@ -216,9 +245,12 @@ public class MihuBotService : IHostedService
 
                 await MihuBotDiscordActivitySource.RunAsync("HandleDiscordMessageComponent", match.Value.Command,
                     component.Channel.Guild()?.Id, component.Channel.Id, component.Message.Id, component.User.Id,
-                    () => match.Value.HandleMessageComponentAsync(component),
-                    interactionId: component.Id, componentType: component.Data.Type);
+                    () => match.Value.HandleMessageComponentAsync(component, run.Token),
+                    interactionId: component.Id, componentType: component.Data.Type, cancellationToken: run.Token);
             }
+        }
+        catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
+        {
         }
         catch (Exception ex)
         {
@@ -283,21 +315,6 @@ public class MihuBotService : IHostedService
 
     private TaskCompletionSource _stopTcs;
 
-    private void TryCancelRunningCommand(CancellationTokenSource cts)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                cts.Cancel();
-            }
-            catch (Exception ex)
-            {
-                await _logger.DebugAsync("Failure while cancelling running command", ex);
-            }
-        });
-    }
-
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         var tcs = Interlocked.CompareExchange(
@@ -309,19 +326,13 @@ public class MihuBotService : IHostedService
         {
             try
             {
-                foreach ((_, CancellationTokenSource cts) in _runningCommands)
+                try
                 {
-                    TryCancelRunningCommand(cts);
+                    await _runningCommands.StopAsync(cancellationToken);
                 }
-
-                if (!_runningCommands.IsEmpty)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    Stopwatch s = Stopwatch.StartNew();
-
-                    while (s.Elapsed.TotalSeconds < 3 && !_runningCommands.IsEmpty)
-                    {
-                        await Task.Delay(100, cancellationToken);
-                    }
+                    _logger.DebugLog("Shutdown deadline reached while waiting for Discord command cleanup.");
                 }
 
                 try
@@ -342,7 +353,7 @@ public class MihuBotService : IHostedService
         }
         else
         {
-            await tcs.Task;
+            await tcs.Task.WaitAsync(cancellationToken);
         }
     }
 }

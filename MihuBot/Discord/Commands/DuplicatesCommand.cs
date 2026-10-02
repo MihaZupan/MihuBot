@@ -52,16 +52,17 @@ public sealed class DuplicatesCommand : CommandBase
         _openAI = openAI;
     }
 
-    public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
+    public override async Task HandleMessageComponentAsync(SocketMessageComponent component, CancellationToken cancellationToken)
     {
         if (_duplicatesToPost.TryRemove(component.Data.CustomId, out (IssueInfo Issue, string DuplicatesSummary) data))
         {
-            await component.UpdateAsync(m => m.Components = null);
+            await component.UpdateAsync(m => m.Components = null, new RequestOptions { CancelToken = cancellationToken });
+            cancellationToken.ThrowIfCancellationRequested();
             await PostGhCommentSummary(data.Issue, data.DuplicatesSummary);
         }
         else if (component.Data.CustomId.EndsWith("-no", StringComparison.Ordinal))
         {
-            await component.UpdateAsync(m => m.Components = null);
+            await component.UpdateAsync(m => m.Components = null, new RequestOptions { CancelToken = cancellationToken });
         }
     }
 

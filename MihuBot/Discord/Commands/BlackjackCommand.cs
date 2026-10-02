@@ -10,9 +10,9 @@ public sealed class BlackjackCommand(BrowserBlackjackService tables) : CommandBa
     public override Task ExecuteAsync(CommandContext ctx) =>
         ctx.ReplyAsync(GetLobbyMessage(ctx.Channel.Id, ctx.AuthorId), suppressMentions: true);
 
-    public override Task HandleMessageComponentAsync(SocketMessageComponent component) =>
+    public override Task HandleMessageComponentAsync(SocketMessageComponent component, CancellationToken cancellationToken) =>
         component.RespondAsync(GetLobbyMessage(component.Channel.Id, component.User.Id),
-            ephemeral: true, allowedMentions: AllowedMentions.None);
+            ephemeral: true, allowedMentions: AllowedMentions.None, options: new RequestOptions { CancelToken = cancellationToken });
 
     internal string GetLobbyMessage(ulong channelId, ulong authorId)
     {

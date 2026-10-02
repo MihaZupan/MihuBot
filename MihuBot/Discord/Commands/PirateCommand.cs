@@ -228,7 +228,7 @@ public sealed partial class PirateCommand : CommandBase
         }
     }
 
-    public override async Task HandleMessageComponentAsync(SocketMessageComponent component)
+    public override async Task HandleMessageComponentAsync(SocketMessageComponent component, CancellationToken cancellationToken)
     {
         if (!_pendingSelections.TryGetValue(component.Data.CustomId, out PendingSelection? pending))
         {
@@ -237,11 +237,11 @@ public sealed partial class PirateCommand : CommandBase
 
         if (component.User.Id != pending.AuthorId && !Constants.Admins.Contains(component.User.Id))
         {
-            await component.RespondAsync("Ye didn't ask for this one.", ephemeral: true);
+            await component.RespondAsync("Ye didn't ask for this one.", ephemeral: true, options: new RequestOptions { CancelToken = cancellationToken });
             return;
         }
 
-        component.DeferAsync().IgnoreExceptions();
+        await component.DeferAsync(options: new RequestOptions { CancelToken = cancellationToken });
 
         if (int.TryParse(component.Data.Values?.FirstOrDefault(), CultureInfo.InvariantCulture, out int index))
         {

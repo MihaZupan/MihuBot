@@ -81,8 +81,17 @@ commands on disk. This does not disable file tools or SDK-registered callbacks.
 Each run gets separate working, home, temporary, and Copilot-state directories.
 On completion, failure, cancellation, or graceful bot shutdown, MihuBot force-stops
 the SDK-owned runtime process tree before deleting the run directory. Startup
-removes leftover run directories under the exclusively locked workspace root.
+removes leftover run directories under the exclusively locked workspace root
+before accepting requests, and logs how many were recovered. Cleanup honors
+startup cancellation and leaves unrelated directories untouched.
 If runtime shutdown fails, the directory is retained and the error is logged.
+All Discord command and message-handler cancellation tokens are signaled as soon
+as host shutdown begins, including self-update restarts. New work is rejected
+during shutdown, and Discord stays connected while tracked commands finish their
+cleanup, up to the host's shutdown deadline. Reaction-cancelled commands remain
+tracked until they finish. Plain-message handlers share one cancellation token
+and are tracked as a group only if their dispatch has unfinished work; shutdown
+waits for all handlers in that group.
 This is best-effort lifecycle cleanup, not containment: deliberately detached
 processes, writes outside the workspace, and abrupt host termination cannot be
 reliably cleaned up this way.

@@ -32,24 +32,53 @@ public sealed class CopilotAgentService(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         string root = configuration["Copilot:WorkspaceRoot"] ?? Path.Combine(Path.GetTempPath(), "mihubot-agents");
-        _workspaces = new AgentWorkspaceStore(root, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, Constants.StorageDirectory);
+        var workspaces = new AgentWorkspaceStore(root, Directory.GetCurrentDirectory(), AppContext.BaseDirectory, Constants.StorageDirectory);
+
+        try
+        {
+            int deleted = workspaces.Cleanup(cancellationToken);
+
+            if (deleted != 0)
+            {
+                logger.DebugLog($"Agent startup cleanup removed {deleted} leftover workspace(s).");
+            }
+
+            _workspaces = workspaces;
+        }
+        catch
+        {
+            workspaces.Dispose();
+            throw;
+        }
+
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         ActiveRun active;
+        Task cancellation;
 
         lock (_lock)
         {
             _stopping = true;
             active = _active;
-            active?.Cancellation.Cancel();
+            cancellation = active?.Cancellation.CancelAsync() ?? Task.CompletedTask;
         }
 
         if (active is not null)
         {
+            try
+            {
+                await cancellation.WaitAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.DebugLog($"Failure while cancelling the active agent: {ex}");
+            }
+
             await active.Completion.Task.WaitAsync(cancellationToken);
         }
     }
@@ -69,6 +98,8 @@ public sealed class CopilotAgentService(
 
         lock (_lock)
         {
+            cancellation.Token.ThrowIfCancellationRequested();
+
             if (_stopping || _workspaces is null)
             {
                 throw new InvalidOperationException("The agent service is not running.");

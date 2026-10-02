@@ -1,5 +1,6 @@
 using GitHub.Copilot;
 using MihuBot.Agents;
+using MihuBot.Discord;
 using MihuBot.Helpers.AI;
 using MihuBot.Tests.Configuration;
 
@@ -85,6 +86,8 @@ public sealed class AgentTests
         }
 
         using var reopened = new AgentWorkspaceStore(files.Root);
+        Assert.Equal(1, reopened.Cleanup(CancellationToken.None));
+        Assert.Equal(0, reopened.Cleanup(CancellationToken.None));
         Assert.False(Directory.Exists(oldRun));
         Assert.True(Directory.Exists(preserved));
         Assert.True(Directory.Exists(Path.Combine(files.Root, "run-not-a-guid")));
@@ -95,6 +98,27 @@ public sealed class AgentTests
         reopened.Delete(first);
         Assert.True(Directory.Exists(second));
         reopened.Delete(second);
+    }
+
+    [Fact]
+    public void StartupCleanupHonorsCancellationAndCanBeRetried()
+    {
+        using var files = new TestFiles();
+        string oldRun;
+
+        using (var store = new AgentWorkspaceStore(files.Root))
+        {
+            oldRun = store.Create();
+        }
+
+        using var reopened = new AgentWorkspaceStore(files.Root);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => reopened.Cleanup(cancellation.Token));
+        Assert.True(Directory.Exists(oldRun));
+        Assert.Equal(1, reopened.Cleanup(CancellationToken.None));
+        Assert.False(Directory.Exists(oldRun));
     }
 
     [UnixFact]
@@ -112,7 +136,7 @@ public sealed class AgentTests
         store.Delete(run);
         Assert.True(File.Exists(keep));
         Directory.CreateSymbolicLink(run, target);
-        store.Delete(run);
+        Assert.Equal(1, store.Cleanup(CancellationToken.None));
         Assert.True(File.Exists(keep));
         Directory.CreateSymbolicLink(Path.Combine(files.Directory, "root-link"), target);
         Assert.Throws<IOException>(() => new AgentWorkspaceStore(Path.Combine(files.Directory, "root-link", "agents")));
@@ -218,6 +242,91 @@ public sealed class AgentTests
                 throw new InvalidOperationException("The runtime must not start."), cancellation.Token));
 
         Assert.Empty(Directory.EnumerateDirectories(files.Root));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscordShutdownWaitsForRuntimeAndWorkspaceCleanup(bool reactionCancelled)
+    {
+        using var files = new TestFiles();
+        using var store = new AgentWorkspaceStore(files.Root);
+        using var stopping = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var commands = new RunningDiscordCommands(stopping.Token, ex => Assert.Fail(ex.ToString()));
+        using var command = commands.TryStart(1);
+        Assert.NotNull(command);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleaningUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CopilotClient? observedClient = null;
+        string? observedWork = null;
+
+        Task run = ExecuteAsync();
+
+        try
+        {
+            await started.Task.WaitAsync(deadline.Token);
+
+            if (reactionCancelled)
+            {
+                await commands.CancelAsync(1);
+            }
+
+            await stopping.CancelAsync();
+            await cleaningUp.Task.WaitAsync(deadline.Token);
+            Task stop = commands.StopAsync(deadline.Token);
+            Assert.False(stop.IsCompleted);
+            Assert.NotNull(observedWork);
+            Assert.True(Directory.Exists(observedWork));
+
+            allowCleanup.SetResult();
+            await stop.WaitAsync(deadline.Token);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+            Assert.False(Directory.Exists(observedWork));
+            Assert.NotNull(observedClient);
+            Assert.Throws<ObjectDisposedException>(() => observedClient.Rpc);
+        }
+        finally
+        {
+            allowCleanup.TrySetResult();
+            await stopping.CancelAsync();
+
+            try
+            {
+                await run.WaitAsync(deadline.Token);
+            }
+            catch (OperationCanceledException) when (command.Token.IsCancellationRequested)
+            {
+            }
+        }
+
+        async Task ExecuteAsync()
+        {
+            using (command)
+            {
+                await CopilotAgentService.RunWithClientAsync(store, "", async (client, work, token) =>
+                {
+                    observedClient = client;
+                    observedWork = work;
+                    await client.PingAsync("shutdown-test", token);
+                    started.SetResult();
+
+                    try
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                    }
+                    finally
+                    {
+                        cleaningUp.SetResult();
+                        await allowCleanup.Task.WaitAsync(deadline.Token);
+                    }
+
+                    return "unreachable";
+                }, command.Token);
+            }
+        }
     }
 
     private sealed class TestFiles : IDisposable

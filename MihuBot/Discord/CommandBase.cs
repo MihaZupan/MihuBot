@@ -12,7 +12,7 @@ public abstract class CommandBase : CooldownTrackable, INonCommandHandler
 
     public virtual Task HandleAsync(MessageContext ctx) => Task.CompletedTask;
 
-    public virtual Task HandleMessageComponentAsync(SocketMessageComponent component) => Task.CompletedTask;
+    public virtual Task HandleMessageComponentAsync(SocketMessageComponent component, CancellationToken cancellationToken) => Task.CompletedTask;
 
     protected static string GetMessageLink(ulong guildId, ulong channelId, ulong messageId) =>
         $"https://discordapp.com/channels/{guildId}/{channelId}/{messageId}";
