@@ -95,7 +95,9 @@ public sealed class ImagineCommand : CommandBase
             GeneratedImage image = (await client.GenerateImageAsync(prompt, new ImageGenerationOptions
             {
                 EndUserId = $"Discord_{ctx.Channel.Id}_{ctx.AuthorId}".GetUtf8Sha3_512HashBase64Url(),
-                Quality = GeneratedImageQuality.High,
+                Quality = _configurationService.TryGet(ctx.Guild.Id, "ChatGPT.ImageQuality", out string quality) && !string.IsNullOrWhiteSpace(quality)
+                    ? new GeneratedImageQuality(quality.Trim())
+                    : GeneratedImageQuality.HighQuality,
                 Size = size,
             }, ctx.CancellationToken)).Value;
 
