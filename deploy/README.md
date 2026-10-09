@@ -47,6 +47,11 @@ and are logged.
 
 ## Runtime assets
 
+Discord voice dependencies (Opus, libsodium, libdave, and FFmpeg) are included in
+the image. Existing deployments must rebuild/recreate the container to pick up
+native dependency changes; an app self-update alone does not update them.
+Allow outbound UDP to Discord's voice servers; no inbound voice port mapping is needed.
+
 Browsers need access to `cdn.jsdelivr.net` and `cdnjs.cloudflare.com` for frontend
 dependencies. Local assets are included in the .NET build; no npm restore is needed.
 
