@@ -10,7 +10,7 @@ internal static class CryptographicOperationsExtensions
         public static bool FixedTimeEquals(ReadOnlySpan<char> expected, ReadOnlySpan<char> actual)
         {
             ArgumentOutOfRangeException.ThrowIfZero(expected.Length);
-            ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 1000);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 4096);
 
             return
                 expected.Length == actual.Length &&

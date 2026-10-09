@@ -79,6 +79,7 @@ public static class OptionalFeatures
     public static readonly OptionalFeature Telegram = new("Telegram relay bot", "TelegramBot:ApiKey");
     public static readonly OptionalFeature Tenor = new("Tenor gifs (!emote)", "Tenor:ApiKey");
     public static readonly OptionalFeature Youtube = new("YouTube data API (search and playlists)", "Youtube:ApiKey");
+    public static readonly OptionalFeature YoutubeArchive = new("YouTube archival API", "YoutubeArchive:Directory");
 
     public static readonly OptionalFeature[] All =
     [
@@ -108,6 +109,7 @@ public static class OptionalFeatures
         Telemetry,
         Tenor,
         Youtube,
+        YoutubeArchive,
     ];
 
     public static bool IsConfigured(this IConfiguration configuration, OptionalFeature feature) =>

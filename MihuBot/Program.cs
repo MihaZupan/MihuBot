@@ -35,6 +35,7 @@ using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
 using MihuBot.Storage;
+using MihuBot.YoutubeArchive;
 using Qdrant.Client;
 using SpotifyAPI.Web;
 using Telegram.Bot;
@@ -385,6 +386,22 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     if (builder.Configuration.IsConfigured(OptionalFeatures.Jellyfin))
     {
         services.AddSingleton(new JellyfinClient(builder.Configuration["Jellyfin:Host"], builder.Configuration["Jellyfin:ApiKey"]));
+    }
+
+    if (builder.Configuration.IsConfigured(OptionalFeatures.YoutubeArchive))
+    {
+        string directory = builder.Configuration["YoutubeArchive:Directory"];
+
+        if (!Path.IsPathFullyQualified(directory))
+        {
+            throw new InvalidOperationException("YouTube archival requires an absolute archive directory.");
+        }
+
+        services.AddSingleton<IYoutubeArchiveDownloader, YoutubeArchiveDownloader>();
+        services.AddSingleton<YoutubeArchiveService>();
+        services.AddHostedService(s => s.GetRequiredService<YoutubeArchiveService>());
+        services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, YoutubeArchiveAuthenticationHandler>(
+            YoutubeArchiveAuthenticationHandler.SchemeName, _ => { });
     }
 
     if (builder.Configuration.IsConfigured(OptionalFeatures.Spotify))

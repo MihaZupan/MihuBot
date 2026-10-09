@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "MihuBot YouTube Archive",
+  "version": "1.0.0",
+  "description": "Archive the current YouTube video or its audio using your MihuBot server.",
+  "permissions": ["activeTab", "storage"],
+  "optional_permissions": ["cookies"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "action": {
+    "default_title": "Archive with MihuBot",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

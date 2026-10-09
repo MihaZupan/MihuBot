@@ -1,4 +1,5 @@
 ﻿using Google.Apis.YouTube.v3;
+using Microsoft.AspNetCore.WebUtilities;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
@@ -91,13 +92,64 @@ internal static partial class YoutubeHelper
             return true;
         }
 
-        return false;
+        string shortsMatch = ShortsVideoRegex().Match(videoUrl).Groups[1].Value;
+        if (ValidateVideoId(shortsMatch))
+        {
+            videoId = shortsMatch;
+            return true;
+        }
 
-        static bool ValidateVideoId(string videoId) =>
-            videoId is not null &&
-            videoId.Length == 11 &&
-            !videoId.AsSpan().ContainsAnyExcept(s_videoIdChars);
+        return false;
     }
+
+    public static bool TryParseVideoUrl(string? url, [NotNullWhen(true)] out string? videoId)
+    {
+        videoId = null;
+
+        if (url is null || url.Length > 2048 ||
+            !Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) ||
+            !uri.IsDefaultPort || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return false;
+        }
+
+        string host = uri.IdnHost;
+        string[] segments = uri.AbsolutePath.Trim('/').Split('/');
+
+        if (host.Equals("youtu.be", StringComparison.OrdinalIgnoreCase))
+        {
+            videoId = segments.Length == 1 ? segments[0] : null;
+        }
+        else if (host.Equals("youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("www.youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("m.youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                 host.Equals("music.youtube.com", StringComparison.OrdinalIgnoreCase))
+        {
+            if (uri.AbsolutePath == "/watch")
+            {
+                var query = QueryHelpers.ParseQuery(uri.Query);
+                videoId = query.TryGetValue("v", out var values) && values.Count == 1 ? values[0] : null;
+            }
+            else if (segments.Length == 2 && segments[0] is "shorts" or "embed" or "live")
+            {
+                videoId = segments[1];
+            }
+        }
+
+        if (ValidateVideoId(videoId))
+        {
+            return true;
+        }
+
+        videoId = null;
+        return false;
+    }
+
+    private static bool ValidateVideoId([NotNullWhen(true)] string? videoId) =>
+        videoId is not null &&
+        videoId.Length == 11 &&
+        !videoId.AsSpan().ContainsAnyExcept(s_videoIdChars);
 
 
     public static readonly YoutubeClient Youtube = new();
@@ -386,6 +438,9 @@ internal static partial class YoutubeHelper
 
     [GeneratedRegex(@"youtube\..+?/embed/(.*?)(?:\?|&|/|$)")]
     private static partial Regex EmbedVideoRegex();
+
+    [GeneratedRegex(@"youtube\..+?/(?:shorts|live)/(.*?)(?:\?|&|/|$)")]
+    private static partial Regex ShortsVideoRegex();
 
     private static readonly SearchValues<char> s_videoIdChars = SearchValues.Create("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_");
 }

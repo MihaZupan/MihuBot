@@ -1,0 +1,16 @@
+body { font: 14px system-ui, sans-serif; color: #202124; background: #fff; margin: 16px; }
+.popup { width: 360px; }
+.options { max-width: 600px; margin: 32px auto; padding: 0 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 20px; }
+h2 { font-size: 16px; margin-top: 24px; }
+label { display: block; margin-top: 12px; margin-bottom: 4px; }
+input, select { box-sizing: border-box; width: 100%; padding: 8px; }
+input[type="checkbox"] { width: auto; }
+button { cursor: pointer; padding: 8px 12px; }
+form button { margin-top: 16px; }
+button:disabled { cursor: default; }
+p { overflow-wrap: anywhere; white-space: pre-wrap; }
+.error { color: #a32020; }
+#status { min-height: 20px; }
+#jobs { max-height: 300px; overflow-y: auto; }

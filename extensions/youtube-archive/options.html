@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MihuBot YouTube Archive settings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="options">
+  <h1>YouTube Archive settings</h1>
+  <form id="settings">
+    <label for="server">MihuBot server URL</label>
+    <input id="server" type="url" placeholder="https://mihubot.xyz/" required>
+    <label for="secret">Shared secret</label>
+    <input id="secret" type="password" minlength="32" maxlength="2048" autocomplete="off" required>
+    <p>The secret is stored locally in this browser profile, not synced or sent to YouTube.
+      Access is granted only to the server you save.</p>
+    <label><input id="shareCookies" type="checkbox"> Share this browser's YouTube cookies with MihuBot</label>
+    <p>Optional: helps with videos requiring your YouTube login. Only enable this for a server
+      you trust: these cookies can grant access to your YouTube account. Google and other sites'
+      cookies are not shared. Cookies are read when looking up or submitting a video, not stored
+      in the extension.</p>
+    <button type="submit">Save and verify connection</button>
+  </form>
+  <p id="status" role="status"></p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -31,6 +31,7 @@ storage which gets its own volume at `/storage`:
 | `/data/State/`         | Persistent state (SQLite DBs, logs, JSON stores)   |
 | `/data/next_update/`   | Incoming `artifacts.tar.gz` produced by the app    |
 | `/storage/`            | `StorageService` file blobs (uploaded files)       |
+| `/youtube-archive/`    | YouTube audio/video archives (optional integration) |
 
 The app resolves `State/` and `next_update/` relative to its working directory,
 so the runner starts it from `/data` and pins ASP.NET's content root to
@@ -55,11 +56,13 @@ publishes, outside the single-file bundle. Additional versions can be placed in
 
 ## Volumes
 
-`docker-compose.yml` declares two named volumes, `mihubot-data` (mounted at
+`docker-compose.yml` declares named volumes `mihubot-data` (mounted at
 `/data`) and `mihubot-storage` (mounted at `/storage`), so state and file
 storage can be backed up, sized, or relocated independently.
+YouTube archives use a third volume, configurable through
+`MIHUBOT_YOUTUBE_ARCHIVE_VOLUME` (for example `/mnt/media/youtube`).
 
-Either can be pointed at a host directory (or a pre-created named volume)
+Each can be pointed at a host directory (or a pre-created named volume)
 without editing the compose file:
 
 ```bash
@@ -135,12 +138,21 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Molly:DatabaseKey` + `Molly:TransportPrivateKey` | Molly remote lockout API and dashboard |
 | `Molly:AlertEmailConnectionString`+`:AlertEmailFrom` | Emails Molly alerts via Azure Communication Services. Recipients come from the runtime `Molly.AlertEmailTo` config key (comma-separated). Every recipient must have a Proton Mail key |
 | `Youtube:ApiKey` | YouTube API search/playlists (scraping fallback remains) |
+| `YoutubeArchive:Directory` | YouTube archival API. Use `/youtube-archive` for the archive mount; configure comma-separated tokens through global runtime `YoutubeArchive.SharedSecrets` |
 | `Spotify:ClientId`+`ClientSecret` | Spotify links in `!play` |
 | `TelegramBot:ApiKey` | Telegram relay + webhook endpoint (404) |
 | `Tenor:ApiKey` | Tenor links in `!emote` |
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
+
+YouTube archival requires rebuilding/recreating the image to install Deno
+alongside yt-dlp and ffmpeg. Optionally set global runtime `YoutubeArchive.CookiesFile` to a
+mounted Netscape-format cookies file. Mount the archive into Jellyfin too if
+it should serve the files. See the [extension setup](../extensions/youtube-archive/README.md).
+Each archive token must contain 32-2048 characters; tokens and the optional
+cookies-file path are runtime-only and change without restarting. Protect and
+back up `State/YoutubeArchiveKeys` with the queue for jobs using browser cookies.
 
 For Molly, use a single instance or instance affinity. Avoid
 process dumps and memory snapshots that retain expired transport secrets.

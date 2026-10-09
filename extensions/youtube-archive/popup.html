@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Archive YouTube</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="popup">
+  <header><h1>YouTube Archive</h1><button id="settings" type="button">Settings</button></header>
+  <p id="title"></p>
+  <form id="archive">
+    <label for="mode">Store</label>
+    <select id="mode"><option value="video">Video and audio (MKV)</option><option value="audio">Audio only (source quality)</option></select>
+    <label for="quality">Maximum video quality</label>
+    <select id="quality">
+      <option value="best">Best available</option>
+      <option value="4320">4320p (8K)</option>
+      <option value="2160">2160p (4K)</option>
+      <option value="1440">1440p</option>
+      <option value="1080">1080p</option>
+      <option value="720">720p</option>
+      <option value="480">480p</option>
+      <option value="360">360p</option>
+    </select>
+    <button id="submit" type="submit" disabled>Archive</button>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <h2>Recent archives</h2>
+  <div id="jobs"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

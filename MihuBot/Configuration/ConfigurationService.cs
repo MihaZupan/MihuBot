@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
+using MihuBot.YoutubeArchive;
 
 namespace MihuBot.Configuration;
 
@@ -38,7 +39,17 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
             });
 
         _globalStore = new SynchronizedLocalJsonStore<Dictionary<string, string>>(Path.Combine(directory, "GlobalConfiguration.json"),
-            (_, dictionary) => new Dictionary<string, string>(dictionary, StringComparer.OrdinalIgnoreCase));
+            (_, dictionary) =>
+            {
+                var values = new Dictionary<string, string>(dictionary, StringComparer.OrdinalIgnoreCase);
+
+                if (values.TryGetValue(YoutubeArchiveAuthenticationHandler.SharedSecretsKey, out string tokens))
+                {
+                    ValidateGlobalValue(YoutubeArchiveAuthenticationHandler.SharedSecretsKey, tokens);
+                }
+
+                return values;
+            });
 
         Directory.CreateDirectory(directory);
         _fileProvider = new PhysicalFileProvider(directory);
@@ -97,7 +108,28 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
         }
         else
         {
+            ValidateGlobalValue(key, value);
             _globalStore.Modify(configuration => configuration[key] = value);
+        }
+    }
+
+    private static void ValidateGlobalValue(string key, string value)
+    {
+        if (!key.Equals(YoutubeArchiveAuthenticationHandler.SharedSecretsKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        ReadOnlySpan<char> tokens = value.AsSpan();
+
+        foreach (Range range in tokens.Split(','))
+        {
+            ReadOnlySpan<char> token = tokens[range].Trim();
+
+            if (!token.IsEmpty && token.Length is < 32 or > 2048)
+            {
+                throw new ArgumentException("YouTube archive shared secrets must each contain 32-2048 characters.", nameof(value));
+            }
         }
     }
 
