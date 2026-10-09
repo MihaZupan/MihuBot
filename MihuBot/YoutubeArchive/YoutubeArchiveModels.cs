@@ -15,6 +15,7 @@ public sealed record YoutubeArchiveJob
     public string Status { get; init; } = "queued";
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public string File { get; init; }
+    public string ArchiveDirectory { get; init; }
     public string Error { get; init; }
     public string Warning { get; init; }
 
@@ -26,6 +27,9 @@ public sealed class YoutubeArchiveState
 {
     public List<YoutubeArchiveJob> Jobs { get; set; } = [];
 }
+
+public sealed record YoutubeArchiveDashboard(
+    int Queued, int Running, int Completed, int Failed, YoutubeArchiveJob[] Jobs);
 
 public static class YoutubeArchiveValidation
 {

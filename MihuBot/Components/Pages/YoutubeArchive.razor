@@ -1,0 +1,141 @@
+@page "/youtube-archive"
+@using MihuBot.YoutubeArchive
+@attribute [Authorize("Admin")]
+@inject YoutubeArchiveService Archive
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+<PageTitle>YouTube archives</PageTitle>
+
+<h1>YouTube archives</h1>
+
+<p>
+    <strong>@_dashboard.Running running</strong>,
+    @_dashboard.Queued queued,
+    @_dashboard.Completed completed,
+    @_dashboard.Failed failed.
+</p>
+<p class="text-muted">
+    All active jobs and the 50 most recent results. Refreshes every three seconds.
+    One archive runs at a time; running means downloading or processing, not a percentage estimate.
+    Updated @_updatedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC.
+</p>
+
+@if (_dashboard.Jobs.Length == 0)
+{
+    <p>No archival jobs yet.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-dark">
+            <thead>
+                <tr>
+                    <th scope="col">Video</th>
+                    <th scope="col">Mode / quality</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Submitted (UTC)</th>
+                    <th scope="col">Archive / details</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (YoutubeArchiveJob job in _dashboard.Jobs)
+                {
+                    <tr @key="job.Id">
+                        <th scope="row">
+                            <a href="@YoutubeArchiveValidation.GetUrl(job.VideoId)" target="_blank" rel="noopener noreferrer">@job.VideoId</a>
+                            <small class="d-block text-muted">@job.Id</small>
+                        </th>
+                        <td>
+                            @job.Mode
+                            @if (job.Mode == "video")
+                            {
+                                <span> / @(job.MaxHeight is int height ? $"{height}p max" : "Best available")</span>
+                            }
+                        </td>
+                        <td><span class="badge @StatusClass(job.Status)">@job.Status</span></td>
+                        <td>@job.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td style="overflow-wrap: anywhere; white-space: pre-wrap;">
+                            @job.File
+                            @if (!string.IsNullOrEmpty(job.Error))
+                            {
+                                <div class="text-danger">@job.Error</div>
+                            }
+                            @if (!string.IsNullOrEmpty(job.Warning))
+                            {
+                                <div class="text-warning">@job.Warning</div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private YoutubeArchiveDashboard _dashboard;
+    private DateTime _updatedAt;
+    private Task _refreshTask;
+
+    protected override void OnInitialized() => Refresh();
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _refreshTask = RefreshLoopAsync();
+        }
+    }
+
+    private void Refresh()
+    {
+        _dashboard = Archive.GetDashboard();
+        _updatedAt = DateTime.UtcNow;
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+            {
+                await InvokeAsync(() =>
+                {
+                    Refresh();
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            await DispatchExceptionAsync(ex);
+        }
+    }
+
+    private static string StatusClass(string status) => status switch
+    {
+        "running" => "bg-primary",
+        "completed" => "bg-success",
+        "failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync();
+
+        if (_refreshTask is not null)
+        {
+            await _refreshTask;
+        }
+
+        _stop.Dispose();
+    }
+}

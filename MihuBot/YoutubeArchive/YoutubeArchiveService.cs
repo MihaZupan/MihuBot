@@ -38,6 +38,19 @@ public sealed class YoutubeArchiveService : BackgroundService
 
     public YoutubeArchiveJob GetJob(Guid id) => _store.Query(state => state.Jobs.FirstOrDefault(j => j.Id == id));
 
+    public YoutubeArchiveDashboard GetDashboard() => _store.Query(state =>
+    {
+        YoutubeArchiveJob[] active = [.. state.Jobs.Where(j => j.Status is "queued" or "running").OrderBy(j => j.CreatedAt)];
+        YoutubeArchiveJob[] recent = [.. state.Jobs.Where(j => j.Status is not ("queued" or "running"))
+            .OrderByDescending(j => j.CreatedAt).Take(50)];
+        return new YoutubeArchiveDashboard(
+            active.Count(j => j.Status == "queued"),
+            active.Count(j => j.Status == "running"),
+            state.Jobs.Count(j => j.Status == "completed"),
+            state.Jobs.Count(j => j.Status == "failed"),
+            [.. active.OrderByDescending(j => j.Status == "running"), .. recent]);
+    });
+
     public YoutubeArchiveJob Enqueue(YoutubeArchiveRequest request)
     {
         if (!YoutubeArchiveValidation.IsValid(request))
@@ -158,8 +171,9 @@ public sealed class YoutubeArchiveService : BackgroundService
 
     private async Task<YoutubeArchiveJob> ArchiveAsync(YoutubeArchiveJob job, CancellationToken cancellationToken)
     {
-        string relative = Path.Combine(job.Mode == "audio" ? "Audio" : "Video",
+        string mediaDirectory = Path.Combine(job.Mode == "audio" ? "Audio" : "Video",
             job.VideoId + (job.Mode == "video" ? $"-{job.MaxHeight?.ToString() ?? "best"}" : ""));
+        string relative = job.ArchiveDirectory ?? mediaDirectory;
         string destination = Path.Combine(_directory, relative);
         string staging = Path.Combine(_directory, ".incomplete", job.Id.ToString("N"));
         string marker = Path.Combine(destination, ".mihubot-media");
@@ -182,13 +196,34 @@ public sealed class YoutubeArchiveService : BackgroundService
                 ? JsonSerializer.Deserialize<YoutubeArchiveCookie[]>(_cookiesProtector.Unprotect(job.ProtectedCookies))
                 : null;
             string downloaded = await _downloader.DownloadAsync(job, staging, cancellationToken, cookies);
+            string channelDirectory = Path.GetDirectoryName(Path.GetFullPath(downloaded));
+            string channel = Path.GetRelativePath(staging, channelDirectory);
+
+            if (channel is "." or ".." || Path.IsPathRooted(channel) ||
+                channel.AsSpan().ContainsAny(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                throw new IOException("The downloaded media must be inside a single channel folder.");
+            }
+
+            relative = Path.Combine(channel, mediaDirectory);
+            destination = Path.Combine(_directory, relative);
             name = Path.GetFileName(downloaded);
-            await System.IO.File.WriteAllTextAsync(Path.Combine(staging, ".mihubot-media"), name, cancellationToken);
+            await System.IO.File.WriteAllTextAsync(Path.Combine(channelDirectory, ".mihubot-media"), name, cancellationToken);
+            job = job with { Status = "running", ArchiveDirectory = relative };
+            Update(job);
             Directory.CreateDirectory(Path.GetDirectoryName(destination));
-            Directory.Move(staging, destination);
+            Directory.Move(channelDirectory, destination);
         }
 
-        return job with { Status = "completed", File = Path.Combine(relative, name), Error = null, Warning = null, ProtectedCookies = null };
+        return job with
+        {
+            Status = "completed",
+            ArchiveDirectory = relative,
+            File = Path.Combine(relative, name),
+            Error = null,
+            Warning = null,
+            ProtectedCookies = null
+        };
     }
 
     private void Update(YoutubeArchiveJob job) => _store.Modify(state =>

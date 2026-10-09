@@ -43,8 +43,8 @@ ffmpeg/ffprobe and Deno on PATH. YouTube may require server-side cookies or may
 reject downloads from a datacenter IP. These failures are shown in job status;
 the extension does not bypass access restrictions.
 
-Mount the same archive into Jellyfin and configure its libraries to scan `Audio`
-and `Video`. Archival does not trigger Jellyfin library refreshes; use Jellyfin's
+Mount the same archive into Jellyfin and configure its libraries to scan the
+channel folders' `Audio` and `Video` directories. Archival does not trigger Jellyfin library refreshes; use Jellyfin's
 own monitoring/scheduled scans or refresh manually. Jellyfin is optional.
 
 ## Install in Brave on Windows
@@ -97,13 +97,23 @@ can contain credentials. Media tags and thumbnail sidecars are still retained.
 
 ## Archive behavior and API
 
+Admins can monitor all queued/running jobs and recent results at
+`/youtube-archive` on the MihuBot website (the **YouTube archives** admin
+navigation link). The dashboard refreshes every three seconds and uses the
+existing Admin sign-in policy, not the extension token. It shows states, file
+paths and failures; byte/percentage progress is not currently reported.
+
 Audio uses the best audio-only stream and lossless extraction/remuxing to its
 native audio container; video uses best video plus audio and lossless MKV
 remuxing. Neither mode intentionally re-encodes media. Metadata and JPEG
 thumbnail sidecars are retained, and media tags are embedded where supported.
 
-Files live in `Audio/<video-id>/` or `Video/<video-id>-<height-or-best>/`, with
-readable title/ID filenames. Work in progress stays under `.incomplete` until
+New files live in `<channel-name>/Audio/<video-id>/` or
+`<channel-name>/Video/<video-id>-<height-or-best>/`, with readable title/ID
+filenames. Channel names are taken from YouTube and sanitized by yt-dlp for
+Windows-compatible folder names. Existing archives are left in their original
+locations and continue to be deduplicated; no automatic migration is performed.
+Work in progress stays under `.incomplete` until
 the entire job succeeds; keep that directory out of Jellyfin libraries.
 The durable queue lives in `State/YoutubeArchive.json`. One job runs at a time,
 with a four-hour timeout and up to 100 queued/running jobs. Queued and interrupted

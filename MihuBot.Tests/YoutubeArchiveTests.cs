@@ -1,16 +1,21 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using MihuBot.Configuration;
 using MihuBot.Helpers;
 using MihuBot.YoutubeArchive;
@@ -83,6 +88,7 @@ public sealed class YoutubeArchiveTests
         string[] audio = YoutubeArchiveDownloader.GetDownloadArguments(new() { Mode = "audio" }, "archive");
         Assert.Contains("bestaudio", audio);
         Assert.Contains("best", audio);
+        Assert.Contains(Path.Combine("archive", "%(channel,uploader,channel_id).100B", "%(title).150B [%(id)s].%(ext)s"), audio);
         Assert.DoesNotContain("--recode-video", audio);
         string[] video = YoutubeArchiveDownloader.GetDownloadArguments(new() { Mode = "video", MaxHeight = 1080 }, "archive");
         Assert.Contains("bv[height<=1080]+ba/b[height<=1080]", video);
@@ -120,15 +126,17 @@ public sealed class YoutubeArchiveTests
         await WaitForAsync(() => reopened.GetJobs().All(j => j.Status == "completed"));
         await reopened.StopAsync(default);
         Assert.Equal(2, downloader.Downloads);
-        Assert.True(File.Exists(Path.Combine(files.Root, "Audio", "abcdefghijk", "media.opus")));
-        Assert.True(File.Exists(Path.Combine(files.Root, "Video", "abcdefghijk-720", "media.mkv")));
+        Assert.True(File.Exists(Path.Combine(files.Root, "Test Channel", "Audio", "abcdefghijk", "media.opus")));
+        Assert.True(File.Exists(Path.Combine(files.Root, "Test Channel", "Video", "abcdefghijk-720", "media.mkv")));
         Assert.Equal(audioId, reopened.Enqueue(new("https://youtu.be/abcdefghijk", "audio")).Id);
-        File.Delete(Path.Combine(files.Root, "Audio", "abcdefghijk", "media.opus"));
+        File.Delete(Path.Combine(files.Root, "Test Channel", "Audio", "abcdefghijk", "media.opus"));
         Assert.Throws<FileNotFoundException>(() => reopened.Enqueue(new("https://youtu.be/abcdefghijk", "audio")));
     }
 
-    [Fact]
-    public async Task RecoversInterruptedJobAndAtomicMoveWithoutRedownloading()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecoversInterruptedJobAndAtomicMoveWithoutRedownloading(bool channelLayout)
     {
         using var files = new ArchiveFiles();
         var downloader = new FakeDownloader();
@@ -139,8 +147,11 @@ public sealed class YoutubeArchiveTests
         }
 
         var store = new SynchronizedLocalJsonStore<YoutubeArchiveState>(files.State);
-        store.Modify(state => state.Jobs[0] = job with { Status = "running" });
-        string destination = Path.Combine(files.Root, "Video", "abcdefghijk-1080");
+        string relative = channelLayout
+            ? Path.Combine("Test Channel", "Video", "abcdefghijk-1080")
+            : Path.Combine("Video", "abcdefghijk-1080");
+        store.Modify(state => state.Jobs[0] = job with { Status = "running", ArchiveDirectory = channelLayout ? relative : null });
+        string destination = Path.Combine(files.Root, relative);
         Directory.CreateDirectory(destination);
         File.WriteAllText(Path.Combine(destination, "media.mkv"), "media");
         File.WriteAllText(Path.Combine(destination, ".mihubot-media"), "media.mkv");
@@ -149,6 +160,7 @@ public sealed class YoutubeArchiveTests
         await WaitForAsync(() => restarted.GetJobs()[0].Status == "completed");
         await restarted.StopAsync(default);
         Assert.Equal(0, downloader.Downloads);
+        Assert.Equal(Path.Combine(relative, "media.mkv"), restarted.GetJob(job.Id).File);
     }
 
     [Fact]
@@ -592,6 +604,78 @@ public sealed class YoutubeArchiveTests
         Assert.Equal(token, unchanged);
     }
 
+    [Fact]
+    public async Task DashboardShowsAllActiveJobsAndBoundedRecentHistoryWithoutExposingCookies()
+    {
+        using var files = new ArchiveFiles();
+        var store = new SynchronizedLocalJsonStore<YoutubeArchiveState>(files.State);
+        Guid activeId = Guid.NewGuid();
+        store.Modify(state =>
+        {
+            for (int i = 0; i < 60; i++)
+            {
+                state.Jobs.Add(new YoutubeArchiveJob
+                {
+                    VideoId = "abcdefghijk", Mode = "audio", Status = "completed",
+                    CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-i)
+                });
+            }
+
+            state.Jobs.Add(new YoutubeArchiveJob
+            {
+                Id = activeId, VideoId = "12345678901", Mode = "video", MaxHeight = 720, Status = "running",
+                CreatedAt = DateTimeOffset.UtcNow.AddDays(-1), ProtectedCookies = "never-show-this-cookie"
+            });
+            state.Jobs.Add(new YoutubeArchiveJob
+            {
+                VideoId = "abcdefghijk", Mode = "audio", Status = "queued",
+                CreatedAt = DateTimeOffset.UtcNow.AddDays(-1)
+            });
+            state.Jobs.Add(new YoutubeArchiveJob
+            {
+                VideoId = "abcdefghijk", Mode = "audio", Status = "failed", Error = "<script>alert('error')</script>",
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        });
+        using var service = files.CreateService(new FakeDownloader());
+        var snapshot = service.GetDashboard();
+        Assert.Equal(1, snapshot.Running);
+        Assert.Equal(1, snapshot.Queued);
+        Assert.Equal(60, snapshot.Completed);
+        Assert.Equal(1, snapshot.Failed);
+        Assert.Equal(52, snapshot.Jobs.Length);
+        Assert.Equal(activeId, snapshot.Jobs[0].Id);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(service);
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new DashboardRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        string html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var rendered = renderer.BeginRenderingComponent(typeof(MihuBot.Components.Pages.YoutubeArchive), ParameterView.Empty);
+            await rendered.QuiescenceTask;
+            return rendered.ToHtmlString();
+        });
+        Assert.Contains("1 running", html);
+        Assert.Contains("1 queued", html);
+        Assert.Contains("720p max", html);
+        Assert.Contains("<tbody>", html);
+        Assert.Contains("&lt;script&gt;", html);
+        Assert.DoesNotContain("<script>", html);
+        Assert.DoesNotContain("never-show-this-cookie", html);
+        Assert.Contains(activeId.ToString(), html);
+    }
+
+    [Fact]
+    public void DashboardRequiresAdminAndHandlesUnavailableIntegration()
+    {
+        Type page = typeof(MihuBot.Components.Pages.YoutubeArchive);
+        Assert.Equal("Admin", Assert.Single(page.GetCustomAttributes<AuthorizeAttribute>()).Policy);
+        Assert.Equal("/youtube-archive", Assert.Single(page.GetCustomAttributes<RouteAttribute>()).Template);
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        Assert.Equal(typeof(YoutubeArchiveService), OptionalDependencies.GetMissingInjectedService(provider, page));
+    }
+
     private static async Task WaitForAsync(Func<bool> completed)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -600,6 +684,14 @@ public sealed class YoutubeArchiveTests
         {
             await Task.Delay(20, timeout.Token);
         }
+    }
+
+    private sealed class DashboardRenderer(IServiceProvider services, ILoggerFactory loggerFactory)
+        : Microsoft.AspNetCore.Components.HtmlRendering.Infrastructure.StaticHtmlRenderer(services, loggerFactory)
+    {
+        protected override IComponent ResolveComponentForRenderMode(Type componentType, int? parentComponentId,
+            IComponentActivator componentActivator, IComponentRenderMode renderMode) =>
+            componentActivator.CreateInstance(componentType);
     }
 
     private sealed class FakeDownloader : IYoutubeArchiveDownloader
@@ -632,7 +724,9 @@ public sealed class YoutubeArchiveTests
                 throw new InvalidOperationException("Download rejected.");
             }
 
-            string file = Path.Combine(directory, job.Mode == "audio" ? "media.opus" : "media.mkv");
+            string channelDirectory = Path.Combine(directory, "Test Channel");
+            Directory.CreateDirectory(channelDirectory);
+            string file = Path.Combine(channelDirectory, job.Mode == "audio" ? "media.opus" : "media.mkv");
             await File.WriteAllTextAsync(file, "media", Encoding.UTF8, cancellationToken);
             return file;
         }

@@ -5,6 +5,7 @@ using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using MihuBot.RuntimeUtils.Search;
+using MihuBot.YoutubeArchive;
 
 namespace MihuBot.Configuration;
 
@@ -15,6 +16,7 @@ public sealed class AvailableFeatures(IServiceProvider services, IConfiguration 
 {
     public bool Minecraft => Has<MinecraftRCON>();
     public bool Molly => Has<MollyService>();
+    public bool YoutubeArchive => Has<YoutubeArchiveService>();
     public bool RuntimeUtils => Has<RuntimeUtilsService>();
     public bool GitHubData => Has<IDbContextFactory<GitHubDbContext>>();
     public bool GitHubIngestion => Has<GitHubDataIngestionService>();

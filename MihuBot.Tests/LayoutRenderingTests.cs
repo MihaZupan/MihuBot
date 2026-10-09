@@ -58,6 +58,7 @@ public sealed class LayoutRenderingTests
         Assert.Equal(signedIn, html.Contains("bi-suit-spade-fill", StringComparison.Ordinal));
         Assert.DoesNotContain("href=\"runtime-utils\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"admin\"", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("href=\"youtube-archive\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"custom-message\"", html, StringComparison.Ordinal);
         bool discordSignedIn = signedIn && authenticationType == "Discord";
         Assert.Equal(discordSignedIn, html.Contains("href=\"reminders\"", StringComparison.Ordinal));

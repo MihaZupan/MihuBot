@@ -74,7 +74,8 @@ public sealed class YoutubeArchiveDownloader : IYoutubeArchiveDownloader
             "--no-simulate", "--quiet", "--windows-filenames",
             "--match-filter", "!is_live & !is_upcoming & live_status!=post_live",
             "--write-info-json", "--write-thumbnail", "--convert-thumbnails", "jpg",
-            "--embed-metadata", "--no-embed-info-json", "--output", Path.Combine(directory, "%(title).150B [%(id)s].%(ext)s"),
+            "--embed-metadata", "--no-embed-info-json", "--output",
+            Path.Combine(directory, "%(channel,uploader,channel_id).100B", "%(title).150B [%(id)s].%(ext)s"),
             "--print", "after_move:filepath",
         ];
 
