@@ -57,10 +57,14 @@ own monitoring/scheduled scans or refresh manually. Jellyfin is optional.
    button. Pick audio-only or video, optionally select maximum resolution, and
    click **Archive**.
 
-Audio is the default on YouTube Music and videos categorized as Music by YouTube.
-If category lookup fails, an explicit warning lets you choose manually.
+Audio is selected initially while category detection runs. You can submit
+immediately without waiting. Once detection finishes, music stays audio-only and
+other videos default to video, unless you already selected a mode or submitted.
+Late detection never changes a submitted request or its status.
+If category lookup fails, audio remains selected and an explicit warning lets
+you choose manually.
 The extension remembers maximum video resolution across browser restarts, not
-mode: each new popup defaults mode based on the current video's category.
+mode: each new popup starts with audio and then uses the current video's category.
 Resolution is a ceiling; a lower resolution is used if the selected height is
 unavailable. **Best available** has no ceiling.
 

@@ -10,9 +10,9 @@
   <p id="title"></p>
   <form id="archive">
     <label for="mode">Store</label>
-    <select id="mode"><option value="video">Video and audio (MKV)</option><option value="audio">Audio only (source quality)</option></select>
+    <select id="mode"><option value="audio">Audio only (source quality)</option><option value="video">Video and audio (MKV)</option></select>
     <label for="quality">Maximum video quality</label>
-    <select id="quality">
+    <select id="quality" disabled>
       <option value="best">Best available</option>
       <option value="4320">4320p (8K)</option>
       <option value="2160">2160p (4K)</option>
@@ -24,6 +24,7 @@
     </select>
     <button id="submit" type="submit" disabled>Archive</button>
   </form>
+  <p id="detection" role="status" aria-live="polite"></p>
   <p id="status" role="status" aria-live="polite"></p>
   <h2>Recent archives</h2>
   <div id="jobs"></div>

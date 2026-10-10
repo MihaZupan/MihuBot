@@ -3,18 +3,20 @@ import { test } from "node:test";
 
 let sequence = 0;
 
-async function harness({ isMusic = false, tabUrl = "https://youtube.com/watch?v=abcdefghijk", quality = "1080", metadataError = false, isLive = false, shareCookies = false } = {}) {
+async function harness({ isMusic = false, tabUrl = "https://youtube.com/watch?v=abcdefghijk", quality = "1080", metadataError = false, isLive = false, shareCookies = false, deferMetadata = false } = {}) {
   const saved = { server: "https://archive.example/", secret: "x".repeat(64), quality, shareCookies };
   const requests = [];
   const elements = new Map();
   const originals = new Map(["document", "chrome", "fetch", "setInterval"].map(key => [key, globalThis[key]]));
   const interval = [];
+  let resolveMetadata;
+  const metadataReady = deferMetadata ? new Promise(resolve => { resolveMetadata = resolve; }) : Promise.resolve();
   const element = () => ({
     value: "", textContent: "", disabled: true, listeners: new Map(),
     addEventListener(name, listener) { this.listeners.set(name, listener); },
     replaceChildren(...children) { this.children = children; }
   });
-  for (const name of ["mode", "quality", "submit", "status", "settings", "archive", "title", "jobs"]) {
+  for (const name of ["mode", "quality", "submit", "status", "detection", "settings", "archive", "title", "jobs"]) {
     elements.set(`#${name}`, element());
   }
 
@@ -40,6 +42,7 @@ async function harness({ isMusic = false, tabUrl = "https://youtube.com/watch?v=
   globalThis.fetch = async (url, options) => {
     requests.push({ url: String(url), options });
     if (String(url).includes("Metadata")) {
+      await metadataReady;
       return metadataError ? new Response(JSON.stringify({ error: "YouTube unavailable" }), { status: 503 }) :
         new Response(JSON.stringify({ title: "Fetched title", isMusic, isLive }));
     }
@@ -60,12 +63,19 @@ async function harness({ isMusic = false, tabUrl = "https://youtube.com/watch?v=
 
     throw new Error("Popup did not finish initialization.");
   };
-  await wait(() => !elements.get("#submit").disabled ||
-    /processing|single YouTube/.test(elements.get("#status").textContent));
+  await wait(() => deferMetadata
+    ? requests.some(request => request.url.includes("Metadata"))
+    : /single YouTube/.test(elements.get("#status").textContent) ||
+      (requests.some(request => request.url.includes("Metadata")) &&
+       !elements.get("#detection").textContent.startsWith("Checking")));
   return {
     saved, requests, interval,
     get: name => elements.get(`#${name}`),
     async emit(name, event) { await elements.get(`#${name}`).listeners.get(event)({ preventDefault() {} }); },
+    async finishDetection() {
+      resolveMetadata();
+      await wait(() => !elements.get("#detection").textContent.startsWith("Checking"));
+    },
     dispose() {
       for (const [key, value] of originals) {
         if (value === undefined) delete globalThis[key];
@@ -120,11 +130,58 @@ test("YouTube Music defaults to audio even if video metadata has another categor
 test("failed category detection explicitly allows manual archival and best quality", async () => {
   const ui = await harness({ metadataError: true, quality: "invalid" });
   try {
-    assert.match(ui.get("status").textContent, /Category lookup failed: YouTube unavailable/);
+    assert.match(ui.get("detection").textContent, /Category lookup failed: YouTube unavailable/);
     assert.equal(ui.get("submit").disabled, false);
     assert.equal(ui.get("quality").value, "best");
     await ui.emit("archive", "submit");
     assert.equal(JSON.parse(ui.requests.find(request => request.options.method === "POST").options.body).maxHeight, null);
+  } finally {
+    ui.dispose();
+  }
+});
+
+test("audio can be queued before detection and a late non-music result preserves the selection and submission status", async () => {
+  const ui = await harness({ deferMetadata: true });
+  try {
+    assert.equal(ui.get("mode").value, "audio");
+    assert.equal(ui.get("quality").disabled, true);
+    assert.equal(ui.get("submit").disabled, false);
+    await ui.emit("archive", "submit");
+    const post = ui.requests.find(request => request.url.endsWith("/Jobs") && request.options.method === "POST");
+    assert.equal(JSON.parse(post.options.body).mode, "audio");
+    assert.equal(JSON.parse(post.options.body).maxHeight, null);
+    const submitted = ui.get("status").textContent;
+    await ui.finishDetection();
+    assert.equal(ui.get("mode").value, "audio");
+    assert.equal(ui.get("status").textContent, submitted);
+  } finally {
+    ui.dispose();
+  }
+});
+
+test("manual video selection while checking is preserved when music detection finishes", async () => {
+  const ui = await harness({ deferMetadata: true, isMusic: true });
+  try {
+    ui.get("mode").value = "video";
+    await ui.emit("mode", "change");
+    await ui.emit("archive", "submit");
+    await ui.finishDetection();
+    assert.equal(ui.get("mode").value, "video");
+    const post = ui.requests.find(request => request.url.endsWith("/Jobs") && request.options.method === "POST");
+    assert.equal(JSON.parse(post.options.body).maxHeight, 1080);
+  } finally {
+    ui.dispose();
+  }
+});
+
+test("late live detection disables further submissions without overwriting the queued result", async () => {
+  const ui = await harness({ deferMetadata: true, isLive: true });
+  try {
+    await ui.emit("archive", "submit");
+    await ui.finishDetection();
+    assert.equal(ui.get("submit").disabled, true);
+    assert.match(ui.get("status").textContent, /Queued on the server/);
+    assert.match(ui.get("detection").textContent, /live or still processing/);
   } finally {
     ui.dispose();
   }

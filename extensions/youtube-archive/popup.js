@@ -4,11 +4,14 @@ const mode = document.querySelector("#mode");
 const quality = document.querySelector("#quality");
 const submit = document.querySelector("#submit");
 const status = document.querySelector("#status");
+const detection = document.querySelector("#detection");
 let settings;
 let video;
 let tabId;
 let modeChanged = false;
 let refreshing = false;
+let submitting = false;
+let isLive = false;
 
 document.querySelector("#settings").addEventListener("click", () => chrome.runtime.openOptionsPage());
 mode.addEventListener("change", () => {
@@ -49,17 +52,26 @@ async function refreshJobs() {
 
 document.querySelector("#archive").addEventListener("submit", async event => {
   event.preventDefault();
+
+  if (!video || submitting || isLive) {
+    return;
+  }
+
+  const selectedMode = mode.value;
+  const selectedQuality = quality.value;
+  modeChanged = true;
+  submitting = true;
   submit.disabled = true;
   status.textContent = "Submitting...";
   try {
-    await chrome.storage.local.set({ quality: quality.value });
+    await chrome.storage.local.set({ quality: selectedQuality });
     const cookies = await getYoutubeCookies(settings, tabId);
     const job = await api(settings, "Jobs", {
       method: "POST",
       body: JSON.stringify({
         url: video.url,
-        mode: mode.value,
-        maxHeight: mode.value === "audio" || quality.value === "best" ? null : Number(quality.value),
+        mode: selectedMode,
+        maxHeight: selectedMode === "audio" || selectedQuality === "best" ? null : Number(selectedQuality),
         cookies
       })
     });
@@ -69,7 +81,8 @@ document.querySelector("#archive").addEventListener("submit", async event => {
   } catch (error) {
     status.textContent = `Archival request failed: ${error.message}`;
   } finally {
-    submit.disabled = false;
+    submitting = false;
+    submit.disabled = isLive;
   }
 });
 
@@ -93,9 +106,10 @@ async function initialize() {
   }
 
   document.querySelector("#title").textContent = tab.title || video.url;
-  mode.value = video.isMusic ? "audio" : "video";
-  quality.disabled = mode.value === "audio";
-  status.textContent = "Checking video category...";
+  mode.value = "audio";
+  quality.disabled = true;
+  submit.disabled = false;
+  detection.textContent = "Checking video category... You can archive now using the selected mode.";
   try {
     const cookies = await getYoutubeCookies(settings, tabId);
     const metadata = cookies === undefined
@@ -103,7 +117,9 @@ async function initialize() {
       : await api(settings, "Metadata", { method: "POST", body: JSON.stringify({ url: video.url, cookies }) });
     document.querySelector("#title").textContent = metadata.title;
     if (metadata.isLive) {
-      status.textContent = "This video is live or still processing. Archive it after it finishes processing.";
+      isLive = true;
+      submit.disabled = true;
+      detection.textContent = "This video is live or still processing. Archive it after it finishes processing.";
       return;
     }
 
@@ -112,12 +128,10 @@ async function initialize() {
       quality.disabled = mode.value === "audio";
     }
 
-    status.textContent = (metadata.isMusic || video.isMusic) && !modeChanged ? "Music detected: audio-only selected by default." : "";
+    detection.textContent = (metadata.isMusic || video.isMusic) && !modeChanged ? "Music detected: audio-only selected by default." : "";
   } catch (error) {
-    status.textContent = `Category lookup failed: ${error.message} Choose audio/video manually.`;
+    detection.textContent = `Category lookup failed: ${error.message} Choose audio/video manually.`;
   }
-
-  submit.disabled = false;
 }
 
 initialize().catch(error => { status.textContent = error.message; });
