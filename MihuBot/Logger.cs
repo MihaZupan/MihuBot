@@ -36,7 +36,7 @@ public sealed partial class Logger
     private readonly BlobContainerClient BlobContainerClient;
     private readonly ConcurrentDictionary<string, TaskCompletionSource> FileArchivingCompletions = new();
 
-    private static readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase);
+    private static readonly FileBackedHashSet _cdnLinksHashSet = new("CdnLinks.txt", StringComparer.OrdinalIgnoreCase, NormalizeCdnLink);
 
     private static readonly Dictionary<string, (string Ext, string Args)> ConvertableMediaExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -79,7 +79,7 @@ public sealed partial class Logger
         Discord.JoinedGuild += JoinedGuildAsync;
         Discord.LeftGuild += LeftGuildAsync;
         Discord.MessageReceived += message => MessageReceivedAsync(message);
-        Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id);
+        Discord.MessageUpdated += (cacheable, message, _) => MessageReceivedAsync(message, previousId: cacheable.Id, previousMessage: cacheable.HasValue ? cacheable.Value : null);
         Discord.MessageDeleted += MessageDeletedAsync;
         Discord.MessagesBulkDeleted += MessagesBulkDeletedAsync;
         Discord.ReactionAdded += (_, __, reaction) => ReactionAddedAsync(reaction);
@@ -720,12 +720,39 @@ public sealed partial class Logger
         return Task.CompletedTask;
     }
 
-    private Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null)
+    internal static bool IsGenuineMessageEdit(DateTimeOffset? editedTimestamp, DateTimeOffset? previousEditedTimestamp, bool hasPreviousMessage, DateTimeOffset now)
+    {
+        if (editedTimestamp is not { } editedAt)
+            return false;
+
+        // Uncached updates can carry an old edit timestamp during an automatic embed refresh.
+        return hasPreviousMessage ? editedTimestamp != previousEditedTimestamp : editedAt >= now.AddMinutes(-10);
+    }
+
+    internal static string NormalizeCdnLink(string link)
+    {
+        if (!link.StartsWith("attachments/", StringComparison.OrdinalIgnoreCase) &&
+            !link.StartsWith("ephemeral-attachments/", StringComparison.OrdinalIgnoreCase))
+        {
+            return link;
+        }
+
+        int queryStart = link.AsSpan().IndexOfAny('?', '#');
+        return queryStart < 0 ? link : link.Substring(0, queryStart);
+    }
+
+    private Task MessageReceivedAsync(SocketMessage message, ulong? previousId = null, IMessage previousMessage = null)
     {
         ulong guildId = (message.Channel as SocketGuildChannel)?.Guild.Id ?? 0;
         ulong channelId = message.Channel.Id;
 
         Log(previousId.HasValue ? EventType.MessageUpdated : EventType.MessageReceived, guildId, channelId, message.Id, message.Author.Id, message.Content, extraContent: previousId?.ToString());
+
+        if (previousId.HasValue &&
+            !IsGenuineMessageEdit(message.EditedTimestamp, previousMessage?.EditedTimestamp, previousMessage is not null, DateTimeOffset.UtcNow))
+        {
+            return Task.CompletedTask;
+        }
 
         if (message is not SocketUserMessage userMessage)
             return Task.CompletedTask;
@@ -742,7 +769,7 @@ public sealed partial class Logger
                 Log(EventType.FileReceived, guildId, channelId, message.Id, message.Author.Id, extraContent: AttachmentModel.FromAttachment(attachment));
 
                 if (attachment.Url.StartsWith(CdnLinkPrefix, StringComparison.OrdinalIgnoreCase) &&
-                    !_cdnLinksHashSet.TryAdd(attachment.Url.Substring(CdnLinkPrefix.Length)))
+                    !_cdnLinksHashSet.TryAdd(NormalizeCdnLink(attachment.Url.Substring(CdnLinkPrefix.Length))))
                 {
                     continue;
                 }
@@ -768,7 +795,7 @@ public sealed partial class Logger
                         foreach (Match match in CdnLinksRegex().Matches(message.Content))
                         {
                             var url = match.Value;
-                            if (Uri.TryCreate(url, UriKind.Absolute, out _) && _cdnLinksHashSet.TryAdd(url.Substring(CdnLinkPrefix.Length)))
+                            if (Uri.TryCreate(url, UriKind.Absolute, out _) && _cdnLinksHashSet.TryAdd(NormalizeCdnLink(url.Substring(CdnLinkPrefix.Length))))
                             {
                                 Task.Run(async () =>
                                 {
@@ -818,6 +845,7 @@ public sealed partial class Logger
         try
         {
             using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
 
             string filePath = $"{Options.FilesRoot}{time.ToISODateTime()}_{id}_{fileName}";
 
