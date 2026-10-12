@@ -1,6 +1,5 @@
 ﻿using MihuBot.Discord;
 using MihuBot.Discord.Reminders;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -14,70 +13,52 @@ public sealed partial class ReminderCommand : CommandBase
     protected override TimeSpan Cooldown => TimeSpan.FromMinutes(1);
     protected override int CooldownToleranceCount => 10;
 
-    [GeneratedRegex(@"(?:and )?(\d*(?:[\.,]\d+)?|a |an ) ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?:[ ,]|$)",
+    private const string TimePattern = @"(?<![\w.,-])(?:and )?(\d+(?:[\.,]\d+)?|[\.,]\d+|a |an ) ?(s|sec|seconds?|m|mins?|minutes?|hr?s?|hours?|d|days?|w|weeks?|months?|y|years?)(?=[ ,.!?]|$)";
+
+    [GeneratedRegex(TimePattern,
         RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 5_000)]
     private static partial Regex TimeRegex();
+
+    [GeneratedRegex(@"\A" + TimePattern + @"\z",
+        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 5_000)]
+    private static partial Regex SingleTimeRegex();
 
     [GeneratedRegex(@"(<#?@?!?&?\d+>) ", RegexOptions.IgnoreCase)]
     private static partial Regex ReminderMentionRegex();
 
-    private bool TryParseRemindTime(ReadOnlySpan<char> message, DateTime now, [NotNullWhen(true)] out List<(string Part, DateTime Time)> times)
-    {
-        times = null;
+    [GeneratedRegex(@"\b(on|at|by|before|after|until|tomorrow|today|tonight|next|every|each|then|or|hourly|daily|weekly|monthly|yearly|annually|repeat|recurring)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex CalendarTimeRegex();
 
-        // remind me to do stuff in an hour => [an hour]
-        // remind me in 197 minutes to play starfield in the VC => [197 minutes to play starfield in the VC]
-        // remind me to go play a game in a day or in a year => [a day or in a year]
-        int i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
-        if (i < 0)
+    [GeneratedRegex(@"^remind(?:ers?|me)?(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex ReminderRequestRegex();
+
+    internal static bool TryParseSimpleRemindTime(string message, DateTime now, out DateTime time)
+    {
+        time = default;
+
+        if (CalendarTimeRegex().IsMatch(message) || TimeRegex().Count(message) != 1)
         {
             return false;
         }
 
-        message = message.Slice(i + 4);
+        int i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
 
-        while (!message.IsEmpty)
+        if (i < 0 || i != message.LastIndexOf(" in ", StringComparison.OrdinalIgnoreCase))
         {
-            // [an hour] => [an hour]
-            // [197 minutes to play starfield in the VC] => [197 minutes to play starfield] [the VC]
-            // [a day or in a year] => [a day or] [a year]
-            i = message.IndexOf(" in ", StringComparison.OrdinalIgnoreCase);
-
-            ReadOnlySpan<char> part;
-
-            if (i < 0)
-            {
-                part = message;
-                message = ReadOnlySpan<char>.Empty;
-            }
-            else
-            {
-                part = message.Slice(0, i);
-                message = message.Slice(i + 4);
-            }
-
-            // [197 minutes to play starfield] => [197 minutes]
-            i = part.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
-            if (i >= 0)
-            {
-                part = part.Slice(0, i);
-            }
-
-            string partString = part.Trim().ToString();
-
-            if (TryParseRemindTimeCore(partString, now, out DateTime time))
-            {
-                _logger.DebugLog($"Parsed '{partString}' to {time}");
-
-                (times ??= new()).Add((partString, time));
-            }
-            else
-            {
-                _logger.DebugLog($"Failed to parse '{partString}'");
-            }
+            return false;
         }
 
-        return times is not null;
+        ReadOnlySpan<char> part = message.AsSpan(i + 4).Trim();
+        i = part.IndexOf(" to ", StringComparison.OrdinalIgnoreCase);
+
+        if (i >= 0)
+        {
+            part = part.Slice(0, i);
+        }
+
+        part = part.Trim().TrimEnd(".!");
+        return SingleTimeRegex().IsMatch(part) &&
+            TryParseRemindTimeCore(part.ToString(), now, out time);
     }
 
     public static bool TryParseRemindTimeCore(string time, DateTime now, out DateTime dateTime)
@@ -155,14 +136,16 @@ public sealed partial class ReminderCommand : CommandBase
 
     private readonly DiscordSocketClient _discord;
     private readonly ReminderService _reminderService;
+    private readonly ReminderRequestParser _requestParser;
     private readonly Logger _logger;
     private readonly Timer _reminderTimer;
 
-    public ReminderCommand(DiscordSocketClient discord, ReminderService reminderService, Logger logger)
+    public ReminderCommand(DiscordSocketClient discord, ReminderService reminderService, Logger logger, ReminderRequestParser requestParser)
     {
         _discord = discord ?? throw new ArgumentNullException(nameof(discord));
         _reminderService = reminderService ?? throw new ArgumentNullException(nameof(reminderService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _requestParser = requestParser ?? throw new ArgumentNullException(nameof(requestParser));
 
         if (!OperatingSystem.IsWindows())
         {
@@ -184,32 +167,65 @@ public sealed partial class ReminderCommand : CommandBase
 
     private async Task ExecuteAsyncCore(MessageContext ctx)
     {
-        if (ctx.Content.Length <= 256 &&
-            ctx.Content.Contains(" in ", StringComparison.OrdinalIgnoreCase) &&
-            TryPeek(ctx) &&
-            !ContainsMentionsWithoutPermissions(ctx.Message) &&
-            DateTime.UtcNow is { } now &&
-            TryParseRemindTime(ctx.Content.AsSpan().Trim(), now, out List<(string Part, DateTime Time)> reminderTimes) &&
-            TryEnter(ctx))
+        if (ctx.Content.Length > 256 ||
+            !TryPeek(ctx) ||
+            ContainsMentionsWithoutPermissions(ctx.Message) ||
+            !TryEnter(ctx))
         {
-            if (reminderTimes.Count == 1)
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        bool simple = TryParseSimpleRemindTime(ctx.Content, now, out DateTime time);
+
+        if (!simple)
+        {
+            ReminderParseResult result;
+
+            try
             {
-                var entry = new ReminderEntry(reminderTimes[0].Time, ctx.Content.Trim(), ctx);
-                await Task.WhenAll(
-                    ctx.Message.AddReactionAsync(Emotes.ThumbsUp),
-                    _reminderService.ScheduleAsync(entry));
+                result = await _requestParser.ParseAsync(ctx.Guild.Id, ctx.AuthorId, ctx.Content, now, ctx.CancellationToken);
             }
-            else
+            catch (OperationCanceledException) when (ctx.CancellationToken.IsCancellationRequested)
             {
-                await ctx.ReplyAsync($"The reminder is ambiguous between: {string.Join(", ",
-                    reminderTimes.Select(t => (t.Time - now).ToElapsedTime()))}");
+                throw;
             }
+            catch (Exception ex)
+            {
+                ctx.DebugLog(ex, "Failed to interpret reminder");
+                await ctx.ReplyAsync("Sorry, I couldn't interpret that reminder right now. Please try again.", suppressMentions: true);
+                return;
+            }
+
+            if (result.Time is not { } parsedTime)
+            {
+                await ctx.ReplyAsync(result.Error, suppressMentions: true);
+                return;
+            }
+
+            time = parsedTime;
+        }
+
+        if (time <= DateTime.UtcNow)
+        {
+            await ctx.ReplyAsync("That reminder time has already passed. Please specify a future time.");
+            return;
+        }
+
+        var entry = new ReminderEntry(time, ctx.Content.Trim(), ctx);
+        await _reminderService.ScheduleAsync(entry);
+        await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+
+        if (!simple)
+        {
+            long timestamp = new DateTimeOffset(time).ToUnixTimeSeconds();
+            await ctx.ReplyAsync($"Reminder set for <t:{timestamp}:F> (<t:{timestamp}:R>).", suppressMentions: true);
         }
     }
 
     public override Task HandleAsync(MessageContext ctx)
     {
-        if (ctx.Content.StartsWith("remind", StringComparison.OrdinalIgnoreCase))
+        if (ReminderRequestRegex().IsMatch(ctx.Content))
         {
             return ExecuteAsyncCore(ctx);
         }

@@ -286,6 +286,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<UrlShortenerService>();
 
     services.AddSingleton<ReminderService>();
+    services.AddSingleton<ReminderRequestParser>();
 
     services.AddSingleton<BrowserBlackjackService>();
     services.AddHostedService(s => s.GetRequiredService<BrowserBlackjackService>());
