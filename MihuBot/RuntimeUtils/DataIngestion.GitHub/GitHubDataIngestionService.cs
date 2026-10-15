@@ -85,7 +85,8 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
         : base(new PeriodicTaskOptions
         {
             Interval = TimeSpan.FromSeconds(10),
-            FailureBackoff = TimeSpan.FromSeconds(1),
+            // Repository failures must not progressively slow down polling for healthy repositories.
+            FailureBackoff = TimeSpan.Zero,
             AdditionalFailureDelay = GetRateLimitDelay,
             AlertAfterConsecutiveFailures = 5,
         }, discordLogger)
@@ -177,9 +178,14 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
     private readonly Stopwatch _knownUsersRefreshTime = Stopwatch.StartNew();
     private readonly Stopwatch _lastStatsRefreshTime = new();
 
-    /// <summary>Back off for as long as GitHub tells us to (capped), on top of the usual failure backoff.</summary>
-    private static TimeSpan GetRateLimitDelay(Exception exception)
+    /// <summary>Back off for as long as GitHub tells us to (capped), including failures collected across repositories.</summary>
+    internal static TimeSpan GetRateLimitDelay(Exception exception)
     {
+        if (exception is AggregateException aggregate)
+        {
+            return aggregate.Flatten().InnerExceptions.Select(GetRateLimitDelay).DefaultIfEmpty(TimeSpan.Zero).Max();
+        }
+
         if ((exception as RateLimitExceededException ?? exception.InnerException as RateLimitExceededException) is not { } rateLimitEx)
         {
             return TimeSpan.Zero;
@@ -197,62 +203,75 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
 
     protected override async Task RunIterationAsync(CancellationToken stoppingToken)
     {
-        RepositoryInfo? currentRepo = null;
-
-        try
+        if (!OperatingSystem.IsLinux())
         {
-            if (!OperatingSystem.IsLinux())
-            {
-                return;
-            }
+            return;
+        }
 
-            if (!_lastStatsRefreshTime.IsRunning || _lastStatsRefreshTime.Elapsed.TotalMinutes > 5)
-            {
-                await RefreshStatsAsync(stoppingToken);
-                _lastStatsRefreshTime.Restart();
-            }
+        if (!_lastStatsRefreshTime.IsRunning || _lastStatsRefreshTime.Elapsed.TotalMinutes > 5)
+        {
+            await RefreshStatsAsync(stoppingToken);
+            _lastStatsRefreshTime.Restart();
+        }
 
-            if (_serviceConfiguration.PauseGitHubPolling)
-            {
-                return;
-            }
+        if (_serviceConfiguration.PauseGitHubPolling)
+        {
+            return;
+        }
 
-            List<RepositoryInfo> repositories;
+        List<RepositoryInfo> repositories;
 
+        await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
+        {
+            repositories = await db.Repositories
+                .AsNoTracking()
+                .ToListAsync(stoppingToken);
+        }
+
+        // Refresh known users list every so often. If any repo is still doing initial ingestion we do it more often to avoid wasted DB fetches.
+        if (_knownUsers.Count == 0 || _knownUsersRefreshTime.Elapsed.TotalMinutes > (repositories.Any(r => r.InitialIngestionInProgress) ? 2 : 15))
+        {
             await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
             {
-                repositories = await db.Repositories
-                    .AsNoTracking()
-                    .ToListAsync(stoppingToken);
+                DateTime staleUserCutoff = DateTime.UtcNow - UserInfoRefreshInterval;
+
+                _knownUsers = (await db.Users
+                    .Where(u => u.EntryUpdatedAt >= staleUserCutoff)
+                    .Select(u => u.Id)
+                    .ToListAsync(stoppingToken))
+                    .ToHashSet();
             }
 
-            // Refresh known users list every so often. If any repo is still doing initial ingestion we do it more often to avoid wasted DB fetches.
-            if (_knownUsers.Count == 0 || _knownUsersRefreshTime.Elapsed.TotalMinutes > (repositories.Any(r => r.InitialIngestionInProgress) ? 2 : 15))
+            _knownUsersRefreshTime.Restart();
+        }
+
+        await UpdateRepositoriesAsync(repositories, UpdateRepositoryDataAsync, stoppingToken);
+    }
+
+    internal static async Task UpdateRepositoriesAsync(
+        IEnumerable<RepositoryInfo> repositories,
+        Func<RepositoryInfo, CancellationToken, Task> update,
+        CancellationToken cancellationToken)
+    {
+        List<Exception> failures = [];
+
+        foreach (RepositoryInfo repo in repositories)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
             {
-                await using (GitHubDbContext db = await _db.CreateDbContextAsync(stoppingToken))
-                {
-                    DateTime staleUserCutoff = DateTime.UtcNow - UserInfoRefreshInterval;
-
-                    _knownUsers = (await db.Users
-                        .Where(u => u.EntryUpdatedAt >= staleUserCutoff)
-                        .Select(u => u.Id)
-                        .ToListAsync(stoppingToken))
-                        .ToHashSet();
-                }
-
-                _knownUsersRefreshTime.Restart();
+                await update(repo, cancellationToken);
             }
-
-            foreach (RepositoryInfo repo in repositories)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                stoppingToken.ThrowIfCancellationRequested();
-                currentRepo = repo;
-                await UpdateRepositoryDataAsync(repo, stoppingToken);
+                failures.Add(new InvalidOperationException($"Update failed for '{repo.FullName}'", ex));
             }
         }
-        catch (Exception ex) when (currentRepo is not null && !stoppingToken.IsCancellationRequested)
+
+        if (failures.Count > 0)
         {
-            throw new InvalidOperationException($"Update failed for '{currentRepo.FullName}'", ex);
+            throw new AggregateException("GitHub repository updates failed.", failures);
         }
     }
 
@@ -1237,23 +1256,32 @@ public sealed class GitHubDataIngestionService : PeriodicBackgroundService
             issue.Assignees = newList;
         }
 
-        private async Task UpdatePullRequestInfoAsync(PullRequest pullRequest, IssueInfo issue, CancellationToken cancellationToken)
+        internal async Task UpdatePullRequestInfoAsync(PullRequest pullRequest, IssueInfo issue, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(pullRequest);
             ArgumentNullException.ThrowIfNull(issue);
 
+            issue.IssueType = IssueType.PullRequest;
+
             if (pullRequest.Id == 0)
             {
                 await OnRestApiCall(1, cancellationToken);
-                pullRequest = await GitHub.PullRequest.Get(RepoId, issue.Number);
+
+                try
+                {
+                    pullRequest = await GitHub.PullRequest.Get(RepoId, issue.Number);
+                }
+                catch (NotFoundException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    Logger.LogWarning(ex, "Pull request details not found for {IssueUrl}; keeping issue metadata and any existing pull request details.", issue.HtmlUrl);
+                    return;
+                }
             }
 
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pullRequest.Id);
             ArgumentOutOfRangeException.ThrowIfNotEqual(pullRequest.HtmlUrl, issue.HtmlUrl);
 
             PullRequestInfo prInfo = (await GetOrCreatePullRequestInfosAsync([pullRequest.NodeId], cancellationToken))[0];
-
-            issue.IssueType = IssueType.PullRequest;
 
             prInfo.IssueId = issue.Id;
             prInfo.MergedAt = pullRequest.MergedAt?.UtcDateTime;
