@@ -91,10 +91,18 @@ the app takes over: it detects new commits on `main` and shells out to the same
 The first build takes a few minutes (SDK download + compile); follow it with
 `docker compose logs -f mihubot`.
 
+Builds use pinned SDK `11.0.100-rc.2.26508.107`, not the daily channel.
+Override it with the container environment variable `MIHUBOT_DOTNET_VERSION`.
+
 The build script is baked into the image. After changes to `build-latest.sh`,
-rebuild/recreate the container with `docker compose up -d --build`; an app
+rebuild/recreate the container; an app
 self-update does not replace it. Recreating the container also allows retrying
 a commit whose self-update build previously failed.
+
+```bash
+docker compose build mihubot
+docker compose up -d --no-build --pull never --force-recreate mihubot
+```
 
 ### Supplying a build manually (optional)
 

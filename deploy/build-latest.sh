@@ -23,8 +23,7 @@ BRANCH="${MIHUBOT_BRANCH:-main}"
 COMMIT="${MIHUBOT_COMMIT:-}"
 PROJECT="${MIHUBOT_PROJECT:-MihuBot}"
 RID="${MIHUBOT_RID:-linux-x64}"
-DOTNET_CHANNEL="${MIHUBOT_DOTNET_CHANNEL:-11.0}"
-DOTNET_FALLBACK_VERSION="${MIHUBOT_DOTNET_FALLBACK_VERSION:-11.0.100-rc.2.26508.107}"
+DOTNET_VERSION="${MIHUBOT_DOTNET_VERSION:-11.0.100-rc.2.26508.107}"
 
 WORKDIR="$(mktemp -d)"
 cleanup() {
@@ -59,7 +58,7 @@ if [ -n "$COMMIT" ] && [ "$SHA" != "$COMMIT" ]; then
     exit 1
 fi
 
-echo "[build] Installing the .NET SDK ..."
+echo "[build] Installing .NET SDK $DOTNET_VERSION ..."
 curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$WORKDIR/dotnet-install.sh"
 chmod +x "$WORKDIR/dotnet-install.sh"
 
@@ -71,14 +70,8 @@ publish() {
 
 cd "$WORKDIR/src"
 
-# Prefer the daily build; fall back to a known-good version.
-if ! { "$WORKDIR/dotnet-install.sh" --channel "$DOTNET_CHANNEL" --quality daily --install-dir "$WORKDIR/dotnet-daily" \
-    && publish "$WORKDIR/dotnet-daily/dotnet"; }; then
-    echo "[build] Daily build failed; falling back to $DOTNET_FALLBACK_VERSION ..."
-    rm -rf artifacts
-    "$WORKDIR/dotnet-install.sh" --version "$DOTNET_FALLBACK_VERSION" --install-dir "$WORKDIR/dotnet-fallback"
-    publish "$WORKDIR/dotnet-fallback/dotnet"
-fi
+"$WORKDIR/dotnet-install.sh" --version "$DOTNET_VERSION" --install-dir "$WORKDIR/dotnet"
+publish "$WORKDIR/dotnet/dotnet"
 
 echo "[build] Packaging $OUT_TARBALL ..."
 mkdir -p "$(dirname "$OUT_TARBALL")"
