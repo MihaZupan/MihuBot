@@ -91,6 +91,11 @@ the app takes over: it detects new commits on `main` and shells out to the same
 The first build takes a few minutes (SDK download + compile); follow it with
 `docker compose logs -f mihubot`.
 
+The build script is baked into the image. After changes to `build-latest.sh`,
+rebuild/recreate the container with `docker compose up -d --build`; an app
+self-update does not replace it. Recreating the container also allows retrying
+a commit whose self-update build previously failed.
+
 ### Supplying a build manually (optional)
 
 To skip the in-container build, drop a prebuilt tarball into the State directory
