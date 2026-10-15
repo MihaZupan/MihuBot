@@ -163,7 +163,6 @@ public sealed class MinecraftRCON
             catch (Exception ex)
             {
                 Cleanup(ex);
-                throw;
             }
             finally
             {
