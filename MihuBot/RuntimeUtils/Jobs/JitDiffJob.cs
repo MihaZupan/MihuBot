@@ -76,7 +76,15 @@ public sealed class JitDiffJob : JobBase
         {
             foreach (string comment in report.GetIssueExampleComments(DiffExamplesUrl, CommentLengthLimit))
             {
-                await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, comment);
+                try
+                {
+                    await Github.Issue.Comment.Create(IssueRepositoryOwner, IssueRepositoryName, TrackingIssue.Number, comment);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Failed to post diff examples comment: {ex.Message}");
+                    await Task.Delay(TimeSpan.FromSeconds(1), jobTimeout);
+                }
             }
         }
     }
