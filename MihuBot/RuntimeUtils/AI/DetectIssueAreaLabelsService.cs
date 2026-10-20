@@ -97,6 +97,7 @@ public sealed class DetectIssueAreaLabelsService(
             {
                 issueActivity?.SetError(ex);
                 activity?.SetError(ex);
+                _processedIssues.TryAdd(processedKey);
 
                 await _logger.DebugAsync($"Failed to do label detection for <{issue.HtmlUrl}>: {ex}");
             }
