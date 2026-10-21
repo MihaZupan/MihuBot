@@ -13,17 +13,19 @@ public sealed class YoutubeAudioSource : AudioSourceBase
     private Stream _downloadStream;
     private Stream _ffmpegOutputStream;
     private Process _process;
+    private Task _pumpTask = Task.CompletedTask;
+    private bool _processStarted;
     private TimeSpan? _duration;
     private long _bytesRead;
 
-    public YoutubeAudioSource(SocketGuildUser requester, IVideo video)
-        : base(requester)
+    public YoutubeAudioSource(SocketGuildUser requester, IVideo video, bool isAutoplay = false)
+        : base(requester, isAutoplay)
     {
         _video = video;
         _duration = video.Duration;
     }
 
-    public override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
+    protected override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
     {
         YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url, cancellationToken);
         _duration ??= TimeSpan.FromSeconds(ytMetadata.Duration);
@@ -49,18 +51,23 @@ public sealed class YoutubeAudioSource : AudioSourceBase
             }
         };
 
-        _process.Start();
+        _processStarted = _process.Start();
+
+        if (!_processStarted)
+        {
+            throw new InvalidOperationException("Could not start FFmpeg.");
+        }
 
         _ffmpegOutputStream = _process.StandardOutput.BaseStream;
+        _pumpTask = PumpInputAsync(_downloadStream, _process.StandardInput.BaseStream, LifetimeCancellationToken);
+    }
 
-        _ = Task.Run(async () =>
+    internal static async Task PumpInputAsync(Stream download, Stream input, CancellationToken cancellationToken)
+    {
+        await using (input)
         {
-            try
-            {
-                await _downloadStream.CopyToAsync(_process.StandardInput.BaseStream, cancellationToken);
-            }
-            catch { }
-        }, CancellationToken.None);
+            await download.CopyToAsync(input, cancellationToken);
+        }
     }
 
     public override TimeSpan? Remaining
@@ -86,30 +93,68 @@ public sealed class YoutubeAudioSource : AudioSourceBase
     public override async ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken)
     {
         int read = await _ffmpegOutputStream.ReadAsync(pcmBuffer, cancellationToken);
+
+        if (read == 0)
+        {
+            await _pumpTask.WaitAsync(cancellationToken);
+            await _process.WaitForExitAsync(cancellationToken);
+
+            if (_process.ExitCode != 0)
+            {
+                throw new IOException($"FFmpeg exited with code {_process.ExitCode} for '{Description}'.");
+            }
+        }
+
         Interlocked.Add(ref _bytesRead, read);
         return read;
     }
 
-    public override async ValueTask DisposeAsync()
+    protected override async ValueTask DisposeResourcesAsync()
     {
-        await base.DisposeAsync();
+        var cleanup = new AsyncCleanup();
 
-        try
+        if (_processStarted)
         {
-            if (_process is Process process)
+            cleanup.Run(() =>
             {
-                process.Kill();
-                process.Dispose();
-            }
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                }
+            });
         }
-        catch { }
 
         if (_downloadStream is Stream downloadStream)
         {
-            await downloadStream.DisposeAsync();
+            await cleanup.RunAsync(() => downloadStream.DisposeAsync().AsTask());
         }
 
-        _http.Dispose();
+        await cleanup.RunAsync(async () =>
+        {
+            try
+            {
+                await _pumpTask;
+            }
+            catch (Exception ex) when (LifetimeCancellationToken.IsCancellationRequested &&
+                ex is OperationCanceledException or IOException or ObjectDisposedException)
+            {
+                // Closing a source interrupts both the download and FFmpeg's input pipe.
+            }
+        });
+
+        if (_processStarted)
+        {
+            await cleanup.RunAsync(() => _process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+
+        if (_ffmpegOutputStream is Stream output)
+        {
+            await cleanup.RunAsync(() => output.DisposeAsync().AsTask());
+        }
+
+        cleanup.Run(() => _process?.Dispose());
+        cleanup.Run(_http.Dispose);
+        cleanup.ThrowIfFailed();
     }
 
     public void DebugDump(StringBuilder sb)

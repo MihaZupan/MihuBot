@@ -16,6 +16,8 @@ public interface IAudioSource : IAsyncDisposable
 
     SocketGuildUser Requester { get; }
 
+    bool IsAutoplay { get; }
+
     ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken);
 
     void DebugDump(StringBuilder sb) { }

@@ -15,9 +15,46 @@ namespace MihuBot.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
-            modelBuilder.Entity("MihuBot.Location.LocationService+UserLocation", b =>
+            modelBuilder.Entity("MihuBot.Discord.Audio.AudioPlaybackEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("EndedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<ulong>("GuildId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsAutoplay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<ulong?>("RequesterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GuildId", "Id");
+
+                    b.ToTable("audioPlaybackHistory");
+                });
+
+            modelBuilder.Entity("MihuBot.Discord.Location.LocationService+UserLocation", b =>
                 {
                     b.Property<long>("UserId")
                         .ValueGeneratedOnAdd()
@@ -37,7 +74,7 @@ namespace MihuBot.Migrations
                     b.ToTable("UserLocation");
                 });
 
-            modelBuilder.Entity("MihuBot.Reminders.ReminderEntry", b =>
+            modelBuilder.Entity("MihuBot.Discord.Reminders.ReminderEntry", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()

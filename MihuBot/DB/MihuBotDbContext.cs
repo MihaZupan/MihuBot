@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MihuBot.Discord.Audio;
 using MihuBot.Discord.Location;
 using MihuBot.Discord.Reminders;
 using MihuBot.RuntimeUtils;
@@ -18,4 +19,6 @@ public sealed class MihuBotDbContext : DbContext
     public DbSet<LocationService.UserLocation> UserLocation { get; set; }
 
     public DbSet<CoreRootService.CoreRootDbEntry> CoreRoot { get; set; }
+
+    public DbSet<AudioPlaybackEntry> AudioPlaybackHistory { get; set; }
 }

@@ -1,5 +1,4 @@
 ﻿using System.IO.Pipelines;
-using System.Runtime.ExceptionServices;
 
 namespace MihuBot.Discord.Audio;
 
@@ -9,7 +8,9 @@ internal sealed class ReadAheadStream : Stream
     private readonly CancellationTokenSource _cts = new();
     private readonly Pipe _pipe;
     private readonly Stream _pipeReaderStream;
-    private int _pipeClosed;
+    private readonly Task _copyTask;
+    private readonly Lock _disposeLock = new();
+    private Task _disposeTask;
 
     public ReadAheadStream(Stream innerStream, long? bufferCapacity = null)
     {
@@ -20,27 +21,25 @@ internal sealed class ReadAheadStream : Stream
 
         using (ExecutionContext.SuppressFlow())
         {
-            Task.Run(CopyStreamToPipeAsync);
+            _copyTask = Task.Run(CopyStreamToPipeAsync);
         }
     }
 
     private async Task CopyStreamToPipeAsync()
     {
+        Exception error = null;
+
         try
         {
             await _innerStream.CopyToAsync(_pipe.Writer, _cts.Token);
-
-            if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
-            {
-                await _pipe.Writer.CompleteAsync();
-            }
         }
         catch (Exception ex)
         {
-            if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
-            {
-                await _pipe.Writer.CompleteAsync(ex);
-            }
+            error = ex;
+        }
+        finally
+        {
+            await _pipe.Writer.CompleteAsync(error);
         }
     }
 
@@ -59,18 +58,25 @@ internal sealed class ReadAheadStream : Stream
     public override long Length => throw new NotSupportedException();
     public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
-    public override async ValueTask DisposeAsync()
+    public override ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _pipeClosed, 1) == 0)
+        lock (_disposeLock)
         {
-            await _pipe.Writer.CompleteAsync(ExceptionDispatchInfo.SetCurrentStackTrace(new ObjectDisposedException(nameof(ReadAheadStream))));
+            _disposeTask ??= Task.Run(DisposeCoreAsync);
+            return new ValueTask(_disposeTask);
         }
+    }
 
-        _cts.Cancel();
-
-        await base.DisposeAsync();
-
-        await _innerStream.DisposeAsync();
-        await _pipeReaderStream.DisposeAsync();
+    private async Task DisposeCoreAsync()
+    {
+        var cleanup = new AsyncCleanup();
+        cleanup.Run(_cts.Cancel);
+        cleanup.Run(_pipe.Writer.CancelPendingFlush);
+        cleanup.Run(_pipe.Reader.CancelPendingRead);
+        await cleanup.RunAsync(() => _innerStream.DisposeAsync().AsTask());
+        await cleanup.RunAsync(() => _copyTask);
+        await cleanup.RunAsync(() => _pipeReaderStream.DisposeAsync().AsTask());
+        cleanup.Run(_cts.Dispose);
+        cleanup.ThrowIfFailed();
     }
 }

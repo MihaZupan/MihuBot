@@ -1,4 +1,5 @@
 ﻿using System.Threading.Channels;
+using System.Runtime.ExceptionServices;
 
 #nullable enable
 
@@ -11,6 +12,10 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Channel<TFrameData> _frameChannel;
     private readonly Task _loopTask;
+    private readonly Lock _disposeLock = new();
+    private Task? _disposeTask;
+    private readonly TimeSpan _callbackTimeout;
+    private readonly Action<Exception> _onError;
 
     private readonly Stopwatch _stopwatch = new();
     private readonly double _averageWaitMs;
@@ -26,11 +31,11 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
     public Func<Task> OnProlongedSilenceAsync { get; set; } = () => Task.CompletedTask;
     public Func<TFrameData, Task> OnClearedFrameAsync { get; set; } = _ => Task.CompletedTask;
 
-    private CancellationTokenRegistration RegisterCancellation(CancellationToken cancellationToken) =>
-        cancellationToken.UnsafeRegister(static s => ((CancellationTokenSource)s!).Cancel(), _cts);
-
-    public MediaTimer(double framerate, TimeSpan bufferSize, TimeSpan prolongedSilence)
+    public MediaTimer(double framerate, TimeSpan bufferSize, TimeSpan prolongedSilence,
+        Action<Exception>? onError = null, TimeSpan? callbackTimeout = null)
     {
+        _onError = onError ?? Console.WriteLine;
+        _callbackTimeout = callbackTimeout ?? TimeSpan.FromSeconds(5);
         double averageWaitMs = 1000 / framerate;
 
         _averageWaitMs = averageWaitMs;
@@ -54,9 +59,17 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
 
     public async Task EnqueueAsync(TFrameData frame, CancellationToken cancellationToken = default)
     {
-        using var _ = RegisterCancellation(cancellationToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
-        await _frameChannel.Writer.WriteAsync(frame, _cts.Token);
+        try
+        {
+            await _frameChannel.Writer.WriteAsync(frame, linked.Token);
+        }
+        catch (ChannelClosedException ex) when (ex.InnerException is not null)
+        {
+            ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
     }
 
     private bool TryGetNextFrameWaitTime(out int waitMs)
@@ -104,6 +117,8 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
 
     private async Task LoopAsync()
     {
+        Exception? failure = null;
+
         try
         {
             while (!_cts.IsCancellationRequested)
@@ -118,17 +133,17 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
                 {
                     _silenceFrames = 0;
 
-                    await OnFrameAsync(frame);
+                    await RunCallbackAsync(OnFrameAsync(frame));
                 }
                 else
                 {
                     if (++_silenceFrames <= _maxSilenceFrames)
                     {
-                        await OnSilenceFrameAsync();
+                        await RunCallbackAsync(OnSilenceFrameAsync());
                     }
                     else
                     {
-                        await OnProlongedSilenceAsync();
+                        await RunCallbackAsync(OnProlongedSilenceAsync());
 
                         await _frameChannel.Reader.WaitToReadAsync(_cts.Token);
 
@@ -140,22 +155,74 @@ internal sealed class MediaTimer<TFrameData> : IAsyncDisposable
         catch when (_cts.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            Console.WriteLine(ex);
+            failure = ex;
+            _frameChannel.Writer.TryComplete(ex);
+            _onError(ex);
+        }
+        finally
+        {
+            _frameChannel.Writer.TryComplete(failure);
+        }
+    }
+
+    private async Task RunCallbackAsync(Task callback)
+    {
+        try
+        {
+            await callback.WaitAsync(_callbackTimeout, _cts.Token);
+        }
+        catch
+        {
+            if (!callback.IsCompleted)
+            {
+                _ = ObserveCallbackAsync(callback);
+            }
+
+            throw;
+        }
+    }
+
+    private async Task ObserveCallbackAsync(Task callback)
+    {
+        try
+        {
+            await callback;
+        }
+        catch (Exception ex)
+        {
+            _onError(ex);
         }
     }
 
     public async Task ClearAsync()
     {
+        var cleanup = new AsyncCleanup();
+
         while (_frameChannel.Reader.TryRead(out TFrameData? frame))
         {
-            await OnClearedFrameAsync(frame);
+            await cleanup.RunAsync(() => OnClearedFrameAsync(frame));
+        }
+
+        cleanup.ThrowIfFailed();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposeLock)
+        {
+            _disposeTask ??= Task.Run(DisposeCoreAsync);
+            return new ValueTask(_disposeTask);
         }
     }
 
-    public async ValueTask DisposeAsync()
+    private async Task DisposeCoreAsync()
     {
-        _cts.Cancel();
-
-        await _loopTask;
+        var cleanup = new AsyncCleanup();
+        cleanup.Run(_cts.Cancel);
+        _frameChannel.Writer.TryComplete();
+        await cleanup.RunAsync(() => _loopTask);
+        await cleanup.RunAsync(ClearAsync);
+        cleanup.Run(_cts.Dispose);
+        cleanup.ThrowIfFailed();
     }
 }

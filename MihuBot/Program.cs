@@ -423,6 +423,8 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     }
 
     services.AddSingleton<AudioService>();
+    services.AddSingleton<AudioHistoryService>();
+    services.AddSingleton<AudioRecommendationService>();
 
     if (builder.Configuration.IsConfigured(OptionalFeatures.Telegram))
     {

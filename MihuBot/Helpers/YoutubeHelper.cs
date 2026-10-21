@@ -327,41 +327,42 @@ internal static partial class YoutubeHelper
     {
         try
         {
-            if (youtubeService is not null)
-            {
-                SearchResource.ListRequest searchListRequest = youtubeService.Search.List("snippet");
-                searchListRequest.Q = query;
-                searchListRequest.MaxResults = 5;
-                searchListRequest.Type = "video";
-
-                var searchListResponse = await searchListRequest.ExecuteAsync();
-
-                if (searchListResponse.Items.Count != 0)
-                {
-                    Google.Apis.YouTube.v3.Data.SearchResult bestMatch =
-                        searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ??
-                        searchListResponse.Items.First();
-
-                    return Transform(bestMatch);
-                }
-            }
-            else
-            {
-                VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query).Take(5).ToArrayAsync();
-
-                if (results.Length != 0)
-                {
-                    VideoSearchResult? titleMatch = results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase));
-                    if (titleMatch is not null)
-                    {
-                        return titleMatch;
-                    }
-
-                    return results[0];
-                }
-            }
+            return await SearchAsync(query, youtubeService);
         }
         catch { }
+
+        return null;
+    }
+
+    public static async Task<IVideo?> SearchAsync(string query, YouTubeService? youtubeService = null, CancellationToken cancellationToken = default)
+    {
+        if (youtubeService is not null)
+        {
+            SearchResource.ListRequest searchListRequest = youtubeService.Search.List("snippet");
+            searchListRequest.Q = query;
+            searchListRequest.MaxResults = 5;
+            searchListRequest.Type = "video";
+
+            var searchListResponse = await searchListRequest.ExecuteAsync(cancellationToken);
+
+            if (searchListResponse.Items.Count != 0)
+            {
+                Google.Apis.YouTube.v3.Data.SearchResult bestMatch =
+                    searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ??
+                    searchListResponse.Items.First();
+
+                return Transform(bestMatch);
+            }
+        }
+        else
+        {
+            VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query, cancellationToken).Take(5).ToArrayAsync(cancellationToken);
+
+            if (results.Length != 0)
+            {
+                return results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ?? results[0];
+            }
+        }
 
         return null;
     }

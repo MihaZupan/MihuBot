@@ -14,10 +14,14 @@ public sealed class AudioService
     });
     private readonly ConcurrentDictionary<ulong, AudioPlayer> _audioPlayers = new();
     private readonly Logger _logger;
+    private readonly AudioHistoryService _history;
+    private readonly AudioRecommendationService _recommendations;
 
-    public AudioService(Logger logger, DiscordSocketClient discord)
+    public AudioService(Logger logger, DiscordSocketClient discord, AudioHistoryService history, AudioRecommendationService recommendations)
     {
         _logger = logger;
+        _history = history;
+        _recommendations = recommendations;
 
         discord.UserVoiceStateUpdated += (user, before, after) =>
         {
@@ -81,7 +85,7 @@ public sealed class AudioService
                 _audioSettings.Exit();
             }
 
-            audioPlayer = new AudioPlayer(client, audioSettings, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers);
+            audioPlayer = new AudioPlayer(client, audioSettings, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers, _history, _recommendations);
             if (_audioPlayers.TryAdd(guildId, audioPlayer))
             {
                 await audioPlayer.JoinChannelAsync(voiceChannel);

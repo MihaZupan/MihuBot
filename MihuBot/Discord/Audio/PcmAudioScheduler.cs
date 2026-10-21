@@ -18,22 +18,24 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
 
     public GuildAudioSettings? AudioSettings { get; set; }
 
-    public PcmAudioScheduler(IAudioClient audioClient, AudioOutStream pcmStream, Action<string> debugLog)
+    public PcmAudioScheduler(IAudioClient audioClient, AudioOutStream pcmStream, Action<string> debugLog, Action<Exception> onError)
     {
         _debugLog = debugLog;
 
         _timer = new MediaTimer<byte[]>(
             framerate: 1000d / OpusConstants.FrameMillis,
             bufferSize: TimeSpan.FromMilliseconds(GlobalAudioSettings.StreamBufferMs),
-            prolongedSilence: TimeSpan.FromMilliseconds(500))
+            prolongedSilence: TimeSpan.FromMilliseconds(500),
+            onError: onError)
         {
             OnFrameAsync = async frame =>
             {
                 _debugLog("OnFrameAsync start");
 
-                Task speakingTask = audioClient.SetSpeakingAsync(true);
+                Task? speakingTask = null;
                 try
                 {
+                    speakingTask = audioClient.SetSpeakingAsync(true);
                     Memory<byte> frameBytes = frame.AsMemory(0, OpusConstants.FrameBytes);
 
                     float userVolume = AudioSettings?.Volume ?? Constants.VCDefaultVolume;
@@ -49,12 +51,16 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
                     VolumeHelper.ApplyVolume(MemoryMarshal.Cast<byte, short>(frameBytes.Span), volumeFactor);
 
                     await pcmStream.WriteAsync(frameBytes);
-
-                    ArrayPool<byte>.Shared.Return(frame);
                 }
                 finally
                 {
-                    await speakingTask;
+                    // A timed-out transport callback still owns this buffer until its write finishes.
+                    ArrayPool<byte>.Shared.Return(frame);
+
+                    if (speakingTask is not null)
+                    {
+                        await speakingTask;
+                    }
 
                     _debugLog("OnFrameAsync stop");
                 }
@@ -97,7 +103,15 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
 
                 _debugLog("WritePcmSamplesAsync Enqueue start");
 
-                await _timer.EnqueueAsync(buffer, cancellationToken);
+                try
+                {
+                    await _timer.EnqueueAsync(buffer, cancellationToken);
+                }
+                catch
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    throw;
+                }
 
                 _debugLog("WritePcmSamplesAsync Enqueue stop");
             }
@@ -111,5 +125,20 @@ public sealed class PcmAudioScheduler : IAsyncDisposable
         await _timer.ClearAsync();
     }
 
-    public ValueTask DisposeAsync() => _timer.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _timer.DisposeAsync();
+        }
+        finally
+        {
+            if (_leftoverBuffer is { } buffer)
+            {
+                _leftoverBuffer = null;
+                _leftoverBytes = 0;
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+    }
 }
