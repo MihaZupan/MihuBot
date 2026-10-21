@@ -84,7 +84,7 @@ public sealed class GitHubSemanticSearchIngestionService : PeriodicBackgroundSer
                 {
                     Size = GitHubDbContext.Defaults.EmbeddingDimensions,
                     Distance = Distance.Cosine,
-                    OnDisk = true,
+                    Memory = Memory.Cold,
                 },
                 quantizationConfig: new QuantizationConfig
                 {
