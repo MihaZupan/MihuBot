@@ -11,6 +11,34 @@ public sealed class YoutubeHelperTests
     private const string VideoId = "afqQwmXTcPA";
     private const string ChannelId = "UC0123456789012345678901";
 
+    [Theory]
+    [InlineData("Music: &#39;&#39;Sentience&#39;&#39; | Artist", "Music: ''Sentience'' | Artist")]
+    [InlineData("&quot;Title&quot; &amp; Artist", "\"Title\" & Artist")]
+    [InlineData("Plain \"title\" & artist", "Plain \"title\" & artist")]
+    [InlineData("&amp;#39;", "&#39;")]
+    public void Transform_SearchResultDecodesTitleOnce(string title, string expected)
+    {
+        var result = new Google.Apis.YouTube.v3.Data.SearchResult
+        {
+            Id = new() { VideoId = VideoId },
+            Snippet = new()
+            {
+                Title = title,
+                ChannelId = ChannelId,
+                ChannelTitle = "Channel",
+                Description = "",
+                Thumbnails = new()
+                {
+                    Default__ = new() { Url = "https://img.youtube.com/vi/afqQwmXTcPA/default.jpg", Width = 120, Height = 90 }
+                }
+            }
+        };
+
+        Video video = YoutubeHelper.Transform(result);
+
+        Assert.Equal(expected, video.Title);
+    }
+
     [Fact]
     public async Task GetVideoAsync_PrefersYoutubeExplode()
     {

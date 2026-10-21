@@ -423,14 +423,14 @@ internal static partial class YoutubeHelper
         }
     }
 
-    private static Video Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
+    internal static Video Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
     {
         var snippet = searchResult.Snippet;
         var thumbnail = snippet.Thumbnails.Maxres ?? snippet.Thumbnails.High ?? snippet.Thumbnails.Standard ?? snippet.Thumbnails.Default__;
 
         return new Video(
             searchResult.Id.VideoId,
-            snippet.Title,
+            WebUtility.HtmlDecode(snippet.Title),
             new Author(snippet.ChannelId, snippet.ChannelTitle),
             snippet.PublishedAtDateTimeOffset ?? new DateTime(3000, 1, 1),
             snippet.Description,
