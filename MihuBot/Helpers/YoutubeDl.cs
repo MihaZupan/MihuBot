@@ -6,32 +6,55 @@ namespace MihuBot.Helpers;
 
 public static class YoutubeDl
 {
-    public static async Task<YoutubeDlMetadata> GetMetadataAsync(string url)
+    public static async Task<YoutubeDlMetadata> GetMetadataAsync(string url, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         using var proc = new Process();
         proc.StartInfo.FileName = "yt-dlp";
-        proc.StartInfo.Arguments = $"-j \"{url}\"";
         proc.StartInfo.UseShellExecute = false;
         proc.StartInfo.RedirectStandardOutput = true;
         proc.StartInfo.RedirectStandardError = true;
+        proc.StartInfo.StandardOutputEncoding = Encoding.UTF8;
+        proc.StartInfo.StandardErrorEncoding = Encoding.UTF8;
+        proc.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
+
+        foreach (string argument in new[] { "--no-playlist", "--skip-download", "-j", "--", url })
+        {
+            proc.StartInfo.ArgumentList.Add(argument);
+        }
 
         proc.Start();
 
-        Task<string> outputTask = proc.StandardOutput.ReadToEndAsync();
-        Task<string> errorTask = proc.StandardError.ReadToEndAsync();
+        Task<string> outputTask = proc.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        Task<string> errorTask = proc.StandardError.ReadToEndAsync(CancellationToken.None);
 
-        await proc.WaitForExitAsync();
-
-        await Task.WhenAll(outputTask, errorTask);
-
-        string error = await errorTask;
-        if (!string.IsNullOrEmpty(error))
+        try
         {
-            throw new Exception($"YoutubeDl failed for \"{url}\" with \"{error}\"");
-        }
+            await proc.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(outputTask, errorTask);
 
-        string output = await outputTask;
-        return JsonConvert.DeserializeObject<YoutubeDlMetadata>(output);
+            string error = await errorTask;
+
+            if (proc.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"yt-dlp failed for \"{url}\" with exit code {proc.ExitCode}: {error}");
+            }
+
+            string output = await outputTask;
+            return JsonConvert.DeserializeObject<YoutubeDlMetadata>(output)
+                ?? throw new InvalidOperationException($"yt-dlp returned no metadata for \"{url}\".");
+        }
+        finally
+        {
+            if (!proc.HasExited)
+            {
+                proc.Kill(entireProcessTree: true);
+                await proc.WaitForExitAsync(CancellationToken.None);
+            }
+
+            await Task.WhenAll(outputTask, errorTask);
+        }
     }
 
     public static void SerializeHeadersForCmd(StringBuilder sb, Dictionary<string, string> headers)
@@ -52,6 +75,12 @@ public static class YoutubeDl
     {
         public string Id { get; set; }
         public string Title { get; set; }
+        public string ChannelId { get; set; }
+        public string Channel { get; set; }
+        public string Uploader { get; set; }
+        public string UploadDate { get; set; }
+        public string Description { get; set; }
+        public string[] Tags { get; set; }
         public bool IsLive { get; set; }
         public double Duration { get; set; }
 

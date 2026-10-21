@@ -17,7 +17,7 @@ public sealed class DownloadCommand : CommandBase
 
         if (msg != null && YoutubeHelper.TryParseVideoId(msg.Content, out string videoId))
         {
-            _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel, useOpus: false));
+            _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel, useOpus: false, ctx.DebugLog));
         }
 
         return Task.CompletedTask;

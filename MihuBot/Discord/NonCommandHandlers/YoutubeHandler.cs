@@ -22,11 +22,11 @@ public sealed class YoutubeHandler : NonCommandHandler
             var parts = ctx.Content.Split(' ').Where(p => p.Contains("youtu", StringComparison.OrdinalIgnoreCase));
             if (parts.Any(p => YoutubeHelper.TryParseVideoId(p, out videoId)))
             {
-                _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel, useOpus));
+                _ = Task.Run(async () => await YoutubeHelper.SendVideoAsync(videoId, ctx.Channel, useOpus, ctx.DebugLog));
             }
             else if (parts.Any(p => YoutubeHelper.TryParsePlaylistId(p, out playlistId)))
             {
-                _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, ctx.Channel, useOpus, _youtubeService));
+                _ = Task.Run(async () => await YoutubeHelper.SendPlaylistAsync(playlistId, ctx.Channel, useOpus, ctx.DebugLog, _youtubeService));
             }
         }
 

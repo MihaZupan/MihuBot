@@ -184,7 +184,7 @@ public sealed partial class AudioCommands : CommandBase
                 {
                     if (YoutubeHelper.TryParseVideoId(argument, out string videoId))
                     {
-                        Video video = await YoutubeHelper.GetVideoAsync(videoId);
+                        Video video = await YoutubeHelper.GetVideoAsync(videoId, ctx.DebugLog);
                         audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                         await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                     }
@@ -215,7 +215,7 @@ public sealed partial class AudioCommands : CommandBase
                             IVideo searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
                             if (searchResult is not null)
                             {
-                                Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
+                                Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id, ctx.DebugLog);
                                 audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
 
                                 if (!foundAny)
@@ -237,7 +237,7 @@ public sealed partial class AudioCommands : CommandBase
                         IVideo searchResult = await YoutubeHelper.TryFindSongAsync(track.Name, track.Artists.FirstOrDefault()?.Name, _youtubeService);
                         if (searchResult is not null)
                         {
-                            Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id);
+                            Video video = await YoutubeHelper.GetVideoAsync(searchResult.Id, ctx.DebugLog);
                             audioPlayer.Enqueue(new YoutubeAudioSource(ctx.Author, video));
                             await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
                         }

@@ -25,7 +25,7 @@ public sealed class YoutubeAudioSource : AudioSourceBase
 
     public override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
     {
-        YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url);
+        YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url, cancellationToken);
         _duration ??= TimeSpan.FromSeconds(ytMetadata.Duration);
         var bestAudio = ytMetadata.GetBestAudio();
 

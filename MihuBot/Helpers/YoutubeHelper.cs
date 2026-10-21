@@ -2,9 +2,11 @@
 using Microsoft.AspNetCore.WebUtilities;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Common;
+using YoutubeExplode.Exceptions;
 using YoutubeExplode.Search;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
@@ -185,11 +187,11 @@ internal static partial class YoutubeHelper
         }
     }
 
-    public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus)
+    public static async Task SendVideoAsync(string id, ISocketMessageChannel channel, bool useOpus, Action<string> debugLog)
     {
         try
         {
-            var video = await Youtube.Videos.GetAsync(id);
+            var video = await GetVideoAsync(id, debugLog);
 
             if (video.Duration > TimeSpan.FromMinutes(65))
             {
@@ -219,17 +221,17 @@ internal static partial class YoutubeHelper
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex);
+            debugLog(ex.ToString());
         }
     }
 
-    public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus, YouTubeService? youtubeService = null)
+    public static async Task SendPlaylistAsync(string id, ISocketMessageChannel channel, bool useOpus, Action<string> debugLog, YouTubeService? youtubeService = null)
     {
         try
         {
             List<IVideo> videos = await GetVideosAsync(id, youtubeService);
 
-            Console.WriteLine("Processing playlist with " + videos.Count + " items");
+            debugLog("Processing playlist with " + videos.Count + " items");
 
             Task[] tasks = new Task[Math.Min(videos.Count, 2)];
             int index = -1;
@@ -243,7 +245,7 @@ internal static partial class YoutubeHelper
                         if (local >= videos.Count)
                             return;
 
-                        await SendVideoAsync(videos[local].Id, channel, useOpus);
+                        await SendVideoAsync(videos[local].Id, channel, useOpus, debugLog);
                     }
                 });
             }
@@ -251,7 +253,7 @@ internal static partial class YoutubeHelper
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex);
+            debugLog(ex.ToString());
         }
     }
 
@@ -369,9 +371,56 @@ internal static partial class YoutubeHelper
         return TrySearchAsync($"{artist} {title}", youtubeService);
     }
 
-    public static ValueTask<Video> GetVideoAsync(VideoId videoId, CancellationToken cancellationToken = default)
+    public static ValueTask<Video> GetVideoAsync(VideoId videoId, Action<string> debugLog, CancellationToken cancellationToken = default)
     {
-        return Youtube.Videos.GetAsync(videoId, cancellationToken);
+        return GetVideoAsync(videoId, Youtube.Videos.GetAsync, YoutubeDl.GetMetadataAsync, cancellationToken, debugLog);
+    }
+
+    internal static async ValueTask<Video> GetVideoAsync(
+        VideoId videoId,
+        Func<VideoId, CancellationToken, ValueTask<Video>> getVideo,
+        Func<string, CancellationToken, Task<YoutubeDl.YoutubeDlMetadata>> getMetadata,
+        CancellationToken cancellationToken = default,
+        Action<string>? debugLog = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            return await getVideo(videoId, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is YoutubeExplodeException or HttpRequestException)
+        {
+            debugLog?.Invoke($"YoutubeExplode metadata lookup failed for {videoId}; falling back to yt-dlp: {ex}");
+
+            try
+            {
+                YoutubeDl.YoutubeDlMetadata metadata = await getMetadata($"https://www.youtube.com/watch?v={videoId}", cancellationToken);
+
+                if (metadata.Id != videoId.Value || metadata.Title is null)
+                {
+                    throw new InvalidOperationException("yt-dlp returned invalid video metadata.");
+                }
+
+                DateTimeOffset.TryParseExact(metadata.UploadDate, "yyyyMMdd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out DateTimeOffset uploadDate);
+
+                return new Video(
+                    videoId,
+                    metadata.Title,
+                    new Author(metadata.ChannelId, metadata.Channel ?? metadata.Uploader ?? ""),
+                    uploadDate,
+                    metadata.Description ?? "",
+                    metadata.IsLive || metadata.Duration <= 0 ? null : TimeSpan.FromSeconds(metadata.Duration),
+                    thumbnails: [new Thumbnail($"https://img.youtube.com/vi/{videoId}/hqdefault.jpg", new Resolution(480, 360))],
+                    keywords: metadata.Tags ?? [],
+                    engagement: new Engagement(0, 0, 0));
+            }
+            catch (Exception fallbackException) when (fallbackException is not OperationCanceledException)
+            {
+                throw new AggregateException($"Both YoutubeExplode and yt-dlp failed to get metadata for video '{videoId}'.", ex, fallbackException);
+            }
+        }
     }
 
     private static Video Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)
