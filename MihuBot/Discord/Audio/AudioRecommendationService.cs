@@ -39,19 +39,35 @@ public sealed class AudioRecommendationService(
         {
             try
             {
-                var result = await YoutubeHelper.SearchAsync($"{suggestion.Artist} {suggestion.Title}", youtube, cancellationToken);
+                IVideo[] results = await YoutubeHelper.SearchVideosAsync($"{suggestion.Artist} {suggestion.Title}", youtube, cancellationToken);
+                List<Video> videos = [];
 
-                if (result is null)
+                foreach (IVideo result in results.Where(r => MatchesSuggestion(r, suggestion)))
                 {
-                    continue;
+                    try
+                    {
+                        Video video = await YoutubeHelper.GetVideoAsync(result.Id,
+                            message => logger.DebugLog(message, guildId: guildId), cancellationToken);
+
+                        if (MatchesSuggestion(video, suggestion) && IsSuitable(video, recent))
+                        {
+                            videos.Add(video);
+
+                            if (videos.Count == 1 && !IsMusicVideo(video))
+                            {
+                                return video;
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        errors.Add(ex);
+                    }
                 }
 
-                Video video = await YoutubeHelper.GetVideoAsync(result.Id,
-                    message => logger.DebugLog(message, guildId: guildId), cancellationToken);
-
-                if (MatchesSuggestion(video, suggestion) && IsSuitable(video, recent))
+                if (SelectVideo(videos, suggestion, recent) is { } selected)
                 {
-                    return video;
+                    return selected;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -120,6 +136,29 @@ public sealed class AudioRecommendationService(
     }
 
     private static string Normalize(string text) => string.Concat(text.Where(char.IsLetterOrDigit)).ToUpperInvariant();
+
+    internal static Video? SelectVideo(IEnumerable<Video> videos, SongSuggestion suggestion, IEnumerable<AudioPlaybackEntry> recent)
+    {
+        Video[] suitable = videos.Where(v => MatchesSuggestion(v, suggestion) && IsSuitable(v, recent)).ToArray();
+
+        if (suitable.FirstOrDefault() is not { } first || !IsMusicVideo(first))
+        {
+            return suitable.FirstOrDefault();
+        }
+
+        // Avoid replacing the full recording with a short excerpt or a longer alternate version.
+        return suitable.Where(v => !IsMusicVideo(v) && v.Duration <= first.Duration && v.Duration >= first.Duration * 0.75)
+            .OrderByDescending(v => v.Author.ChannelId == first.Author.ChannelId)
+            .FirstOrDefault() ?? first;
+    }
+
+    private static bool IsMusicVideo(IVideo video)
+    {
+        string title = Normalize(video.Title);
+        return title.Contains("MUSICVIDEO", StringComparison.Ordinal) ||
+            title.Contains("OFFICIALVIDEO", StringComparison.Ordinal) ||
+            title.Contains("VIDEOCLIP", StringComparison.Ordinal);
+    }
 
     internal static bool IsSuitable(IVideo video, IEnumerable<AudioPlaybackEntry> recent) =>
         video.Duration is { } duration && duration >= TimeSpan.FromSeconds(30) && duration <= TimeSpan.FromMinutes(15) &&

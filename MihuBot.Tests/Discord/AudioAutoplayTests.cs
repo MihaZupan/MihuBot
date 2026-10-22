@@ -332,8 +332,59 @@ public sealed class AudioAutoplayTests
         Assert.False(AudioRecommendationService.IsSuitable(video, [recent]));
     }
 
-    private static Video CreateVideo(string title, int? seconds) =>
-        new("afqQwmXTcPA", title, new Author("UC0123456789012345678901", "Artist"), DateTimeOffset.UtcNow,
+    [Theory]
+    [InlineData("Official Music Video")]
+    [InlineData("OFFICIAL VIDEO")]
+    [InlineData("Video Clip")]
+    public void RecommendationsPreferShorterAudioOverMusicVideos(string label)
+    {
+        Video musicVideo = CreateVideo($"Artist - A Song ({label})", 240);
+        Video audio = CreateVideo("Artist - A Song (Official Audio)", 200);
+
+        Assert.Same(audio, AudioRecommendationService.SelectVideo([musicVideo, audio], new("Artist", "A Song"), []));
+    }
+
+    [Fact]
+    public void RecommendationsPreferAlternativesFromTheSameChannel()
+    {
+        Video musicVideo = CreateVideo("Artist - A Song (Music Video)", 240);
+        Video otherUpload = CreateVideo("Artist - A Song (Audio)", 200, "UC1123456789012345678901");
+        Video officialAudio = CreateVideo("Artist - A Song (Official Audio)", 210);
+
+        Assert.Same(officialAudio, AudioRecommendationService.SelectVideo(
+            [musicVideo, otherUpload, officialAudio], new("Artist", "A Song"), []));
+    }
+
+    [Theory]
+    [InlineData("Artist - A Song (Audio)", 179)]
+    [InlineData("Artist - A Song (Audio)", 241)]
+    [InlineData("Artist - Another Song (Audio)", 200)]
+    [InlineData("Artist - A Song (Official Video)", 200)]
+    public void RecommendationsKeepMusicVideoWhenThereIsNoComparableAudio(string title, int seconds)
+    {
+        Video musicVideo = CreateVideo("Artist - A Song (Music Video)", 240);
+        Video alternative = CreateVideo(title, seconds);
+
+        Assert.Same(musicVideo, AudioRecommendationService.SelectVideo(
+            [musicVideo, alternative], new("Artist", "A Song"), []));
+    }
+
+    [Fact]
+    public void RecommendationsDoNotReorderAudioResultsOrSelectRecentAlternatives()
+    {
+        Video first = CreateVideo("Artist - A Song (Audio)", 240);
+        Video shorter = CreateVideo("Artist - A Song (Official Audio)", 200);
+        Assert.Same(first, AudioRecommendationService.SelectVideo([first, shorter], new("Artist", "A Song"), []));
+
+        Video musicVideo = CreateVideo("Artist - A Song (Music Video)", 240);
+        AudioPlaybackEntry[] recent = [new() { Title = shorter.Title, Url = "another upload" }];
+        Assert.Same(musicVideo, AudioRecommendationService.SelectVideo(
+            [musicVideo, shorter], new("Artist", "A Song"), recent));
+        Assert.Null(AudioRecommendationService.SelectVideo([shorter], new("Artist", "A Song"), recent));
+    }
+
+    private static Video CreateVideo(string title, int? seconds, string channelId = "UC0123456789012345678901") =>
+        new("afqQwmXTcPA", title, new Author(channelId, "Artist"), DateTimeOffset.UtcNow,
             "", seconds is { } value ? TimeSpan.FromSeconds(value) : null, [], [], new Engagement(0, 0, 0));
 
     private sealed class HistoryFactory(DbContextOptions<MihuBotDbContext> options) : IDbContextFactory<MihuBotDbContext>

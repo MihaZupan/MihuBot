@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Common;
 using YoutubeExplode.Exceptions;
-using YoutubeExplode.Search;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
@@ -336,6 +335,12 @@ internal static partial class YoutubeHelper
 
     public static async Task<IVideo?> SearchAsync(string query, YouTubeService? youtubeService = null, CancellationToken cancellationToken = default)
     {
+        IVideo[] results = await SearchVideosAsync(query, youtubeService, cancellationToken);
+        return results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ?? results.FirstOrDefault();
+    }
+
+    public static async Task<IVideo[]> SearchVideosAsync(string query, YouTubeService? youtubeService = null, CancellationToken cancellationToken = default)
+    {
         if (youtubeService is not null)
         {
             SearchResource.ListRequest searchListRequest = youtubeService.Search.List("snippet");
@@ -345,26 +350,13 @@ internal static partial class YoutubeHelper
 
             var searchListResponse = await searchListRequest.ExecuteAsync(cancellationToken);
 
-            if (searchListResponse.Items.Count != 0)
-            {
-                Google.Apis.YouTube.v3.Data.SearchResult bestMatch =
-                    searchListResponse.Items.FirstOrDefault(i => i.Snippet.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ??
-                    searchListResponse.Items.First();
-
-                return Transform(bestMatch);
-            }
+            return searchListResponse.Items.Select(Transform).ToArray();
         }
         else
         {
-            VideoSearchResult[] results = await Youtube.Search.GetVideosAsync(query, cancellationToken).Take(5).ToArrayAsync(cancellationToken);
-
-            if (results.Length != 0)
-            {
-                return results.FirstOrDefault(r => r.Title.Contains(query, StringComparison.OrdinalIgnoreCase)) ?? results[0];
-            }
+            return await Youtube.Search.GetVideosAsync(query, cancellationToken).Take(5)
+                .Select(r => (IVideo)r).ToArrayAsync(cancellationToken);
         }
-
-        return null;
     }
 
     public static Task<IVideo?> TryFindSongAsync(string title, string artist, YouTubeService? youtubeService = null)
