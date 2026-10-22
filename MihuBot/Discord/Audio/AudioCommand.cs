@@ -10,7 +10,7 @@ namespace MihuBot.Audio;
 
 public sealed partial class AudioCommands : CommandBase
 {
-    private static readonly string[] AvailableCommands = ["p", "play", "pause", "unpause", "resume", "skip", "volume", "queue"];
+    private static readonly string[] AvailableCommands = ["p", "play", "pause", "unpause", "resume", "skip", "volume"];
 
     public override string Command => "mplay";
     public override string[] Aliases => [.. AvailableCommands, "audiocommands", "audiodebug", "audiotempsettings"];
@@ -60,7 +60,7 @@ public sealed partial class AudioCommands : CommandBase
             return;
         }
 
-        if (command is "pause" or "unpause" or "resume" or "skip" or "volume" or "audiodebug" or "queue")
+        if (command is "pause" or "unpause" or "resume" or "skip" or "volume" or "audiodebug")
         {
             if (audioPlayer is not null)
             {
@@ -140,10 +140,6 @@ public sealed partial class AudioCommands : CommandBase
                             db = default;
                             return false;
                         }
-                    }
-                    else if (command == "queue")
-                    {
-                        await audioPlayer.PostQueueAsync();
                     }
                     else if (command == "audiodebug" && await ctx.RequirePermissionAsync(command))
                     {

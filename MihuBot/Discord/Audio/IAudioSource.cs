@@ -8,6 +8,8 @@ public interface IAudioSource : IAsyncDisposable
 
     TimeSpan? Remaining { get; }
 
+    TimeSpan? Duration { get; }
+
     string Description { get; }
 
     string Url { get; }

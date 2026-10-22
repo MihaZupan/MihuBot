@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Threading.Channels;
+using Discord;
 using Discord.WebSocket;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,159 @@ namespace MihuBot.Tests.Discord;
 
 public sealed class AudioAutoplayTests
 {
+    [Fact]
+    public async Task StatusMonitorRefreshesProgressPauseQueueAndTrackChanges()
+    {
+        await using var scheduler = new AudioScheduler();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var updates = Channel.CreateUnbounded<(Embed Embed, bool NewTrack)>();
+        var current = new TestSource(isAutoplay: true)
+        {
+            Duration = TimeSpan.FromMinutes(4),
+            Remaining = TimeSpan.FromSeconds(150)
+        };
+        scheduler.Enqueue(current);
+        Assert.Same(current, await scheduler.GetAudioSourceAsync(cancellation.Token));
+        bool paused = false;
+        Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => Volatile.Read(ref paused), (embed, newTrack) =>
+        {
+            Assert.True(updates.Writer.TryWrite((embed, newTrack)));
+            return Task.FromResult(true);
+        }, cancellation.Token);
+
+        try
+        {
+            var initial = await ReadUpdateAsync();
+            Assert.True(initial.NewTrack);
+            Assert.Contains("1:30 / 4:00", initial.Embed.Description);
+            current.Remaining = TimeSpan.FromSeconds(140);
+
+            var progress = await ReadUpdateAsync();
+            Assert.False(progress.NewTrack);
+            Assert.Contains("1:40 / 4:00 (2:20 remaining)", progress.Embed.Description);
+
+            Volatile.Write(ref paused, true);
+            var pause = await ReadUpdateAsync();
+            Assert.Equal("Paused", pause.Embed.Title);
+            Assert.False(pause.NewTrack);
+
+            var next = new TestSource(isAutoplay: true) { Description = "Next song" };
+            scheduler.Enqueue(next);
+            var queue = await ReadUpdateAsync();
+            Assert.Equal("1. Next song", Assert.Single(queue.Embed.Fields).Name);
+            Assert.False(queue.NewTrack);
+
+            scheduler.SkipCurrent(current);
+            Assert.Same(next, await scheduler.GetAudioSourceAsync(cancellation.Token));
+            Volatile.Write(ref paused, false);
+            var nextTrack = await ReadUpdateAsync();
+            Assert.Equal("Now playing", nextTrack.Embed.Title);
+            Assert.Contains("Next song", nextTrack.Embed.Description);
+            Assert.True(nextTrack.NewTrack);
+
+            scheduler.SkipCurrent(next);
+            var empty = await ReadUpdateAsync();
+            Assert.Equal("Nothing playing", empty.Embed.Title);
+            Assert.Equal("The queue is currently empty", empty.Embed.Footer?.Text);
+            Assert.False(empty.NewTrack);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
+        }
+
+        async Task<(Embed Embed, bool NewTrack)> ReadUpdateAsync() =>
+            await updates.Reader.ReadAsync(cancellation.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
+    }
+
+    [Fact]
+    public async Task StatusMonitorRetriesFailedUpdatesWhilePaused()
+    {
+        await using var scheduler = new AudioScheduler();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var current = new TestSource(isAutoplay: true);
+        scheduler.Enqueue(current);
+        Assert.Same(current, await scheduler.GetAudioSourceAsync(cancellation.Token));
+        var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0;
+        Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => true, (_, _) =>
+        {
+            if (++attempts == 1)
+            {
+                return Task.FromResult(false);
+            }
+
+            retried.SetResult();
+            return Task.FromResult(true);
+        }, cancellation.Token);
+
+        try
+        {
+            await retried.Task.WaitAsync(cancellation.Token);
+            Assert.Equal(2, attempts);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
+        }
+    }
+
+    [Theory]
+    [InlineData("Now playing")]
+    [InlineData("Queue")]
+    public void StatusIncludesCurrentProgressAndQueuedSongs(string title)
+    {
+        var current = new TestSource(isAutoplay: true)
+        {
+            Duration = TimeSpan.FromMinutes(4),
+            Remaining = TimeSpan.FromSeconds(150)
+        };
+        var next = new TestSource(isAutoplay: true)
+        {
+            Description = "Next song",
+            Duration = TimeSpan.FromSeconds(90)
+        };
+
+        var embed = AudioPlayer.BuildStatusEmbed(title, current, [next]);
+
+        Assert.Contains("1:30 / 4:00 (2:30 remaining)", embed.Description);
+        Assert.Contains("AI autoplay", embed.Description);
+        var field = Assert.Single(embed.Fields);
+        Assert.Equal("1. Next song", field.Name);
+        Assert.Contains("1:30", field.Value);
+    }
+
+    [Fact]
+    public void StatusExplicitlyShowsAnEmptyQueueWithoutACurrentTrack()
+    {
+        var embed = AudioPlayer.BuildStatusEmbed("Queue", null!, []);
+
+        Assert.Empty(embed.Fields);
+        Assert.Equal("The queue is currently empty", embed.Footer?.Text);
+    }
+
+    [Theory]
+    [InlineData(90123, 1, "25:02:02 / 25:02:03 (0:01 remaining)")]
+    [InlineData(90, -1, "1:30 / 1:30 (0:00 remaining)")]
+    [InlineData(null, 90, "1:30 remaining (duration unknown)")]
+    [InlineData(90, null, "1:30 (remaining unknown)")]
+    [InlineData(null, null, "Duration unknown (remaining unknown)")]
+    public void StatusHandlesLongFinishedAndUnknownDurations(int? duration, int? remaining, string expected)
+    {
+        var current = new TestSource(isAutoplay: true)
+        {
+            Duration = duration is { } total ? TimeSpan.FromSeconds(total) : null,
+            Remaining = remaining is { } left ? TimeSpan.FromSeconds(left) : null
+        };
+
+        var embed = AudioPlayer.BuildStatusEmbed("Now playing", current, []);
+
+        Assert.Contains(expected, embed.Description);
+        Assert.Equal("The queue is currently empty", embed.Footer?.Text);
+    }
+
     [Fact]
     public async Task ManualRequestsInvalidatePreparedAutoplayWithoutInterruptingCurrentTrack()
     {
@@ -410,10 +565,11 @@ public sealed class AudioAutoplayTests
         public bool Disposed { get; private set; }
         public bool IsAutoplay { get; }
         public SocketGuildUser Requester => null!;
-        public string Description => "Test song";
+        public string Description { get; init; } = "Test song";
         public string Url => "https://www.youtube.com/watch?v=afqQwmXTcPA";
         public string ThumbnailUrl => "";
-        public TimeSpan? Remaining => TimeSpan.FromSeconds(10);
+        public TimeSpan? Remaining { get; set; } = TimeSpan.FromSeconds(10);
+        public TimeSpan? Duration { get; init; } = TimeSpan.FromSeconds(10);
 
         public TestSource(bool isAutoplay = false, bool initialized = true)
         {

@@ -1,6 +1,8 @@
 ﻿using Discord.Audio;
 using Discord.Rest;
+using Discord.Net;
 using System.Collections.Concurrent;
+using System.Globalization;
 using YoutubeExplode.Common;
 
 namespace MihuBot.Discord.Audio;
@@ -21,6 +23,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private readonly AudioHistoryService _history;
     private readonly AudioRecommendationService _recommendations;
     private Task _autoplayTask = Task.CompletedTask;
+    private Task _statusTask = Task.CompletedTask;
     private Task _playbackTask = Task.CompletedTask;
     private readonly Lock _disposeLock = new();
     private Task _disposeTask;
@@ -83,6 +86,8 @@ public sealed class AudioPlayer : IAsyncDisposable
                 {
                     _autoplayTask = Task.Run(MonitorAutoplayAsync);
                 }
+
+                _statusTask = Task.Run(MonitorStatusAsync);
 
                 _playbackTask = Task.Run(async () =>
                 {
@@ -349,59 +354,107 @@ public sealed class AudioPlayer : IAsyncDisposable
         Unpause();
     }
 
-    private async Task SendCurrentlyPlayingAsync()
+    private async Task MonitorStatusAsync()
     {
-        if (_scheduler.TryPeekCurrent(out IAudioSource audioSource))
+        try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            var options = new RequestOptions { CancelToken = timeout.Token };
+            await RunStatusUpdatesAsync(_scheduler, () => _pausedTcs is not null, SendStatusAsync, _disposedCts.Token);
+        }
+        catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.DebugLog($"Audio status monitor failed: {ex}", guildId: Guild.Id);
+        }
+    }
 
-            try
+    internal static async Task RunStatusUpdatesAsync(AudioScheduler scheduler, Func<bool> isPaused,
+        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        IAudioSource previous = null;
+        long previousRevision = -1;
+        bool previouslyPaused = false;
+        bool hasStatus = false;
+        long lastUpdate = Stopwatch.GetTimestamp();
+
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            long revision = scheduler.Revision;
+            IAudioSource[] sources = scheduler.GetQueueSnapshot(limit: 25, out IAudioSource current);
+            bool paused = isPaused();
+            bool sourceChanged = !ReferenceEquals(previous, current);
+            bool changed = sourceChanged || revision != previousRevision || paused != previouslyPaused;
+
+            if (!changed && (current is null || paused || Stopwatch.GetElapsedTime(lastUpdate) < TimeSpan.FromSeconds(5)))
             {
-                RestUserMessage lastSentMessage = _lastSentStatusMessage;
+                continue;
+            }
 
-                string escapedTitle = audioSource.Description
-                    .Replace("[", "\\[", StringComparison.Ordinal)
-                    .Replace("]", "\\]", StringComparison.Ordinal);
+            if (current is not null || sources.Length > 0 || hasStatus)
+            {
+                Embed embed = BuildStatusEmbed(current is null ? "Nothing playing" : paused ? "Paused" : "Now playing", current, sources);
 
-                int queueLength = _scheduler.QueueLength;
-
-                Embed embed = new EmbedBuilder()
-                    .WithTitle("**Now playing**")
-                    .WithDescription($"[{escapedTitle}]({audioSource.Url})" +
-                        $"\n{GetAttribution(audioSource)}" +
-                        (queueLength > 0 ? $"\nSongs in queue: {queueLength}" : ""))
-                    .WithUrl(audioSource.Url)
-                    .WithColor(0x00, 0x42, 0xFF)
-                    .WithThumbnailUrl(audioSource.ThumbnailUrl)
-                    .Build();
-
-                if (lastSentMessage is null ||
-                    lastSentMessage.Channel.Id != LastTextChannel.Id ||
-                    (LastTextChannel.GetCachedMessages(1).FirstOrDefault() is SocketMessage message
-                        ? message.Author.Id != Client.CurrentUser.Id
-                        : DateTime.UtcNow.Subtract(lastSentMessage.Timestamp.UtcDateTime) > TimeSpan.FromMinutes(5)))
+                if (!await sendStatus(embed, sourceChanged && current is not null))
                 {
-                    _lastSentStatusMessage = await LastTextChannel.SendMessageAsync(embed: embed, allowedMentions: AllowedMentions.None, options: options)
-                        .WaitAsync(timeout.Token);
-
-                    if (lastSentMessage is not null)
-                    {
-                        await lastSentMessage.TryDeleteAsync().WaitAsync(timeout.Token);
-                    }
+                    continue;
                 }
-                else
+
+                hasStatus = true;
+            }
+
+            previous = current;
+            previousRevision = revision;
+            previouslyPaused = paused;
+            lastUpdate = Stopwatch.GetTimestamp();
+        }
+    }
+
+    private async Task<bool> SendStatusAsync(Embed embed, bool newTrack)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var options = new RequestOptions { CancelToken = timeout.Token };
+
+        try
+        {
+            RestUserMessage lastSentMessage = _lastSentStatusMessage;
+
+            if (lastSentMessage is null ||
+                lastSentMessage.Channel.Id != LastTextChannel.Id ||
+                (newTrack && (LastTextChannel.GetCachedMessages(1).FirstOrDefault() is SocketMessage message
+                    ? message.Author.Id != Client.CurrentUser.Id
+                    : DateTime.UtcNow.Subtract(lastSentMessage.Timestamp.UtcDateTime) > TimeSpan.FromMinutes(5))))
+            {
+                _lastSentStatusMessage = await LastTextChannel.SendMessageAsync(embed: embed, allowedMentions: AllowedMentions.None, options: options)
+                    .WaitAsync(timeout.Token);
+
+                if (lastSentMessage is not null)
+                {
+                    await lastSentMessage.TryDeleteAsync().WaitAsync(timeout.Token);
+                }
+            }
+            else
+            {
+                try
                 {
                     await lastSentMessage.ModifyAsync(message => message.Embed = embed, options).WaitAsync(timeout.Token);
                 }
+                catch (HttpException ex) when (ex.DiscordCode == DiscordErrorCode.UnknownMessage)
+                {
+                    _lastSentStatusMessage = await LastTextChannel.SendMessageAsync(embed: embed, allowedMentions: AllowedMentions.None, options: options)
+                        .WaitAsync(timeout.Token);
+                }
             }
-            catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
-            catch (Exception ex)
-            {
-                _logger.DebugLog(ex.ToString(), guildId: Guild.Id);
-            }
+
+            return true;
         }
+        catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.DebugLog(ex.ToString(), guildId: Guild.Id);
+        }
+
+        return false;
     }
 
     private async Task CopyAudioAsync()
@@ -488,7 +541,6 @@ public sealed class AudioPlayer : IAsyncDisposable
         byte[] readBuffer = new byte[OpusConstants.FrameBytes * FramesPerBuffer];
 
         IAudioSource previous = null;
-        Task sendCurrentlyPlayingTask = Task.CompletedTask;
 
         Stopwatch stopwatch = Stopwatch.StartNew();
         TimeSpan lastElapsed = stopwatch.Elapsed;
@@ -540,8 +592,6 @@ public sealed class AudioPlayer : IAsyncDisposable
                 {
                     await FinishPlaybackAsync(AudioPlaybackOutcome.Stopped);
                     previous = audioSource;
-                    await sendCurrentlyPlayingTask.WaitAsync(_disposedCts.Token);
-                    sendCurrentlyPlayingTask = SendCurrentlyPlayingAsync();
                     Volatile.Write(ref _pcmBytesToSkip, 0);
                 }
 
@@ -634,7 +684,6 @@ public sealed class AudioPlayer : IAsyncDisposable
         finally
         {
             audioSourceCts.Dispose();
-            await sendCurrentlyPlayingTask;
         }
 
         void LogTiming(string eventName)
@@ -693,6 +742,7 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             cleanup.Run(() => _audioClient?.Dispose());
             await cleanup.RunAsync(() => _autoplayTask);
+            await cleanup.RunAsync(() => _statusTask);
             await cleanup.RunAsync(() => _playbackTask);
         }
         finally
@@ -755,13 +805,11 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
     }
 
-    public async Task PostQueueAsync()
+    internal static Embed BuildStatusEmbed(string title, IAudioSource current, IAudioSource[] sources)
     {
         var builder = new EmbedBuilder()
-            .WithTitle("Queue")
+            .WithTitle(title)
             .WithColor(0x00, 0x42, 0xFF);
-
-        IAudioSource[] sources = _scheduler.GetQueueSnapshot(limit: 25, out IAudioSource current);
 
         if (current is not null)
         {
@@ -769,9 +817,12 @@ public sealed class AudioPlayer : IAsyncDisposable
                 .Replace("[", "\\[", StringComparison.Ordinal)
                 .Replace("]", "\\]", StringComparison.Ordinal);
 
-            builder.WithDescription($"Now playing [{escapedTitle}]({current.Url}) ({GetAttribution(current)})");
+            builder.WithDescription($"Now playing [{escapedTitle}]({current.Url})\n{GetAttribution(current)}\n{GetPlaybackTime(current)}");
+            builder.WithUrl(current.Url);
             builder.WithThumbnailUrl(current.ThumbnailUrl);
         }
+
+        builder.WithFooter(sources.Length == 0 ? "The queue is currently empty" : "Up next");
 
         int count = 0;
         foreach (IAudioSource audioSource in sources)
@@ -782,17 +833,39 @@ public sealed class AudioPlayer : IAsyncDisposable
                 .Replace("[", "\\[", StringComparison.Ordinal)
                 .Replace("]", "\\]", StringComparison.Ordinal);
 
-            builder.AddField($"{count}. {escapedTitle}", GetAttribution(audioSource), inline: true);
+            builder.AddField($"{count}. {escapedTitle}", $"{GetAttribution(audioSource)}\n{GetDuration(audioSource)}", inline: true);
         }
 
-        if (string.IsNullOrEmpty(builder.Title) && builder.Fields.Count == 0)
+        return builder.Build();
+    }
+
+    private static string GetPlaybackTime(IAudioSource source)
+    {
+        if (source.Remaining is not { } remaining)
         {
-            await LastTextChannel.SendMessageAsync("The queue is currently empty");
+            return GetDuration(source) + " (remaining unknown)";
         }
-        else
+
+        remaining = remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
+
+        if (source.Duration is not { } duration)
         {
-            await LastTextChannel.SendMessageAsync(embed: builder.Build(), allowedMentions: AllowedMentions.None);
+            return $"{FormatDuration(remaining)} remaining (duration unknown)";
         }
+
+        TimeSpan elapsed = duration - remaining;
+        return $"{FormatDuration(elapsed)} / {FormatDuration(duration)} ({FormatDuration(remaining)} remaining)";
+    }
+
+    private static string GetDuration(IAudioSource source) =>
+        source.Duration is { } duration ? FormatDuration(duration) : "Duration unknown";
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+        return duration.TotalHours >= 1
+            ? ((long)duration.TotalHours).ToString(CultureInfo.InvariantCulture) + duration.ToString(@"\:mm\:ss", CultureInfo.InvariantCulture)
+            : duration.ToString(@"m\:ss", CultureInfo.InvariantCulture);
     }
 
     private static string GetAttribution(IAudioSource source) =>

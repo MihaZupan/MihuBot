@@ -70,6 +70,8 @@ public sealed class YoutubeAudioSource : AudioSourceBase
         }
     }
 
+    public override TimeSpan? Duration => _duration;
+
     public override TimeSpan? Remaining
     {
         get

@@ -125,6 +125,8 @@ public abstract class AudioSourceBase : IAudioSource
 
     public abstract TimeSpan? Remaining { get; }
 
+    public abstract TimeSpan? Duration { get; }
+
     public abstract string Description { get; }
 
     public abstract string Url { get; }

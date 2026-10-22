@@ -460,6 +460,7 @@ public sealed class AudioReliabilityTests
         public override string Url => "https://example.com";
         public override string ThumbnailUrl => "";
         public override TimeSpan? Remaining => TimeSpan.FromSeconds(10);
+        public override TimeSpan? Duration => TimeSpan.FromSeconds(10);
 
         protected override Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken) =>
             initialize?.Invoke(cancellationToken) ?? Task.CompletedTask;
