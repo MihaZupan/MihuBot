@@ -225,10 +225,10 @@ public sealed partial class LogsCommand : CommandBase
             }));
         };
 
-        int maxResults = ctx.IsFromAdmin ? 100_000 : 10_000;
+        int maxResults = ctx.IsFromAdmin ? int.MaxValue : 10_000;
         int maxPostFilterExecutions = ctx.IsFromAdmin ? (countOnly ? int.MaxValue - 10 : 50_000_000) : 1_000_000;
 
-        if (!countOnly)
+        if (!countOnly && maxResults != int.MaxValue)
         {
             postFilters.Add(q => q.Take(maxResults + 1));
         }
