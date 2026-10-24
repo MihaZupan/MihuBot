@@ -29,6 +29,8 @@ public sealed class AudioPlayer : IAsyncDisposable
     private Task _statusTask = Task.CompletedTask;
     private Task _playbackTask = Task.CompletedTask;
     private readonly Lock _disposeLock = new();
+    private Task _joinTask;
+    private Func<Task> _disconnectVoice;
     private Task _disposeTask;
     private long _lastAutoplayAttempt = -1;
     private volatile bool _hasPlayed;
@@ -63,76 +65,138 @@ public sealed class AudioPlayer : IAsyncDisposable
         _speech = speech;
     }
 
-    public async Task JoinChannelAsync(SocketVoiceChannel voiceChannel)
+    internal bool IsReady
     {
-        IAudioClient joined = null;
-        bool published = false;
-
-        try
+        get
         {
             lock (_disposeLock)
             {
-                ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
+                return _disposeTask is null && _joinTask?.IsCompletedSuccessfully == true &&
+                    _audioClient?.ConnectionState == ConnectionState.Connected;
+            }
+        }
+    }
+
+    public Task JoinChannelAsync(SocketVoiceChannel voiceChannel) =>
+        JoinChannelAsync(voiceChannel, () => voiceChannel.ConnectAsync(selfDeaf: _speech is null), voiceChannel.DisconnectAsync);
+
+    internal async Task JoinChannelAsync(SocketVoiceChannel voiceChannel, Func<Task<IAudioClient>> connect, Func<Task> disconnect)
+    {
+        Task joining;
+
+        lock (_disposeLock)
+        {
+            ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
+
+            if (_joinTask is not null)
+            {
+                throw new InvalidOperationException("The audio player has already started joining a voice channel.");
             }
 
-            int bitrate = Math.Clamp(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate, GlobalAudioSettings.MaxBitrate);
-            _scheduler.SetBitrate(bitrate);
-
             VoiceChannel = voiceChannel;
-            joined = await voiceChannel.ConnectAsync(selfDeaf: _speech is null);
+            _disconnectVoice = disconnect;
+            _joinTask = joining = Task.Run(() => JoinChannelCoreAsync(voiceChannel, connect));
+        }
 
-            lock (_disposeLock)
+        try
+        {
+            await joining;
+
+            if (!IsReady)
             {
-                ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
-                _audioClient = joined;
-                published = true;
-                _pcmStream = _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, GlobalAudioSettings.PacketLoss);
-
-                if (_speech is not null)
-                {
-                    _listeningTask = Task.Run(StartListeningAsync);
-                }
-
-                if (_recommendations.IsAvailable)
-                {
-                    _autoplayTask = Task.Run(MonitorAutoplayAsync);
-                }
-
-                _statusTask = Task.Run(MonitorStatusAsync);
-
-                _playbackTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await CopyAudioAsync();
-                    }
-                    catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
-                    catch (Exception ex)
-                    {
-                        _logger.DebugLog(ex.ToString(), guildId: Guild.Id, channelId: VoiceChannel.Id);
-                    }
-                    finally
-                    {
-                        _ = DisposeAfterPlaybackAsync();
-                    }
-                });
+                throw new InvalidOperationException("The voice connection closed before the player was ready.");
             }
         }
         catch (Exception ex)
         {
-            _logger.DebugLog(ex.ToString(), guildId: Guild.Id);
-            await DisposeAsync();
-        }
-        finally
-        {
-            if (!published && joined is not null)
+            _logger.DebugLog($"Could not join voice channel: {ex}", guildId: Guild.Id);
+
+            try
             {
-                var cleanup = new AsyncCleanup();
-                await cleanup.RunAsync(() => joined.StopAsync().WaitAsync(TimeSpan.FromSeconds(10)));
-                cleanup.Run(joined.Dispose);
-                cleanup.ThrowIfFailed();
+                await DisposeAsync();
+            }
+            catch (Exception cleanupError)
+            {
+                _logger.DebugLog($"Failed voice connection cleanup failed: {cleanupError}", guildId: Guild.Id);
+            }
+
+            throw;
+        }
+    }
+
+    private async Task JoinChannelCoreAsync(SocketVoiceChannel voiceChannel, Func<Task<IAudioClient>> connect)
+    {
+        lock (_disposeLock)
+        {
+            if (_disposeTask is not null)
+            {
+                return;
             }
         }
+
+        int bitrate = Math.Clamp(voiceChannel.Bitrate, GlobalAudioSettings.MinBitrate, GlobalAudioSettings.MaxBitrate);
+        _scheduler.SetBitrate(bitrate);
+
+        IAudioClient joined = await connect();
+
+        lock (_disposeLock)
+        {
+            _audioClient = joined;
+
+            if (_disposeTask is not null)
+            {
+                return;
+            }
+
+            _audioClient.Disconnected += OnAudioDisconnectedAsync;
+
+            if (_audioClient.ConnectionState != ConnectionState.Connected)
+            {
+                throw new InvalidOperationException("The audio client disconnected while joining the voice channel.");
+            }
+
+            _pcmStream = _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, GlobalAudioSettings.PacketLoss);
+
+            if (_speech is not null)
+            {
+                _listeningTask = Task.Run(StartListeningAsync);
+            }
+
+            if (_recommendations.IsAvailable)
+            {
+                _autoplayTask = Task.Run(MonitorAutoplayAsync);
+            }
+
+            _statusTask = Task.Run(MonitorStatusAsync);
+
+            _playbackTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await CopyAudioAsync();
+                }
+                catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+                catch (Exception ex)
+                {
+                    _logger.DebugLog(ex.ToString(), guildId: Guild.Id, channelId: VoiceChannel.Id);
+                }
+                finally
+                {
+                    _ = DisposeAfterPlaybackAsync();
+                }
+            });
+        }
+    }
+
+    private Task OnAudioDisconnectedAsync(Exception error)
+    {
+        if (error is not null)
+        {
+            _logger.DebugLog($"Voice connection disconnected: {error}", guildId: Guild.Id);
+        }
+
+        _ = DisposeAfterPlaybackAsync();
+        return Task.CompletedTask;
     }
 
     private async Task StartListeningAsync()
@@ -954,6 +1018,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         {
             cleanup.Run(_disposedCts.Cancel);
             Unpause();
+            await cleanup.RunAsync(() => _joinTask ?? Task.CompletedTask);
             await cleanup.RunAsync(() => _listeningTask);
 
             if (_voiceListener is not null)
@@ -965,7 +1030,13 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             if (_audioClient is not null)
             {
+                cleanup.Run(() => _audioClient.Disconnected -= OnAudioDisconnectedAsync);
                 await cleanup.RunAsync(() => _audioClient.StopAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+            }
+
+            if (_disconnectVoice is not null)
+            {
+                await cleanup.RunAsync(() => _disconnectVoice().WaitAsync(TimeSpan.FromSeconds(10)));
             }
 
             if (_pcmStream is not null)

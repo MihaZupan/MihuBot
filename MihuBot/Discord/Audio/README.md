@@ -14,6 +14,13 @@ AI autoplay preparation failures appear in the existing "Nothing playing" status
 instead of posting separate messages, and clear when a song is queued or autoplay
 successfully prepares one.
 
+Voice kicks, channel moves, and audio transport disconnects stop the player and
+clean up its streams, queued audio, and background work. Mute/deafen changes in
+the same channel do not stop playback. A new play request waits for the previous
+connection to finish cleanup before joining again; concurrent requests share one
+new connection. Connection failures are reported rather than returning a stopped
+player, and cleanup failures are logged without leaving it registered.
+
 ## Spoken music commands
 
 With Azure OpenAI configured, startup prepares one local Whisper `small.en` model,
