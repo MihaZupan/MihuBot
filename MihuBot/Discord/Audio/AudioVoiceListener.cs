@@ -201,51 +201,35 @@ internal sealed class AudioVoiceListener : IAsyncDisposable
     internal static async Task ReadFramesAsync(AudioInStream stream, Func<RTPFrame, Task> onFrame,
         Func<Task> onIdle, CancellationToken cancellationToken)
     {
-        using var reads = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task<RTPFrame>? pending = null;
+        // Discord can dispose its input semaphore without completing outstanding async reads.
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(OpusConstants.FrameMillis));
+        int buffered = stream.AvailableFrames;
 
-        try
+        // Frames queued before this reader starts may predate model readiness and the listening notice.
+        for (int i = 0; i < buffered && stream.TryReadFrame(cancellationToken, out _); i++)
         {
-            // Frames queued before this reader starts may predate model readiness and the listening notice.
-            int buffered = stream.AvailableFrames;
-
-            for (int i = 0; i < buffered && stream.TryReadFrame(reads.Token, out _); i++)
-            {
-            }
-
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                pending ??= stream.ReadFrameAsync(reads.Token);
-                RTPFrame frame;
-
-                try
-                {
-                    frame = await pending.WaitAsync(TimeSpan.FromMilliseconds(200), cancellationToken);
-                }
-                catch (TimeoutException)
-                {
-                    await onIdle();
-                    continue;
-                }
-
-                pending = null;
-                await onFrame(frame);
-            }
         }
-        finally
-        {
-            await reads.CancelAsync();
 
-            if (pending is not null)
+        long lastActivity = Stopwatch.GetTimestamp();
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (stream.TryReadFrame(cancellationToken, out RTPFrame frame))
             {
-                try
-                {
-                    await pending;
-                }
-                catch (OperationCanceledException) when (reads.IsCancellationRequested) { }
-                catch (ObjectDisposedException) when (reads.IsCancellationRequested) { }
+                await onFrame(frame);
+                lastActivity = Stopwatch.GetTimestamp();
+                continue;
             }
+
+            if (Stopwatch.GetElapsedTime(lastActivity) >= TimeSpan.FromMilliseconds(200))
+            {
+                await onIdle();
+                lastActivity = Stopwatch.GetTimestamp();
+            }
+
+            await timer.WaitForNextTickAsync(cancellationToken);
         }
     }
 

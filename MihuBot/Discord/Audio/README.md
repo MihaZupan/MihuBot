@@ -32,6 +32,8 @@ player, and cleanup failures are logged without leaving it registered.
 Readiness also checks Discord's cached voice-channel membership. The status
 monitor checks membership and transport state every second, so missed disconnect
 callbacks still stop playback, mark the status "Stopped", and allow rejoining.
+Voice capture uses nonblocking frame reads so Discord disposing an input stream
+cannot strand a pending read and block cleanup or the next join.
 
 ## Spoken music commands
 

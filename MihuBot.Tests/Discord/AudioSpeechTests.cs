@@ -1172,7 +1172,7 @@ public sealed class AudioSpeechTests
     [Fact]
     public async Task FramesBufferedBeforeListeningStartsAreDiscarded()
     {
-        using var input = new TrackingInputStream();
+        using var input = new InputStream();
         using var cancellation = new CancellationTokenSource();
 
         for (int i = 0; i < 101; i++)
@@ -1214,9 +1214,28 @@ public sealed class AudioSpeechTests
     }
 
     [Fact]
-    public async Task ReadTimeoutsReuseThePendingReadAndShutdownObservesIt()
+    public async Task DisposedVoiceInputDoesNotBlockReaderCancellation()
     {
-        using var input = new TrackingInputStream();
+        using var input = new InputStream();
+        using var cancellation = new CancellationTokenSource();
+        var idle = Signal();
+        Task pump = AudioVoiceListener.ReadFramesAsync(input, _ => Task.CompletedTask, () =>
+        {
+            idle.TrySetResult();
+            return Task.CompletedTask;
+        }, cancellation.Token);
+
+        await idle.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        input.Dispose();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pump.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task IdleVoiceInputStaysResponsiveToFramesAndCancellation()
+    {
+        using var input = new InputStream();
         using var cancellation = new CancellationTokenSource();
         var idle = Signal();
         var received = Signal();
@@ -1239,7 +1258,6 @@ public sealed class AudioSpeechTests
         try
         {
             await idle.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            _ = Assert.Single(input.Reads);
             input.WriteHeader(1, 0, false);
             await input.WriteAsync(new byte[3840], 0, 3840, cancellation.Token);
             await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1249,19 +1267,15 @@ public sealed class AudioSpeechTests
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pump.WaitAsync(TimeSpan.FromSeconds(5)));
         }
-
-        Assert.All(input.Reads, read => Assert.True(read.IsCompleted));
     }
 
     [Fact]
-    public async Task IdleHandlerFailureCancelsAndObservesTheOutstandingRead()
+    public async Task IdleHandlerFailureStopsTheVoiceReader()
     {
-        using var input = new TrackingInputStream();
+        using var input = new InputStream();
 
         await Assert.ThrowsAsync<IOException>(() => AudioVoiceListener.ReadFramesAsync(input, _ => Task.CompletedTask,
             () => Task.FromException(new IOException("Idle handler failed")), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
-
-        Assert.True(Assert.Single(input.Reads).IsCanceled);
     }
 
     [Fact]
@@ -1461,18 +1475,6 @@ public sealed class AudioSpeechTests
         public bool Remove(ulong? context, string key) => _values.Remove(key);
 
         public bool TryGet(ulong? context, string key, out string value) => _values.TryGetValue(key, out value!);
-    }
-
-    private sealed class TrackingInputStream : InputStream
-    {
-        public ConcurrentQueue<Task<RTPFrame>> Reads { get; } = [];
-
-        public override Task<RTPFrame> ReadFrameAsync(CancellationToken cancelToken)
-        {
-            Task<RTPFrame> read = base.ReadFrameAsync(cancelToken);
-            Reads.Enqueue(read);
-            return read;
-        }
     }
 
     private sealed class TestHttpHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
