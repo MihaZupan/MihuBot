@@ -3,6 +3,16 @@
 YouTube track details use yt-dlp, the same extractor used for audio playback.
 Loading audio refreshes the title, uploader, duration, and thumbnail from that
 response so playback reporting does not rely on unrelated watch-page player data.
+Audio downloads preserve yt-dlp's HTTP headers, with format-specific values
+overriding metadata-level values. Header names and values containing CR, LF, or
+NUL are rejected before sending. HTTP failures still fail the track explicitly.
+Loading and playback failures post a separate "Playback failed" notice in the
+player's text channel, naming the track and a safe reason (including HTTP status
+codes). The notice remains visible as playback moves on; normal skips and
+shutdowns do not produce failure notices. Full exception details stay in debug logs.
+AI autoplay preparation failures appear in the existing "Nothing playing" status
+instead of posting separate messages, and clear when a song is queued or autoplay
+successfully prepares one.
 
 ## Spoken music commands
 

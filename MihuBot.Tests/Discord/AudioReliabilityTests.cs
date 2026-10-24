@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.CompilerServices;
 using Discord.WebSocket;
 using MihuBot.Discord.Audio;
+using MihuBot.Helpers;
 
 namespace MihuBot.Tests.Discord;
 
@@ -157,6 +159,7 @@ public sealed class AudioReliabilityTests
 
         AudioSourceException error = await Assert.ThrowsAsync<AudioSourceException>(() =>
             scheduler.GetAudioSourceAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Same(stalled, error.AudioSource);
         Assert.IsType<TimeoutException>(error.InnerException);
         Assert.Equal(1, stalled.CleanupCalls);
         Assert.Same(next, await scheduler.GetAudioSourceAsync(CancellationToken.None));
@@ -202,6 +205,126 @@ public sealed class AudioReliabilityTests
 
         await Assert.ThrowsAsync<ObjectDisposedException>(() => selecting);
         Assert.Equal(1, stalled.CleanupCalls);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task YoutubeDownloadPreservesHeadersAndStreamsUntilDisposed(bool metadataHeaders, bool formatHeaders)
+    {
+        var metadata = new YoutubeDl.YoutubeDlMetadata
+        {
+            HttpHeaders = metadataHeaders
+                ? new() { ["User-Agent"] = "metadata-agent", ["Referer"] = "https://www.youtube.com/" }
+                : null
+        };
+        var format = new YoutubeDl.YoutubeDlFormat
+        {
+            Url = "https://audio.example/stream",
+            HttpHeaders = formatHeaders
+                ? new() { ["user-agent"] = "format-agent", ["Origin"] = "https://www.youtube.com" }
+                : null
+        };
+        using var body = new MemoryStream([1, 2, 3, 4]);
+        using var http = new HttpClient(new DownloadHandler((request, _) =>
+        {
+            Assert.Equal(format.Url, request.RequestUri!.AbsoluteUri);
+            Assert.Equal(HttpMethod.Get, request.Method);
+
+            if (metadataHeaders || formatHeaders)
+            {
+                Assert.Equal(formatHeaders ? "format-agent" : "metadata-agent",
+                    Assert.Single(request.Headers.GetValues("User-Agent")));
+            }
+            else
+            {
+                Assert.False(request.Headers.Contains("User-Agent"));
+            }
+
+            Assert.Equal(metadataHeaders, request.Headers.Contains("Referer"));
+            Assert.Equal(formatHeaders, request.Headers.Contains("Origin"));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) });
+        }));
+
+        using (HttpResponseMessage response = await YoutubeAudioSource.OpenDownloadAsync(http, metadata, format, CancellationToken.None))
+        {
+            Assert.True(body.CanRead);
+            Assert.Equal(0, body.Position);
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, await response.Content.ReadAsByteArrayAsync());
+        }
+
+        Assert.False(body.CanRead);
+    }
+
+    [Theory]
+    [InlineData('\r', false, false)]
+    [InlineData('\n', false, false)]
+    [InlineData('\0', false, false)]
+    [InlineData('\r', true, false)]
+    [InlineData('\n', true, false)]
+    [InlineData('\0', true, false)]
+    [InlineData('\r', false, true)]
+    [InlineData('\n', false, true)]
+    [InlineData('\0', false, true)]
+    [InlineData('\r', true, true)]
+    [InlineData('\n', true, true)]
+    [InlineData('\0', true, true)]
+    public async Task YoutubeDownloadRejectsControlCharactersInHeaderNamesAndValues(char character, bool inName, bool formatHeader)
+    {
+        var headers = new Dictionary<string, string>
+        {
+            [inName ? $"X-Test{character}Header" : "X-Test-Header"] = inName ? "value" : $"test{character}value"
+        };
+        var metadata = new YoutubeDl.YoutubeDlMetadata { HttpHeaders = formatHeader ? null : headers };
+        var format = new YoutubeDl.YoutubeDlFormat
+        {
+            Url = "https://audio.example/stream",
+            HttpHeaders = formatHeader ? headers : null
+        };
+        bool sent = false;
+        using var http = new HttpClient(new DownloadHandler((_, _) =>
+        {
+            sent = true;
+            throw new InvalidOperationException("Invalid headers must not reach the HTTP handler.");
+        }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            YoutubeAudioSource.OpenDownloadAsync(http, metadata, format, CancellationToken.None));
+
+        Assert.False(sent);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.NotFound)]
+    public async Task YoutubeDownloadPropagatesHttpFailuresAndDisposesTheResponse(HttpStatusCode status)
+    {
+        using var body = new MemoryStream([1, 2, 3, 4]);
+        using var http = new HttpClient(new DownloadHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(status) { Content = new StreamContent(body) })));
+
+        HttpRequestException error = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            YoutubeAudioSource.OpenDownloadAsync(http, new(), new() { Url = "https://audio.example/stream" }, CancellationToken.None));
+
+        Assert.Equal(status, error.StatusCode);
+        Assert.False(body.CanRead);
+    }
+
+    [Fact]
+    public async Task YoutubeDownloadHonorsCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var http = new HttpClient(new DownloadHandler((_, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("A canceled download must not run.");
+        }));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            YoutubeAudioSource.OpenDownloadAsync(http, new(), new() { Url = "https://audio.example/stream" }, cancellation.Token));
     }
 
     [Theory]
@@ -664,6 +787,12 @@ public sealed class AudioReliabilityTests
 
         public override ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class DownloadHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            send(request, cancellationToken);
     }
 
     private sealed class FailingReadStream : Stream

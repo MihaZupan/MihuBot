@@ -10,6 +10,7 @@ public sealed class YoutubeAudioSource : AudioSourceBase
     });
 
     private IVideo _video;
+    private HttpResponseMessage _downloadResponse;
     private Stream _downloadStream;
     private Stream _ffmpegOutputStream;
     private Process _process;
@@ -27,9 +28,11 @@ public sealed class YoutubeAudioSource : AudioSourceBase
     {
         YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url, cancellationToken);
         _video = YoutubeHelper.Transform(_video.Id, ytMetadata);
-        var bestAudio = ytMetadata.GetBestAudio();
+        var bestAudio = ytMetadata.GetBestAudio()
+            ?? throw new InvalidOperationException("yt-dlp returned no playable audio format.");
 
-        var downloadStream = await _http.GetStreamAsync(bestAudio.Url, cancellationToken);
+        _downloadResponse = await OpenDownloadAsync(_http, ytMetadata, bestAudio, cancellationToken);
+        var downloadStream = await _downloadResponse.Content.ReadAsStreamAsync(cancellationToken);
 
         double estimatedSourceBitrateKbit = bestAudio.Tbr ?? bestAudio.Abr ?? 128;
         double durationToBuffer = Math.Clamp(ytMetadata.Duration, 60, 11 * 60 * 60); // 1 minute - 11 hours
@@ -58,6 +61,41 @@ public sealed class YoutubeAudioSource : AudioSourceBase
 
         _ffmpegOutputStream = _process.StandardOutput.BaseStream;
         _pumpTask = PumpInputAsync(_downloadStream, _process.StandardInput.BaseStream, LifetimeCancellationToken);
+    }
+
+    internal static async Task<HttpResponseMessage> OpenDownloadAsync(HttpClient http, YoutubeDl.YoutubeDlMetadata metadata,
+        YoutubeDl.YoutubeDlFormat format, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, format.Url);
+
+        foreach (var header in (metadata.HttpHeaders ?? []).Concat(format.HttpHeaders ?? []))
+        {
+            if (header.Key.AsSpan().ContainsAny('\r', '\n', '\0') ||
+                header.Value.AsSpan().ContainsAny('\r', '\n', '\0'))
+            {
+                throw new InvalidOperationException("yt-dlp returned a download header containing a forbidden control character.");
+            }
+
+            request.Headers.Remove(header.Key);
+
+            if (!request.Headers.TryAddWithoutValidation(header.Key, header.Value))
+            {
+                throw new InvalidOperationException($"Cannot apply yt-dlp download header '{header.Key}'.");
+            }
+        }
+
+        HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+        try
+        {
+            response.EnsureSuccessStatusCode();
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
     }
 
     internal static async Task PumpInputAsync(Stream download, Stream input, CancellationToken cancellationToken)
@@ -130,6 +168,8 @@ public sealed class YoutubeAudioSource : AudioSourceBase
         {
             await cleanup.RunAsync(() => downloadStream.DisposeAsync().AsTask());
         }
+
+        cleanup.Run(() => _downloadResponse?.Dispose());
 
         await cleanup.RunAsync(async () =>
         {

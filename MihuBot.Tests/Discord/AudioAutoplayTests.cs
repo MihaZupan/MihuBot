@@ -116,6 +116,68 @@ public sealed class AudioAutoplayTests
         }
     }
 
+    [Fact]
+    public async Task StatusMonitorShowsRetriesAndClearsAutoplayFailuresWhileIdle()
+    {
+        await using var scheduler = new AudioScheduler();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var updates = Channel.CreateUnbounded<Embed>();
+        bool failed = true;
+        int attempts = 0;
+        Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => false, (embed, _) =>
+        {
+            if (++attempts == 1)
+            {
+                return Task.FromResult(false);
+            }
+
+            Assert.True(updates.Writer.TryWrite(embed));
+            return Task.FromResult(true);
+        }, cancellation.Token, () => Volatile.Read(ref failed));
+
+        try
+        {
+            Embed failure = await updates.Reader.ReadAsync(cancellation.Token);
+            Assert.Equal(2, attempts);
+            Assert.Equal("Nothing playing", failure.Title);
+            Assert.Contains("AI autoplay couldn't prepare a song", failure.Description);
+
+            Volatile.Write(ref failed, false);
+            Embed recovered = await updates.Reader.ReadAsync(cancellation.Token);
+            Assert.Equal("Nothing playing", recovered.Title);
+            Assert.Null(recovered.Description);
+
+            var next = new TestSource(isAutoplay: true);
+            scheduler.Enqueue(next);
+            Assert.Same(next, await scheduler.GetAudioSourceAsync(cancellation.Token));
+            Embed playing = await updates.Reader.ReadAsync(cancellation.Token);
+            Assert.Equal("Now playing", playing.Title);
+            Assert.DoesNotContain("couldn't prepare", playing.Description, StringComparison.Ordinal);
+
+            scheduler.SkipCurrent(next);
+            Embed empty = await updates.Reader.ReadAsync(cancellation.Token);
+            Assert.Equal("Nothing playing", empty.Title);
+            Assert.Null(empty.Description);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void AutoplayFailureDoesNotReplaceCurrentPlaybackOrQueuedTracks(bool currentTrack, bool queuedTrack)
+    {
+        var source = new TestSource(isAutoplay: true);
+        Embed embed = AudioPlayer.BuildStatusEmbed(currentTrack ? "Now playing" : "Nothing playing",
+            currentTrack ? source : null!, queuedTrack ? [source] : [], autoplayFailed: true);
+
+        Assert.DoesNotContain("couldn't prepare", embed.Description ?? "", StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("Now playing")]
     [InlineData("Queue")]

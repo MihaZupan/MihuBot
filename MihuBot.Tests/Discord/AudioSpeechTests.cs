@@ -35,6 +35,57 @@ public sealed class AudioSpeechTests
     }
 
     [Theory]
+    [InlineData(0, "HTTP 403 (Forbidden)")]
+    [InlineData(1, "could not be reached")]
+    [InlineData(2, "timed out")]
+    [InlineData(3, "could not be read or decoded")]
+    [InlineData(4, "could not be loaded or played")]
+    public async Task PlaybackFailuresShowTheTrackAndSafeReasonWithoutPingingAnyone(int failure, string reason)
+    {
+        IMessageChannel channel = DispatchProxy.Create<IMessageChannel, MessageChannelProxy>();
+        var proxy = Assert.IsAssignableFrom<MessageChannelProxy>(channel);
+        await using var source = new QueueSource("Jack Emery - Halo @everyone <@999>", "Artist");
+        const string privateDetails = "Private signed URL https://audio.example/?token=secret";
+        Exception error = failure switch
+        {
+            0 => new HttpRequestException(privateDetails, null, HttpStatusCode.Forbidden),
+            1 => new HttpRequestException(privateDetails),
+            2 => new TimeoutException(privateDetails),
+            3 => new IOException(privateDetails),
+            _ => new InvalidOperationException(privateDetails)
+        };
+        using var cancellation = new CancellationTokenSource();
+
+        await AudioPlayer.SendPlaybackFailureAsync(channel, source, new AudioSourceException(source, error), cancellation.Token);
+
+        Assert.NotNull(proxy.Arguments);
+        Embed embed = Assert.Single(proxy.Arguments.OfType<Embed>());
+        Assert.Equal("Playback failed", embed.Title);
+        Assert.Equal(source.Description, embed.Description);
+        Assert.Contains(reason, Assert.Single(embed.Fields).Value, StringComparison.Ordinal);
+        Assert.DoesNotContain(privateDetails, JsonSerializer.Serialize(embed), StringComparison.Ordinal);
+        Assert.Contains("skipped", embed.Footer!.Value.Text, StringComparison.Ordinal);
+        AllowedMentions mentions = Assert.Single(proxy.Arguments.OfType<AllowedMentions>());
+        Assert.Null(mentions.AllowedTypes);
+        Assert.Empty(mentions.UserIds);
+        Assert.Empty(mentions.RoleIds);
+        Assert.Equal(cancellation.Token, Assert.Single(proxy.Arguments.OfType<RequestOptions>()).CancelToken);
+    }
+
+    [Fact]
+    public async Task PlaybackFailureNoticesBoundLongTrackTitles()
+    {
+        IMessageChannel channel = DispatchProxy.Create<IMessageChannel, MessageChannelProxy>();
+        var proxy = Assert.IsAssignableFrom<MessageChannelProxy>(channel);
+        await using var source = new QueueSource(new string('x', 5000), "Artist");
+
+        await AudioPlayer.SendPlaybackFailureAsync(channel, source, new IOException(), CancellationToken.None);
+
+        Assert.NotNull(proxy.Arguments);
+        Assert.Equal(1000, Assert.Single(proxy.Arguments.OfType<Embed>()).Description.Length);
+    }
+
+    [Theory]
     [InlineData("Hey MihuBot, could you put on something by a-ha?")]
     [InlineData("Mihu-Bot play the song Take On Me!")]
     [InlineData("Miha Bot pause please")]

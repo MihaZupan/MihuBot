@@ -570,4 +570,7 @@ public sealed class AudioScheduler : IAsyncDisposable
 internal sealed record AudioSkipBatch(int Count, IAudioSource Current, IAudioSource[] ToDispose, bool Ignored = false, bool TargetMissing = false);
 
 internal sealed class AudioSourceException(IAudioSource source, Exception innerException)
-    : Exception($"Audio source '{source.Description}' failed.", innerException);
+    : Exception($"Audio source '{source.Description}' failed.", innerException)
+{
+    public IAudioSource AudioSource { get; } = source;
+}

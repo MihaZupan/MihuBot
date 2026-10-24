@@ -32,6 +32,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private Task _disposeTask;
     private long _lastAutoplayAttempt = -1;
     private volatile bool _hasPlayed;
+    private volatile bool _autoplayFailed;
     private AudioPlaybackEntry _playbackEntry;
     private IAudioSource _historySource;
     private IAudioSource _skippedSource;
@@ -470,6 +471,8 @@ public sealed class AudioPlayer : IAsyncDisposable
             {
                 throw new InvalidOperationException($"AI autoplay could not initialize '{video.Title}'.");
             }
+
+            _autoplayFailed = false;
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested || _scheduler.Revision != revision)
         {
@@ -478,7 +481,7 @@ public sealed class AudioPlayer : IAsyncDisposable
             if (!cancellationToken.IsCancellationRequested && _scheduler.Revision == revision)
             {
                 _logger.DebugLog("AI autoplay recommendation timed out.", guildId: Guild.Id);
-                await NotifyAutoplayFailureAsync();
+                _autoplayFailed = true;
             }
         }
         catch (Exception ex)
@@ -488,29 +491,56 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             if (!cancellationToken.IsCancellationRequested && _scheduler.Revision == revision)
             {
-                await NotifyAutoplayFailureAsync();
+                _autoplayFailed = true;
             }
         }
     }
 
-    private async Task NotifyAutoplayFailureAsync()
+    private async Task NotifyPlaybackFailureAsync(IAudioSource source, Exception error)
     {
+        if (_disposedCts.IsCancellationRequested ||
+            ReferenceEquals(Volatile.Read(ref _skippedSource), source) ||
+            ReferenceEquals(Volatile.Read(ref _stoppedSource), source))
+        {
+            return;
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
 
         try
         {
-            if (!_disposedCts.IsCancellationRequested)
-            {
-                await LastTextChannel.SendMessageAsync("AI autoplay couldn't prepare a song. Add a song manually to try again.",
-                    options: new RequestOptions { CancelToken = timeout.Token }).WaitAsync(timeout.Token);
-            }
+            await SendPlaybackFailureAsync(LastTextChannel, source, error, timeout.Token).WaitAsync(timeout.Token);
         }
         catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            _logger.DebugLog($"Could not report AI autoplay failure: {ex}", guildId: Guild.Id);
+            _logger.DebugLog($"Could not report playback failure: {ex}", guildId: Guild.Id);
         }
+    }
+
+    internal static Task SendPlaybackFailureAsync(IMessageChannel channel, IAudioSource source, Exception error,
+        CancellationToken cancellationToken)
+    {
+        string reason = error.GetBaseException() switch
+        {
+            HttpRequestException { StatusCode: { } status } => $"The media server returned HTTP {(int)status} ({status}).",
+            HttpRequestException => "The media server could not be reached.",
+            TimeoutException or OperationCanceledException => "Loading or reading the audio timed out.",
+            IOException => "The audio stream could not be read or decoded.",
+            _ => "The track could not be loaded or played."
+        };
+        string title = source.Description;
+        var embed = new EmbedBuilder()
+            .WithTitle("Playback failed")
+            .WithColor(Color.Red)
+            .WithDescription(title[..Math.Min(title.Length, 1000)])
+            .AddField("Reason", reason)
+            .WithFooter("The failed track was skipped. Playback will continue with the next available song.")
+            .Build();
+
+        return channel.SendMessageAsync(embed: embed, allowedMentions: AllowedMentions.None,
+            options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
     }
 
     public async Task SkipInCurrentSourceAsync(TimeSpan duration)
@@ -535,6 +565,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     public void Enqueue(IAudioSource audioSource)
     {
         _scheduler.Enqueue(audioSource);
+        _autoplayFailed = false;
         Unpause();
     }
 
@@ -543,7 +574,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         try
         {
             await RunStatusUpdatesAsync(_scheduler, () => _pausedTcs is not null,
-                (embed, _) => SendStatusAsync(embed, _disposedCts.Token), _disposedCts.Token);
+                (embed, _) => SendStatusAsync(embed, _disposedCts.Token), _disposedCts.Token, () => _autoplayFailed);
         }
         catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
         catch (Exception ex)
@@ -553,12 +584,13 @@ public sealed class AudioPlayer : IAsyncDisposable
     }
 
     internal static async Task RunStatusUpdatesAsync(AudioScheduler scheduler, Func<bool> isPaused,
-        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken)
+        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken, Func<bool> autoplayFailed = null)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         IAudioSource previous = null;
         long previousRevision = -1;
         bool previouslyPaused = false;
+        bool previouslyAutoplayFailed = false;
         bool hasStatus = false;
         long lastUpdate = Stopwatch.GetTimestamp();
 
@@ -567,17 +599,20 @@ public sealed class AudioPlayer : IAsyncDisposable
             long revision = scheduler.Revision;
             IAudioSource[] sources = scheduler.GetQueueSnapshot(limit: 25, out IAudioSource current);
             bool paused = isPaused();
+            bool failed = autoplayFailed?.Invoke() ?? false;
             bool sourceChanged = !ReferenceEquals(previous, current);
-            bool changed = sourceChanged || revision != previousRevision || paused != previouslyPaused;
+            bool changed = sourceChanged || revision != previousRevision || paused != previouslyPaused ||
+                failed != previouslyAutoplayFailed;
 
             if (!changed && (current is null || paused || Stopwatch.GetElapsedTime(lastUpdate) < TimeSpan.FromSeconds(5)))
             {
                 continue;
             }
 
-            if (current is not null || sources.Length > 0 || hasStatus)
+            if (current is not null || sources.Length > 0 || hasStatus || failed)
             {
-                Embed embed = BuildStatusEmbed(current is null ? "Nothing playing" : paused ? "Paused" : "Now playing", current, sources);
+                Embed embed = BuildStatusEmbed(current is null ? "Nothing playing" : paused ? "Paused" : "Now playing",
+                    current, sources, failed);
 
                 if (!await sendStatus(embed, sourceChanged && current is not null))
                 {
@@ -590,6 +625,7 @@ public sealed class AudioPlayer : IAsyncDisposable
             previous = current;
             previousRevision = revision;
             previouslyPaused = paused;
+            previouslyAutoplayFailed = failed;
             lastUpdate = Stopwatch.GetTimestamp();
         }
     }
@@ -761,6 +797,7 @@ public sealed class AudioPlayer : IAsyncDisposable
                 catch (AudioSourceException ex)
                 {
                     _logger.DebugLog(ex.ToString(), guildId: Guild.Id);
+                    await NotifyPlaybackFailureAsync(ex.AudioSource, ex);
                     continue;
                 }
 
@@ -780,20 +817,23 @@ public sealed class AudioPlayer : IAsyncDisposable
 
                 int read = 0;
                 bool readFailed = false;
+                Exception readError = null;
                 try
                 {
                     audioSourceCts.CancelAfter(TimeSpan.FromSeconds(5));
 
                     read = await audioSource.ReadAsync(readBuffer, audioSourceCts.Token);
                 }
-                catch (OperationCanceledException) when (audioSourceCts.IsCancellationRequested)
+                catch (OperationCanceledException ex) when (audioSourceCts.IsCancellationRequested)
                 {
                     readFailed = true;
+                    readError = ex;
                     LogTiming("ReadAsync cancelled");
                 }
                 catch (Exception ex)
                 {
                     readFailed = true;
+                    readError = ex;
                     _logger.DebugLog(ex.ToString(), guildId: Guild.Id, channelId: VoiceChannel.Id);
                 }
 
@@ -821,7 +861,12 @@ public sealed class AudioPlayer : IAsyncDisposable
                         await ClearAutoplayAsync(invalidate: true);
                         Interlocked.Exchange(ref _lastAutoplayAttempt, _scheduler.Revision);
                         _logger.DebugLog($"AI autoplay audio failed for '{audioSource.Description}'.", guildId: Guild.Id);
-                        await NotifyAutoplayFailureAsync();
+                        _autoplayFailed = true;
+                    }
+
+                    if (readFailed)
+                    {
+                        await NotifyPlaybackFailureAsync(audioSource, readError);
                     }
 
                     _scheduler.SkipCurrent(audioSource);
@@ -998,7 +1043,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
     }
 
-    internal static Embed BuildStatusEmbed(string title, IAudioSource current, IAudioSource[] sources)
+    internal static Embed BuildStatusEmbed(string title, IAudioSource current, IAudioSource[] sources, bool autoplayFailed = false)
     {
         var builder = new EmbedBuilder()
             .WithTitle(title)
@@ -1013,6 +1058,10 @@ public sealed class AudioPlayer : IAsyncDisposable
             builder.WithDescription($"Now playing [{escapedTitle}]({current.Url})\n{GetAttribution(current)}\n{GetPlaybackTime(current)}");
             builder.WithUrl(current.Url);
             builder.WithThumbnailUrl(current.ThumbnailUrl);
+        }
+        else if (autoplayFailed && sources.Length == 0 && title == "Nothing playing")
+        {
+            builder.WithDescription("AI autoplay couldn't prepare a song. Add a song manually to try again.");
         }
 
         builder.WithFooter(sources.Length == 0 ? "The queue is currently empty" : "Up next");
