@@ -5,6 +5,8 @@ using System.Runtime.CompilerServices;
 using Discord.WebSocket;
 using MihuBot.Discord.Audio;
 using MihuBot.Helpers;
+using Microsoft.Extensions.Time.Testing;
+using Newtonsoft.Json;
 
 namespace MihuBot.Tests.Discord;
 
@@ -310,6 +312,79 @@ public sealed class AudioReliabilityTests
 
         Assert.Equal(status, error.StatusCode);
         Assert.False(body.CanRead);
+    }
+
+    [Fact]
+    public async Task YoutubeDownloadWaitsForFormatAvailabilityBeforeSending()
+    {
+        var time = new FakeTimeProvider();
+        var format = JsonConvert.DeserializeObject<YoutubeDl.YoutubeDlFormat>(
+            $$"""
+            {
+                "url": "https://audio.example/stream",
+                "available_at": {{time.GetUtcNow().AddSeconds(5).ToUnixTimeSeconds()}}
+            }
+            """)!;
+        bool sent = false;
+        using var http = new HttpClient(new DownloadHandler((_, _) =>
+        {
+            sent = true;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }));
+        Task<HttpResponseMessage> download = YoutubeAudioSource.OpenDownloadAsync(http, new(), format, CancellationToken.None, time);
+
+        Assert.False(sent);
+        time.Advance(TimeSpan.FromSeconds(4.999));
+        Assert.False(sent);
+        Assert.False(download.IsCompleted);
+        time.Advance(TimeSpan.FromMilliseconds(1));
+
+        using HttpResponseMessage response = await download.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(sent);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-10)]
+    public async Task YoutubeDownloadDoesNotWaitForAlreadyAvailableFormat(int seconds)
+    {
+        var time = new FakeTimeProvider();
+        var format = new YoutubeDl.YoutubeDlFormat
+        {
+            Url = "https://audio.example/stream",
+            AvailableAt = time.GetUtcNow().AddSeconds(seconds).ToUnixTimeSeconds()
+        };
+        using var http = new HttpClient(new DownloadHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK))));
+
+        using HttpResponseMessage response = await YoutubeAudioSource.OpenDownloadAsync(http, new(), format, CancellationToken.None, time)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task YoutubeDownloadCancellationInterruptsAvailabilityWaitWithoutSending()
+    {
+        var time = new FakeTimeProvider();
+        var format = new YoutubeDl.YoutubeDlFormat
+        {
+            Url = "https://audio.example/stream",
+            AvailableAt = time.GetUtcNow().AddSeconds(5).ToUnixTimeSeconds()
+        };
+        bool sent = false;
+        using var http = new HttpClient(new DownloadHandler((_, _) =>
+        {
+            sent = true;
+            throw new InvalidOperationException("A canceled download must not run.");
+        }));
+        using var cancellation = new CancellationTokenSource();
+        Task<HttpResponseMessage> download = YoutubeAudioSource.OpenDownloadAsync(http, new(), format, cancellation.Token, time);
+        Assert.False(download.IsCompleted);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download.WaitAsync(TimeSpan.FromSeconds(5)));
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.False(sent);
     }
 
     [Fact]

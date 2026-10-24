@@ -64,7 +64,7 @@ public sealed class YoutubeAudioSource : AudioSourceBase
     }
 
     internal static async Task<HttpResponseMessage> OpenDownloadAsync(HttpClient http, YoutubeDl.YoutubeDlMetadata metadata,
-        YoutubeDl.YoutubeDlFormat format, CancellationToken cancellationToken)
+        YoutubeDl.YoutubeDlFormat format, CancellationToken cancellationToken, TimeProvider timeProvider = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, format.Url);
 
@@ -81,6 +81,18 @@ public sealed class YoutubeAudioSource : AudioSourceBase
             if (!request.Headers.TryAddWithoutValidation(header.Key, header.Value))
             {
                 throw new InvalidOperationException($"Cannot apply yt-dlp download header '{header.Key}'.");
+            }
+        }
+
+        if (format.AvailableAt is long availableAt)
+        {
+            timeProvider ??= TimeProvider.System;
+            TimeSpan delay = DateTimeOffset.FromUnixTimeSeconds(availableAt) - timeProvider.GetUtcNow();
+
+            if (delay > TimeSpan.Zero)
+            {
+                // YouTube can reject the signed URL until its pre-playback wait has elapsed.
+                await Task.Delay(delay, timeProvider, cancellationToken);
             }
         }
 

@@ -144,6 +144,7 @@ public static class YoutubeDl
         public double? Tbr { get; set; }
         public double? Abr { get; set; }
         public double? Height { get; set; }
+        public long? AvailableAt { get; set; }
         public Dictionary<string, string> HttpHeaders { get; set; }
 
         public int CompareTo(object obj) => CompareTo(obj as YoutubeDlFormat);

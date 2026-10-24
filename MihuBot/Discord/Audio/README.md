@@ -6,6 +6,9 @@ response so playback reporting does not rely on unrelated watch-page player data
 Audio downloads preserve yt-dlp's HTTP headers, with format-specific values
 overriding metadata-level values. Header names and values containing CR, LF, or
 NUL are rejected before sending. HTTP failures still fail the track explicitly.
+Downloads also honor the selected format's `available_at` timestamp: YouTube can
+return 403 until a required pre-playback wait has elapsed, even with correct
+headers. Skipping or shutting down cancels that wait.
 Loading and playback failures post a separate "Playback failed" notice in the
 player's text channel, naming the track and a safe reason (including HTTP status
 codes). The notice remains visible as playback moves on; normal skips and
