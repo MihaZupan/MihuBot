@@ -12,7 +12,7 @@ Downloads are integrity-checked and installed atomically; failed downloads do no
 leave a cached partial model. Preparation runs in the background, and failures
 disable spoken commands without preventing startup.
 
-The player posts a listening notice in the voice channel's text chat before
+The player posts a listening notice in the player's regular text channel before
 consuming incoming audio. If the notice cannot be posted or the local model
 cannot load, listening stays disabled and the player reports the failure;
 music playback and text commands remain available.

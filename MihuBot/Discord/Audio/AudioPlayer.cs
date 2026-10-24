@@ -139,7 +139,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         try
         {
             await _speech.EnsureReadyAsync(_disposedCts.Token);
-            await VoiceChannel.SendMessageAsync(
+            await LastTextChannel.SendMessageAsync(
                 "I'm listening for spoken music commands while connected. Say \"Hey MihuBot, queue song ...\", pause, resume, skip, or stop.",
                 allowedMentions: AllowedMentions.None,
                 options: new RequestOptions { CancelToken = _disposedCts.Token, Timeout = 10_000 });
