@@ -1,5 +1,11 @@
 # Audio playback
 
+Use `!join` (or `!play` without arguments) while in a voice channel to connect
+without queuing audio, ready for spoken commands. Joining an existing player
+leaves its playback and queue unchanged. AI autoplay waits until a track has
+actually played in this connection; an initially empty queue stays silent even
+if the guild has playback history.
+
 YouTube track details use yt-dlp, the same extractor used for audio playback.
 Loading audio refreshes the title, uploader, duration, and thumbnail from that
 response so playback reporting does not rely on unrelated watch-page player data.

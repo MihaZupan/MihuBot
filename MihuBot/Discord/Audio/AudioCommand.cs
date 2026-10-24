@@ -10,7 +10,7 @@ namespace MihuBot.Audio;
 
 public sealed partial class AudioCommands : CommandBase
 {
-    private static readonly string[] AvailableCommands = ["p", "play", "pause", "unpause", "resume", "skip", "volume"];
+    private static readonly string[] AvailableCommands = ["p", "play", "join", "pause", "unpause", "resume", "skip", "volume"];
 
     public override string Command => "mplay";
     public override string[] Aliases => [.. AvailableCommands, "audiocommands", "audiodebug", "audiotempsettings"];
@@ -170,7 +170,14 @@ public sealed partial class AudioCommands : CommandBase
                 }
 
                 audioPlayer = await _audioService.GetOrCreateAudioPlayerAsync(ctx.Discord, ctx.Channel, voiceChannel);
-                audioPlayer.LastTextChannel = ctx.Channel;
+            }
+
+            audioPlayer.LastTextChannel = ctx.Channel;
+
+            if (command == "join" || ctx.Arguments.Length == 0)
+            {
+                await ctx.Message.AddReactionAsync(Emotes.ThumbsUp);
+                return;
             }
 
             if (ctx.Arguments.Length > 0)
