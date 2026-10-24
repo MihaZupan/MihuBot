@@ -140,7 +140,8 @@ public sealed class AudioPlayer : IAsyncDisposable
         {
             await _speech.EnsureReadyAsync(_disposedCts.Token);
             await LastTextChannel.SendMessageAsync(
-                "I'm listening for spoken music commands while connected. Say \"Hey MihuBot, queue song ...\", pause, resume, skip, or stop.",
+                "I'm listening for spoken music commands while connected. Say \"Hey MihuBot, queue song ...\", pause, resume, skip, stop, " +
+                "\"set volume to 30 percent\", or \"quieter\".",
                 allowedMentions: AllowedMentions.None,
                 options: new RequestOptions { CancelToken = _disposedCts.Token, Timeout = 10_000 });
 
@@ -217,6 +218,11 @@ public sealed class AudioPlayer : IAsyncDisposable
                 break;
             case SpokenAudioAction.Resume:
                 Unpause();
+                break;
+            case SpokenAudioAction.Volume:
+                await AudioSettings.ChangeVolumeAsync(
+                    command.VolumePercent ?? throw new InvalidOperationException("A spoken volume command must include a volume."),
+                    command.IsRelativeVolume);
                 break;
             case SpokenAudioAction.Skip:
             case SpokenAudioAction.SkipUntil:

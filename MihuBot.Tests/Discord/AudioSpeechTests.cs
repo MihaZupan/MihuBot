@@ -11,6 +11,7 @@ using Discord.Audio.Streams;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.Discord.Audio;
+using MihuBot.Helpers;
 
 namespace MihuBot.Tests.Discord;
 
@@ -88,6 +89,32 @@ public sealed class AudioSpeechTests
     }
 
     [Theory]
+    [InlineData("MihuBot pause", (int)SpokenAudioAction.Pause)]
+    [InlineData("Miha Bot pause please", (int)SpokenAudioAction.Pause)]
+    [InlineData("Hey, meehoo bot, pause the music.", (int)SpokenAudioAction.Pause)]
+    [InlineData("MihuBot, could you please pause playback?", (int)SpokenAudioAction.Pause)]
+    [InlineData("MihuBot resume", (int)SpokenAudioAction.Resume)]
+    [InlineData("Hey Mihu-Bot, please resume the song.", (int)SpokenAudioAction.Resume)]
+    [InlineData("MihuBot, would you resume music, please?", (int)SpokenAudioAction.Resume)]
+    [InlineData("MihuBot unpause", (int)SpokenAudioAction.Resume)]
+    [InlineData("Hey me who bot can you unpause the track please?", (int)SpokenAudioAction.Resume)]
+    [InlineData("  HEY MIHUBOT, UNPAUSE!  ", (int)SpokenAudioAction.Resume)]
+    [InlineData("Hey MihuBot\nplease unpause the music", (int)SpokenAudioAction.Resume)]
+    public async Task ClearPlaybackControlsDoNotCreateACloudClientOrLogACloudSend(string transcript, int action)
+    {
+        using var speech = new AudioSpeechService(_ => throw new InvalidOperationException("Transcription should not run."),
+            _ => throw new InvalidOperationException("No error expected."),
+            createChat: _ => throw new InvalidOperationException("Clear playback controls must not create a cloud AI client."),
+            logCloudRequest: (_, _) => throw new InvalidOperationException("A local playback control must not log a cloud send."));
+        using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("Clear playback controls must not reach the LLM."));
+        var expected = new SpokenAudioCommand((SpokenAudioAction)action);
+
+        Assert.Equal(expected, await speech.ParseCommandAsync(42, transcript, CancellationToken.None));
+        Assert.Equal(expected, await SpokenAudioCommand.ParseAsync(chat, transcript, CancellationToken.None,
+            logCloudRequest: _ => throw new InvalidOperationException("A local playback control must not log a cloud send.")));
+    }
+
+    [Theory]
     [InlineData("MihuBot skip 3 songs")]
     [InlineData("MihuBot skip two tracks")]
     [InlineData("MihuBot skip 0 songs")]
@@ -100,7 +127,18 @@ public sealed class AudioSpeechTests
     [InlineData("\"Hey MihuBot skip\"")]
     [InlineData("Hey \"MihuBot skip\"")]
     [InlineData("MihuBot skip the song called One")]
-    public async Task OtherSkipPhrasingStillUsesCloudIntentExtraction(string transcript)
+    [InlineData("MihuBot don't pause the music")]
+    [InlineData("MihuBot pause and resume")]
+    [InlineData("MihuBot pause pause")]
+    [InlineData("MihuBot should I resume?")]
+    [InlineData("If I said MihuBot unpause")]
+    [InlineData("\"Hey MihuBot pause\"")]
+    [InlineData("Hey \"MihuBot resume\"")]
+    [InlineData("MihuBot resume the song called Pause")]
+    [InlineData("MihuBot pause for five minutes")]
+    [InlineData("MihuBot unpause after this song")]
+    [InlineData("MihuBot play Unpause")]
+    public async Task OtherPhrasingStillUsesCloudIntentExtraction(string transcript)
     {
         int calls = 0;
         using var chat = new TestChatClient((_, _, _) =>
@@ -196,12 +234,61 @@ public sealed class AudioSpeechTests
     [InlineData("""{"Action":"Queue","Query":"A song","Count":3}""")]
     [InlineData("""{"Action":"Skip","Query":"","TargetIndex":0}""")]
     [InlineData("""{"Action":"SkipUntil","Query":"Darude","TargetIndex":0}""")]
+    [InlineData("""{"Action":"Volume","Query":""}""")]
+    [InlineData("""{"Action":"Volume","Query":"","VolumePercent":-1}""")]
+    [InlineData("""{"Action":"Volume","Query":"","VolumePercent":101}""")]
+    [InlineData("""{"Action":"Volume","Query":"","VolumePercent":-101,"IsRelativeVolume":true}""")]
+    [InlineData("""{"Action":"Volume","Query":"","VolumePercent":101,"IsRelativeVolume":true}""")]
+    [InlineData("""{"Action":"Pause","Query":"","VolumePercent":30}""")]
+    [InlineData("""{"Action":"None","Query":"","IsRelativeVolume":true}""")]
     public async Task InvalidAIIntentsFailExplicitly(string json)
     {
         using var chat = new TestChatClient((_, _, _) => Task.FromResult(
             new ChatResponse(new ChatMessage(ChatRole.Assistant, json))));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip 2 songs", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("MihuBot set volume to thirty percent", 30, false)]
+    [InlineData("MihuBot set volume to zero percent", 0, false)]
+    [InlineData("MihuBot set volume to one hundred percent", 100, false)]
+    [InlineData("MihuBot turn it up by twenty percent", 20, true)]
+    [InlineData("MihuBot turn it down by twenty percent", -20, true)]
+    [InlineData("MihuBot louder", 10, true)]
+    [InlineData("MihuBot quieter", -10, true)]
+    public async Task VolumeIntentRetainsTheRequestedLevelAndAdjustmentMode(string transcript, int percent, bool relative)
+    {
+        var expected = new SpokenAudioCommand(SpokenAudioAction.Volume, VolumePercent: percent, IsRelativeVolume: relative);
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(expected)))));
+        using var speech = new AudioSpeechService(_ => throw new InvalidOperationException("Transcription should not run."),
+            _ => throw new InvalidOperationException("No error expected."), createChat: _ => chat);
+
+        Assert.Equal(expected, await speech.ParseCommandAsync(42, transcript, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(null, 30, false, 0.3f)]
+    [InlineData(0.8f, 0, false, 0f)]
+    [InlineData(0.2f, 100, false, 1f)]
+    [InlineData(null, 10, true, 0.5f)]
+    [InlineData(0.4f, -10, true, 0.3f)]
+    [InlineData(0.95f, 10, true, 1f)]
+    [InlineData(0.05f, -10, true, 0f)]
+    public async Task VolumeChangesUseSavedSettingsAndClampRelativeAdjustments(float? initial, int percent, bool relative, float expected)
+    {
+        using var files = new ModelFiles();
+        string path = Path.Combine(files.DirectoryPath, "audio-settings.json");
+        var store = new SynchronizedLocalJsonStore<Dictionary<ulong, GuildAudioSettings>>(path);
+        var settings = new GuildAudioSettings { Volume = initial, UnderlyingStore = store };
+        store.Modify(values => values.Add(42, settings));
+
+        await settings.ChangeVolumeAsync(percent, relative);
+
+        Assert.Equal(expected, Assert.IsType<float>(settings.Volume), precision: 5);
+        var reopened = new SynchronizedLocalJsonStore<Dictionary<ulong, GuildAudioSettings>>(path);
+        Assert.Equal(expected, Assert.IsType<float>(reopened.Query(values => values[42].Volume)), precision: 5);
     }
 
     [Fact]
@@ -301,6 +388,21 @@ public sealed class AudioSpeechTests
         Assert.True(AudioVoiceListener.IsRepeatedWindowCommand(segments[1], skip, skip, segments[0].EndSample));
         Assert.False(AudioVoiceListener.IsRepeatedWindowCommand(
             segments[1], skip with { Count = 3 }, skip, segments[0].EndSample));
+    }
+
+    [Fact]
+    public void ContinuousWindowOverlapDistinguishesVolumeLevelsAndAdjustmentModes()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        segmenter.AddPcm(Pcm(1500, 4096, 4096), Stopwatch.GetTimestamp());
+        var volume = new SpokenAudioCommand(SpokenAudioAction.Volume, VolumePercent: 10, IsRelativeVolume: true);
+
+        Assert.True(AudioVoiceListener.IsRepeatedWindowCommand(segments[1], volume, volume, segments[0].EndSample));
+        Assert.False(AudioVoiceListener.IsRepeatedWindowCommand(
+            segments[1], volume with { VolumePercent = -10 }, volume, segments[0].EndSample));
+        Assert.False(AudioVoiceListener.IsRepeatedWindowCommand(
+            segments[1], volume with { IsRelativeVolume = false }, volume, segments[0].EndSample));
     }
 
     [Theory]

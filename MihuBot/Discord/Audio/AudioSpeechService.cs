@@ -170,9 +170,9 @@ public sealed class AudioSpeechService : BackgroundService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (SpokenAudioCommand.IsSingleTrackSkip(transcript))
+        if (SpokenAudioCommand.ParseLocalCommand(transcript) is { } localCommand)
         {
-            return new(SpokenAudioAction.Skip);
+            return localCommand;
         }
 
         using IChatClient chat = _createChat?.Invoke(guildId)

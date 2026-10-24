@@ -185,6 +185,7 @@ internal sealed class AudioVoiceListener : IAsyncDisposable
         SpokenAudioCommand? previous, long previousEnd) =>
         segment.IsContinuation && segment.StartSample < previousEnd && previous is not null &&
         command.Action == previous.Action && command.Count == previous.Count && ReferenceEquals(command.TargetSource, previous.TargetSource) &&
+        command.VolumePercent == previous.VolumePercent && command.IsRelativeVolume == previous.IsRelativeVolume &&
         string.Equals(command.Query, previous.Query, StringComparison.OrdinalIgnoreCase);
 
     internal static async Task ReadFramesAsync(AudioInStream stream, Func<RTPFrame, Task> onFrame,
