@@ -112,6 +112,7 @@ public sealed partial class Logger
 
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
+            e.SetObserved();
             string text = e.Exception.ToString();
 
             if (text.Contains("QdrantVectorStoreRecordCollection", StringComparison.Ordinal))
@@ -127,8 +128,16 @@ public sealed partial class Logger
                 text.Contains("at Npgsql.Internal.NpgsqlConnector.ReadMessageLong", StringComparison.Ordinal))
                 return;
 
+            if (text.Contains("System.ObjectDisposedException:", StringComparison.Ordinal) &&
+                text.Contains("at System.Threading.SemaphoreSlim.Release()", StringComparison.Ordinal) &&
+                text.Contains("at Discord.ConnectionManager.", StringComparison.Ordinal))
+                return;
+
+            if (text.Contains("The server returned status code '503' when status code '101' was expected.", StringComparison.Ordinal) &&
+                text.Contains("at Discord.Net.WebSockets.DefaultWebSocketClient.ConnectInternalAsync", StringComparison.Ordinal))
+                return;
+
             _ = DebugAsync($"UnobservedTaskException: {text}", truncateToFile: true);
-            e.SetObserved();
         };
 
         PeriodicTask.Start("DeleteOldDebugLogs",
