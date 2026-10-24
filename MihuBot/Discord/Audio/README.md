@@ -91,6 +91,10 @@ Unaddressed transcript tails and request audio stay only in bounded local memory
 while checking for a split name or follow-up.
 Bot-addressed text uses the guild's existing AI model settings and AI logging.
 This includes the written evidence returned by the audio model, but not audio bytes.
+Each cloud AI send also produces a debug log prefixed with `[AudioCloudAI]`, with the guild, purpose, and transcript
+text, including song-matching retries and written audio evidence. Audio-send logs
+include the WAV byte count and duration, never the audio bytes. These logs do not
+require `LoggerTrace` and are not suppressed by `LoggingChatClient.LogUsageOnly`.
 Recognized song queries are sent to YouTube search as with text music commands.
 The energy gate is not a trained speech/noise classifier, and Whisper can
 misrecognize names or hallucinate commands. Noise, accents, music leaking into

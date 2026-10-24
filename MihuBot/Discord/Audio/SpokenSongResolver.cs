@@ -24,20 +24,23 @@ public sealed class SpokenSongResolver
     private readonly Func<string, CancellationToken, Task<IVideo[]>> _search;
     private readonly Func<ulong, IChatClient> _createChat;
     private readonly Func<string, IVideo[], byte[], CancellationToken, Task<string>> _hear;
+    private readonly Action<ulong, string>? _logCloudRequest;
 
-    public SpokenSongResolver(OpenAIService openAI, IEnumerable<YouTubeService> youtube)
+    public SpokenSongResolver(OpenAIService openAI, IEnumerable<YouTubeService> youtube, Logger logger)
         : this((query, token) => YoutubeHelper.SearchVideosAsync(query, youtube.SingleOrDefault(), token),
             guildId => openAI.GetChat(guildId),
-            (transcript, candidates, wav, token) => HearAsync(openAI.GetAudioChatClient(), transcript, candidates, wav, token))
+            (transcript, candidates, wav, token) => HearAsync(openAI.GetAudioChatClient(), transcript, candidates, wav, token),
+            (guildId, message) => logger.DebugLog(message, guildId: guildId))
     {
     }
 
     internal SpokenSongResolver(Func<string, CancellationToken, Task<IVideo[]>> search, Func<ulong, IChatClient> createChat,
-        Func<string, IVideo[], byte[], CancellationToken, Task<string>> hear)
+        Func<string, IVideo[], byte[], CancellationToken, Task<string>> hear, Action<ulong, string>? logCloudRequest = null)
     {
         _search = search;
         _createChat = createChat;
         _hear = hear;
+        _logCloudRequest = logCloudRequest;
     }
 
     internal async Task<SpokenSongResolution> ResolveAsync(ulong guildId, SpokenAudioCommand command, CancellationToken cancellationToken)
@@ -52,7 +55,7 @@ public sealed class SpokenSongResolver
         cancellationToken.ThrowIfCancellationRequested();
         using IChatClient chat = _createChat(guildId);
         string transcript = command.AudioClip?.Transcript ?? command.Query;
-        IVideo? matched = await MatchAsync(chat, command.Query, transcript, candidates, null, cancellationToken);
+        IVideo? matched = await MatchAsync(guildId, chat, command.Query, transcript, candidates, null, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (matched is not null)
@@ -66,7 +69,14 @@ public sealed class SpokenSongResolver
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        string evidence = await _hear(clip.Transcript, candidates, clip.ToWav(), cancellationToken);
+        byte[] wav = clip.ToWav();
+        _logCloudRequest?.Invoke(guildId, $"[AudioCloudAI] Sending speech audio and transcript to cloud AI (song clarification): {JsonSerializer.Serialize(new
+        {
+            clip.Transcript,
+            AudioBytes = wav.Length,
+            AudioSeconds = (wav.Length - 44) / (2d * SpeechSegmenter.SampleRate)
+        })}");
+        string evidence = await _hear(clip.Transcript, candidates, wav, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (string.IsNullOrWhiteSpace(evidence) || evidence.Length > 4000)
@@ -81,6 +91,12 @@ public sealed class SpokenSongResolver
             Return Clear=false if the audio hearing is uncertain or alternatives remain unresolved.
             Do not invent missing names. Artist or Title may be null if only one was requested.
             """;
+        cancellationToken.ThrowIfCancellationRequested();
+        _logCloudRequest?.Invoke(guildId, $"[AudioCloudAI] Sending speech transcript to cloud AI (song identification): {JsonSerializer.Serialize(new
+        {
+            Transcript = transcript,
+            AudioHearing = evidence
+        })}");
         var identified = await chat.GetResponseAsync<SpokenSongIdentification>(
             [new ChatMessage(ChatRole.System, identifyPrompt),
                 new ChatMessage(ChatRole.User, JsonSerializer.Serialize(new { Transcript = transcript, AudioHearing = evidence }))],
@@ -103,12 +119,12 @@ public sealed class SpokenSongResolver
         cancellationToken.ThrowIfCancellationRequested();
         candidates = await _search(query, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        matched = await MatchAsync(chat, query, transcript, candidates, evidence, cancellationToken);
+        matched = await MatchAsync(guildId, chat, query, transcript, candidates, evidence, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return matched is null ? new(null, RepeatRequest) : new(matched, "");
     }
 
-    private static async Task<IVideo?> MatchAsync(IChatClient chat, string query, string transcript, IVideo[] candidates,
+    private async Task<IVideo?> MatchAsync(ulong guildId, IChatClient chat, string query, string transcript, IVideo[] candidates,
         string? evidence, CancellationToken cancellationToken)
     {
         if (candidates.Length == 0)
@@ -128,6 +144,13 @@ public sealed class SpokenSongResolver
             AudioHearing, when supplied, is additional evidence for correcting the local transcript, not
             permission to guess if the audio model was uncertain. Use the corrected Query for the retry.
             """;
+        cancellationToken.ThrowIfCancellationRequested();
+        _logCloudRequest?.Invoke(guildId, $"[AudioCloudAI] Sending speech transcript to cloud AI (song matching): {JsonSerializer.Serialize(new
+        {
+            Query = query,
+            Transcript = transcript,
+            AudioHearing = evidence
+        })}");
         var response = await chat.GetResponseAsync<SpokenSongMatch>(
             [new ChatMessage(ChatRole.System, prompt), new ChatMessage(ChatRole.User, JsonSerializer.Serialize(new
             {

@@ -99,14 +99,20 @@ public sealed class SpokenSongResolverTests
     {
         IVideo video = Video("Darude - Sandstorm", "Darude");
         using var chat = new TestChatClient(new SpokenSongMatch(0));
+        List<(ulong GuildId, string Message)> logs = [];
         var resolver = new SpokenSongResolver((_, _) => Task.FromResult(new[] { video }), _ => chat,
-            (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded for a convincing match."));
+            (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded for a convincing match."),
+            (guildId, message) => logs.Add((guildId, message)));
 
         SpokenSongResolution result = await resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None);
 
         Assert.Same(video, result.Video);
         Assert.Empty(result.Error);
         Assert.Single(chat.Requests);
+        var log = Assert.Single(logs);
+        Assert.Equal(42ul, log.GuildId);
+        Assert.Contains("song matching", log.Message, StringComparison.Ordinal);
+        Assert.Contains("Hey MihuBot play Darood sandstom", log.Message, StringComparison.Ordinal);
         Assert.All(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
             content => Assert.IsType<TextContent>(content));
     }
@@ -117,6 +123,7 @@ public sealed class SpokenSongResolverTests
         IVideo wrong = Video("Unrelated first result", "Another artist");
         IVideo corrected = Video("Darude - Sandstorm", "Darude");
         List<string> searches = [];
+        List<(ulong GuildId, string Message)> logs = [];
         using var chat = new TestChatClient(new SpokenSongMatch(null),
             new SpokenSongIdentification("Darude", "Sandstorm", true), new SpokenSongMatch(0));
         int audioCalls = 0;
@@ -131,8 +138,15 @@ public sealed class SpokenSongResolverTests
             Assert.Same(wrong, Assert.Single(candidates));
             Assert.Equal(32_044, wav.Length);
             Assert.Equal("RIFF", Encoding.ASCII.GetString(wav, 0, 4));
+            Assert.Equal(2, logs.Count);
+            string audioLog = logs[^1].Message;
+            Assert.Contains("speech audio and transcript", audioLog, StringComparison.Ordinal);
+            Assert.Contains(transcript, audioLog, StringComparison.Ordinal);
+            Assert.Contains("\"AudioBytes\":32044", audioLog, StringComparison.Ordinal);
+            Assert.Contains("\"AudioSeconds\":1", audioLog, StringComparison.Ordinal);
+            Assert.DoesNotContain(Convert.ToBase64String(wav), audioLog, StringComparison.Ordinal);
             return Task.FromResult("The speaker requested Darude, Sandstorm.");
-        });
+        }, (guildId, message) => logs.Add((guildId, message)));
 
         SpokenSongResolution result = await resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None);
 
@@ -140,6 +154,13 @@ public sealed class SpokenSongResolverTests
         Assert.Equal(["Darood sandstom", "Darude Sandstorm"], searches);
         Assert.Equal(1, audioCalls);
         Assert.Equal(3, chat.Requests.Count);
+        Assert.Equal(4, logs.Count);
+        Assert.All(logs, log => Assert.Equal(42ul, log.GuildId));
+        Assert.Contains("song matching", logs[0].Message, StringComparison.Ordinal);
+        Assert.Contains("song identification", logs[2].Message, StringComparison.Ordinal);
+        Assert.Contains("The speaker requested Darude, Sandstorm.", logs[2].Message, StringComparison.Ordinal);
+        Assert.Contains("song matching", logs[3].Message, StringComparison.Ordinal);
+        Assert.Contains("Darude Sandstorm", logs[3].Message, StringComparison.Ordinal);
         Assert.All(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
             content => Assert.IsType<TextContent>(content));
     }
@@ -199,8 +220,10 @@ public sealed class SpokenSongResolverTests
     public async Task MissingOrExpiredClipNeverUploadsAudio(bool expired)
     {
         using var chat = new TestChatClient();
+        List<string> logs = [];
         var resolver = new SpokenSongResolver((_, _) => Task.FromResult<IVideo[]>([]), _ => chat,
-            (_, _, _, _) => throw new InvalidOperationException("No usable request audio should be uploaded."));
+            (_, _, _, _) => throw new InvalidOperationException("No usable request audio should be uploaded."),
+            (_, message) => logs.Add(message));
         SpokenAudioCommand command = QueueCommand(expired: expired);
 
         if (!expired)
@@ -213,6 +236,7 @@ public sealed class SpokenSongResolverTests
         Assert.Null(result.Video);
         Assert.Contains("repeat", result.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(chat.Requests);
+        Assert.Empty(logs);
     }
 
     [Theory]

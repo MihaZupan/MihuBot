@@ -88,6 +88,7 @@ public sealed class AudioSpeechService : BackgroundService
     private readonly Func<ulong, IChatClient>? _createChat;
     private readonly SpokenSongResolver? _songs;
     private readonly Action<Exception> _logError;
+    private readonly Action<ulong, string>? _logCloudRequest;
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Exception? _initializationError;
 
@@ -106,18 +107,21 @@ public sealed class AudioSpeechService : BackgroundService
         },
             ex => logger.DebugLog($"Local voice recognition failed: {ex}"),
             () => GetThreads(configuration),
-            guildId => openAI.GetChat(guildId), songs)
+            guildId => openAI.GetChat(guildId), songs,
+            (guildId, message) => logger.DebugLog(message, guildId: guildId))
     {
     }
 
     internal AudioSpeechService(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Action<Exception> logError,
-        Func<int>? getThreads = null, Func<ulong, IChatClient>? createChat = null, SpokenSongResolver? songs = null)
+        Func<int>? getThreads = null, Func<ulong, IChatClient>? createChat = null, SpokenSongResolver? songs = null,
+        Action<ulong, string>? logCloudRequest = null)
     {
         _createTranscriber = createTranscriber;
         _logError = logError;
         _getThreads = getThreads ?? (() => Math.Min(8, Environment.ProcessorCount));
         _createChat = createChat;
         _songs = songs;
+        _logCloudRequest = logCloudRequest;
     }
 
     internal static int GetThreads(IConfigurationService configuration)
@@ -149,7 +153,8 @@ public sealed class AudioSpeechService : BackgroundService
 
         using IChatClient chat = _createChat?.Invoke(guildId)
             ?? throw new InvalidOperationException("Spoken music commands require Azure OpenAI for intent extraction.");
-        return await SpokenAudioCommand.ParseAsync(chat, transcript, cancellationToken, tracks);
+        return await SpokenAudioCommand.ParseAsync(chat, transcript, cancellationToken, tracks,
+            message => _logCloudRequest?.Invoke(guildId, message));
     }
 
     internal Task<SpokenSongResolution> ResolveSongAsync(ulong guildId, SpokenAudioCommand command, CancellationToken cancellationToken) =>

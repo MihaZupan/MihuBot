@@ -58,7 +58,8 @@ public sealed class AudioSpeechTests
     {
         using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("Unaddressed speech reached the LLM."));
 
-        Assert.Null(await SpokenAudioCommand.ParseAsync(chat, text, CancellationToken.None));
+        Assert.Null(await SpokenAudioCommand.ParseAsync(chat, text, CancellationToken.None,
+            logCloudRequest: _ => throw new InvalidOperationException("Unaddressed speech was logged as a cloud request.")));
     }
 
     [Fact]
@@ -66,8 +67,14 @@ public sealed class AudioSpeechTests
     {
         using var cancellation = new CancellationTokenSource();
         var expected = new SpokenAudioCommand(SpokenAudioAction.Queue, "Take On Me by a-ha");
+        List<(ulong GuildId, string Message)> logs = [];
         using var chat = new TestChatClient((messages, options, token) =>
         {
+            var log = Assert.Single(logs);
+            Assert.Equal(42ul, log.GuildId);
+            Assert.Contains("intent extraction", log.Message, StringComparison.Ordinal);
+            Assert.Contains("Hey Miha Bot, could you put Take On Me by a-ha on next?", log.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unrelated conversation", log.Message, StringComparison.Ordinal);
             ChatMessage[] sent = messages.ToArray();
             Assert.Equal(2, sent.Length);
             Assert.Equal(ChatRole.System, sent[0].Role);
@@ -80,10 +87,43 @@ public sealed class AudioSpeechTests
             return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(expected))));
         });
 
-        SpokenAudioCommand? result = await SpokenAudioCommand.ParseAsync(chat,
+        using var speech = new AudioSpeechService(_ => throw new InvalidOperationException("Transcription should not run."),
+            _ => throw new InvalidOperationException("No error expected."), createChat: _ => chat,
+            logCloudRequest: (guildId, message) => logs.Add((guildId, message)));
+        SpokenAudioCommand? result = await speech.ParseCommandAsync(42,
             "Unrelated conversation. Hey Miha Bot, could you put Take On Me by a-ha on next?", cancellation.Token);
 
         Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RejectedTranscriptsDoNotLogCloudSends(bool canceled)
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        if (canceled)
+        {
+            cancellation.Cancel();
+        }
+
+        using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("No cloud request expected."));
+        string transcript = "Hey MihuBot " + new string('x', canceled ? 0 : 1000);
+        List<string> logs = [];
+
+        if (canceled)
+        {
+            await Assert.ThrowsAsync<OperationCanceledException>(() =>
+                SpokenAudioCommand.ParseAsync(chat, transcript, cancellation.Token, logCloudRequest: logs.Add));
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                SpokenAudioCommand.ParseAsync(chat, transcript, cancellation.Token, logCloudRequest: logs.Add));
+        }
+
+        Assert.Empty(logs);
     }
 
     [Fact]

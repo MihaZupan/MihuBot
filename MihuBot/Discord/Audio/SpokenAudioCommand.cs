@@ -34,7 +34,8 @@ internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, stri
     }
 
     public static async Task<SpokenAudioCommand?> ParseAsync(
-        IChatClient chat, string transcript, CancellationToken cancellationToken, IReadOnlyList<IAudioSource>? tracks = null)
+        IChatClient chat, string transcript, CancellationToken cancellationToken, IReadOnlyList<IAudioSource>? tracks = null,
+        Action<string>? logCloudRequest = null)
     {
         string? addressed = GetAddressedText(transcript);
 
@@ -85,6 +86,8 @@ internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, stri
                 JsonSerializer.Serialize(tracks.Select((track, index) => new { Index = index, Title = track.Description, Channel = track.Author }))));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        logCloudRequest?.Invoke($"[AudioCloudAI] Sending speech transcript to cloud AI (intent extraction): {JsonSerializer.Serialize(addressed)}");
         var response = await chat.GetResponseAsync<SpokenAudioCommand>(
             messages,
             new ChatOptions { MaxOutputTokens = 1024 },
