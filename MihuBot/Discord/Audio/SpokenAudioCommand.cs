@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json.Serialization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -21,6 +22,8 @@ internal enum SpokenAudioAction
 
 internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, string Query = "", int Count = 1, int? TargetIndex = null)
 {
+    private static readonly SearchValues<char> s_quotes = SearchValues.Create("\"'\u2018\u2019\u201c\u201d");
+
     [JsonIgnore]
     public IAudioSource? TargetSource { get; init; }
 
@@ -31,6 +34,15 @@ internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, stri
     {
         Match mention = MentionRegex().Match(transcript);
         return mention.Success ? transcript.Substring(mention.Index).Trim() : null;
+    }
+
+    internal static bool IsSingleTrackSkip(string transcript)
+    {
+        transcript = transcript.Trim();
+        Match mention = MentionRegex().Match(transcript);
+        return transcript.Length <= 1000 && mention.Success && mention.Index == 0 &&
+            !transcript.AsSpan().ContainsAny(s_quotes) &&
+            SingleTrackSkipRegex().IsMatch(transcript.AsSpan(mention.Length));
     }
 
     public static async Task<SpokenAudioCommand?> ParseAsync(
@@ -47,6 +59,13 @@ internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, stri
         if (addressed.Length > 1000)
         {
             throw new InvalidOperationException("The bot-addressed speech transcript is too long.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (IsSingleTrackSkip(transcript))
+        {
+            return new(SpokenAudioAction.Skip);
         }
 
         const string prompt = """
@@ -117,4 +136,7 @@ internal sealed partial record SpokenAudioCommand(SpokenAudioAction Action, stri
 
     [GeneratedRegex(@"\b(?:hey[\s\p{P}]+)?(?:mi[\s\p{P}]*h[ua]|mee[\s\p{P}]*hoo|me[\s\p{P}]+who)[\s\p{P}]*(?:bo?[\s\p{P}]+)*bot\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex MentionRegex();
+
+    [GeneratedRegex(@"\A[\s,.:;!?-]*(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?skip(?:\s+(?:(?:(?:the\s+)?(?:current|next)|the|this|a|one|1)\s+)?(?:song|track)|\s+(?:one|1))?(?:[\s,]+please)?[\s.!?]*\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SingleTrackSkipRegex();
 }

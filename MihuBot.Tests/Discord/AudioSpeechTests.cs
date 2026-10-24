@@ -62,6 +62,57 @@ public sealed class AudioSpeechTests
             logCloudRequest: _ => throw new InvalidOperationException("Unaddressed speech was logged as a cloud request.")));
     }
 
+    [Theory]
+    [InlineData("Hey MihuBot, skip.")]
+    [InlineData("MihuBot skip one song")]
+    [InlineData("MihuBot skip 1 track")]
+    [InlineData("MihuBot skip one")]
+    [InlineData("MihuBot skip this track")]
+    [InlineData("MihuBot skip the current song")]
+    [InlineData("MihuBot skip the next track")]
+    [InlineData("Hey Miha Bot, please skip the song.")]
+    [InlineData("Hey Mihu-Bot, could you skip a track, please?")]
+    [InlineData("MihuBot, can you please skip this song?")]
+    [InlineData("  HEY MIHUBOT, SKIP TRACK PLEASE!  ")]
+    [InlineData("Hey MihuBot\nskip one song")]
+    public async Task ClearSingleTrackSkipsDoNotCreateACloudClientOrLogACloudSend(string transcript)
+    {
+        using var speech = new AudioSpeechService(_ => throw new InvalidOperationException("Transcription should not run."),
+            _ => throw new InvalidOperationException("No error expected."),
+            createChat: _ => throw new InvalidOperationException("Clear skips must not create a cloud AI client."),
+            logCloudRequest: (_, _) => throw new InvalidOperationException("A local skip must not log a cloud send."));
+
+        SpokenAudioCommand? command = await speech.ParseCommandAsync(42, transcript, CancellationToken.None);
+
+        Assert.Equal(new SpokenAudioCommand(SpokenAudioAction.Skip), command);
+    }
+
+    [Theory]
+    [InlineData("MihuBot skip 3 songs")]
+    [InlineData("MihuBot skip two tracks")]
+    [InlineData("MihuBot skip 0 songs")]
+    [InlineData("MihuBot skip until the track by Darude")]
+    [InlineData("MihuBot don't skip this track")]
+    [InlineData("MihuBot skip one song and pause")]
+    [InlineData("MihuBot skip skip")]
+    [InlineData("MihuBot should I skip this track?")]
+    [InlineData("If I said MihuBot skip")]
+    [InlineData("\"Hey MihuBot skip\"")]
+    [InlineData("Hey \"MihuBot skip\"")]
+    [InlineData("MihuBot skip the song called One")]
+    public async Task OtherSkipPhrasingStillUsesCloudIntentExtraction(string transcript)
+    {
+        int calls = 0;
+        using var chat = new TestChatClient((_, _, _) =>
+        {
+            calls++;
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, """{"Action":"None","Query":""}""")));
+        });
+
+        Assert.Null(await SpokenAudioCommand.ParseAsync(chat, transcript, CancellationToken.None));
+        Assert.Equal(1, calls);
+    }
+
     [Fact]
     public async Task IntentExtractionSendsOnlyBotAddressedTextAndUsesAnEnumSchema()
     {
@@ -109,7 +160,7 @@ public sealed class AudioSpeechTests
         }
 
         using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("No cloud request expected."));
-        string transcript = "Hey MihuBot " + new string('x', canceled ? 0 : 1000);
+        string transcript = canceled ? "Hey MihuBot skip" : "Hey MihuBot " + new string('x', 1000);
         List<string> logs = [];
 
         if (canceled)
@@ -150,7 +201,7 @@ public sealed class AudioSpeechTests
         using var chat = new TestChatClient((_, _, _) => Task.FromResult(
             new ChatResponse(new ChatMessage(ChatRole.Assistant, json))));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip 2 songs", CancellationToken.None));
     }
 
     [Fact]

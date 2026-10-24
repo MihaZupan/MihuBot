@@ -182,8 +182,6 @@ public sealed class AudioPlayer : IAsyncDisposable
             return false;
         }
 
-        string response;
-
         switch (command.Action)
         {
             case SpokenAudioAction.Queue:
@@ -211,18 +209,14 @@ public sealed class AudioPlayer : IAsyncDisposable
 
                         Enqueue(new YoutubeAudioSource(user, resolution.Video));
                     }
-
-                    response = $"Queued {Format.Code(resolution.Video.Title)}.";
                 }
 
                 break;
             case SpokenAudioAction.Pause:
                 Pause();
-                response = "Paused.";
                 break;
             case SpokenAudioAction.Resume:
                 Unpause();
-                response = "Resumed.";
                 break;
             case SpokenAudioAction.Skip:
             case SpokenAudioAction.SkipUntil:
@@ -251,44 +245,23 @@ public sealed class AudioPlayer : IAsyncDisposable
                     return false;
                 }
 
-                if (command.Action == SpokenAudioAction.SkipUntil)
-                {
-                    response = skipped.Count == 0
-                        ? $"{Format.Code(command.TargetSource.Description)} is already current or next."
-                        : $"Skipped {skipped.Count} song(s). Next is {Format.Code(command.TargetSource.Description)}.";
-                }
-                else if (skipped.Count < command.Count)
+                if (command.Action == SpokenAudioAction.Skip && skipped.Count < command.Count)
                 {
                     await SendSpokenCommandFailureAsync(LastTextChannel, user.Id,
                         skipped.Count == 0 ? "There are no songs to skip." : $"Only {skipped.Count} song(s) were available; I skipped those.",
                         cancellationToken);
                     return skipped.Count > 0;
                 }
-                else
-                {
-                    response = skipped.Count == 1 ? "Skipped." : $"Skipped {skipped.Count} songs.";
-                }
 
                 break;
             case SpokenAudioAction.Stop:
-                try
-                {
-                    await LastTextChannel.SendMessageAsync("Stopped music and voice listening.", allowedMentions: AllowedMentions.None,
-                        options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
-                }
-                finally
-                {
-                    await DisposeAsync();
-                }
-
+                await DisposeAsync();
                 return true;
             case SpokenAudioAction.None:
             default:
                 throw new InvalidOperationException($"Unknown spoken audio action '{command.Action}'.");
         }
 
-        await LastTextChannel.SendMessageAsync($"{user.DisplayName}: {response}", allowedMentions: AllowedMentions.None,
-            options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
         return true;
     }
 
@@ -563,7 +536,8 @@ public sealed class AudioPlayer : IAsyncDisposable
     {
         try
         {
-            await RunStatusUpdatesAsync(_scheduler, () => _pausedTcs is not null, SendStatusAsync, _disposedCts.Token);
+            await RunStatusUpdatesAsync(_scheduler, () => _pausedTcs is not null,
+                (embed, _) => SendStatusAsync(embed, _disposedCts.Token), _disposedCts.Token);
         }
         catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
         catch (Exception ex)
@@ -614,9 +588,9 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
     }
 
-    private async Task<bool> SendStatusAsync(Embed embed, bool newTrack)
+    private async Task<bool> SendStatusAsync(Embed embed, CancellationToken cancellationToken)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_disposedCts.Token);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         var options = new RequestOptions { CancelToken = timeout.Token };
 
@@ -624,11 +598,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         {
             RestUserMessage lastSentMessage = _lastSentStatusMessage;
 
-            if (lastSentMessage is null ||
-                lastSentMessage.Channel.Id != LastTextChannel.Id ||
-                (newTrack && (LastTextChannel.GetCachedMessages(1).FirstOrDefault() is SocketMessage message
-                    ? message.Author.Id != Client.CurrentUser.Id
-                    : DateTime.UtcNow.Subtract(lastSentMessage.Timestamp.UtcDateTime) > TimeSpan.FromMinutes(5))))
+            if (lastSentMessage is null || lastSentMessage.Channel.Id != LastTextChannel.Id)
             {
                 _lastSentStatusMessage = await LastTextChannel.SendMessageAsync(embed: embed, allowedMentions: AllowedMentions.None, options: options)
                     .WaitAsync(timeout.Token);
@@ -653,7 +623,7 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             return true;
         }
-        catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
         {
             _logger.DebugLog(ex.ToString(), guildId: Guild.Id);
@@ -956,6 +926,11 @@ public sealed class AudioPlayer : IAsyncDisposable
             await cleanup.RunAsync(() => _autoplayTask);
             await cleanup.RunAsync(() => _statusTask);
             await cleanup.RunAsync(() => _playbackTask);
+
+            if (_lastSentStatusMessage is not null)
+            {
+                await cleanup.RunAsync(() => SendStatusAsync(BuildStatusEmbed("Stopped", null, []), CancellationToken.None));
+            }
         }
         finally
         {

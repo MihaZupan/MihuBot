@@ -25,12 +25,19 @@ For intentional multi-track skips, say "Hey MihuBot, skip 3 songs" or
 "Hey MihuBot, skip until the track by Darude". Counts include the current track.
 Skip-until uses the queued titles and uploader names to select an existing track
 and stops before it. A missing or removed destination leaves the queue unchanged.
-Stop disconnects the player and ends listening. Successful commands are
-acknowledged in the player's text channel and queued songs retain the speaker
-as their requester. Failed commands mention only the requester; successful
-acknowledgements do not ping them. Only current, non-bot voice participants can issue commands.
+Stop disconnects the player and ends listening. Successful commands update the
+existing state embed instead of posting acknowledgements; stopping leaves it
+marked "Stopped". Queued songs retain the speaker as their requester.
+Successfully handled commands, including local skips, produce an
+`[AudioVoiceCommand]` debug log with the guild, voice channel, speaker, and parsed
+command. Audio bytes are not included.
+Failed commands mention only the requester.
+Only current, non-bot voice participants can issue commands.
 Natural phrasing is supported: local mention detection gates a structured LLM
-request that extracts a single intent. Only text from the bot mention onward is
+request that extracts a single intent. Clear single-track skips such as
+"Hey MihuBot, skip one song" or "MihuBot, please skip this track" are recognized
+locally without a cloud AI call. Multi-track counts, skip-until, and other phrasing still use
+the LLM. Only text from the bot mention onward is
 sent, including a short same-speaker follow-up after the mention; other speech
 remains local unless the song-specific audio fallback below is needed.
 Unsupported, ambiguous, quoted, or negated requests should produce no action.

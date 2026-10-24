@@ -151,6 +151,13 @@ public sealed class AudioSpeechService : BackgroundService
             return null;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (SpokenAudioCommand.IsSingleTrackSkip(transcript))
+        {
+            return new(SpokenAudioAction.Skip);
+        }
+
         using IChatClient chat = _createChat?.Invoke(guildId)
             ?? throw new InvalidOperationException("Spoken music commands require Azure OpenAI for intent extraction.");
         return await SpokenAudioCommand.ParseAsync(chat, transcript, cancellationToken, tracks,

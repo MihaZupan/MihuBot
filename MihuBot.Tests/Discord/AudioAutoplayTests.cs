@@ -58,7 +58,8 @@ public sealed class AudioAutoplayTests
             Assert.Equal("1. Next song", Assert.Single(queue.Embed.Fields).Name);
             Assert.False(queue.NewTrack);
 
-            scheduler.SkipCurrent(current);
+            AudioSkipBatch skipped = scheduler.SkipTracks(1, long.MaxValue);
+            Assert.Same(current, skipped.Current);
             Assert.Same(next, await scheduler.GetAudioSourceAsync(cancellation.Token));
             Volatile.Write(ref paused, false);
             var nextTrack = await ReadUpdateAsync();

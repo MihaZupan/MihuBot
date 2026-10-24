@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Discord.Audio;
 
 #nullable enable
@@ -118,6 +119,8 @@ internal sealed class AudioVoiceListener : IAsyncDisposable
 
                     if (await _player.HandleSpokenCommandAsync(userId, command, segment.SpeechEndTimestamp, token))
                     {
+                        _logger.DebugLog($"[AudioVoiceCommand] Successfully handled spoken command: {JsonSerializer.Serialize(command)}",
+                            guildId: _player.Guild.Id, channelId: _player.VoiceChannel.Id, userId: userId);
                         previousCommand = command;
                         previousEnd = segment.EndSample;
                     }
