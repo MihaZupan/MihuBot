@@ -577,6 +577,88 @@ public sealed class AudioSpeechTests
         Assert.Equal(1, transcriber.DisposeCalls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WhisperMetricsMeasureInferenceAndTrackQueuedAudioIncludingDiscardedSegments(bool canceled)
+    {
+        var started = Signal();
+        var release = Signal();
+        var handling = Signal();
+        var finishHandling = Signal();
+        var completed = Signal();
+        using var departed = new CancellationTokenSource();
+        ConcurrentQueue<string> logs = [];
+        await using var worker = new Worker(() => new FakeTranscriber(async (samples, token) =>
+        {
+            if (samples.Length == SpeechSegmenter.SampleRate)
+            {
+                started.SetResult();
+                await release.Task.WaitAsync(token);
+            }
+
+            return "Local transcript";
+        }), logWhisperProcessing: logs.Enqueue);
+        await worker.ReadyAsync();
+
+        Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: async (_, token) =>
+        {
+            handling.SetResult();
+            await finishHandling.Task.WaitAsync(token);
+        }) with
+        {
+            Samples = new float[SpeechSegmenter.SampleRate],
+            Timestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency
+        }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        long observedStart = Stopwatch.GetTimestamp();
+
+        if (canceled)
+        {
+            departed.Cancel();
+        }
+
+        Assert.True(worker.Service.TryEnqueue(Request(2) with
+        {
+            Samples = new float[2 * SpeechSegmenter.SampleRate],
+            CancellationToken = departed.Token,
+            Timestamp = Stopwatch.GetTimestamp() - (canceled ? 0 : 21 * Stopwatch.Frequency)
+        }));
+        Assert.True(worker.Service.TryEnqueue(Request(3, onTranscript: (_, _) =>
+        {
+            completed.SetResult();
+            return Task.CompletedTask;
+        }) with { Samples = new float[3 * SpeechSegmenter.SampleRate] }));
+        TimeSpan minimumProcessing = Stopwatch.GetElapsedTime(observedStart);
+        release.SetResult();
+        await handling.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        string firstLog = Assert.Single(logs);
+        Assert.StartsWith("[AudioWhisper] ", firstLog, StringComparison.Ordinal);
+        using var first = JsonDocument.Parse(firstLog.Substring("[AudioWhisper] ".Length));
+        JsonElement metrics = first.RootElement;
+        double processing = metrics.GetProperty("ProcessingSeconds").GetDouble();
+        Assert.True(metrics.GetProperty("Completed").GetBoolean());
+        Assert.Equal(1, metrics.GetProperty("ClipSeconds").GetDouble());
+        Assert.True(processing >= minimumProcessing.TotalSeconds);
+        Assert.Equal(processing, metrics.GetProperty("RealTimeFactor").GetDouble());
+        Assert.True(metrics.GetProperty("QueueWaitSeconds").GetDouble() >= 1);
+        Assert.Equal(2, metrics.GetProperty("QueuedSegments").GetInt32());
+        Assert.Equal(5, metrics.GetProperty("QueuedSeconds").GetDouble());
+
+        finishHandling.SetResult();
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, logs.Count);
+        using var last = JsonDocument.Parse(logs.Last().Substring("[AudioWhisper] ".Length));
+        Assert.Equal(3, last.RootElement.GetProperty("ClipSeconds").GetDouble());
+        Assert.Equal(last.RootElement.GetProperty("ProcessingSeconds").GetDouble() / 3,
+            last.RootElement.GetProperty("RealTimeFactor").GetDouble());
+        Assert.Equal(0, last.RootElement.GetProperty("QueuedSegments").GetInt32());
+        Assert.Equal(0, last.RootElement.GetProperty("QueuedSeconds").GetDouble());
+        Assert.Empty(worker.Errors);
+    }
+
     [Fact]
     public async Task CanceledAndExpiredSpeechCannotExecuteCommands()
     {
@@ -614,6 +696,7 @@ public sealed class AudioSpeechTests
     public async Task QueueIsBoundedAndStoppingCancelsInferenceBeforeDisposal()
     {
         var started = Signal();
+        ConcurrentQueue<string> logs = [];
         var transcriber = new FakeTranscriber(async (_, token) =>
         {
             started.SetResult();
@@ -621,7 +704,7 @@ public sealed class AudioSpeechTests
             return "";
         });
 
-        await using (var worker = new Worker(() => transcriber))
+        await using (var worker = new Worker(() => transcriber, logWhisperProcessing: logs.Enqueue))
         {
             await worker.ReadyAsync();
             Assert.True(worker.Service.TryEnqueue(Request(1)));
@@ -636,6 +719,11 @@ public sealed class AudioSpeechTests
         }
 
         Assert.Equal(1, transcriber.DisposeCalls);
+        using var metrics = JsonDocument.Parse(Assert.Single(logs).Substring("[AudioWhisper] ".Length));
+        Assert.False(metrics.RootElement.GetProperty("Completed").GetBoolean());
+        Assert.Equal(AudioSpeechService.QueueCapacity, metrics.RootElement.GetProperty("QueuedSegments").GetInt32());
+        Assert.Equal((double)AudioSpeechService.QueueCapacity / SpeechSegmenter.SampleRate,
+            metrics.RootElement.GetProperty("QueuedSeconds").GetDouble());
     }
 
     [Fact]
@@ -643,8 +731,10 @@ public sealed class AudioSpeechTests
     {
         var completed = Signal();
         ConcurrentQueue<string> notifications = [];
+        ConcurrentQueue<string> logs = [];
         await using var worker = new Worker(() => new FakeTranscriber((samples, _) =>
-            samples[0] == 1 ? throw new IOException("Recognition failure") : Task.FromResult("MihuBot resume")));
+            samples[0] == 1 ? throw new IOException("Recognition failure") : Task.FromResult("MihuBot resume")),
+            logWhisperProcessing: logs.Enqueue);
         await worker.ReadyAsync();
 
         Assert.True(worker.Service.TryEnqueue(Request(1, onError: message =>
@@ -661,6 +751,9 @@ public sealed class AudioSpeechTests
 
         Assert.IsType<IOException>(Assert.Single(worker.Errors));
         Assert.Single(notifications);
+        Assert.Equal(2, logs.Count);
+        using var failed = JsonDocument.Parse(logs.First().Substring("[AudioWhisper] ".Length));
+        Assert.False(failed.RootElement.GetProperty("Completed").GetBoolean());
     }
 
     [Fact]
@@ -995,14 +1088,16 @@ public sealed class AudioSpeechTests
         public AudioSpeechService Service { get; }
         public ConcurrentQueue<Exception> Errors { get; } = [];
 
-        public Worker(Func<ILocalSpeechTranscriber> createTranscriber, Func<int>? getThreads = null)
-            : this(_ => Task.FromResult(createTranscriber()), getThreads)
+        public Worker(Func<ILocalSpeechTranscriber> createTranscriber, Func<int>? getThreads = null,
+            Action<string>? logWhisperProcessing = null)
+            : this(_ => Task.FromResult(createTranscriber()), getThreads, logWhisperProcessing)
         {
         }
 
-        public Worker(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Func<int>? getThreads = null)
+        public Worker(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Func<int>? getThreads = null,
+            Action<string>? logWhisperProcessing = null)
         {
-            Service = new(createTranscriber, Errors.Enqueue, getThreads);
+            Service = new(createTranscriber, Errors.Enqueue, getThreads, logWhisperProcessing: logWhisperProcessing);
             Service.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 

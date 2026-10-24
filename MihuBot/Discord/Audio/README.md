@@ -51,6 +51,12 @@ up to 8). Changes apply on the next transcription, replacing only the processor,
 not reloading or duplicating the model. For example:
 `!config set global AudioSpeech.Threads 16`.
 Whisper receives vocabulary hints for MihuBot, Mihu-Bot, and Miha Bot.
+Each attempted transcription produces an `[AudioWhisper]` debug log with input
+clip seconds, processing seconds, real-time factor (processing / clip duration;
+below 1 means faster than real time), queue wait, thread count, and completion
+status. It also records the number and total input duration of segments still
+queued when processing ends, excluding the current segment. Timing excludes
+cloud AI and command handling; input duration includes any padding and overlap.
 
 PCM is downsampled to 16 kHz mono; an energy gate removes silence,
 with 200 ms of pre-roll and 1.2 seconds of silence ending an utterance. Continuous

@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.Helpers.AI;
@@ -83,12 +84,15 @@ public sealed class AudioSpeechService : BackgroundService
 
     private readonly Channel<AudioSpeechRequest> _queue = Channel.CreateBounded<AudioSpeechRequest>(
         new BoundedChannelOptions(QueueCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+    private readonly Lock _queueGate = new();
+    private long _queuedSamples;
     private readonly Func<CancellationToken, Task<ILocalSpeechTranscriber>> _createTranscriber;
     private readonly Func<int> _getThreads;
     private readonly Func<ulong, IChatClient>? _createChat;
     private readonly SpokenSongResolver? _songs;
     private readonly Action<Exception> _logError;
     private readonly Action<ulong, string>? _logCloudRequest;
+    private readonly Action<string>? _logWhisperProcessing;
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Exception? _initializationError;
 
@@ -108,13 +112,14 @@ public sealed class AudioSpeechService : BackgroundService
             ex => logger.DebugLog($"Local voice recognition failed: {ex}"),
             () => GetThreads(configuration),
             guildId => openAI.GetChat(guildId), songs,
-            (guildId, message) => logger.DebugLog(message, guildId: guildId))
+            (guildId, message) => logger.DebugLog(message, guildId: guildId),
+            message => logger.DebugLog(message))
     {
     }
 
     internal AudioSpeechService(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Action<Exception> logError,
         Func<int>? getThreads = null, Func<ulong, IChatClient>? createChat = null, SpokenSongResolver? songs = null,
-        Action<ulong, string>? logCloudRequest = null)
+        Action<ulong, string>? logCloudRequest = null, Action<string>? logWhisperProcessing = null)
     {
         _createTranscriber = createTranscriber;
         _logError = logError;
@@ -122,6 +127,7 @@ public sealed class AudioSpeechService : BackgroundService
         _createChat = createChat;
         _songs = songs;
         _logCloudRequest = logCloudRequest;
+        _logWhisperProcessing = logWhisperProcessing;
     }
 
     internal static int GetThreads(IConfigurationService configuration)
@@ -140,8 +146,19 @@ public sealed class AudioSpeechService : BackgroundService
         }
     }
 
-    internal bool TryEnqueue(AudioSpeechRequest request) =>
-        _ready.Task.IsCompletedSuccessfully && _ready.Task.Result && _queue.Writer.TryWrite(request);
+    internal bool TryEnqueue(AudioSpeechRequest request)
+    {
+        lock (_queueGate)
+        {
+            if (!_ready.Task.IsCompletedSuccessfully || !_ready.Task.Result || !_queue.Writer.TryWrite(request))
+            {
+                return false;
+            }
+
+            _queuedSamples += request.Samples.Length;
+            return true;
+        }
+    }
 
     internal async Task<SpokenAudioCommand?> ParseCommandAsync(ulong guildId, string transcript, CancellationToken cancellationToken,
         IReadOnlyList<IAudioSource>? tracks = null)
@@ -198,6 +215,13 @@ public sealed class AudioSpeechService : BackgroundService
             {
                 await foreach (AudioSpeechRequest request in _queue.Reader.ReadAllAsync(stoppingToken))
                 {
+                    stoppingToken.ThrowIfCancellationRequested();
+
+                    lock (_queueGate)
+                    {
+                        _queuedSamples -= request.Samples.Length;
+                    }
+
                     if (request.CancellationToken.IsCancellationRequested)
                     {
                         continue;
@@ -216,8 +240,42 @@ public sealed class AudioSpeechService : BackgroundService
                         }
 
                         cancellation.CancelAfter(MaxRequestAge - age);
-                        string transcript = await transcriber.TranscribeAsync(request.Samples, _getThreads(), cancellation.Token);
-                        cancellation.Token.ThrowIfCancellationRequested();
+                        int threads = _getThreads();
+                        long started = Stopwatch.GetTimestamp();
+                        bool completed = false;
+                        string transcript;
+
+                        try
+                        {
+                            transcript = await transcriber.TranscribeAsync(request.Samples, threads, cancellation.Token);
+                            cancellation.Token.ThrowIfCancellationRequested();
+                            completed = true;
+                        }
+                        finally
+                        {
+                            TimeSpan processing = Stopwatch.GetElapsedTime(started);
+                            double clipSeconds = (double)request.Samples.Length / SpeechSegmenter.SampleRate;
+                            int queuedSegments;
+                            long queuedSamples;
+
+                            lock (_queueGate)
+                            {
+                                queuedSegments = _queue.Reader.Count;
+                                queuedSamples = _queuedSamples;
+                            }
+
+                            _logWhisperProcessing?.Invoke($"[AudioWhisper] {JsonSerializer.Serialize(new
+                            {
+                                Completed = completed,
+                                ClipSeconds = clipSeconds,
+                                ProcessingSeconds = processing.TotalSeconds,
+                                RealTimeFactor = clipSeconds > 0 ? (double?)(processing.TotalSeconds / clipSeconds) : null,
+                                QueueWaitSeconds = age.TotalSeconds,
+                                QueuedSegments = queuedSegments,
+                                QueuedSeconds = (double)queuedSamples / SpeechSegmenter.SampleRate,
+                                Threads = threads
+                            })}");
+                        }
 
                         if (Stopwatch.GetElapsedTime(request.Timestamp) <= MaxRequestAge)
                         {
@@ -245,10 +303,15 @@ public sealed class AudioSpeechService : BackgroundService
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             finally
             {
-                _queue.Writer.TryComplete();
-
-                while (_queue.Reader.TryRead(out _))
+                lock (_queueGate)
                 {
+                    _queue.Writer.TryComplete();
+
+                    while (_queue.Reader.TryRead(out _))
+                    {
+                    }
+
+                    _queuedSamples = 0;
                 }
             }
         }
