@@ -108,13 +108,21 @@ internal sealed class AudioVoiceListener : IAsyncDisposable
         {
             if (!_speech.TryEnqueue(new(segment.Samples, segment.Timestamp, cancellationToken, async (text, token) =>
             {
+                SpokenAudioCommand? command = null;
+
                 try
                 {
-                    SpokenAudioCommand? command = await context.ParseAsync(segment, text, token);
+                    command = await context.ParseAsync(segment, text, token);
 
                     if (command is null || IsRepeatedWindowCommand(segment, command, previousCommand, previousEnd))
                     {
                         return;
+                    }
+
+                    if (command.Action == SpokenAudioAction.Manage)
+                    {
+                        previousCommand = command;
+                        previousEnd = segment.EndSample;
                     }
 
                     if (await _player.HandleSpokenCommandAsync(userId, command, segment.SpeechEndTimestamp, token))
@@ -130,7 +138,9 @@ internal sealed class AudioVoiceListener : IAsyncDisposable
                 {
                     _logger.DebugLog($"Spoken command failed for user {userId}: {ex}", guildId: _player.Guild.Id);
                     await AudioPlayer.SendSpokenCommandFailureAsync(_player.LastTextChannel, userId,
-                        "I couldn't carry out your spoken command. Please try again.", _cancellation.Token);
+                        command is { Action: SpokenAudioAction.Manage }
+                            ? "I couldn't complete your spoken request. Some changes may already have been applied; check the player before retrying."
+                            : "I couldn't carry out your spoken command. Please try again.", _cancellation.Token);
                 }
             }, ReportIssueAsync)))
             {

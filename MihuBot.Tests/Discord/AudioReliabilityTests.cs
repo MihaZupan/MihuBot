@@ -831,6 +831,133 @@ public sealed class AudioReliabilityTests
         Assert.Same(target, await scheduler.GetAudioSourceAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task QueueEditsReorderUpcomingTracksAndDisposeOnlyRemovedSources()
+    {
+        await using var scheduler = new AudioScheduler();
+        var current = new ControlledSource();
+        var first = new ControlledSource();
+        var removed = new ControlledSource();
+        var next = new ControlledSource();
+        scheduler.Enqueue(current);
+        scheduler.Enqueue(first);
+        scheduler.Enqueue(removed);
+        scheduler.Enqueue(next);
+        Assert.Same(current, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        var snapshot = scheduler.GetEditableQueueSnapshot();
+        long revision = scheduler.Revision;
+
+        await scheduler.ReplaceQueueAsync(snapshot.Queue, [next, first]);
+
+        Assert.Same(current, scheduler.GetEditableQueueSnapshot().Current);
+        Assert.Equal([next, first], scheduler.GetEditableQueueSnapshot().Queue);
+        Assert.True(scheduler.Revision > revision);
+        Assert.Equal(1, removed.CleanupCalls);
+        Assert.Equal(0, current.CleanupCalls);
+        Assert.Equal(0, next.CleanupCalls);
+        await scheduler.SkipAsync();
+        Assert.Same(next, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task QueueEditsRejectSnapshotsThatChangedDuringPlayback()
+    {
+        await using var scheduler = new AudioScheduler();
+        var first = new ControlledSource();
+        var second = new ControlledSource();
+        scheduler.Enqueue(first);
+        scheduler.Enqueue(second);
+        IAudioSource[] expected = scheduler.GetEditableQueueSnapshot().Queue;
+        Assert.Same(first, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        long revision = scheduler.Revision;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scheduler.ReplaceQueueAsync(expected, []));
+
+        Assert.Equal(revision, scheduler.Revision);
+        Assert.Same(first, scheduler.GetEditableQueueSnapshot().Current);
+        Assert.Equal([second], scheduler.GetEditableQueueSnapshot().Queue);
+        Assert.Equal(0, first.CleanupCalls);
+        Assert.Equal(0, second.CleanupCalls);
+    }
+
+    [Fact]
+    public async Task QueueEditsPreserveTheTrackWhoseInitializationIsInProgress()
+    {
+        await using var scheduler = new AudioScheduler();
+        var started = Signal();
+        var ready = Signal();
+        var initializing = new ControlledSource(async token =>
+        {
+            started.TrySetResult();
+            await ready.Task.WaitAsync(token);
+        });
+        var removed = new ControlledSource();
+        scheduler.Enqueue(initializing);
+        scheduler.Enqueue(removed);
+        Task<IAudioSource> selection = scheduler.GetAudioSourceAsync(CancellationToken.None).AsTask();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var snapshot = scheduler.GetEditableQueueSnapshot();
+
+        Assert.Same(initializing, snapshot.Current);
+        await scheduler.ReplaceQueueAsync(snapshot.Queue, []);
+
+        Assert.Equal(1, removed.CleanupCalls);
+        Assert.Equal(0, initializing.CleanupCalls);
+        ready.TrySetResult();
+        Assert.Same(initializing, await selection.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task ClearingAnEmptyUpcomingQueueDoesNotInvalidatePreparedAutoplay()
+    {
+        await using var scheduler = new AudioScheduler();
+        var autoplay = new ControlledSource(isAutoplay: true);
+        Assert.True(scheduler.TrySetAutoplay(autoplay, scheduler.Revision));
+        long revision = scheduler.Revision;
+        var snapshot = scheduler.GetEditableQueueSnapshot();
+
+        await scheduler.ReplaceQueueAsync(snapshot.Queue, []);
+
+        Assert.Same(autoplay, snapshot.Current);
+        Assert.Equal(revision, scheduler.Revision);
+        Assert.True(scheduler.HasAutoplay);
+        Assert.Equal(0, autoplay.CleanupCalls);
+        Assert.Same(autoplay, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task QueueEditsCannotDuplicateOrInsertTheCurrentTrack()
+    {
+        await using var scheduler = new AudioScheduler();
+        var current = new ControlledSource();
+        var pending = new ControlledSource();
+        scheduler.Enqueue(current);
+        scheduler.Enqueue(pending);
+        Assert.Same(current, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        IAudioSource[] expected = scheduler.GetEditableQueueSnapshot().Queue;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scheduler.ReplaceQueueAsync(expected, [pending, pending]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scheduler.ReplaceQueueAsync(expected, [current]));
+
+        Assert.Equal([pending], scheduler.GetEditableQueueSnapshot().Queue);
+    }
+
+    [Fact]
+    public async Task QueueEditCleanupFailureStillDisposesOtherRemovedSources()
+    {
+        await using var scheduler = new AudioScheduler();
+        var failing = new ControlledSource(cleanup: () => throw new IOException("Cleanup failure"));
+        var other = new ControlledSource();
+        scheduler.Enqueue(failing);
+        scheduler.Enqueue(other);
+
+        await Assert.ThrowsAsync<AggregateException>(() => scheduler.ReplaceQueueAsync(scheduler.GetEditableQueueSnapshot().Queue, []));
+
+        Assert.Empty(scheduler.GetEditableQueueSnapshot().Queue);
+        Assert.Equal(1, failing.CleanupCalls);
+        Assert.Equal(1, other.CleanupCalls);
+    }
+
     private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private sealed class ControlledSource(

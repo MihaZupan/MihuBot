@@ -109,6 +109,59 @@ public sealed class AudioScheduler : IAsyncDisposable
         }
     }
 
+    internal (IAudioSource Current, IAudioSource[] Queue) GetEditableQueueSnapshot()
+    {
+        lock (_queue)
+        {
+            return (_current ?? _initializing ?? (_autoplayRevision == _revision ? _autoplay : null), _queue.ToArray());
+        }
+    }
+
+    internal async Task ReplaceQueueAsync(IAudioSource[] expected, IAudioSource[] replacement)
+    {
+        IAudioSource[] removed;
+
+        lock (_queue)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (!_queue.SequenceEqual(expected, ReferenceEqualityComparer.Instance))
+            {
+                throw new InvalidOperationException("The queue changed before it could be edited. Please repeat your request.");
+            }
+
+            if (replacement.Distinct(ReferenceEqualityComparer.Instance).Count() != replacement.Length ||
+                replacement.Any(source => !expected.Contains(source, ReferenceEqualityComparer.Instance)))
+            {
+                throw new InvalidOperationException("A queue edit can only reorder or remove upcoming tracks.");
+            }
+
+            if (expected.SequenceEqual(replacement, ReferenceEqualityComparer.Instance))
+            {
+                return;
+            }
+
+            removed = expected.Where(source => !replacement.Contains(source, ReferenceEqualityComparer.Instance)).ToArray();
+            _queue.Clear();
+
+            foreach (IAudioSource source in replacement)
+            {
+                _queue.Enqueue(source);
+            }
+
+            _revision++;
+
+            if (_queue.TryPeek(out IAudioSource next))
+            {
+                next.StartInitializing(_bitrateHintKbit);
+            }
+
+            SignalEnqueue();
+        }
+
+        await DisposeSourcesAsync(removed);
+    }
+
     internal AudioSkipBatch SkipTracks(int count, long spokenAt, IAudioSource target = null, Action<IAudioSource> onSkippingCurrent = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);

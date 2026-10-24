@@ -251,6 +251,19 @@ public sealed class AudioPlayer : IAsyncDisposable
 
         switch (command.Action)
         {
+            case SpokenAudioAction.Manage:
+                SpokenAudioToolResult result = await _speech.RunToolsAsync(Guild.Id, command.Query, new SpokenPlayer(this, userId, spokenAt),
+                    message => _logger.DebugLog(message, guildId: Guild.Id, channelId: VoiceChannel.Id, userId: userId), cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(result.Error))
+                {
+                    string error = result.Changed
+                        ? $"Some changes were applied, but I couldn't finish: {result.Error} Check the player before retrying."
+                        : result.Error;
+                    await SendSpokenCommandFailureAsync(LastTextChannel, userId, error, cancellationToken);
+                }
+
+                return result.Changed;
             case SpokenAudioAction.Queue:
                 SpokenSongResolution resolution = await _speech.ResolveSongAsync(Guild.Id, command, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
@@ -335,6 +348,73 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
 
         return true;
+    }
+
+    private sealed class SpokenPlayer(AudioPlayer player, ulong userId, long spokenAt) : ISpokenAudioPlayer
+    {
+        private long _skipTimestamp = spokenAt;
+
+        private SocketGuildUser EnsureAvailable(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ObjectDisposedException.ThrowIf(player._disposeTask is not null || player._disposedCts.IsCancellationRequested, player);
+            SocketGuildUser user = player.VoiceChannel.GetUser(userId);
+
+            if (user is null || user.IsBot)
+            {
+                throw new InvalidOperationException("The requester is no longer in the voice channel.");
+            }
+
+            return user;
+        }
+
+        public SpokenPlaybackState GetState()
+        {
+            EnsureAvailable(CancellationToken.None);
+            var (current, queue) = player._scheduler.GetEditableQueueSnapshot();
+            return new(current, queue, player.AudioSettings.Volume ?? Constants.VCDefaultVolume, player._pausedTcs is not null);
+        }
+
+        public async Task ApplyAsync(SpokenAudioCommand command, CancellationToken cancellationToken)
+        {
+            EnsureAvailable(cancellationToken);
+
+            if (!await player.HandleSpokenCommandAsync(userId, command, _skipTimestamp, cancellationToken))
+            {
+                throw new InvalidOperationException("The requested playback change could not be applied.");
+            }
+
+            if (command.Action is SpokenAudioAction.Skip or SpokenAudioAction.SkipUntil)
+            {
+                _skipTimestamp = Stopwatch.GetTimestamp();
+            }
+        }
+
+        public Task QueueAsync(YoutubeExplode.Videos.IVideo[] videos, CancellationToken cancellationToken)
+        {
+            lock (player._disposeLock)
+            {
+                SocketGuildUser user = EnsureAvailable(cancellationToken);
+                ObjectDisposedException.ThrowIf(player._disposeTask is not null, player);
+
+                foreach (var video in videos)
+                {
+                    player.Enqueue(new YoutubeAudioSource(user, video));
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task ReplaceQueueAsync(IAudioSource[] expected, IAudioSource[] replacement, CancellationToken cancellationToken)
+        {
+            lock (player._disposeLock)
+            {
+                EnsureAvailable(cancellationToken);
+                ObjectDisposedException.ThrowIf(player._disposeTask is not null, player);
+                return player._scheduler.ReplaceQueueAsync(expected, replacement);
+            }
+        }
     }
 
     private async Task<AudioSkipBatch> SkipSpokenTracksAsync(int count, long spokenAt, IAudioSource target)

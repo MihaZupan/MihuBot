@@ -81,6 +81,7 @@ public sealed class AudioSpeechService : BackgroundService
 {
     internal const int QueueCapacity = 256;
     internal static readonly TimeSpan MaxRequestAge = TimeSpan.FromSeconds(20);
+    internal static readonly TimeSpan MaxCommandDuration = TimeSpan.FromMinutes(2);
 
     private readonly Channel<AudioSpeechRequest> _queue = Channel.CreateBounded<AudioSpeechRequest>(
         new BoundedChannelOptions(QueueCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
@@ -112,7 +113,7 @@ public sealed class AudioSpeechService : BackgroundService
         },
             ex => logger.DebugLog($"Local voice recognition failed: {ex}"),
             () => GetThreads(configuration),
-            guildId => openAI.GetChat(guildId), songs,
+            guildId => openAI.GetResponsesChat(guildId), songs,
             (guildId, message) => logger.DebugLog(message, guildId: guildId),
             message => logger.DebugLog(message))
     {
@@ -185,6 +186,15 @@ public sealed class AudioSpeechService : BackgroundService
 
     internal Task<SpokenSongResolution> ResolveSongAsync(ulong guildId, SpokenAudioCommand command, CancellationToken cancellationToken) =>
         (_songs ?? throw new InvalidOperationException("Spoken song resolution is unavailable.")).ResolveAsync(guildId, command, cancellationToken);
+
+    internal async Task<SpokenAudioToolResult> RunToolsAsync(ulong guildId, string request, ISpokenAudioPlayer player, Action<string> logApplied, CancellationToken cancellationToken)
+    {
+        SpokenSongResolver songs = _songs ?? throw new InvalidOperationException("Spoken song search is unavailable.");
+        IChatClient chat = _createChat?.Invoke(guildId)
+            ?? throw new InvalidOperationException("Spoken playback tools require Azure OpenAI.");
+        return await new SpokenAudioTools(player, songs.SearchAsync).RunAsync(chat, request,
+            message => _logCloudRequest?.Invoke(guildId, message), logApplied, cancellationToken);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -282,6 +292,8 @@ public sealed class AudioSpeechService : BackgroundService
 
                         if (_timeProvider.GetElapsedTime(request.Timestamp) <= MaxRequestAge)
                         {
+                            cancellation.Token.ThrowIfCancellationRequested();
+                            deadline.CancelAfter(MaxCommandDuration);
                             await request.OnTranscript(transcript, cancellation.Token);
                         }
                         else

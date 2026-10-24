@@ -98,7 +98,7 @@ public sealed class SpokenSongResolverTests
     public async Task ConvincingSearchMatchDoesNotUploadAudio()
     {
         IVideo video = Video("Darude - Sandstorm", "Darude");
-        using var chat = new TestChatClient(new SpokenSongMatch(0));
+        using var chat = new TestChatClient(Search("Darude Sandstorm"), new SpokenSongMatch(0));
         List<(ulong GuildId, string Message)> logs = [];
         var resolver = new SpokenSongResolver((_, _) => Task.FromResult(new[] { video }), _ => chat,
             (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded for a convincing match."),
@@ -108,13 +108,16 @@ public sealed class SpokenSongResolverTests
 
         Assert.Same(video, result.Video);
         Assert.Empty(result.Error);
-        Assert.Single(chat.Requests);
-        var log = Assert.Single(logs);
-        Assert.Equal(42ul, log.GuildId);
-        Assert.Contains("song matching", log.Message, StringComparison.Ordinal);
-        Assert.Contains("Hey MihuBot play Darood sandstom", log.Message, StringComparison.Ordinal);
-        Assert.All(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
-            content => Assert.IsType<TextContent>(content));
+        Assert.Equal(2, chat.Requests.Count);
+        Assert.Equal(2, logs.Count);
+        Assert.All(logs, log =>
+        {
+            Assert.Equal(42ul, log.GuildId);
+            Assert.Contains("song resolution", log.Message, StringComparison.Ordinal);
+            Assert.Contains("Hey MihuBot play Darood sandstom", log.Message, StringComparison.Ordinal);
+        });
+        Assert.DoesNotContain(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
+            content => content is DataContent);
     }
 
     [Fact]
@@ -124,8 +127,8 @@ public sealed class SpokenSongResolverTests
         IVideo corrected = Video("Darude - Sandstorm", "Darude");
         List<string> searches = [];
         List<(ulong GuildId, string Message)> logs = [];
-        using var chat = new TestChatClient(new SpokenSongMatch(null),
-            new SpokenSongIdentification("Darude", "Sandstorm", true), new SpokenSongMatch(0));
+        using var chat = new TestChatClient(Search("Darood sandstom"), new SpokenSongMatch(null),
+            new SpokenSongIdentification("Darude", "Sandstorm", true), Search("Darude Sandstorm"), new SpokenSongMatch(0));
         int audioCalls = 0;
         var resolver = new SpokenSongResolver((query, _) =>
         {
@@ -138,7 +141,7 @@ public sealed class SpokenSongResolverTests
             Assert.Same(wrong, Assert.Single(candidates));
             Assert.Equal(32_044, wav.Length);
             Assert.Equal("RIFF", Encoding.ASCII.GetString(wav, 0, 4));
-            Assert.Equal(2, logs.Count);
+            Assert.Equal(3, logs.Count);
             string audioLog = logs[^1].Message;
             Assert.Contains("speech audio and transcript", audioLog, StringComparison.Ordinal);
             Assert.Contains(transcript, audioLog, StringComparison.Ordinal);
@@ -153,24 +156,24 @@ public sealed class SpokenSongResolverTests
         Assert.Same(corrected, result.Video);
         Assert.Equal(["Darood sandstom", "Darude Sandstorm"], searches);
         Assert.Equal(1, audioCalls);
-        Assert.Equal(3, chat.Requests.Count);
-        Assert.Equal(4, logs.Count);
+        Assert.Equal(5, chat.Requests.Count);
+        Assert.Equal(6, logs.Count);
         Assert.All(logs, log => Assert.Equal(42ul, log.GuildId));
-        Assert.Contains("song matching", logs[0].Message, StringComparison.Ordinal);
-        Assert.Contains("song identification", logs[2].Message, StringComparison.Ordinal);
-        Assert.Contains("The speaker requested Darude, Sandstorm.", logs[2].Message, StringComparison.Ordinal);
-        Assert.Contains("song matching", logs[3].Message, StringComparison.Ordinal);
-        Assert.Contains("Darude Sandstorm", logs[3].Message, StringComparison.Ordinal);
-        Assert.All(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
-            content => Assert.IsType<TextContent>(content));
+        Assert.Contains("song resolution", logs[0].Message, StringComparison.Ordinal);
+        Assert.Contains("song resolution", logs[3].Message, StringComparison.Ordinal);
+        Assert.Contains("The speaker requested Darude, Sandstorm.", logs[3].Message, StringComparison.Ordinal);
+        Assert.Contains("song resolution", logs[4].Message, StringComparison.Ordinal);
+        Assert.Contains("Darude Sandstorm", logs[4].Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(chat.Requests.SelectMany(messages => messages).SelectMany(message => message.Contents),
+            content => content is DataContent);
     }
 
     [Fact]
     public async Task FailedRetryDoesNotTakeTheFirstResultOrUploadAudioAgain()
     {
         IVideo wrong = Video("Unrelated", "Another artist");
-        using var chat = new TestChatClient(new SpokenSongMatch(null),
-            new SpokenSongIdentification("Darude", "Sandstorm", true), new SpokenSongMatch(null));
+        using var chat = new TestChatClient(Search("Darood sandstom"), new SpokenSongMatch(null),
+            new SpokenSongIdentification("Darude", "Sandstorm", true), Search("Darude Sandstorm"), new SpokenSongMatch(null));
         int audioCalls = 0;
         var resolver = new SpokenSongResolver((_, _) => Task.FromResult(new[] { wrong }), _ => chat, (_, _, _, _) =>
         {
@@ -188,7 +191,7 @@ public sealed class SpokenSongResolverTests
     [Fact]
     public async Task UnclearAudioEvidenceDoesNotTriggerAnotherSearchOrPickACandidate()
     {
-        using var chat = new TestChatClient(new SpokenSongMatch(null), new SpokenSongIdentification(null, null, false));
+        using var chat = new TestChatClient(Search("Darood sandstom"), new SpokenSongMatch(null), new SpokenSongIdentification(null, null, false));
         int searches = 0;
         var resolver = new SpokenSongResolver((_, _) =>
         {
@@ -219,7 +222,7 @@ public sealed class SpokenSongResolverTests
     [InlineData(true)]
     public async Task MissingOrExpiredClipNeverUploadsAudio(bool expired)
     {
-        using var chat = new TestChatClient();
+        using var chat = new TestChatClient(Search("Darude Sandstorm"), new SpokenSongMatch(null));
         List<string> logs = [];
         var resolver = new SpokenSongResolver((_, _) => Task.FromResult<IVideo[]>([]), _ => chat,
             (_, _, _, _) => throw new InvalidOperationException("No usable request audio should be uploaded."),
@@ -235,8 +238,8 @@ public sealed class SpokenSongResolverTests
 
         Assert.Null(result.Video);
         Assert.Contains("repeat", result.Error, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(chat.Requests);
-        Assert.Empty(logs);
+        Assert.Equal(2, chat.Requests.Count);
+        Assert.Equal(2, logs.Count);
     }
 
     [Theory]
@@ -256,11 +259,253 @@ public sealed class SpokenSongResolverTests
     [Fact]
     public async Task SearchFailureIsNotMisclassifiedAsAReasonToUploadAudio()
     {
+        using var chat = new TestChatClient(Search("Darude Sandstorm"));
         var resolver = new SpokenSongResolver((_, _) => throw new IOException("Search unavailable"),
-            _ => throw new InvalidOperationException("Text AI should not run."),
+            _ => chat,
             (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded."));
 
         await Assert.ThrowsAsync<IOException>(() => resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ModelChoosesSearchQueriesAndCanSelectAnEarlierResultAfterRefining()
+    {
+        IVideo wrong = Video("Unrelated", "Another artist");
+        IVideo selected = Video("Darude - Sandstorm", "Darude");
+        List<string> searches = [];
+        using var cancellation = new CancellationTokenSource();
+        using var chat = new TestChatClient(Search("Darude Sandstorm official"), Search("Sandstorm original"), new SpokenSongMatch(1));
+        var resolver = new SpokenSongResolver((query, token) =>
+        {
+        Assert.Equal(cancellation.Token, token);
+        searches.Add(query);
+        return Task.FromResult(searches.Count == 1 ? new[] { wrong, selected } : new[] { wrong });
+        }, _ => chat, (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded."));
+
+        SpokenSongResolution result = await resolver.ResolveAsync(42, QueueCommand(), cancellation.Token);
+
+        Assert.Same(selected, result.Video);
+        Assert.Equal(["Darude Sandstorm official", "Sandstorm original"], searches);
+        Assert.All(chat.Tokens, token => Assert.Equal(cancellation.Token, token));
+        FunctionResultContent[] results = chat.Requests[^1].SelectMany(message => message.Contents).OfType<FunctionResultContent>().ToArray();
+        Assert.Equal(2, results.Length);
+        Assert.Equal("search_Darude Sandstorm official", results[0].CallId);
+        JsonElement first = JsonSerializer.SerializeToElement(results[0].Result);
+        Assert.Equal(0, first[0].GetProperty("index").GetInt32());
+        Assert.Equal(1, first[1].GetProperty("index").GetInt32());
+        Assert.Equal(selected.Title, first[1].GetProperty("title").GetString());
+        Assert.Equal("Darude", first[1].GetProperty("channel").GetString());
+        Assert.Equal(selected.Url, first[1].GetProperty("url").GetString());
+        Assert.Equal(240, first[1].GetProperty("durationSeconds").GetDouble());
+        JsonElement second = JsonSerializer.SerializeToElement(results[1].Result);
+        Assert.Equal(2, second[0].GetProperty("index").GetInt32());
+    }
+
+    [Fact]
+    public async Task EmptySearchResultsCanBeRefinedByTheModel()
+    {
+        IVideo video = Video("Darude - Sandstorm", "Darude");
+        int searches = 0;
+        using var chat = new TestChatClient(Search("Darood sandstom"), Search("Darude Sandstorm"), new SpokenSongMatch(0));
+        var resolver = new SpokenSongResolver((_, _) => Task.FromResult<IVideo[]>(++searches == 1 ? [] : [video]), _ => chat,
+        (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded."));
+
+        SpokenSongResolution result = await resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None);
+
+        Assert.Same(video, result.Video);
+        Assert.Equal(2, searches);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public async Task ModelCannotSelectAVideoNotReturnedBySearch(int index)
+    {
+        using var chat = new TestChatClient(Search("Song"), new SpokenSongMatch(index));
+        var resolver = new SpokenSongResolver((_, _) => Task.FromResult(new[] { Video("Song", "Artist") }), _ => chat,
+        (_, _, _, _) => throw new InvalidOperationException("Invalid selection must not trigger an audio upload."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ModelCannotSelectACandidateWithoutSearching()
+    {
+        using var chat = new TestChatClient(new SpokenSongMatch(0));
+        var resolver = new SpokenSongResolver((_, _) => throw new InvalidOperationException("Search should not run."), _ => chat,
+        (_, _, _, _) => throw new InvalidOperationException("Invalid selection must not trigger an audio upload."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InvalidSearchQueriesNeverReachYouTube(bool tooLong)
+    {
+        using var chat = new TestChatClient(Search(tooLong ? new string('x', 301) : " "));
+        int searches = 0;
+        var resolver = new SpokenSongResolver((_, _) =>
+        {
+        searches++;
+        return Task.FromResult<IVideo[]>([]);
+        }, _ => chat, (_, _, _, _) => throw new InvalidOperationException("Invalid queries must not trigger an audio upload."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None));
+        Assert.Equal(0, searches);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SearchLimitDisablesToolsAndRejectsFurtherCalls(bool exceedLimit)
+    {
+        using var chat = new TestChatClient(Search("first"), Search("second"), Search("third"),
+        exceedLimit ? Search("fourth") : new SpokenSongMatch(2));
+        int searches = 0;
+        IVideo video = Video("Song", "Artist");
+        var resolver = new SpokenSongResolver((_, _) =>
+        {
+        searches++;
+        return Task.FromResult(new[] { video });
+        }, _ => chat, (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded."));
+
+        if (exceedLimit)
+        {
+        await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None));
+        }
+        else
+        {
+        Assert.Same(video, (await resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None)).Video);
+        }
+
+        Assert.Equal(3, searches);
+        Assert.Equal([true, true, true, false], chat.ToolsAvailable);
+    }
+
+    [Fact]
+    public async Task CanceledSearchDoesNotContinueToSelectionOrAudioUpload()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var chat = new TestChatClient(Search("Song"));
+        var resolver = new SpokenSongResolver((_, _) =>
+        {
+        cancellation.Cancel();
+        return Task.FromResult(new[] { Video("Song", "Artist") });
+        }, _ => chat, (_, _, _, _) => throw new InvalidOperationException("Canceled search must not trigger an audio upload."));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => resolver.ResolveAsync(42, QueueCommand(), cancellation.Token));
+        Assert.Single(chat.Requests);
+    }
+
+    [Fact]
+    public async Task ResponsesSdkPreservesReasoningAndCacheableHistoryAcrossBatchedSearches()
+    {
+        int requests = 0;
+        int clients = 0;
+        JsonElement[] previousMessages = [];
+        string? tools = null;
+        string? schema = null;
+        string? model = null;
+        List<string> queries = [];
+        IVideo video = Video("Darude - Sandstorm", "Darude");
+        using var http = new HttpClient(new TestHttpHandler(async (request, token) =>
+        {
+            using var data = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+            JsonElement root = data.RootElement;
+            Assert.Equal("https://test.openai.azure.com/openai/v1/responses", request.RequestUri?.AbsoluteUri);
+            Assert.False(root.GetProperty("store").GetBoolean());
+            Assert.Equal("low", root.GetProperty("reasoning").GetProperty("effort").GetString());
+            Assert.Contains(root.GetProperty("include").EnumerateArray(), property => property.GetString() == "reasoning.encrypted_content");
+            JsonElement function = Assert.Single(root.GetProperty("tools").EnumerateArray());
+            Assert.Equal("Search", function.GetProperty("name").GetString());
+            Assert.True(function.GetProperty("parameters").GetProperty("properties").TryGetProperty("query", out _));
+            Assert.Equal("json_schema", root.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
+            Assert.True(root.GetProperty("parallel_tool_calls").GetBoolean());
+            string currentTools = root.GetProperty("tools").GetRawText();
+            string currentSchema = root.GetProperty("text").GetProperty("format").GetRawText();
+            string currentModel = root.GetProperty("model").GetRawText();
+            tools ??= currentTools;
+            schema ??= currentSchema;
+            model ??= currentModel;
+            Assert.Equal(tools, currentTools);
+            Assert.Equal(schema, currentSchema);
+            Assert.Equal(model, currentModel);
+            JsonElement[] messages = root.GetProperty("input").EnumerateArray().Select(message => message.Clone()).ToArray();
+            Assert.True(messages.Length > previousMessages.Length);
+
+            for (int index = 0; index < previousMessages.Length; index++)
+            {
+                Assert.Equal(previousMessages[index].GetRawText(), messages[index].GetRawText());
+            }
+
+            previousMessages = messages;
+            string response;
+
+            if (++requests == 1)
+            {
+                response = """
+                    {"id":"resp_search","object":"response","created_at":1,"model":"gpt-6-luna",
+                     "status":"completed","store":false,"output":[
+                       {"id":"rs_search","type":"reasoning","summary":[],"encrypted_content":"opaque-test-reasoning"},
+                       {"id":"fc_search","type":"function_call","call_id":"call_search","name":"Search",
+                        "arguments":"{\"query\":\"Darude Sandstorm\"}","status":"completed"},
+                       {"id":"fc_refine","type":"function_call","call_id":"call_refine","name":"Search",
+                        "arguments":"{\"query\":\"Darude Sandstorm official audio\"}","status":"completed"}
+                     ]}
+                    """;
+            }
+            else
+            {
+                JsonElement reasoning = Assert.Single(messages, message => message.GetProperty("type").GetString() == "reasoning");
+                Assert.Equal("opaque-test-reasoning", reasoning.GetProperty("encrypted_content").GetString());
+                JsonElement[] results = messages.Where(message => message.GetProperty("type").GetString() == "function_call_output").ToArray();
+                Assert.Equal(2, results.Length);
+                Assert.Equal("call_search", results[0].GetProperty("call_id").GetString());
+                Assert.Equal("call_refine", results[1].GetProperty("call_id").GetString());
+
+                for (int index = 0; index < results.Length; index++)
+                {
+                    using var result = JsonDocument.Parse(results[index].GetProperty("output").GetString()!);
+                    Assert.Equal(video.Title, result.RootElement[0].GetProperty("title").GetString());
+                    Assert.Equal(index, result.RootElement[0].GetProperty("index").GetInt32());
+                }
+
+                response = """
+                    {"id":"resp_match","object":"response","created_at":1,"model":"gpt-6-luna",
+                     "status":"completed","store":false,"output":[
+                       {"id":"msg_match","type":"message","role":"assistant","status":"completed",
+                        "content":[{"type":"output_text","text":"{\"candidateIndex\":1}","annotations":[]}]}
+                     ]}
+                    """;
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(response, Encoding.UTF8, "application/json") };
+        }));
+        var client = new OpenAI.OpenAIClient(new ApiKeyCredential("test-key"), new OpenAI.OpenAIClientOptions
+        {
+            Endpoint = new Uri("https://test.openai.azure.com/openai/v1/"),
+            Transport = new HttpClientPipelineTransport(http)
+        });
+#pragma warning disable OPENAI001
+        using var chat = client.GetResponsesClient().AsIChatClient(OpenAIService.DefaultModel);
+#pragma warning restore OPENAI001
+        var resolver = new SpokenSongResolver((query, _) =>
+        {
+            queries.Add(query);
+            return Task.FromResult(new[] { video });
+        }, _ =>
+        {
+            clients++;
+            return chat;
+        }, (_, _, _, _) => throw new InvalidOperationException("Audio should not be uploaded."));
+
+        SpokenSongResolution resolution = await resolver.ResolveAsync(42, QueueCommand(), CancellationToken.None);
+
+        Assert.Same(video, resolution.Video);
+        Assert.Equal(2, requests);
+        Assert.Equal(1, clients);
+        Assert.Equal(["Darude Sandstorm", "Darude Sandstorm official audio"], queries);
     }
 
     [Fact]
@@ -345,17 +590,27 @@ public sealed class SpokenSongResolverTests
         new Video("afqQwmXTcPA", title, new Author("UC0123456789012345678901", channel), DateTimeOffset.UtcNow,
             "", TimeSpan.FromMinutes(4), [], [], new Engagement(0, 0, 0));
 
+    private static FunctionCallContent Search(string query) =>
+        new("search_" + query, "Search", new Dictionary<string, object?> { ["query"] = query });
+
     private sealed class TestChatClient(params object[] responses) : IChatClient
     {
         private readonly Queue<object> _responses = new(responses);
         public List<ChatMessage[]> Requests { get; } = [];
+        public List<CancellationToken> Tokens { get; } = [];
+        public List<bool> ToolsAvailable { get; } = [];
 
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Requests.Add(messages.ToArray());
-            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(_responses.Dequeue()))));
+            Tokens.Add(cancellationToken);
+            ToolsAvailable.Add(options?.Tools is { Count: > 0 } && options.ToolMode != ChatToolMode.None);
+            object response = _responses.Dequeue();
+            return Task.FromResult(new ChatResponse(response is FunctionCallContent call
+                ? new ChatMessage(ChatRole.Assistant, [call])
+                : new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(response))));
         }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,

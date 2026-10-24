@@ -155,6 +155,14 @@ public sealed class OpenAIService
     public OpenAI.Chat.ChatClient GetAudioChatClient() =>
         GetClient(DefaultAudioModel, work: false).GetChatClient(DefaultAudioModel);
 
+    public IChatClient GetResponsesChat(ulong? context)
+    {
+        _configurationService.TryGet(context, "ChatGPT.Deployment", out string? deployment);
+        bool work = _configurationService.GetOrDefault(context, "ChatGPT.Work", false);
+
+        return GetResponsesChat(deployment, work);
+    }
+
     public IChatClient GetResponsesChat(string? deployment, bool work)
     {
         deployment ??= DefaultModel;

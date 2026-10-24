@@ -43,6 +43,7 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService(configuration, "Key3", "WorkKey1");
 
         AssertChat(service.GetChat(42ul), "gpt-6.1-sol", host);
+        AssertResponsesChat(service.GetResponsesChat(42ul), "gpt-6.1-sol", host);
         Assert.Equal(1_050_000, Assert.Single(OpenAIService.AllModels, m => m.Name == "gpt-6.1-sol").ContextSize);
     }
 
@@ -123,6 +124,7 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService(configuration, "Key3", "WorkKey1");
 
         AssertChat(service.GetChat(42ul), OpenAIService.DefaultModel, host);
+        AssertResponsesChat(service.GetResponsesChat(42ul), OpenAIService.DefaultModel, host);
     }
 
     [Fact]
@@ -135,10 +137,12 @@ public sealed class OpenAIServiceTests
         OpenAIService service = CreateService(configuration, "Key2", "WorkKey2");
 
         AssertChat(service.GetChat(42ul), "gpt-6-astra", Personal1, Personal2);
+        AssertResponsesChat(service.GetResponsesChat(42ul), "gpt-6-astra", Personal1, Personal2);
 
         configuration.Set(42, "ChatGPT.Work", "true");
 
         AssertChat(service.GetChat(42ul), "gpt-6-astra", Work2);
+        AssertResponsesChat(service.GetResponsesChat(42ul), "gpt-6-astra", Work2);
     }
 
     [Theory]

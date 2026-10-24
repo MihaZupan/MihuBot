@@ -293,12 +293,29 @@ public sealed class AudioSpeechTests
     [InlineData("""{"Action":"Volume","Query":"","VolumePercent":101,"IsRelativeVolume":true}""")]
     [InlineData("""{"Action":"Pause","Query":"","VolumePercent":30}""")]
     [InlineData("""{"Action":"None","Query":"","IsRelativeVolume":true}""")]
+    [InlineData("""{"Action":"Manage","Query":"rewritten request"}""")]
+    [InlineData("""{"Action":"Manage","Query":"Hey MihuBot skip 2 songs","Count":2}""")]
     public async Task InvalidAIIntentsFailExplicitly(string json)
     {
         using var chat = new TestChatClient((_, _, _) => Task.FromResult(
             new ChatResponse(new ChatMessage(ChatRole.Assistant, json))));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip 2 songs", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("MihuBot set volume to thirty percent, queue Sandstorm, then move it next")]
+    [InlineData("MihuBot remove the second upcoming song and pause")]
+    public async Task MultiActionRequestsRetainTheOriginalSpeechForPlaybackTools(string transcript)
+    {
+        var expected = new SpokenAudioCommand(SpokenAudioAction.Manage, transcript);
+        using var chat = new TestChatClient((messages, _, _) =>
+        {
+            Assert.Contains("multiple requested actions", messages.First().Text, StringComparison.Ordinal);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(expected))));
+        });
+
+        Assert.Equal(expected, await SpokenAudioCommand.ParseAsync(chat, transcript, CancellationToken.None));
     }
 
     [Theory]
@@ -977,6 +994,41 @@ public sealed class AudioSpeechTests
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(executed);
+        Assert.Empty(worker.Errors);
+    }
+
+    [Fact]
+    public async Task CommandHandlingOutlivesSpeechExpiryButStillHasABoundedDeadline()
+    {
+        var time = new FakeTimeProvider();
+        var started = Signal();
+        var timedOut = Signal();
+        CancellationToken commandToken = default;
+        await using var worker = new Worker(() => new FakeTranscriber((_, _) => Task.FromResult("MihuBot queue several songs")),
+            timeProvider: time);
+        await worker.ReadyAsync();
+
+        Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: async (_, token) =>
+        {
+            commandToken = token;
+            started.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+        }, onError: message =>
+        {
+            Assert.Contains("timed out", message, StringComparison.Ordinal);
+            timedOut.SetResult();
+            return Task.CompletedTask;
+        }) with { Timestamp = time.GetTimestamp() }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        time.Advance(AudioSpeechService.MaxRequestAge + TimeSpan.FromSeconds(1));
+
+        Assert.False(commandToken.IsCancellationRequested);
+        Assert.False(timedOut.Task.IsCompleted);
+        time.Advance(AudioSpeechService.MaxCommandDuration - AudioSpeechService.MaxRequestAge);
+        await timedOut.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(commandToken.IsCancellationRequested);
         Assert.Empty(worker.Errors);
     }
 

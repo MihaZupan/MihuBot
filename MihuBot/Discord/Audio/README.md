@@ -57,7 +57,8 @@ command. Audio bytes are not included.
 Failed commands mention only the requester.
 Only current, non-bot voice participants can issue commands.
 Natural phrasing is supported: local mention detection gates a structured LLM
-request that extracts a single intent. Clear single-track skips such as
+request that extracts an intent or routes a multi-step request to playback tools.
+Clear single-track skips such as
 "Hey MihuBot, skip one song" or "MihuBot, please skip this track" are recognized
 locally without a cloud AI call. Multi-track counts, skip-until, and other phrasing still use
 the LLM. Only text from the bot mention onward is
@@ -66,6 +67,35 @@ remains local unless the song-specific audio fallback below is needed.
 Unsupported, ambiguous, quoted, or negated requests should produce no action.
 The current queue's titles and uploader names are supplied as untrusted text
 metadata so the LLM can resolve skip-until requests.
+
+Requests can combine actions, for example "MihuBot, turn the volume down ten percent,
+queue Sandstorm and Take On Me, then move Sandstorm next." The LLM has tools to
+inspect playback, search YouTube, queue multiple selected videos, set or adjust
+volume, pause/resume, skip tracks or skip to a selected track, move/remove upcoming
+tracks, clear the upcoming queue, and stop the player. Clear requests apply
+immediately without confirmation. Stop is terminal.
+Queue edits use stable track identities and reject concurrent queue changes rather
+than editing the wrong song. The currently playing or initializing track cannot
+be moved or removed; clearing upcoming songs preserves it.
+Playback state is included in the initial request and returned after changes;
+the playback-inspection tool is only needed for a fresh view.
+Multi-step requests have at most 128 tool calls, plus a final response. The model
+can batch calls in one roundtrip; actions execute sequentially in their supplied
+order, and the limit counts individual calls, not batches.
+Transcription and queued speech still expire after 20 seconds; once transcription
+finishes in time, command handling has a separate two-minute deadline.
+Text intent extraction and tool use run through the Responses API. Tool roundtrips
+reuse one client and append conversation history, including encrypted reasoning,
+without rewriting earlier messages, keeping repeated prompt prefixes eligible for provider
+input-token caching when its size thresholds are met. Actual cache hits depend on
+the provider. Response storage is disabled; encrypted reasoning is replayed from
+the current request's in-memory history.
+Changes already applied are not rolled back if a later step fails; failures warn
+the requester to check the player before retrying. Completed tool calls are logged
+with the requester, and overlapping speech windows cannot replay a partially
+executed multi-step request.
+Playlist expansion is not offered by voice tools. Playlist arguments on a video
+URL are ignored rather than queueing an entire playlist.
 
 One process-wide Whisper model and processor handle all speakers and guilds
 sequentially. Speakers have independent audio buffers, not independent inference
@@ -105,14 +135,21 @@ replacing a speaker's stream cancels its queued recognition. Transcription
 history inside Whisper is reset between windows; the explicit short-lived text
 context is private to each speaker.
 
-For queue requests, search results are checked against the requested song rather
-than accepting the first result. A convincing match needs no audio upload.
+For queue requests, the LLM uses a YouTube `Search` tool to formulate queries,
+inspect titles, uploaders, URLs, and durations, and pick a matching video.
+It can refine its query up to three searches per attempt, but can only select
+a video returned by the tool, never an invented URL or an unchecked first result.
+A convincing match needs no audio upload. The single-song path retains the
+audio-clarification fallback below; multi-step tool requests use text search only.
+Both paths prefer audio-focused uploads over music videos with added dialogue,
+effects, or intros unless a music video is requested or no suitable audio upload exists.
 When matching fails or the names appear garbled, one complete same-speaker clip
 of at most 20 seconds can be sent to `gpt-audio-1.5` for written name clarification.
-The existing text model interprets that evidence, searches once more, and checks
-the new results. Uncertain audio, failed matching, incomplete/oversized clips,
+The existing text model interprets that evidence and gets another bounded
+search-and-selection attempt with the clarified names.
+Uncertain audio, failed matching, incomplete/oversized clips,
 or an expired request ask the requester to repeat instead of guessing.
-This uses the same 20-second request deadline as other voice commands.
+Audio fallback only uploads clips that are still within the 20-second freshness window.
 
 The audio deployment uses the personal `AzureOpenAI:Key3` endpoint, never a work
 endpoint. Input is mono 16 kHz PCM WAV; only text output is requested and response
@@ -131,7 +168,7 @@ Each cloud AI send also produces a debug log prefixed with `[AudioCloudAI]`, wit
 text, including song-matching retries and written audio evidence. Audio-send logs
 include the WAV byte count and duration, never the audio bytes. These logs do not
 require `LoggerTrace` and are not suppressed by `LoggingChatClient.LogUsageOnly`.
-Recognized song queries are sent to YouTube search as with text music commands.
+LLM-selected song queries are sent to YouTube search as with text music commands.
 The energy gate is not a trained speech/noise classifier, and Whisper can
 misrecognize names or hallucinate commands. Noise, accents, music leaking into
 microphones, and speech near window boundaries can affect reliability.
