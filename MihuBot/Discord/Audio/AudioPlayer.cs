@@ -31,6 +31,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private readonly Lock _disposeLock = new();
     private Task _joinTask;
     private Func<Task> _disconnectVoice;
+    private Func<bool> _isInVoiceChannel;
     private Task _disposeTask;
     private long _lastAutoplayAttempt = -1;
     private volatile bool _hasPlayed;
@@ -50,9 +51,7 @@ public sealed class AudioPlayer : IAsyncDisposable
     private const int CopyLoopTimings = 2048;
     private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
 
-    public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel,
-        ConcurrentDictionary<ulong, AudioPlayer> audioPlayers, AudioHistoryService history, AudioRecommendationService recommendations,
-        AudioSpeechService speech = null)
+    public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel, ConcurrentDictionary<ulong, AudioPlayer> audioPlayers, AudioHistoryService history, AudioRecommendationService recommendations, AudioSpeechService speech = null)
     {
         Client = client;
         AudioSettings = audioSettings;
@@ -72,15 +71,16 @@ public sealed class AudioPlayer : IAsyncDisposable
             lock (_disposeLock)
             {
                 return _disposeTask is null && _joinTask?.IsCompletedSuccessfully == true &&
-                    _audioClient?.ConnectionState == ConnectionState.Connected;
+                    _audioClient?.ConnectionState == ConnectionState.Connected && _isInVoiceChannel();
             }
         }
     }
 
     public Task JoinChannelAsync(SocketVoiceChannel voiceChannel) =>
-        JoinChannelAsync(voiceChannel, () => voiceChannel.ConnectAsync(selfDeaf: _speech is null), voiceChannel.DisconnectAsync);
+        JoinChannelAsync(voiceChannel, () => voiceChannel.ConnectAsync(selfDeaf: _speech is null), voiceChannel.DisconnectAsync,
+            () => voiceChannel.Guild.CurrentUser?.VoiceChannel?.Id == voiceChannel.Id);
 
-    internal async Task JoinChannelAsync(SocketVoiceChannel voiceChannel, Func<Task<IAudioClient>> connect, Func<Task> disconnect)
+    internal async Task JoinChannelAsync(SocketVoiceChannel voiceChannel, Func<Task<IAudioClient>> connect, Func<Task> disconnect, Func<bool> isInVoiceChannel)
     {
         Task joining;
 
@@ -95,6 +95,7 @@ public sealed class AudioPlayer : IAsyncDisposable
 
             VoiceChannel = voiceChannel;
             _disconnectVoice = disconnect;
+            _isInVoiceChannel = isInVoiceChannel;
             _joinTask = joining = Task.Run(() => JoinChannelCoreAsync(voiceChannel, connect));
         }
 
@@ -583,8 +584,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
     }
 
-    internal static Task SendPlaybackFailureAsync(IMessageChannel channel, IAudioSource source, Exception error,
-        CancellationToken cancellationToken)
+    internal static Task SendPlaybackFailureAsync(IMessageChannel channel, IAudioSource source, Exception error, CancellationToken cancellationToken)
     {
         string reason = error.GetBaseException() switch
         {
@@ -638,7 +638,11 @@ public sealed class AudioPlayer : IAsyncDisposable
         try
         {
             await RunStatusUpdatesAsync(_scheduler, () => _pausedTcs is not null,
-                (embed, _) => SendStatusAsync(embed, _disposedCts.Token), _disposedCts.Token, () => _autoplayFailed);
+                (embed, _) => SendStatusAsync(embed, _disposedCts.Token), _disposedCts.Token, () => _autoplayFailed,
+                isConnected: () => _audioClient.ConnectionState == ConnectionState.Connected && _isInVoiceChannel());
+
+            _logger.DebugLog("Voice connection or channel membership was lost; stopping the audio player.", guildId: Guild.Id);
+            _ = DisposeAfterPlaybackAsync();
         }
         catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
         catch (Exception ex)
@@ -647,9 +651,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         }
     }
 
-    internal static async Task RunStatusUpdatesAsync(AudioScheduler scheduler, Func<bool> isPaused,
-        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken, Func<bool> autoplayFailed = null,
-        TimeProvider timeProvider = null)
+    internal static async Task RunStatusUpdatesAsync(AudioScheduler scheduler, Func<bool> isPaused, Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken, Func<bool> autoplayFailed = null, TimeProvider timeProvider = null, Func<bool> isConnected = null)
     {
         timeProvider ??= TimeProvider.System;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), timeProvider);
@@ -662,6 +664,11 @@ public sealed class AudioPlayer : IAsyncDisposable
 
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
+            if (isConnected?.Invoke() == false)
+            {
+                return;
+            }
+
             long revision = scheduler.Revision;
             IAudioSource[] sources = scheduler.GetQueueSnapshot(limit: 25, out IAudioSource current);
             bool paused = isPaused();

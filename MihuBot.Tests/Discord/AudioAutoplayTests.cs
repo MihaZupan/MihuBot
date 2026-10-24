@@ -18,6 +18,45 @@ namespace MihuBot.Tests.Discord;
 public sealed class AudioAutoplayTests
 {
     [Fact]
+    public async Task StatusMonitorStopsPublishingWhenTheVoiceConnectionIsLost()
+    {
+        var time = new FakeTimeProvider();
+        await using var scheduler = new AudioScheduler();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var updates = Channel.CreateUnbounded<Embed>();
+        var source = new TestSource(isAutoplay: true);
+        scheduler.Enqueue(source);
+        await scheduler.GetAudioSourceAsync(cancellation.Token);
+        bool connected = true;
+        Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => false, (embed, _) =>
+        {
+            Assert.True(updates.Writer.TryWrite(embed));
+            return Task.FromResult(true);
+        }, cancellation.Token, timeProvider: time, isConnected: () => Volatile.Read(ref connected));
+
+        try
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            Assert.Equal("Now playing", (await updates.Reader.ReadAsync(cancellation.Token)).Title);
+            Volatile.Write(ref connected, false);
+            time.Advance(TimeSpan.FromSeconds(1));
+            await monitor.WaitAsync(cancellation.Token);
+
+            Assert.False(updates.Reader.TryRead(out _));
+        }
+        finally
+        {
+            cancellation.Cancel();
+
+            try
+            {
+                await monitor;
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        }
+    }
+
+    [Fact]
     public async Task StatusMonitorRefreshesProgressPauseQueueAndTrackChanges()
     {
         var time = new FakeTimeProvider();

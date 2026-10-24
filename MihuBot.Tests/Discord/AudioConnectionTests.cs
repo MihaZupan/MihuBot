@@ -163,6 +163,50 @@ public sealed class AudioConnectionTests
     }
 
     [Fact]
+    public async Task MissingVoiceChannelMembershipRejectsAnOtherwiseConnectedPlayer()
+    {
+        await using var fixture = new Connections();
+        AudioPlayer first = await fixture.GetAsync();
+        Connection old = fixture.Created[0];
+        Volatile.Write(ref old.IsInVoiceChannel, false);
+
+        Assert.Equal(ConnectionState.Connected, old.Client.ConnectionState);
+        Assert.False(fixture.Service.TryGetAudioPlayer(0, out _));
+        Assert.NotSame(first, await fixture.GetAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(old.Transport.Disposed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MissedDisconnectEventsDuringPlaybackStillCleanUpWithoutAnotherCommand(bool transportDisconnected)
+    {
+        await using var fixture = new Connections();
+        AudioPlayer player = await fixture.GetAsync();
+        Connection old = fixture.Created[0];
+        var source = new WaitingSource();
+        player.Enqueue(source);
+        await source.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        if (transportDisconnected)
+        {
+            old.Transport.DisconnectWithoutNotification();
+        }
+        else
+        {
+            Volatile.Write(ref old.IsInVoiceChannel, false);
+        }
+
+        await old.Transport.StopStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await player.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(source.Disposed);
+        Assert.Empty(fixture.Players);
+        Assert.True(old.Transport.Output.Disposed);
+        Assert.NotSame(player, await fixture.GetAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
     public async Task DisconnectCleanupFailuresAreLoggedAndDoNotPreventRejoining()
     {
         await using var fixture = new Connections();
@@ -210,8 +254,7 @@ public sealed class AudioConnectionTests
             return gate;
         }
 
-        public Task<AudioPlayer> GetAsync(Task? connectWait = null, Task? stopWait = null,
-            Exception? connectError = null, Exception? disconnectError = null, bool disconnectBeforeReady = false)
+        public Task<AudioPlayer> GetAsync(Task? connectWait = null, Task? stopWait = null, Exception? connectError = null, Exception? disconnectError = null, bool disconnectBeforeReady = false)
         {
             Connection? connection = null;
             return Service.GetOrCreateAudioPlayerAsync(0, () =>
@@ -254,7 +297,7 @@ public sealed class AudioConnectionTests
                 }
 
                 return Task.CompletedTask;
-            })).AsTask();
+            }, () => Volatile.Read(ref connection!.IsInVoiceChannel))).AsTask();
         }
 
         public async ValueTask DisposeAsync()
@@ -285,6 +328,33 @@ public sealed class AudioConnectionTests
         public AudioClientProxy Transport { get; } = transport;
         public TaskCompletionSource ConnectStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int DisconnectCalls { get; set; }
+        public bool IsInVoiceChannel = true;
+    }
+
+    private sealed class WaitingSource() : AudioSourceBase(null!)
+    {
+        public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Disposed { get; private set; }
+        public override string Description => "Waiting source";
+        public override string Url => "https://example.com";
+        public override string ThumbnailUrl => "";
+        public override TimeSpan? Remaining => null;
+        public override TimeSpan? Duration => null;
+
+        protected override Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken)
+        {
+            ReadStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        protected override ValueTask DisposeResourcesAsync()
+        {
+            Disposed = true;
+            return ValueTask.CompletedTask;
+        }
     }
 
     public class AudioClientProxy : DispatchProxy
@@ -296,6 +366,8 @@ public sealed class AudioConnectionTests
         public bool Disposed { get; private set; }
         public TestAudioOutStream Output { get; } = new();
         private ConnectionState _state = ConnectionState.Connected;
+
+        public void DisconnectWithoutNotification() => _state = ConnectionState.Disconnected;
 
         public Task RaiseDisconnectedAsync(Exception? error)
         {

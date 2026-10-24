@@ -23,6 +23,9 @@ the same channel do not stop playback. A new play request waits for the previous
 connection to finish cleanup before joining again; concurrent requests share one
 new connection. Connection failures are reported rather than returning a stopped
 player, and cleanup failures are logged without leaving it registered.
+Readiness also checks Discord's cached voice-channel membership. The status
+monitor checks membership and transport state every second, so missed disconnect
+callbacks still stop playback, mark the status "Stopped", and allow rejoining.
 
 ## Spoken music commands
 
