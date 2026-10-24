@@ -9,26 +9,24 @@ public sealed class YoutubeAudioSource : AudioSourceBase
         PooledConnectionLifetime = TimeSpan.Zero
     });
 
-    private readonly IVideo _video;
+    private IVideo _video;
     private Stream _downloadStream;
     private Stream _ffmpegOutputStream;
     private Process _process;
     private Task _pumpTask = Task.CompletedTask;
     private bool _processStarted;
-    private TimeSpan? _duration;
     private long _bytesRead;
 
     public YoutubeAudioSource(SocketGuildUser requester, IVideo video, bool isAutoplay = false)
         : base(requester, isAutoplay)
     {
         _video = video;
-        _duration = video.Duration;
     }
 
     protected override async Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken)
     {
         YoutubeDl.YoutubeDlMetadata ytMetadata = await YoutubeDl.GetMetadataAsync(_video.Url, cancellationToken);
-        _duration ??= TimeSpan.FromSeconds(ytMetadata.Duration);
+        _video = YoutubeHelper.Transform(_video.Id, ytMetadata);
         var bestAudio = ytMetadata.GetBestAudio();
 
         var downloadStream = await _http.GetStreamAsync(bestAudio.Url, cancellationToken);
@@ -70,19 +68,19 @@ public sealed class YoutubeAudioSource : AudioSourceBase
         }
     }
 
-    public override TimeSpan? Duration => _duration;
+    public override TimeSpan? Duration => _video.Duration;
 
     public override TimeSpan? Remaining
     {
         get
         {
-            if (_duration is null)
+            if (Duration is not { } duration)
             {
                 return null;
             }
 
             TimeSpan consumed = TimeSpan.FromMilliseconds(Volatile.Read(ref _bytesRead) / OpusConstants.BytesPerMs);
-            return _duration.Value.Subtract(consumed);
+            return duration.Subtract(consumed);
         }
     }
 

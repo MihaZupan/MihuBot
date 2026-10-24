@@ -6,7 +6,6 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using YoutubeExplode;
 using YoutubeExplode.Common;
-using YoutubeExplode.Exceptions;
 using YoutubeExplode.Videos;
 using YoutubeExplode.Videos.Streams;
 
@@ -190,7 +189,7 @@ internal static partial class YoutubeHelper
     {
         try
         {
-            var video = await GetVideoAsync(id, debugLog);
+            var video = await GetVideoAsync(id);
 
             if (video.Duration > TimeSpan.FromMinutes(65))
             {
@@ -364,56 +363,41 @@ internal static partial class YoutubeHelper
         return TrySearchAsync($"{artist} {title}", youtubeService);
     }
 
-    public static ValueTask<Video> GetVideoAsync(VideoId videoId, Action<string> debugLog, CancellationToken cancellationToken = default)
+    public static ValueTask<Video> GetVideoAsync(VideoId videoId, CancellationToken cancellationToken = default)
     {
-        return GetVideoAsync(videoId, Youtube.Videos.GetAsync, YoutubeDl.GetMetadataAsync, cancellationToken, debugLog);
+        return GetVideoAsync(videoId, YoutubeDl.GetMetadataAsync, cancellationToken);
     }
 
     internal static async ValueTask<Video> GetVideoAsync(
         VideoId videoId,
-        Func<VideoId, CancellationToken, ValueTask<Video>> getVideo,
         Func<string, CancellationToken, Task<YoutubeDl.YoutubeDlMetadata>> getMetadata,
-        CancellationToken cancellationToken = default,
-        Action<string>? debugLog = null)
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        YoutubeDl.YoutubeDlMetadata metadata = await getMetadata($"https://www.youtube.com/watch?v={videoId}", cancellationToken);
+        return Transform(videoId, metadata);
+    }
 
-        try
+    internal static Video Transform(VideoId videoId, YoutubeDl.YoutubeDlMetadata metadata)
+    {
+        if (metadata.Id != videoId.Value || metadata.Title is null)
         {
-            return await getVideo(videoId, cancellationToken);
+            throw new InvalidOperationException("yt-dlp returned invalid video metadata.");
         }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is YoutubeExplodeException or HttpRequestException)
-        {
-            debugLog?.Invoke($"YoutubeExplode metadata lookup failed for {videoId}; falling back to yt-dlp: {ex}");
 
-            try
-            {
-                YoutubeDl.YoutubeDlMetadata metadata = await getMetadata($"https://www.youtube.com/watch?v={videoId}", cancellationToken);
+        DateTimeOffset.TryParseExact(metadata.UploadDate, "yyyyMMdd", CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal, out DateTimeOffset uploadDate);
 
-                if (metadata.Id != videoId.Value || metadata.Title is null)
-                {
-                    throw new InvalidOperationException("yt-dlp returned invalid video metadata.");
-                }
-
-                DateTimeOffset.TryParseExact(metadata.UploadDate, "yyyyMMdd", CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal, out DateTimeOffset uploadDate);
-
-                return new Video(
-                    videoId,
-                    metadata.Title,
-                    new Author(metadata.ChannelId, metadata.Channel ?? metadata.Uploader ?? ""),
-                    uploadDate,
-                    metadata.Description ?? "",
-                    metadata.IsLive || metadata.Duration <= 0 ? null : TimeSpan.FromSeconds(metadata.Duration),
-                    thumbnails: [new Thumbnail($"https://img.youtube.com/vi/{videoId}/hqdefault.jpg", new Resolution(480, 360))],
-                    keywords: metadata.Tags ?? [],
-                    engagement: new Engagement(0, 0, 0));
-            }
-            catch (Exception fallbackException) when (fallbackException is not OperationCanceledException)
-            {
-                throw new AggregateException($"Both YoutubeExplode and yt-dlp failed to get metadata for video '{videoId}'.", ex, fallbackException);
-            }
-        }
+        return new Video(
+            videoId,
+            metadata.Title,
+            new Author(metadata.ChannelId, metadata.Channel ?? metadata.Uploader ?? ""),
+            uploadDate,
+            metadata.Description ?? "",
+            metadata.IsLive || metadata.Duration <= 0 ? null : TimeSpan.FromSeconds(metadata.Duration),
+            thumbnails: [new Thumbnail($"https://img.youtube.com/vi/{videoId}/hqdefault.jpg", new Resolution(480, 360))],
+            keywords: metadata.Tags ?? [],
+            engagement: new Engagement(0, 0, 0));
     }
 
     internal static Video Transform(Google.Apis.YouTube.v3.Data.SearchResult searchResult)

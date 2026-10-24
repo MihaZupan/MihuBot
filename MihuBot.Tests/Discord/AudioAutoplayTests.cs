@@ -443,7 +443,7 @@ public sealed class AudioAutoplayTests
     [Fact]
     public async Task MissingAIProducesAnExplicitUnavailableError()
     {
-        var service = new AudioRecommendationService(null!, null!, []);
+        var service = new AudioRecommendationService(null!, []);
 
         Assert.False(service.IsAvailable);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.RecommendAsync(42, CancellationToken.None));

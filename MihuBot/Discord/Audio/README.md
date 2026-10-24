@@ -1,4 +1,10 @@
-# Spoken music commands
+# Audio playback
+
+YouTube track details use yt-dlp, the same extractor used for audio playback.
+Loading audio refreshes the title, uploader, duration, and thumbnail from that
+response so playback reporting does not rely on unrelated watch-page player data.
+
+## Spoken music commands
 
 With Azure OpenAI configured, startup prepares one local Whisper `small.en` model,
 automatically downloading it into `State/Whisper/ggml-small.en.bin` if missing.

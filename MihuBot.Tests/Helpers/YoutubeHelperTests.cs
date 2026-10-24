@@ -1,7 +1,5 @@
 using MihuBot.Helpers;
 using Newtonsoft.Json;
-using YoutubeExplode.Common;
-using YoutubeExplode.Exceptions;
 using YoutubeExplode.Videos;
 
 namespace MihuBot.Tests.Helpers;
@@ -40,22 +38,7 @@ public sealed class YoutubeHelperTests
     }
 
     [Fact]
-    public async Task GetVideoAsync_PrefersYoutubeExplode()
-    {
-        Video expected = new(VideoId, "Original title", new Author(ChannelId, "Channel"),
-            DateTimeOffset.UtcNow, "", TimeSpan.FromSeconds(123), [], [], new Engagement(0, 0, 0));
-
-        Video actual = await YoutubeHelper.GetVideoAsync(VideoId,
-            (_, _) => ValueTask.FromResult(expected),
-            (_, _) => throw new InvalidOperationException("Fallback should not run."));
-
-        Assert.Same(expected, actual);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task GetVideoAsync_FallsBackToYtDlp(bool httpFailure)
+    public async Task GetVideoAsync_UsesYtDlpMetadataForRequestedVideo()
     {
         var metadata = JsonConvert.DeserializeObject<YoutubeDl.YoutubeDlMetadata>(
             $$"""
@@ -70,29 +53,19 @@ public sealed class YoutubeHelperTests
                 "tags": ["music"]
             }
             """)!;
-        Exception failure = httpFailure ? new HttpRequestException("Bad response") : new YoutubeExplodeException("Video watch page is broken.");
         using var cancellation = new CancellationTokenSource();
-        var messages = new List<string>();
 
         Video video = await YoutubeHelper.GetVideoAsync(VideoId,
-            (_, token) =>
-            {
-                Assert.Equal(cancellation.Token, token);
-                throw failure;
-            },
             (url, token) =>
             {
                 Assert.Equal($"https://www.youtube.com/watch?v={VideoId}", url);
                 Assert.Equal(cancellation.Token, token);
                 return Task.FromResult(metadata);
             },
-            cancellation.Token,
-            messages.Add);
+            cancellation.Token);
 
-        string diagnostic = Assert.Single(messages);
-        Assert.Contains("falling back to yt-dlp", diagnostic, StringComparison.Ordinal);
-        Assert.Contains(failure.Message, diagnostic, StringComparison.Ordinal);
         Assert.Equal(VideoId, video.Id.Value);
+        Assert.Equal($"https://www.youtube.com/watch?v={VideoId}", video.Url);
         Assert.Equal("Video title", video.Title);
         Assert.Equal(ChannelId, video.Author.ChannelId.Value);
         Assert.Equal("Channel name", video.Author.ChannelTitle);
@@ -104,10 +77,9 @@ public sealed class YoutubeHelperTests
     }
 
     [Fact]
-    public async Task GetVideoAsync_FallbackHandlesLiveAndMissingOptionalMetadata()
+    public async Task GetVideoAsync_HandlesLiveAndMissingOptionalMetadata()
     {
         Video video = await YoutubeHelper.GetVideoAsync(VideoId,
-            (_, _) => throw new YoutubeExplodeException("Broken page"),
             (_, _) => Task.FromResult(new YoutubeDl.YoutubeDlMetadata
             {
                 Id = VideoId,
@@ -125,45 +97,43 @@ public sealed class YoutubeHelperTests
     }
 
     [Fact]
-    public async Task GetVideoAsync_PreservesBothProviderFailures()
+    public async Task GetVideoAsync_PropagatesMetadataFailure()
     {
-        var original = new YoutubeExplodeException("Broken page");
-        var fallback = new InvalidOperationException("yt-dlp failed");
+        var failure = new InvalidOperationException("yt-dlp failed");
 
-        AggregateException exception = await Assert.ThrowsAsync<AggregateException>(async () =>
-            await YoutubeHelper.GetVideoAsync(VideoId, (_, _) => throw original, (_, _) => throw fallback));
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await YoutubeHelper.GetVideoAsync(VideoId, (_, _) => throw failure));
 
-        Assert.Equal(new Exception[] { original, fallback }, exception.InnerExceptions);
+        Assert.Same(failure, exception);
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("differentId")]
-    public async Task GetVideoAsync_RejectsInvalidFallbackMetadata(string? id)
+    public async Task GetVideoAsync_RejectsMetadataForAnotherVideo(string? id)
     {
-        AggregateException exception = await Assert.ThrowsAsync<AggregateException>(async () =>
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await YoutubeHelper.GetVideoAsync(VideoId,
-                (_, _) => throw new YoutubeExplodeException("Broken page"),
                 (_, _) => Task.FromResult(new YoutubeDl.YoutubeDlMetadata { Id = id, Title = "Title" })));
-
-        Assert.IsType<InvalidOperationException>(exception.InnerExceptions[1]);
     }
 
     [Fact]
-    public async Task GetVideoAsync_DoesNotFallbackOnCancellation()
+    public async Task GetVideoAsync_DoesNotLookupMetadataWhenAlreadyCanceled()
     {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
             await YoutubeHelper.GetVideoAsync(VideoId,
-                (_, _) => throw new OperationCanceledException(),
-                (_, _) => throw new InvalidOperationException("Fallback should not run.")));
+                (_, _) => throw new InvalidOperationException("Metadata lookup should not run."),
+                cancellation.Token));
     }
 
     [Fact]
-    public async Task GetVideoAsync_DoesNotWrapFallbackCancellation()
+    public async Task GetVideoAsync_DoesNotWrapCancellation()
     {
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
             await YoutubeHelper.GetVideoAsync(VideoId,
-                (_, _) => throw new YoutubeExplodeException("Broken page"),
                 (_, _) => throw new OperationCanceledException()));
     }
 }

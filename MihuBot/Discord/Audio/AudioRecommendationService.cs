@@ -12,7 +12,7 @@ internal sealed record SongSuggestion(string Artist, string Title);
 internal sealed record SongSuggestions(SongSuggestion[] Songs);
 
 public sealed class AudioRecommendationService(
-    AudioHistoryService history, Logger logger, IEnumerable<YouTubeService> youtubeServices, OpenAIService? openAI = null)
+    AudioHistoryService history, IEnumerable<YouTubeService> youtubeServices, OpenAIService? openAI = null)
 {
     public bool IsAvailable => openAI is not null;
 
@@ -46,8 +46,7 @@ public sealed class AudioRecommendationService(
                 {
                     try
                     {
-                        Video video = await YoutubeHelper.GetVideoAsync(result.Id,
-                            message => logger.DebugLog(message, guildId: guildId), cancellationToken);
+                        Video video = await YoutubeHelper.GetVideoAsync(result.Id, cancellationToken);
 
                         if (MatchesSuggestion(video, suggestion) && IsSuitable(video, recent))
                         {
