@@ -206,6 +206,28 @@ public sealed class OpenAIServiceTests
         Assert.Null(service.GetImage(42ul));
     }
 
+    [Fact]
+    public void GetAudioChatClient_UsesThePersonalAudioDeploymentWithoutAChatLoggingWrapper()
+    {
+        OpenAIService service = CreateService("Key3", "WorkKey1", "WorkKey2");
+        OpenAI.Chat.ChatClient client = service.GetAudioChatClient();
+
+#pragma warning disable OPENAI001
+        Assert.Equal(OpenAIService.DefaultAudioModel, client.Model);
+        Assert.Equal(Personal3, client.Endpoint.Host);
+        Assert.Equal("/openai/v1/", client.Endpoint.AbsolutePath);
+#pragma warning restore OPENAI001
+    }
+
+    [Fact]
+    public void GetAudioChatClient_DoesNotRouteVoiceToAnotherOrWorkOnlyEndpoint()
+    {
+        OpenAIService service = CreateService("Key2", "WorkKey1", "WorkKey2");
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => service.GetAudioChatClient());
+        Assert.Contains(OpenAIService.DefaultAudioModel, error.Message, StringComparison.Ordinal);
+    }
+
     private static void AssertChat(IChatClient client, string deployment, params string[] hosts)
     {
         using (client)

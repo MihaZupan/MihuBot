@@ -14,6 +14,7 @@ public sealed class AudioScheduler : IAsyncDisposable
     private bool _disposed;
     private IAudioSource _initializing;
     private Task _disposeTask;
+    private long _lastSkipAction;
 
     public long Revision
     {
@@ -75,6 +76,107 @@ public sealed class AudioScheduler : IAsyncDisposable
             }
 
             return _queue.Take(limit).ToArray();
+        }
+    }
+
+    internal IAudioSource[] GetPlaybackSnapshot()
+    {
+        lock (_queue)
+        {
+            List<IAudioSource> sources = [];
+
+            if ((_current ?? _initializing) is { } first)
+            {
+                sources.Add(first);
+            }
+
+            sources.AddRange(_queue);
+
+            if (sources.Count == 0 && _autoplay is not null && _autoplayRevision == _revision)
+            {
+                sources.Add(_autoplay);
+            }
+
+            return sources.ToArray();
+        }
+    }
+
+    internal bool WasSkippedSince(long spokenAt)
+    {
+        lock (_queue)
+        {
+            return spokenAt <= _lastSkipAction;
+        }
+    }
+
+    internal AudioSkipBatch SkipTracks(int count, long spokenAt, IAudioSource target = null, Action<IAudioSource> onSkippingCurrent = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+
+        lock (_queue)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (WasSkippedSince(spokenAt))
+            {
+                return new(0, null, [], Ignored: true);
+            }
+
+            IAudioSource[] snapshot = GetPlaybackSnapshot();
+            int toSkip = target is null ? Math.Min(count, snapshot.Length) : Array.FindIndex(snapshot, source => ReferenceEquals(source, target));
+
+            if (toSkip < 0)
+            {
+                return new(0, null, [], TargetMissing: true);
+            }
+
+            if (toSkip == 0)
+            {
+                return new(0, null, []);
+            }
+
+            int remaining = toSkip;
+            IAudioSource current = _current;
+            List<IAudioSource> dispose = [];
+
+            if (current is not null)
+            {
+                onSkippingCurrent?.Invoke(current);
+                _current = null;
+                dispose.Add(current);
+                remaining--;
+            }
+            else if (_initializing is not null)
+            {
+                // The pending selector owns disposal of its canceled initialization candidate.
+                _skipTcs?.TrySetResult();
+                _skipTcs = null;
+                _initializing = null;
+                remaining--;
+            }
+
+            while (remaining > 0 && _queue.TryDequeue(out IAudioSource source))
+            {
+                dispose.Add(source);
+                remaining--;
+            }
+
+            if (_autoplay is not null)
+            {
+                dispose.Add(_autoplay);
+                _autoplay = null;
+            }
+
+            _revision++;
+            _lastSkipAction = Stopwatch.GetTimestamp();
+
+            if (_queue.TryPeek(out IAudioSource next))
+            {
+                next.StartInitializing(_bitrateHintKbit);
+            }
+
+            SignalEnqueue();
+            return new(toSkip, current, dispose.Distinct<IAudioSource>(ReferenceEqualityComparer.Instance).ToArray());
         }
     }
 
@@ -147,12 +249,18 @@ public sealed class AudioScheduler : IAsyncDisposable
 
         lock (_queue)
         {
+            if (_skipTcs is not null || _current is not null || _queue.Count > 0 || _autoplay is not null)
+            {
+                _lastSkipAction = Stopwatch.GetTimestamp();
+            }
+
             _revision++;
 
             if (_skipTcs is not null)
             {
                 _skipTcs.SetResult();
                 _skipTcs = null;
+                _initializing = null;
             }
             else
             {
@@ -197,6 +305,7 @@ public sealed class AudioScheduler : IAsyncDisposable
             }
 
             _current = null;
+            _lastSkipAction = Stopwatch.GetTimestamp();
             _revision++;
             SignalEnqueue();
         }
@@ -433,7 +542,7 @@ public sealed class AudioScheduler : IAsyncDisposable
         }
     }
 
-    private static async Task DisposeSourcesAsync(IAudioSource[] toDispose)
+    internal static async Task DisposeSourcesAsync(IAudioSource[] toDispose)
     {
         var cleanup = new AsyncCleanup();
 
@@ -457,6 +566,8 @@ public sealed class AudioScheduler : IAsyncDisposable
         }
     }
 }
+
+internal sealed record AudioSkipBatch(int Count, IAudioSource Current, IAudioSource[] ToDispose, bool Ignored = false, bool TargetMissing = false);
 
 internal sealed class AudioSourceException(IAudioSource source, Exception innerException)
     : Exception($"Audio source '{source.Description}' failed.", innerException);

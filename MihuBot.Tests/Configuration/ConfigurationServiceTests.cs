@@ -189,6 +189,33 @@ public sealed class ConfigurationServiceTests
         }
     }
 
+    [Fact]
+    public void TypedIntegerConfigurationDefaultsOnlyWhenMissing()
+    {
+        using var files = new Files();
+        using var store = new ConfigurationService(files.Directory);
+        IConfigurationService configuration = store;
+
+        Assert.Equal(8, configuration.GetInt32(null, "Count", 8));
+        configuration.Set(null, "Count", " -4 ");
+        Assert.Equal(-4, configuration.GetInt32(null, "Count", 8));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("invalid")]
+    [InlineData("2.5")]
+    [InlineData("2147483648")]
+    public void TypedIntegerConfigurationRejectsMalformedValues(string value)
+    {
+        using var files = new Files();
+        using var store = new ConfigurationService(files.Directory);
+        IConfigurationService configuration = store;
+        configuration.Set(null, "Count", value);
+
+        Assert.Throws<InvalidOperationException>(() => configuration.GetInt32(null, "Count", 8));
+    }
+
     private static async Task WaitFor(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

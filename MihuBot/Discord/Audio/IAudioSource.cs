@@ -12,6 +12,8 @@ public interface IAudioSource : IAsyncDisposable
 
     string Description { get; }
 
+    string Author => null;
+
     string Url { get; }
 
     string ThumbnailUrl { get; }

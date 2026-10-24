@@ -426,6 +426,13 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<AudioHistoryService>();
     services.AddSingleton<AudioRecommendationService>();
 
+    if (openAIEnabled)
+    {
+        services.AddSingleton<SpokenSongResolver>();
+        services.AddSingleton<AudioSpeechService>();
+        services.AddHostedService(provider => provider.GetRequiredService<AudioSpeechService>());
+    }
+
     if (builder.Configuration.IsConfigured(OptionalFeatures.Telegram))
     {
         services.AddSingleton(new TelegramBotClient(builder.Configuration["TelegramBot:ApiKey"]));

@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libstdc++6 \
         zlib1g \
         libgcc-s1 \
+        libgomp1 \
         libopus0 \
         libsodium23 \
         ffmpeg \

@@ -88,6 +88,8 @@ public sealed class YoutubeAudioSource : AudioSourceBase
 
     public override string Description => _video.Title;
 
+    public override string Author => _video.Author.ChannelTitle;
+
     public override string Url => _video.Url;
 
     public override string ThumbnailUrl => _video.Thumbnails.OrderBy(t => t.Resolution.Area).FirstOrDefault()?.Url;

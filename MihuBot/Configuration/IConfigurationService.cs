@@ -30,6 +30,18 @@ public interface IConfigurationService
         return defaultValue;
     }
 
+    int GetInt32(ulong? context, string key, int defaultValue)
+    {
+        if (!TryGet(context, key, out string str))
+        {
+            return defaultValue;
+        }
+
+        return int.TryParse(str, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+            ? value
+            : throw new InvalidOperationException($"Configuration setting '{key}' must be an integer.");
+    }
+
     int GetOrDefault(ulong? context, string key, int defaultValue)
     {
         if (TryGet(context, key, out string str) && int.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out int value))

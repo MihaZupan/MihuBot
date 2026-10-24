@@ -1,0 +1,1031 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Net;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Discord;
+using Discord.Audio;
+using Discord.Audio.Streams;
+using Microsoft.Extensions.AI;
+using MihuBot.Configuration;
+using MihuBot.Discord.Audio;
+
+namespace MihuBot.Tests.Discord;
+
+public sealed class AudioSpeechTests
+{
+    [Fact]
+    public async Task SpokenCommandFailurePingsOnlyTheRequester()
+    {
+        IMessageChannel channel = DispatchProxy.Create<IMessageChannel, MessageChannelProxy>();
+        var proxy = Assert.IsAssignableFrom<MessageChannelProxy>(channel);
+        const string message = "I couldn't find that song. @everyone <@999> <@&123>";
+
+        await AudioPlayer.SendSpokenCommandFailureAsync(channel, 42, message, CancellationToken.None);
+
+        Assert.NotNull(proxy.Arguments);
+        Assert.Equal($"<@42>: {message}", proxy.Arguments[0]);
+        AllowedMentions mentions = Assert.Single(proxy.Arguments.OfType<AllowedMentions>());
+        Assert.Null(mentions.AllowedTypes);
+        Assert.Equal([42ul], mentions.UserIds);
+        Assert.Empty(mentions.RoleIds);
+    }
+
+    [Theory]
+    [InlineData("Hey MihuBot, could you put on something by a-ha?")]
+    [InlineData("Mihu-Bot play the song Take On Me!")]
+    [InlineData("Miha Bot pause please")]
+    [InlineData("Hey, meehoo bot, pause the music.")]
+    [InlineData("Hey me who bot pause the music")]
+    [InlineData("\"Hey Me Who Bot,\" Q song take on me.")]
+    [InlineData("MihuBot is a music bot")]
+    [InlineData("Hey Mi... hu bot, queue Take On Me")]
+    [InlineData("Hey Mihu, b-bot, pause")]
+    [InlineData("Hey Mihu... bo-bot, resume")]
+    public void DetectsBotMentionsLocally(string text)
+    {
+        Assert.NotNull(SpokenAudioCommand.GetAddressedText(text));
+    }
+
+    [Theory]
+    [InlineData("queue song Take On Me")]
+    [InlineData("Hey bot pause")]
+    [InlineData("NotMihuBot skip")]
+    [InlineData("MihuBotany is not the bot")]
+    public async Task UnaddressedSpeechNeverCallsTheLLM(string text)
+    {
+        using var chat = new TestChatClient((_, _, _) => throw new InvalidOperationException("Unaddressed speech reached the LLM."));
+
+        Assert.Null(await SpokenAudioCommand.ParseAsync(chat, text, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IntentExtractionSendsOnlyBotAddressedTextAndUsesAnEnumSchema()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var expected = new SpokenAudioCommand(SpokenAudioAction.Queue, "Take On Me by a-ha");
+        using var chat = new TestChatClient((messages, options, token) =>
+        {
+            ChatMessage[] sent = messages.ToArray();
+            Assert.Equal(2, sent.Length);
+            Assert.Equal(ChatRole.System, sent[0].Role);
+            Assert.Contains("untrusted speech", sent[0].Text, StringComparison.Ordinal);
+            Assert.Equal(ChatRole.User, sent[1].Role);
+            Assert.Equal("Hey Miha Bot, could you put Take On Me by a-ha on next?", sent[1].Text);
+            Assert.All(sent.SelectMany(message => message.Contents), content => Assert.IsType<TextContent>(content));
+            Assert.IsType<ChatResponseFormatJson>(options?.ResponseFormat);
+            Assert.Equal(cancellation.Token, token);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(expected))));
+        });
+
+        SpokenAudioCommand? result = await SpokenAudioCommand.ParseAsync(chat,
+            "Unrelated conversation. Hey Miha Bot, could you put Take On Me by a-ha on next?", cancellation.Token);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task MentionWithoutAnIntentDoesNotExecuteACommand()
+    {
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, """{"Action":"None","Query":""}"""))));
+
+        Assert.Null(await SpokenAudioCommand.ParseAsync(chat, "MihuBot is a music bot.", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("""{"Action":"Queue","Query":""}""")]
+    [InlineData("""{"Action":"Skip","Query":"another command"}""")]
+    [InlineData("""{"Action":999,"Query":""}""")]
+    [InlineData("""{"Action":"Queue","Query":null}""")]
+    [InlineData("""{"Action":"Skip","Query":"","Count":0}""")]
+    [InlineData("""{"Action":"Skip","Query":"","Count":-3}""")]
+    [InlineData("""{"Action":"Queue","Query":"A song","Count":3}""")]
+    [InlineData("""{"Action":"Skip","Query":"","TargetIndex":0}""")]
+    [InlineData("""{"Action":"SkipUntil","Query":"Darude","TargetIndex":0}""")]
+    public async Task InvalidAIIntentsFailExplicitly(string json)
+    {
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, json))));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IntentExtractionSupportsAnExplicitSkipCount()
+    {
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, """{"Action":"Skip","Query":"","Count":3,"TargetIndex":null}"""))));
+
+        SpokenAudioCommand? command = await SpokenAudioCommand.ParseAsync(chat, "Hey MihuBot skip 3 songs", CancellationToken.None);
+
+        Assert.Equal(new SpokenAudioCommand(SpokenAudioAction.Skip, Count: 3), command);
+    }
+
+    [Fact]
+    public async Task SkipUntilUsesQueueMetadataAndRetainsTheSelectedSourceIdentity()
+    {
+        await using var first = new QueueSource("Another song", "Another artist");
+        await using var destination = new QueueSource("Sandstorm", "Darude");
+        using var chat = new TestChatClient((messages, _, _) =>
+        {
+            ChatMessage[] sent = messages.ToArray();
+            Assert.Equal(3, sent.Length);
+            Assert.Equal("Hey MihuBot skip until the track by Darude", sent[1].Text);
+            string metadata = sent[2].Text;
+            using var data = JsonDocument.Parse(metadata.Substring(metadata.IndexOf('[')));
+            Assert.Equal("Sandstorm", data.RootElement[1].GetProperty("Title").GetString());
+            Assert.Equal("Darude", data.RootElement[1].GetProperty("Channel").GetString());
+            Assert.Equal(1, data.RootElement[1].GetProperty("Index").GetInt32());
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                """{"Action":"SkipUntil","Query":"Darude","Count":1,"TargetIndex":1}""")));
+        });
+
+        SpokenAudioCommand? command = await SpokenAudioCommand.ParseAsync(chat,
+            "Hey MihuBot skip until the track by Darude", CancellationToken.None, [first, destination]);
+
+        Assert.NotNull(command);
+        Assert.Equal(SpokenAudioAction.SkipUntil, command.Action);
+        Assert.Same(destination, command.TargetSource);
+        Assert.DoesNotContain("TargetSource", JsonSerializer.Serialize(command), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public async Task SkipUntilRejectsIndicesOutsideTheProvidedSnapshot(int index)
+    {
+        await using var first = new QueueSource("First", "Artist");
+        await using var second = new QueueSource("Sandstorm", "Darude");
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(
+                new SpokenAudioCommand(SpokenAudioAction.SkipUntil, "Darude", TargetIndex: index))))));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SpokenAudioCommand.ParseAsync(chat,
+            "Hey MihuBot skip until Darude", CancellationToken.None, [first, second]));
+    }
+
+    [Fact]
+    public async Task SkipUntilCanReportNoMatchWithoutInventingATarget()
+    {
+        using var chat = new TestChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                """{"Action":"SkipUntil","Query":"Darude","Count":1,"TargetIndex":null}"""))));
+
+        SpokenAudioCommand? command = await SpokenAudioCommand.ParseAsync(chat,
+            "Hey MihuBot skip until the track by Darude", CancellationToken.None, []);
+
+        Assert.NotNull(command);
+        Assert.Equal(SpokenAudioAction.SkipUntil, command.Action);
+        Assert.Null(command.TargetSource);
+    }
+
+    [Fact]
+    public void SeparateUtterancesAreNotDeduplicatedBecauseOfPreRollOverlap()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        segmenter.AddPcm(Pcm(50, 4096, 4096), now);
+        segmenter.AddPcm(Pcm(65, 0, 0), now);
+        segmenter.AddPcm(Pcm(50, 4096, 4096), now);
+        segmenter.AddPcm(Pcm(60, 0, 0), now);
+        var skip = new SpokenAudioCommand(SpokenAudioAction.Skip);
+
+        Assert.Equal(2, segments.Count);
+        Assert.True(segments[1].StartSample < segments[0].EndSample);
+        Assert.False(AudioVoiceListener.IsRepeatedWindowCommand(segments[1], skip, skip, segments[0].EndSample));
+    }
+
+    [Fact]
+    public void ContinuousWindowOverlapStillSuppressesTheSameCommandButNotADifferentCount()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        segmenter.AddPcm(Pcm(1500, 4096, 4096), Stopwatch.GetTimestamp());
+        var skip = new SpokenAudioCommand(SpokenAudioAction.Skip);
+
+        Assert.True(AudioVoiceListener.IsRepeatedWindowCommand(segments[1], skip, skip, segments[0].EndSample));
+        Assert.False(AudioVoiceListener.IsRepeatedWindowCommand(
+            segments[1], skip with { Count = 3 }, skip, segments[0].EndSample));
+    }
+
+    [Theory]
+    [InlineData("Hey MihuBot")]
+    [InlineData("Hey MihuBot, queue song")]
+    public async Task BotMentionAndFollowingSongNameFormOneRequest(string initial)
+    {
+        List<string> sent = [];
+        var expected = new SpokenAudioCommand(SpokenAudioAction.Queue, "Take On Me by a-ha");
+        using var chat = new TestChatClient((messages, _, _) =>
+        {
+            string text = messages.Last().Text;
+            sent.Add(text);
+            var command = text.Contains("Take On Me", StringComparison.Ordinal)
+                ? expected : new SpokenAudioCommand(SpokenAudioAction.None);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, JsonSerializer.Serialize(command))));
+        });
+        var context = new SpokenAudioContext((text, token) => SpokenAudioCommand.ParseAsync(chat, text, token));
+
+        Assert.Null(await context.ParseAsync(ContextSegment(0, 1), initial, CancellationToken.None));
+        Assert.Equal(expected, await context.ParseAsync(ContextSegment(3, 4), "Take On Me by a-ha", CancellationToken.None));
+        Assert.Equal(initial + "\nTake On Me by a-ha", sent[1]);
+
+        Assert.Null(await context.ParseAsync(ContextSegment(5, 6), "queue another song", CancellationToken.None));
+        Assert.Equal(2, sent.Count);
+    }
+
+    [Theory]
+    [InlineData("Hey Mi...", "hu bot, queue song Take On Me")]
+    [InlineData("Hey Mihu...", "b-bot, queue song Take On Me")]
+    [InlineData("Hey me...", "who bot, queue song Take On Me")]
+    public async Task SplitAndStutteredNamesAreJoinedLocallyBeforeIntentExtraction(string first, string second)
+    {
+        List<string> sent = [];
+        var expected = new SpokenAudioCommand(SpokenAudioAction.Queue, "Take On Me");
+        var context = new SpokenAudioContext((text, _) =>
+        {
+            sent.Add(text);
+            return Task.FromResult<SpokenAudioCommand?>(expected);
+        });
+
+        Assert.Null(await context.ParseAsync(ContextSegment(0, 1), first, CancellationToken.None));
+        Assert.Empty(sent);
+        Assert.Equal(expected, await context.ParseAsync(ContextSegment(3, 4), second, CancellationToken.None));
+        Assert.Contains("Take On Me", Assert.Single(sent), StringComparison.Ordinal);
+        Assert.Contains("\n", sent[0], StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(7.9, true)]
+    [InlineData(8.1, false)]
+    public async Task WakeContextExpiresBasedOnCaptureTiming(double gap, bool accepted)
+    {
+        List<string> sent = [];
+        var context = new SpokenAudioContext((text, _) =>
+        {
+            sent.Add(text);
+            return Task.FromResult<SpokenAudioCommand?>(null);
+        });
+        await context.ParseAsync(ContextSegment(0, 1), "Hey MihuBot", CancellationToken.None);
+        await context.ParseAsync(ContextSegment(1 + gap, 2 + gap), "queue Take On Me", CancellationToken.None);
+
+        Assert.Equal(accepted ? 2 : 1, sent.Count);
+    }
+
+    [Fact]
+    public async Task AnIncompleteFollowUpDoesNotKeepTheWakeWindowOpenIndefinitely()
+    {
+        List<string> sent = [];
+        var context = new SpokenAudioContext((text, _) =>
+        {
+            sent.Add(text);
+            return Task.FromResult<SpokenAudioCommand?>(null);
+        });
+        await context.ParseAsync(ContextSegment(0, 1), "Hey MihuBot", CancellationToken.None);
+        await context.ParseAsync(ContextSegment(4, 5), "I was thinking", CancellationToken.None);
+        await context.ParseAsync(ContextSegment(10, 11), "queue Take On Me", CancellationToken.None);
+
+        Assert.Equal(2, sent.Count);
+        Assert.DoesNotContain(sent, text => text.Contains("Take On Me", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LongFollowUpIsAcceptedWhenItStartsWithinTheWakeWindow()
+    {
+        List<string> sent = [];
+        var context = new SpokenAudioContext((text, _) =>
+        {
+            sent.Add(text);
+            return Task.FromResult<SpokenAudioCommand?>(null);
+        });
+        await context.ParseAsync(ContextSegment(0, 1), "Hey MihuBot", CancellationToken.None);
+        await context.ParseAsync(ContextSegment(4, 16), "queue a song with a long title", CancellationToken.None);
+
+        Assert.Equal(2, sent.Count);
+        Assert.Equal("Hey MihuBot\nqueue a song with a long title", sent[1]);
+    }
+
+    [Fact]
+    public async Task SpeakersCannotCompleteEachOthersRequests()
+    {
+        List<string> sent = [];
+
+        Task<SpokenAudioCommand?> Parse(string text, CancellationToken _)
+        {
+            sent.Add(text);
+            return Task.FromResult<SpokenAudioCommand?>(null);
+        }
+
+        var first = new SpokenAudioContext(Parse);
+        var second = new SpokenAudioContext(Parse);
+        await first.ParseAsync(ContextSegment(0, 1), "Hey MihuBot", CancellationToken.None);
+        await second.ParseAsync(ContextSegment(2, 3), "queue Take On Me", CancellationToken.None);
+        Assert.Single(sent);
+        await first.ParseAsync(ContextSegment(2, 3), "queue Take On Me", CancellationToken.None);
+
+        Assert.Equal(2, sent.Count);
+    }
+
+    [Fact]
+    public async Task AccumulatedContextIsBoundedAndClearedOnOverflow()
+    {
+        int calls = 0;
+        var context = new SpokenAudioContext((_, _) =>
+        {
+            calls++;
+            return Task.FromResult<SpokenAudioCommand?>(null);
+        });
+        await context.ParseAsync(ContextSegment(0, 1), "Hey MihuBot", CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            context.ParseAsync(ContextSegment(2, 3), new string('x', 1000), CancellationToken.None));
+        Assert.Null(await context.ParseAsync(ContextSegment(4, 5), "queue Take On Me", CancellationToken.None));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void ShortPausesWithinASongNameDoNotSplitTheUtterance()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        segmenter.AddPcm(Pcm(50, 4096, 4096), now);
+        segmenter.AddPcm(Pcm(40, 0, 0), now);
+        Assert.Empty(segments);
+        segmenter.AddPcm(Pcm(50, 4096, 4096), now);
+        segmenter.AddPcm(Pcm(60, 0, 0), now);
+
+        Assert.Equal(64_000, Assert.Single(segments).Samples.Length);
+    }
+
+    [Fact]
+    public void SegmentsSpeechAndConvertsStereo48KhzToMono16Khz()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        byte[] pcm = Pcm(50, 4096, 0);
+        segmenter.AddPcm(pcm.AsSpan(0, 4), now);
+        segmenter.AddPcm(pcm.AsSpan(4), now);
+        segmenter.AddPcm(Pcm(60, 0, 0), now);
+
+        SpeechSegment segment = Assert.Single(segments);
+        Assert.Equal(35_200, segment.Samples.Length);
+        Assert.All(segment.Samples.Take(16_000), sample => Assert.Equal(0.0625f, sample));
+        Assert.All(segment.Samples.Skip(16_000), sample => Assert.Equal(0f, sample));
+    }
+
+    [Fact]
+    public void SilenceAndBriefNoiseDoNotReachWhisper()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        segmenter.AddPcm(Pcm(50, 0, 0), now);
+        segmenter.AddPcm(Pcm(2, 4096, 4096), now);
+        segmenter.AddPcm(Pcm(30, 0, 0), now);
+        segmenter.FlushIfIdle(now + 2 * Stopwatch.Frequency);
+
+        Assert.Empty(segments);
+    }
+
+    [Fact]
+    public void MissingSilencePacketsFlushSpeechAndDoNotReuseOldAudio()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        segmenter.AddPcm(Pcm(50, 4096, 4096), now);
+        segmenter.FlushIfIdle(now + Stopwatch.Frequency);
+        Assert.Empty(segments);
+        segmenter.FlushIfIdle(now + 2 * Stopwatch.Frequency);
+
+        Assert.Single(segments);
+        Assert.Equal(now, segments[0].SpeechStartTimestamp);
+        Assert.Equal(now, segments[0].SpeechEndTimestamp);
+        Assert.Equal(now + 2 * Stopwatch.Frequency, segments[0].Timestamp);
+        segmenter.AddPcm(Pcm(50, 8192, 8192), now + 3 * Stopwatch.Frequency);
+        segmenter.FlushIfIdle(now + 5 * Stopwatch.Frequency);
+
+        Assert.Equal(2, segments.Count);
+        Assert.All(segments[1].Samples, sample => Assert.Equal(0.25f, sample));
+        Assert.Equal(segments[0].EndSample, segments[1].StartSample);
+    }
+
+    [Fact]
+    public void ContinuousSpeechUsesBoundedOverlappingChunks()
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+        segmenter.AddPcm(Pcm(1500, 4096, 4096), now);
+        segmenter.FlushIfIdle(now + 2 * Stopwatch.Frequency);
+
+        Assert.Equal(3, segments.Count);
+        Assert.All(segments, segment => Assert.InRange(segment.Samples.Length, 16_000, SpeechSegmenter.MaxSamples));
+        Assert.Equal(segments[0].EndSample - SpeechSegmenter.OverlapSamples, segments[1].StartSample);
+        Assert.Equal(segments[1].EndSample - SpeechSegmenter.OverlapSamples, segments[2].StartSample);
+        Assert.Equal(30 * 16_000, segments[2].EndSample);
+    }
+
+    [Fact]
+    public async Task AllSpeakersShareOneModelAndOneSequentialWorker()
+    {
+        var started = Signal();
+        var release = Signal();
+        var completed = Signal();
+        ConcurrentQueue<int> calls = [];
+        ConcurrentQueue<int> recipients = [];
+        int factoryCalls = 0;
+        var transcriber = new FakeTranscriber(async (samples, token) =>
+        {
+            calls.Enqueue((int)samples[0]);
+
+            if (samples[0] == 1)
+            {
+                started.SetResult();
+                await release.Task.WaitAsync(token);
+            }
+
+            return "Hey MihuBot pause";
+        });
+
+        await using (var worker = new Worker(() =>
+        {
+            Interlocked.Increment(ref factoryCalls);
+            return transcriber;
+        }))
+        {
+            await worker.ReadyAsync();
+            Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: (_, _) =>
+            {
+                recipients.Enqueue(1);
+                return Task.CompletedTask;
+            })));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(worker.Service.TryEnqueue(Request(2, onTranscript: (_, _) =>
+            {
+                recipients.Enqueue(2);
+                completed.SetResult();
+                return Task.CompletedTask;
+            })));
+            Assert.Equal([1], calls.ToArray());
+            release.SetResult();
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal([1, 2], calls.ToArray());
+            Assert.Equal([1, 2], recipients.ToArray());
+            Assert.Equal(1, factoryCalls);
+            Assert.Empty(worker.Errors);
+        }
+
+        Assert.Equal(1, transcriber.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task CanceledAndExpiredSpeechCannotExecuteCommands()
+    {
+        var completed = Signal();
+        using var departed = new CancellationTokenSource();
+        departed.Cancel();
+        ConcurrentQueue<int> calls = [];
+        ConcurrentQueue<string> notifications = [];
+        await using var worker = new Worker(() => new FakeTranscriber((samples, _) =>
+        {
+            calls.Enqueue((int)samples[0]);
+            return Task.FromResult("Hey MihuBot skip");
+        }));
+        await worker.ReadyAsync();
+
+        Assert.True(worker.Service.TryEnqueue(Request(1) with { CancellationToken = departed.Token }));
+        Assert.True(worker.Service.TryEnqueue(Request(2, onError: message =>
+        {
+            notifications.Enqueue(message);
+            return Task.CompletedTask;
+        }) with { Timestamp = Stopwatch.GetTimestamp() - 21 * Stopwatch.Frequency }));
+        Assert.True(worker.Service.TryEnqueue(Request(3, onTranscript: (_, _) =>
+        {
+            completed.SetResult();
+            return Task.CompletedTask;
+        })));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal([3], calls.ToArray());
+        Assert.Contains("expired", Assert.Single(notifications), StringComparison.Ordinal);
+        Assert.Empty(worker.Errors);
+    }
+
+    [Fact]
+    public async Task QueueIsBoundedAndStoppingCancelsInferenceBeforeDisposal()
+    {
+        var started = Signal();
+        var transcriber = new FakeTranscriber(async (_, token) =>
+        {
+            started.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return "";
+        });
+
+        await using (var worker = new Worker(() => transcriber))
+        {
+            await worker.ReadyAsync();
+            Assert.True(worker.Service.TryEnqueue(Request(1)));
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            for (int i = 0; i < AudioSpeechService.QueueCapacity; i++)
+            {
+                Assert.True(worker.Service.TryEnqueue(Request(i)));
+            }
+
+            Assert.False(worker.Service.TryEnqueue(Request(100)));
+        }
+
+        Assert.Equal(1, transcriber.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task FailedRecognitionIsReportedAndDoesNotStopTheWorker()
+    {
+        var completed = Signal();
+        ConcurrentQueue<string> notifications = [];
+        await using var worker = new Worker(() => new FakeTranscriber((samples, _) =>
+            samples[0] == 1 ? throw new IOException("Recognition failure") : Task.FromResult("MihuBot resume")));
+        await worker.ReadyAsync();
+
+        Assert.True(worker.Service.TryEnqueue(Request(1, onError: message =>
+        {
+            notifications.Enqueue(message);
+            return Task.CompletedTask;
+        })));
+        Assert.True(worker.Service.TryEnqueue(Request(2, onTranscript: (_, _) =>
+        {
+            completed.SetResult();
+            return Task.CompletedTask;
+        })));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsType<IOException>(Assert.Single(worker.Errors));
+        Assert.Single(notifications);
+    }
+
+    [Fact]
+    public async Task LeavingDuringRecognitionCancelsTheResultAndReleasesTheWorker()
+    {
+        using var departed = new CancellationTokenSource();
+        var started = Signal();
+        var completed = Signal();
+        bool staleCommandExecuted = false;
+        await using var worker = new Worker(() => new FakeTranscriber(async (samples, token) =>
+        {
+            if (samples[0] == 1)
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+
+            return "MihuBot skip";
+        }));
+        await worker.ReadyAsync();
+        Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: (_, _) =>
+        {
+            staleCommandExecuted = true;
+            return Task.CompletedTask;
+        }) with { CancellationToken = departed.Token }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(worker.Service.TryEnqueue(Request(2, onTranscript: (_, _) =>
+        {
+            completed.SetResult();
+            return Task.CompletedTask;
+        })));
+
+        departed.Cancel();
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(staleCommandExecuted);
+        Assert.Empty(worker.Errors);
+    }
+
+    [Fact]
+    public async Task RecognitionDeadlineCancelsSlowWorkWithoutExecutingAStaleCommand()
+    {
+        var completed = Signal();
+        bool executed = false;
+        await using var worker = new Worker(() => new FakeTranscriber(async (_, token) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return "MihuBot skip";
+        }));
+        await worker.ReadyAsync();
+
+        Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: (_, _) =>
+        {
+            executed = true;
+            return Task.CompletedTask;
+        }, onError: message =>
+        {
+            Assert.Contains("timed out", message, StringComparison.Ordinal);
+            completed.SetResult();
+            return Task.CompletedTask;
+        }) with { Timestamp = Stopwatch.GetTimestamp() - 19 * Stopwatch.Frequency }));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(executed);
+        Assert.Empty(worker.Errors);
+    }
+
+    [Fact]
+    public async Task ModelLoadFailureDisablesRecognitionExplicitly()
+    {
+        await using var worker = new Worker(() => throw new FileNotFoundException("Model missing"));
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => worker.ReadyAsync());
+
+        Assert.IsType<FileNotFoundException>(error.InnerException);
+        Assert.IsType<FileNotFoundException>(Assert.Single(worker.Errors));
+        Assert.False(worker.Service.TryEnqueue(Request(1)));
+    }
+
+    [Fact]
+    public async Task RuntimeThreadChangesReachTheSameTranscriberOnTheNextRequest()
+    {
+        var configuration = new TestConfiguration();
+        configuration.Set(null, "AudioSpeech.Threads", "2");
+        var first = Signal();
+        var second = Signal();
+        int factories = 0;
+        var transcriber = new FakeTranscriber((_, _) => Task.FromResult(""));
+        await using var worker = new Worker(() =>
+        {
+            factories++;
+            return transcriber;
+        }, () => AudioSpeechService.GetThreads(configuration));
+        await worker.ReadyAsync();
+        Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: (_, _) =>
+        {
+            first.SetResult();
+            return Task.CompletedTask;
+        })));
+        await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        configuration.Set(null, "AudioSpeech.Threads", "16");
+        Assert.True(worker.Service.TryEnqueue(Request(2, onTranscript: (_, _) =>
+        {
+            second.SetResult();
+            return Task.CompletedTask;
+        })));
+        await second.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal([2, 16], transcriber.Threads.ToArray());
+        Assert.Equal(1, factories);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("invalid")]
+    public void InvalidRuntimeThreadCountsAreNotSilentlyDefaulted(string value)
+    {
+        var configuration = new TestConfiguration();
+        configuration.Set(null, "AudioSpeech.Threads", value);
+
+        Assert.Throws<InvalidOperationException>(() => AudioSpeechService.GetThreads(configuration));
+    }
+
+    [Fact]
+    public async Task FramesBufferedBeforeListeningStartsAreDiscarded()
+    {
+        using var input = new TrackingInputStream();
+        using var cancellation = new CancellationTokenSource();
+
+        for (int i = 0; i < 101; i++)
+        {
+            input.WriteHeader((ushort)i, 0, false);
+            await input.WriteAsync(new byte[] { (byte)i }, 0, 1, cancellation.Token);
+        }
+
+        Assert.Equal(100, input.AvailableFrames);
+        var ready = Signal();
+        var received = Signal();
+        List<byte> captured = [];
+        Task pump = AudioVoiceListener.ReadFramesAsync(input, frame =>
+        {
+            captured.Add(frame.Payload[0]);
+            received.SetResult();
+            return Task.CompletedTask;
+        }, () =>
+        {
+            ready.TrySetResult();
+            return Task.CompletedTask;
+        }, cancellation.Token);
+
+        try
+        {
+            await ready.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(captured);
+            input.WriteHeader(102, 0, false);
+            await input.WriteAsync(new byte[] { 255 }, 0, 1, cancellation.Token);
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pump.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+
+        Assert.Equal([255], captured.Select(value => (int)value).ToArray());
+    }
+
+    [Fact]
+    public async Task ReadTimeoutsReuseThePendingReadAndShutdownObservesIt()
+    {
+        using var input = new TrackingInputStream();
+        using var cancellation = new CancellationTokenSource();
+        var idle = Signal();
+        var received = Signal();
+        int idleCount = 0;
+        Task pump = AudioVoiceListener.ReadFramesAsync(input, frame =>
+        {
+            Assert.Equal(3840, frame.Payload.Length);
+            received.SetResult();
+            return Task.CompletedTask;
+        }, () =>
+        {
+            if (++idleCount == 2)
+            {
+                idle.SetResult();
+            }
+
+            return Task.CompletedTask;
+        }, cancellation.Token);
+
+        try
+        {
+            await idle.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _ = Assert.Single(input.Reads);
+            input.WriteHeader(1, 0, false);
+            await input.WriteAsync(new byte[3840], 0, 3840, cancellation.Token);
+            await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pump.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+
+        Assert.All(input.Reads, read => Assert.True(read.IsCompleted));
+    }
+
+    [Fact]
+    public async Task IdleHandlerFailureCancelsAndObservesTheOutstandingRead()
+    {
+        using var input = new TrackingInputStream();
+
+        await Assert.ThrowsAsync<IOException>(() => AudioVoiceListener.ReadFramesAsync(input, _ => Task.CompletedTask,
+            () => Task.FromException(new IOException("Idle handler failed")), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.True(Assert.Single(input.Reads).IsCanceled);
+    }
+
+    [Fact]
+    public async Task ModelDownloadIsAtomicValidatedAndCached()
+    {
+        using var files = new ModelFiles();
+        byte[] bytes = [1, 2, 3, 4];
+        int calls = 0;
+        using var http = new HttpClient(new TestHttpHandler((_, _) =>
+        {
+            calls++;
+            Assert.False(File.Exists(files.ModelPath));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        }));
+
+        await WhisperModel.EnsureDownloadedAsync(http, files.ModelPath, WhisperModel.DownloadUri,
+            Convert.ToHexString(SHA512.HashData(bytes)), CancellationToken.None);
+        await WhisperModel.EnsureDownloadedAsync(http, files.ModelPath, WhisperModel.DownloadUri,
+            Convert.ToHexString(SHA512.HashData(bytes)), CancellationToken.None);
+
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(files.ModelPath));
+        Assert.Equal(1, calls);
+        Assert.Single(Directory.GetFiles(files.DirectoryPath));
+    }
+
+    [Fact]
+    public async Task InterruptedOrCorruptDownloadsDoNotLeaveAModelOrPartialFile()
+    {
+        using var files = new ModelFiles();
+        using var interrupted = new HttpClient(new TestHttpHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new InterruptedContent() })));
+
+        HttpRequestException error = await Assert.ThrowsAsync<HttpRequestException>(() => WhisperModel.EnsureDownloadedAsync(interrupted, files.ModelPath,
+            WhisperModel.DownloadUri, WhisperModel.Sha512, CancellationToken.None));
+        Assert.IsType<IOException>(error.InnerException);
+        Assert.Empty(Directory.GetFiles(files.DirectoryPath));
+
+        using var corrupt = new HttpClient(new TestHttpHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) })));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => WhisperModel.EnsureDownloadedAsync(corrupt, files.ModelPath,
+            WhisperModel.DownloadUri, WhisperModel.Sha512, CancellationToken.None));
+        Assert.Empty(Directory.GetFiles(files.DirectoryPath));
+    }
+
+    [Fact]
+    public async Task ModelDownloadFailureDoesNotFaultTheHostedService()
+    {
+        using var files = new ModelFiles();
+        using var http = new HttpClient(new TestHttpHandler((_, _) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
+        bool created = false;
+        await using var worker = new Worker(async token =>
+        {
+            await WhisperModel.EnsureDownloadedAsync(http, files.ModelPath, WhisperModel.DownloadUri, WhisperModel.Sha512, token);
+            created = true;
+            return new FakeTranscriber((_, _) => Task.FromResult(""));
+        });
+
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() => worker.ReadyAsync());
+        await worker.Service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsType<HttpRequestException>(error.InnerException);
+        Assert.False(created);
+        Assert.False(worker.Service.TryEnqueue(Request(1)));
+        Assert.Single(worker.Errors);
+        Assert.Empty(Directory.GetFiles(files.DirectoryPath));
+    }
+
+    private static SpeechSegment ContextSegment(double start, double end) =>
+        new([], (long)(start * 16_000), (long)(end * 16_000),
+            (long)((end + 101.2) * Stopwatch.Frequency), (long)((start + 100) * Stopwatch.Frequency), (long)((end + 100) * Stopwatch.Frequency));
+
+    private static AudioSpeechRequest Request(int speaker,
+        Func<string, CancellationToken, Task>? onTranscript = null, Func<string, Task>? onError = null) =>
+        new([speaker], Stopwatch.GetTimestamp(), CancellationToken.None,
+            onTranscript ?? ((_, _) => Task.CompletedTask), onError ?? (_ => Task.CompletedTask));
+
+    private static byte[] Pcm(int frames, short left, short right)
+    {
+        byte[] pcm = new byte[frames * 960 * 4];
+
+        for (int offset = 0; offset < pcm.Length; offset += 4)
+        {
+            BinaryPrimitives.WriteInt16LittleEndian(pcm.AsSpan(offset), left);
+            BinaryPrimitives.WriteInt16LittleEndian(pcm.AsSpan(offset + 2), right);
+        }
+
+        return pcm;
+    }
+
+    private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private sealed class FakeTranscriber(Func<float[], CancellationToken, Task<string>> transcribe) : ILocalSpeechTranscriber
+    {
+        public int DisposeCalls { get; private set; }
+
+        public ConcurrentQueue<int> Threads { get; } = [];
+
+        public Task<string> TranscribeAsync(float[] samples, int threads, CancellationToken cancellationToken)
+        {
+            Threads.Enqueue(threads);
+            return transcribe(samples, cancellationToken);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposeCalls++;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class Worker : IAsyncDisposable
+    {
+        public AudioSpeechService Service { get; }
+        public ConcurrentQueue<Exception> Errors { get; } = [];
+
+        public Worker(Func<ILocalSpeechTranscriber> createTranscriber, Func<int>? getThreads = null)
+            : this(_ => Task.FromResult(createTranscriber()), getThreads)
+        {
+        }
+
+        public Worker(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Func<int>? getThreads = null)
+        {
+            Service = new(createTranscriber, Errors.Enqueue, getThreads);
+            Service.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+
+        public Task ReadyAsync() => Service.EnsureReadyAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await Service.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                Service.Dispose();
+            }
+        }
+    }
+
+    public class MessageChannelProxy : DispatchProxy
+    {
+        public object?[]? Arguments { get; private set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name != nameof(IMessageChannel.SendMessageAsync))
+            {
+                throw new NotSupportedException();
+            }
+
+            Arguments = args;
+            return Task.FromResult<IUserMessage>(null!);
+        }
+    }
+
+    private sealed class QueueSource(string title, string author) : AudioSourceBase(null!, false, TimeSpan.FromSeconds(30))
+    {
+        public override string Description => title;
+        public override string Author => author;
+        public override string Url => "";
+        public override string ThumbnailUrl => "";
+        public override TimeSpan? Duration => null;
+        public override TimeSpan? Remaining => null;
+
+        protected override Task InitializeAsync(int bitrateHintKbit, CancellationToken cancellationToken) => Task.CompletedTask;
+        protected override ValueTask DisposeResourcesAsync() => ValueTask.CompletedTask;
+
+        public override ValueTask<int> ReadAsync(Memory<byte> pcmBuffer, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(0);
+    }
+
+    private sealed class TestChatClient(Func<IEnumerable<ChatMessage>, ChatOptions?, CancellationToken, Task<ChatResponse>> respond) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => respond(messages, options, cancellationToken);
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private sealed class TestConfiguration : IConfigurationService
+    {
+        private readonly Dictionary<string, string> _values = [];
+
+        public void Set(ulong? context, string key, string value) => _values[key] = value;
+
+        public bool Remove(ulong? context, string key) => _values.Remove(key);
+
+        public bool TryGet(ulong? context, string key, out string value) => _values.TryGetValue(key, out value!);
+    }
+
+    private sealed class TrackingInputStream : InputStream
+    {
+        public ConcurrentQueue<Task<RTPFrame>> Reads { get; } = [];
+
+        public override Task<RTPFrame> ReadFrameAsync(CancellationToken cancelToken)
+        {
+            Task<RTPFrame> read = base.ReadFrameAsync(cancelToken);
+            Reads.Enqueue(read);
+            return read;
+        }
+    }
+
+    private sealed class TestHttpHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request, cancellationToken);
+    }
+
+    private sealed class InterruptedContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            stream.Write([1, 2, 3]);
+            throw new IOException("Interrupted model download.");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class ModelFiles : IDisposable
+    {
+        public string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "mihubot-speech-" + Guid.NewGuid().ToString("N"));
+        public string ModelPath => Path.Combine(DirectoryPath, "model.bin");
+
+        public ModelFiles() => Directory.CreateDirectory(DirectoryPath);
+
+        public void Dispose() => Directory.Delete(DirectoryPath, recursive: true);
+    }
+}

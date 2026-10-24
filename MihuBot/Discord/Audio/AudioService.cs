@@ -16,12 +16,15 @@ public sealed class AudioService
     private readonly Logger _logger;
     private readonly AudioHistoryService _history;
     private readonly AudioRecommendationService _recommendations;
+    private readonly AudioSpeechService _speech;
 
-    public AudioService(Logger logger, DiscordSocketClient discord, AudioHistoryService history, AudioRecommendationService recommendations)
+    public AudioService(Logger logger, DiscordSocketClient discord, AudioHistoryService history, AudioRecommendationService recommendations,
+        AudioSpeechService speech = null)
     {
         _logger = logger;
         _history = history;
         _recommendations = recommendations;
+        _speech = speech;
 
         discord.UserVoiceStateUpdated += (user, before, after) =>
         {
@@ -85,7 +88,7 @@ public sealed class AudioService
                 _audioSettings.Exit();
             }
 
-            audioPlayer = new AudioPlayer(client, audioSettings, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers, _history, _recommendations);
+            audioPlayer = new AudioPlayer(client, audioSettings, _logger, voiceChannel.Guild, lastTextChannel, _audioPlayers, _history, _recommendations, _speech);
             if (_audioPlayers.TryAdd(guildId, audioPlayer))
             {
                 await audioPlayer.JoinChannelAsync(voiceChannel);

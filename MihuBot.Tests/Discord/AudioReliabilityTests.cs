@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Discord.WebSocket;
 using MihuBot.Discord.Audio;
@@ -444,6 +445,192 @@ public sealed class AudioReliabilityTests
 
         Assert.NotEmpty(sources);
         Assert.All(sources, source => Assert.Equal(1, source.CleanupCalls));
+    }
+
+    [Fact]
+    public async Task CountedSkipRemovesCurrentAndQueuedTracksAtomically()
+    {
+        await using var scheduler = new AudioScheduler();
+        ControlledSource[] sources = Enumerable.Range(0, 5).Select(_ => new ControlledSource()).ToArray();
+
+        foreach (ControlledSource source in sources)
+        {
+            scheduler.Enqueue(source);
+        }
+
+        Assert.Same(sources[0], await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        IAudioSource? marked = null;
+        AudioSkipBatch batch = scheduler.SkipTracks(3, Stopwatch.GetTimestamp(), onSkippingCurrent: source =>
+        {
+            Assert.True(scheduler.TryPeekCurrent(out IAudioSource current));
+            Assert.Same(current, source);
+            marked = source;
+        });
+        await AudioScheduler.DisposeSourcesAsync(batch.ToDispose);
+
+        Assert.Equal(3, batch.Count);
+        Assert.Same(sources[0], marked);
+        Assert.Same(sources[0], batch.Current);
+        Assert.Equal(sources.Skip(3).Cast<IAudioSource>(), scheduler.GetPlaybackSnapshot());
+        Assert.Same(sources[3], await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        Assert.All(sources.Take(3), source => Assert.Equal(1, source.CleanupCalls));
+        Assert.All(sources.Skip(3), source => Assert.Equal(0, source.CleanupCalls));
+    }
+
+    [Fact]
+    public async Task SkipUntilPreservesTheDestinationAndMissingTargetsDoNotChangeTheQueue()
+    {
+        await using var scheduler = new AudioScheduler();
+        var first = new ControlledSource();
+        var second = new ControlledSource();
+        var destination = new ControlledSource();
+        await using var missing = new ControlledSource();
+        scheduler.Enqueue(first);
+        scheduler.Enqueue(second);
+        scheduler.Enqueue(destination);
+        Assert.Same(first, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        long revision = scheduler.Revision;
+
+        AudioSkipBatch notFound = scheduler.SkipTracks(1, Stopwatch.GetTimestamp(), missing);
+        Assert.True(notFound.TargetMissing);
+        Assert.Equal(revision, scheduler.Revision);
+        Assert.Equal([first, second, destination], scheduler.GetPlaybackSnapshot());
+
+        AudioSkipBatch batch = scheduler.SkipTracks(1, Stopwatch.GetTimestamp(), destination);
+        await AudioScheduler.DisposeSourcesAsync(batch.ToDispose);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Equal(1, first.CleanupCalls);
+        Assert.Equal(1, second.CleanupCalls);
+        Assert.Equal(0, destination.CleanupCalls);
+        Assert.Same(destination, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+
+        AudioSkipBatch alreadyCurrent = scheduler.SkipTracks(1, Stopwatch.GetTimestamp(), destination);
+        Assert.Equal(0, alreadyCurrent.Count);
+        Assert.Empty(alreadyCurrent.ToDispose);
+        Assert.False(alreadyCurrent.TargetMissing);
+        Assert.True(scheduler.TryPeekCurrent(out IAudioSource current));
+        Assert.Same(destination, current);
+    }
+
+    [Fact]
+    public async Task BulkSkipCancelsInitializationAndDisposesSkippedSourcesWithoutSkippingTheDestination()
+    {
+        await using var scheduler = new AudioScheduler();
+        var started = Signal();
+        var stalled = new ControlledSource(async token =>
+        {
+            started.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+        });
+        var next = new ControlledSource();
+        var destination = new ControlledSource();
+        scheduler.Enqueue(stalled);
+        scheduler.Enqueue(next);
+        scheduler.Enqueue(destination);
+        Task<IAudioSource> selecting = scheduler.GetAudioSourceAsync(CancellationToken.None).AsTask();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Same(stalled, scheduler.GetPlaybackSnapshot()[0]);
+
+        AudioSkipBatch batch = scheduler.SkipTracks(2, Stopwatch.GetTimestamp());
+        await AudioScheduler.DisposeSourcesAsync(batch.ToDispose);
+
+        Assert.Equal(2, batch.Count);
+        Assert.Same(destination, await selecting.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(1, stalled.CleanupCalls);
+        Assert.Equal(1, next.CleanupCalls);
+        Assert.Equal(0, destination.CleanupCalls);
+    }
+
+    [Fact]
+    public async Task SkipsSpokenBeforeThePreviousActionAreIgnoredButNewSpeechIsAccepted()
+    {
+        await using var scheduler = new AudioScheduler();
+        var first = new ControlledSource();
+        var second = new ControlledSource();
+        var third = new ControlledSource();
+        scheduler.Enqueue(first);
+        scheduler.Enqueue(second);
+        scheduler.Enqueue(third);
+        Assert.Same(first, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        long capturedBeforeAction = Stopwatch.GetTimestamp();
+        AudioSkipBatch initial = scheduler.SkipTracks(1, capturedBeforeAction);
+        await AudioScheduler.DisposeSourcesAsync(initial.ToDispose);
+        Assert.Same(second, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+
+        AudioSkipBatch duplicate = scheduler.SkipTracks(1, capturedBeforeAction);
+        Assert.True(duplicate.Ignored);
+        Assert.Empty(duplicate.ToDispose);
+        Assert.Equal(0, second.CleanupCalls);
+        Assert.True(scheduler.TryPeekCurrent(out IAudioSource unchanged));
+        Assert.Same(second, unchanged);
+
+        AudioSkipBatch fresh = scheduler.SkipTracks(1, Stopwatch.GetTimestamp());
+        await AudioScheduler.DisposeSourcesAsync(fresh.ToDispose);
+        Assert.False(fresh.Ignored);
+        Assert.Equal(1, fresh.Count);
+        Assert.Equal(1, second.CleanupCalls);
+        Assert.Same(third, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AManualSkipAlsoInvalidatesPreviouslyCapturedVoiceSkips()
+    {
+        await using var scheduler = new AudioScheduler();
+        var first = new ControlledSource();
+        var second = new ControlledSource();
+        scheduler.Enqueue(first);
+        scheduler.Enqueue(second);
+        Assert.Same(first, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        long capturedBeforeAction = Stopwatch.GetTimestamp();
+        await scheduler.SkipAsync();
+
+        AudioSkipBatch batch = scheduler.SkipTracks(1, capturedBeforeAction);
+
+        Assert.True(batch.Ignored);
+        Assert.Equal(0, second.CleanupCalls);
+        Assert.Same(second, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ACountLargerThanTheQueueSkipsOnlyAvailableTracksAndInvalidatesPrefetchedAutoplay()
+    {
+        await using var scheduler = new AudioScheduler();
+        var current = new ControlledSource();
+        var autoplay = new ControlledSource(isAutoplay: true);
+        scheduler.Enqueue(current);
+        Assert.Same(current, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+        Assert.True(scheduler.TrySetAutoplay(autoplay, scheduler.Revision));
+
+        AudioSkipBatch batch = scheduler.SkipTracks(3, Stopwatch.GetTimestamp());
+        await AudioScheduler.DisposeSourcesAsync(batch.ToDispose);
+
+        Assert.Equal(1, batch.Count);
+        Assert.Empty(scheduler.GetPlaybackSnapshot());
+        Assert.Equal(1, current.CleanupCalls);
+        Assert.Equal(1, autoplay.CleanupCalls);
+        Assert.False(scheduler.HasAutoplay);
+    }
+
+    [Fact]
+    public async Task BulkCleanupFailureStillDisposesOtherSkippedTracksAndPreservesTheTarget()
+    {
+        await using var scheduler = new AudioScheduler();
+        var failing = new ControlledSource(cleanup: () => throw new IOException("Cleanup failure"));
+        var other = new ControlledSource();
+        var target = new ControlledSource();
+        scheduler.Enqueue(failing);
+        scheduler.Enqueue(other);
+        scheduler.Enqueue(target);
+        Assert.Same(failing, await scheduler.GetAudioSourceAsync(CancellationToken.None));
+
+        AudioSkipBatch batch = scheduler.SkipTracks(2, Stopwatch.GetTimestamp());
+        await Assert.ThrowsAsync<AggregateException>(() => AudioScheduler.DisposeSourcesAsync(batch.ToDispose));
+
+        Assert.Equal(1, failing.CleanupCalls);
+        Assert.Equal(1, other.CleanupCalls);
+        Assert.Equal(0, target.CleanupCalls);
+        Assert.Same(target, await scheduler.GetAudioSourceAsync(CancellationToken.None));
     }
 
     private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);

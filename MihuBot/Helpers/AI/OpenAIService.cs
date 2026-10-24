@@ -21,6 +21,7 @@ public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-6-luna";
     public const string DefaultAgentModel = "gpt-6.1-sol";
+    public const string DefaultAudioModel = "gpt-audio-1.5";
 
     // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-29).
     // Estimates, not Azure region/deployment-specific billing rates. Above LongContextThreshold,
@@ -58,7 +59,8 @@ public sealed class OpenAIService
 
         AddClient(OptionalFeatures.AzureOpenAI, "mihubotai8467177614", work: false, [.. gpt56Family, Gpt6Astra, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAI2, "mihaz-m30zd4gd-eastus", work: false, [.. gpt56Family, Gpt6Astra]);
-        AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false, [.. gpt6LunaSol, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
+        AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false,
+            [.. gpt6LunaSol, DefaultAudioModel, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
         AddClient(OptionalFeatures.AzureOpenAIWork1, "issueshelperhu5783781236", work: true, [.. gpt6LunaSol, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAIWork2, "mizup-ma441ssi-eastus2", work: true, [.. gpt56Family, Gpt6Astra]);
 
@@ -72,6 +74,7 @@ public sealed class OpenAIService
                     new OpenAIClientOptions
                     {
                         Endpoint = new Uri($"https://{resourceName}.openai.azure.com/openai/v1/"),
+                        ClientLoggingOptions = new() { EnableMessageContentLogging = false },
                     });
 
                 _clients.Add((client, work, deployments));
@@ -147,6 +150,10 @@ public sealed class OpenAIService
             .UseOpenTelemetry(sourceName: MihuBotAIActivitySource.Instance.Name)
             .Build();
     }
+
+    // Audio must bypass LoggingChatClient, which serializes request payloads.
+    public OpenAI.Chat.ChatClient GetAudioChatClient() =>
+        GetClient(DefaultAudioModel, work: false).GetChatClient(DefaultAudioModel);
 
     public IChatClient GetResponsesChat(string? deployment, bool work)
     {

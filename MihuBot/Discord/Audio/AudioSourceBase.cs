@@ -129,6 +129,8 @@ public abstract class AudioSourceBase : IAudioSource
 
     public abstract string Description { get; }
 
+    public virtual string Author => null;
+
     public abstract string Url { get; }
 
     public abstract string ThumbnailUrl { get; }

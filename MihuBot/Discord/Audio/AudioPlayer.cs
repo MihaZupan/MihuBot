@@ -22,6 +22,9 @@ public sealed class AudioPlayer : IAsyncDisposable
     private readonly Logger _logger;
     private readonly AudioHistoryService _history;
     private readonly AudioRecommendationService _recommendations;
+    private readonly AudioSpeechService _speech;
+    private AudioVoiceListener _voiceListener;
+    private Task _listeningTask = Task.CompletedTask;
     private Task _autoplayTask = Task.CompletedTask;
     private Task _statusTask = Task.CompletedTask;
     private Task _playbackTask = Task.CompletedTask;
@@ -45,7 +48,8 @@ public sealed class AudioPlayer : IAsyncDisposable
     private readonly Queue<(string Event, float DeltaMs)> _copyLoopTimings = new(CopyLoopTimings);
 
     public AudioPlayer(DiscordSocketClient client, GuildAudioSettings audioSettings, Logger logger, SocketGuild guild, SocketTextChannel lastTextChannel,
-        ConcurrentDictionary<ulong, AudioPlayer> audioPlayers, AudioHistoryService history, AudioRecommendationService recommendations)
+        ConcurrentDictionary<ulong, AudioPlayer> audioPlayers, AudioHistoryService history, AudioRecommendationService recommendations,
+        AudioSpeechService speech = null)
     {
         Client = client;
         AudioSettings = audioSettings;
@@ -55,6 +59,7 @@ public sealed class AudioPlayer : IAsyncDisposable
         _audioPlayers = audioPlayers;
         _history = history;
         _recommendations = recommendations;
+        _speech = speech;
     }
 
     public async Task JoinChannelAsync(SocketVoiceChannel voiceChannel)
@@ -73,7 +78,7 @@ public sealed class AudioPlayer : IAsyncDisposable
             _scheduler.SetBitrate(bitrate);
 
             VoiceChannel = voiceChannel;
-            joined = await voiceChannel.ConnectAsync();
+            joined = await voiceChannel.ConnectAsync(selfDeaf: _speech is null);
 
             lock (_disposeLock)
             {
@@ -81,6 +86,11 @@ public sealed class AudioPlayer : IAsyncDisposable
                 _audioClient = joined;
                 published = true;
                 _pcmStream = _audioClient.CreateDirectPCMStream(AudioApplication.Music, bitrate, GlobalAudioSettings.PacketLoss);
+
+                if (_speech is not null)
+                {
+                    _listeningTask = Task.Run(StartListeningAsync);
+                }
 
                 if (_recommendations.IsAvailable)
                 {
@@ -123,6 +133,201 @@ public sealed class AudioPlayer : IAsyncDisposable
             }
         }
     }
+
+    private async Task StartListeningAsync()
+    {
+        try
+        {
+            await _speech.EnsureReadyAsync(_disposedCts.Token);
+            await VoiceChannel.SendMessageAsync(
+                "I'm listening for spoken music commands while connected. Say \"Hey MihuBot, queue song ...\", pause, resume, skip, or stop.",
+                allowedMentions: AllowedMentions.None,
+                options: new RequestOptions { CancelToken = _disposedCts.Token, Timeout = 10_000 });
+
+            lock (_disposeLock)
+            {
+                if (_disposeTask is null)
+                {
+                    _voiceListener = new AudioVoiceListener(this, _audioClient, _speech, _logger);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _logger.DebugLog($"Could not enable spoken music commands: {ex}", guildId: Guild.Id);
+
+            try
+            {
+                await LastTextChannel.SendMessageAsync("Spoken music commands are unavailable. Music playback and text commands still work.",
+                    options: new RequestOptions { CancelToken = _disposedCts.Token, Timeout = 10_000 });
+            }
+            catch (OperationCanceledException) when (_disposedCts.IsCancellationRequested) { }
+            catch (Exception notificationError)
+            {
+                _logger.DebugLog($"Could not report spoken command setup failure: {notificationError}", guildId: Guild.Id);
+            }
+        }
+    }
+
+    internal IAudioSource[] GetSpokenQueueSnapshot() => _scheduler.GetPlaybackSnapshot();
+
+    internal async Task<bool> HandleSpokenCommandAsync(ulong userId, SpokenAudioCommand command, long spokenAt, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SocketGuildUser user = VoiceChannel.GetUser(userId);
+
+        if (user is null || user.IsBot || _disposedCts.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        string response;
+
+        switch (command.Action)
+        {
+            case SpokenAudioAction.Queue:
+                SpokenSongResolution resolution = await _speech.ResolveSongAsync(Guild.Id, command, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (_disposedCts.IsCancellationRequested || VoiceChannel.GetUser(userId) is null)
+                {
+                    return false;
+                }
+
+                if (resolution.Video is null)
+                {
+                    await SendSpokenCommandFailureAsync(LastTextChannel, user.Id, resolution.Error, cancellationToken);
+                    return false;
+                }
+                else
+                {
+                    lock (_disposeLock)
+                    {
+                        if (_disposeTask is not null)
+                        {
+                            return false;
+                        }
+
+                        Enqueue(new YoutubeAudioSource(user, resolution.Video));
+                    }
+
+                    response = $"Queued {Format.Code(resolution.Video.Title)}.";
+                }
+
+                break;
+            case SpokenAudioAction.Pause:
+                Pause();
+                response = "Paused.";
+                break;
+            case SpokenAudioAction.Resume:
+                Unpause();
+                response = "Resumed.";
+                break;
+            case SpokenAudioAction.Skip:
+            case SpokenAudioAction.SkipUntil:
+                if (_scheduler.WasSkippedSince(spokenAt))
+                {
+                    return false;
+                }
+
+                if (command.Action == SpokenAudioAction.SkipUntil && command.TargetSource is null)
+                {
+                    await SendSpokenCommandFailureAsync(LastTextChannel, user.Id, "I couldn't find that track in the queue.", cancellationToken);
+                    return false;
+                }
+
+                AudioSkipBatch skipped = await SkipSpokenTracksAsync(command.Count, spokenAt, command.TargetSource);
+
+                if (skipped.Ignored)
+                {
+                    return false;
+                }
+
+                if (skipped.TargetMissing)
+                {
+                    await SendSpokenCommandFailureAsync(LastTextChannel, user.Id,
+                        "That track is no longer in the queue. Please repeat your request.", cancellationToken);
+                    return false;
+                }
+
+                if (command.Action == SpokenAudioAction.SkipUntil)
+                {
+                    response = skipped.Count == 0
+                        ? $"{Format.Code(command.TargetSource.Description)} is already current or next."
+                        : $"Skipped {skipped.Count} song(s). Next is {Format.Code(command.TargetSource.Description)}.";
+                }
+                else if (skipped.Count < command.Count)
+                {
+                    await SendSpokenCommandFailureAsync(LastTextChannel, user.Id,
+                        skipped.Count == 0 ? "There are no songs to skip." : $"Only {skipped.Count} song(s) were available; I skipped those.",
+                        cancellationToken);
+                    return skipped.Count > 0;
+                }
+                else
+                {
+                    response = skipped.Count == 1 ? "Skipped." : $"Skipped {skipped.Count} songs.";
+                }
+
+                break;
+            case SpokenAudioAction.Stop:
+                try
+                {
+                    await LastTextChannel.SendMessageAsync("Stopped music and voice listening.", allowedMentions: AllowedMentions.None,
+                        options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
+                }
+                finally
+                {
+                    await DisposeAsync();
+                }
+
+                return true;
+            case SpokenAudioAction.None:
+            default:
+                throw new InvalidOperationException($"Unknown spoken audio action '{command.Action}'.");
+        }
+
+        await LastTextChannel.SendMessageAsync($"{user.DisplayName}: {response}", allowedMentions: AllowedMentions.None,
+            options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
+        return true;
+    }
+
+    private async Task<AudioSkipBatch> SkipSpokenTracksAsync(int count, long spokenAt, IAudioSource target)
+    {
+        AudioSkipBatch batch;
+
+        lock (_disposeLock)
+        {
+            if (_disposeTask is not null)
+            {
+                return new(0, null, [], Ignored: true);
+            }
+
+            batch = _scheduler.SkipTracks(count, spokenAt, target, current => Volatile.Write(ref _skippedSource, current));
+        }
+
+        var cleanup = new AsyncCleanup();
+
+        if (batch.Current is not null)
+        {
+            await cleanup.RunAsync(() => FinishPlaybackAsync(AudioPlaybackOutcome.Skipped, batch.Current));
+        }
+
+        await cleanup.RunAsync(() => AudioScheduler.DisposeSourcesAsync(batch.ToDispose));
+
+        if (batch.Count > 0)
+        {
+            Unpause();
+        }
+
+        cleanup.ThrowIfFailed();
+        return batch;
+    }
+
+    internal static Task SendSpokenCommandFailureAsync(IMessageChannel channel, ulong userId, string message, CancellationToken cancellationToken) =>
+        channel.SendMessageAsync($"{MentionUtils.MentionUser(userId)}: {message}",
+            allowedMentions: new AllowedMentions { UserIds = [userId] },
+            options: new RequestOptions { CancelToken = cancellationToken, Timeout = 10_000 });
 
     public bool Unpause()
     {
@@ -728,6 +933,13 @@ public sealed class AudioPlayer : IAsyncDisposable
         {
             cleanup.Run(_disposedCts.Cancel);
             Unpause();
+            await cleanup.RunAsync(() => _listeningTask);
+
+            if (_voiceListener is not null)
+            {
+                await cleanup.RunAsync(() => _voiceListener.DisposeAsync().AsTask());
+            }
+
             await cleanup.RunAsync(() => _scheduler.DisposeAsync().AsTask());
 
             if (_audioClient is not null)

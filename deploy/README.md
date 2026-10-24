@@ -138,9 +138,9 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | --- | --- |
 | `Telemetry:Endpoint` | OTLP/HTTP trace and metric export |
 | `Copilot:GitHubToken` | Local Copilot agent (`!agent`) |
-| `AzureOpenAI:Key` | AI features and personal deployments at `mihubotai8467177614` |
+| `AzureOpenAI:Key` | AI features (including spoken music commands) and personal deployments at `mihubotai8467177614` |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
-| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol and GPT-6.1 Sol at `mizup-mud33obs-swedencentral`; required for the default personal chat model |
+| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol, GPT-6.1 Sol, and `gpt-audio-1.5` at `mizup-mud33obs-swedencentral`; required for the default personal chat model and song-audio clarification |
 | `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol, GPT-6.1 Sol, and embeddings at `issueshelperhu5783781236` |
 | `AzureOpenAI:WorkKey2` | Work GPT-5.6 and GPT-6 Astra at `mizup-ma441ssi-eastus2` |
 | `AzureStorage:ConnectionString` | Archiving Discord attachments to blob storage (files stay on disk) |
@@ -163,6 +163,15 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
+
+With Azure OpenAI configured, startup automatically downloads the local speech
+model to `/data/State/Whisper/ggml-small.en.bin` if missing. Allow outbound HTTPS
+to Hugging Face and its storage/CDN endpoints. Download/load failures disable
+spoken commands without preventing startup. Global runtime `AudioSpeech.Threads`
+sets the CPU thread count (default: up to 8) and applies without restarting.
+Self-contained single-file publishes keep native Whisper libraries in `runtimes/`;
+retain that directory beside the executable. Linux also needs `libgomp1`;
+existing Docker deployments must rebuild/recreate the image to install it.
 
 YouTube archival requires rebuilding/recreating the image to install Deno
 alongside yt-dlp and ffmpeg. Optionally set global runtime `YoutubeArchive.CookiesFile` to a
