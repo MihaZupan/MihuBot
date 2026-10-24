@@ -43,6 +43,26 @@ internal static class VolumeHelper
 
     private static void Multiply(Span<short> span, float factor)
     {
+        if (Vector512.IsHardwareAccelerated)
+        {
+            Vector512<float> factorVec = Vector512.Create(factor);
+
+            while (span.Length >= Vector512<short>.Count)
+            {
+                Vector512<short> source = Vector512.Create(span);
+                (Vector512<int> wideLow, Vector512<int> wideHigh) = Vector512.Widen(source);
+                Vector512<float> singleLow = Vector512.ConvertToSingle(wideLow);
+                Vector512<float> singleHigh = Vector512.ConvertToSingle(wideHigh);
+                singleLow *= factorVec;
+                singleHigh *= factorVec;
+                wideLow = Vector512.ConvertToInt32(singleLow);
+                wideHigh = Vector512.ConvertToInt32(singleHigh);
+                Vector512<short> result = Vector512.Narrow(wideLow, wideHigh);
+                result.CopyTo(span);
+                span = span.Slice(Vector512<short>.Count);
+            }
+        }
+
         if (Vector256.IsHardwareAccelerated)
         {
             Vector256<float> factorVec = Vector256.Create(factor);
@@ -60,6 +80,26 @@ internal static class VolumeHelper
                 Vector256<short> result = Vector256.Narrow(wideLow, wideHigh);
                 result.CopyTo(span);
                 span = span.Slice(Vector256<short>.Count);
+            }
+        }
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            Vector128<float> factorVec = Vector128.Create(factor);
+
+            while (span.Length >= Vector128<short>.Count)
+            {
+                Vector128<short> source = Vector128.Create(span);
+                (Vector128<int> wideLow, Vector128<int> wideHigh) = Vector128.Widen(source);
+                Vector128<float> singleLow = Vector128.ConvertToSingle(wideLow);
+                Vector128<float> singleHigh = Vector128.ConvertToSingle(wideHigh);
+                singleLow *= factorVec;
+                singleHigh *= factorVec;
+                wideLow = Vector128.ConvertToInt32(singleLow);
+                wideHigh = Vector128.ConvertToInt32(singleHigh);
+                Vector128<short> result = Vector128.Narrow(wideLow, wideHigh);
+                result.CopyTo(span);
+                span = span.Slice(Vector128<short>.Count);
             }
         }
 

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 
 #nullable enable
@@ -49,22 +50,46 @@ internal sealed class SpeechSegmenter(Action<SpeechSegment> onSegment)
         _lastPacket = timestamp;
 
         // Average stereo channels and three 48 kHz samples to produce 16 kHz mono.
-        for (int i = 0; i < pcm.Length; i += sizeof(short))
+        while (!pcm.IsEmpty)
         {
-            _resampleSum += BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(i, sizeof(short)));
+            int sum;
 
-            if (++_resampleCount == 6)
+            if (_resampleCount == 0 && pcm.Length >= 12)
             {
-                _frame[_frameCount++] = _resampleSum / (6f * 32768);
+                sum = BinaryPrimitives.ReadInt16LittleEndian(pcm)
+                    + BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(2))
+                    + BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(4))
+                    + BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(6))
+                    + BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(8))
+                    + BinaryPrimitives.ReadInt16LittleEndian(pcm.Slice(10));
+                pcm = pcm.Slice(12);
+            }
+            else
+            {
+                while (_resampleCount < 6 && !pcm.IsEmpty)
+                {
+                    _resampleSum += BinaryPrimitives.ReadInt16LittleEndian(pcm);
+                    _resampleCount++;
+                    pcm = pcm.Slice(sizeof(short));
+                }
+
+                if (_resampleCount < 6)
+                {
+                    break;
+                }
+
+                sum = _resampleSum;
                 _resampleSum = 0;
                 _resampleCount = 0;
-                _samplesReceived++;
+            }
 
-                if (_frameCount == FrameSamples)
-                {
-                    ProcessFrame(timestamp);
-                    _frameCount = 0;
-                }
+            _frame[_frameCount++] = sum / (6f * 32768);
+            _samplesReceived++;
+
+            if (_frameCount == FrameSamples)
+            {
+                ProcessFrame(timestamp);
+                _frameCount = 0;
             }
         }
     }
@@ -85,13 +110,7 @@ internal sealed class SpeechSegmenter(Action<SpeechSegment> onSegment)
 
     private void ProcessFrame(long timestamp)
     {
-        double energy = 0;
-
-        foreach (float sample in _frame)
-        {
-            energy += sample * sample;
-        }
-
+        float energy = TensorPrimitives.Dot<float>(_frame, _frame);
         bool voiced = energy / FrameSamples >= SpeechThreshold * SpeechThreshold;
 
         if (_speech.Count == 0 && voiced)
@@ -99,10 +118,11 @@ internal sealed class SpeechSegmenter(Action<SpeechSegment> onSegment)
             _speechStart = _samplesReceived - FrameSamples - _preRollCount;
             _speechStartTimestamp = timestamp;
 
-            for (int i = 0; i < _preRollCount; i++)
-            {
-                _speech.Add(_preRoll[(_preRollPosition - _preRollCount + i + PreRollSamples) % PreRollSamples]);
-            }
+            int start = (_preRollPosition - _preRollCount + PreRollSamples) % PreRollSamples;
+            int firstLength = Math.Min(_preRollCount, PreRollSamples - start);
+
+            _speech.AddRange(_preRoll.AsSpan(start, firstLength));
+            _speech.AddRange(_preRoll.AsSpan(0, _preRollCount - firstLength));
         }
 
         if (_speech.Count > 0 || voiced)
@@ -126,12 +146,9 @@ internal sealed class SpeechSegmenter(Action<SpeechSegment> onSegment)
             }
         }
 
-        foreach (float sample in _frame)
-        {
-            _preRoll[_preRollPosition] = sample;
-            _preRollPosition = (_preRollPosition + 1) % PreRollSamples;
-            _preRollCount = Math.Min(_preRollCount + 1, PreRollSamples);
-        }
+        _frame.AsSpan().CopyTo(_preRoll.AsSpan(_preRollPosition));
+        _preRollPosition = (_preRollPosition + FrameSamples) % PreRollSamples;
+        _preRollCount = Math.Min(_preRollCount + FrameSamples, PreRollSamples);
     }
 
     private void Finish(long timestamp, bool continuation)

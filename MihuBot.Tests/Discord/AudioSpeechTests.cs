@@ -640,6 +640,86 @@ public sealed class AudioSpeechTests
         Assert.All(segment.Samples.Skip(16_000), sample => Assert.Equal(0f, sample));
     }
 
+    [Theory]
+    [InlineData(4)]
+    [InlineData(8)]
+    [InlineData(12)]
+    [InlineData(16)]
+    [InlineData(3836)]
+    [InlineData(3844)]
+    [InlineData(int.MaxValue)]
+    public void ResamplingPreservesSamplesAcrossPacketAndFrameBoundaries(int packetBytes)
+    {
+        const int SampleCount = 3840;
+        byte[] pcm = new byte[SampleCount * 6 * sizeof(short)];
+        float[] expected = new float[SampleCount];
+        int sum = 0;
+
+        for (int i = 0; i < SampleCount * 6; i++)
+        {
+            short sample = (short)((i * 7919 % 65536) - 32768);
+            BinaryPrimitives.WriteInt16LittleEndian(pcm.AsSpan(i * sizeof(short)), sample);
+            sum += sample;
+
+            if (i % 6 == 5)
+            {
+                expected[i / 6] = sum / (6f * 32768);
+                sum = 0;
+            }
+        }
+
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+
+        for (int offset = 0; offset < pcm.Length;)
+        {
+            int length = Math.Min(packetBytes, pcm.Length - offset);
+            segmenter.AddPcm(pcm.AsSpan(offset, length), now);
+            offset += length;
+        }
+
+        segmenter.FlushIfIdle(now + 2 * Stopwatch.Frequency);
+
+        SpeechSegment segment = Assert.Single(segments);
+        Assert.Equal(0, segment.StartSample);
+        Assert.Equal(SampleCount, segment.EndSample);
+        Assert.Equal(expected, segment.Samples.Take(SampleCount));
+        Assert.All(segment.Samples.Skip(SampleCount), sample => Assert.Equal(0f, sample));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(10)]
+    [InlineData(13)]
+    public void PreRollPreservesSampleOrderAcrossCircularBufferBoundaries(int preRollFrames)
+    {
+        List<SpeechSegment> segments = [];
+        var segmenter = new SpeechSegmenter(segments.Add);
+        long now = Stopwatch.GetTimestamp();
+
+        for (int i = 0; i < preRollFrames; i++)
+        {
+            short amplitude = (short)((i + 1) * 16);
+            segmenter.AddPcm(Pcm(1, amplitude, amplitude), now);
+        }
+
+        segmenter.AddPcm(Pcm(10, 4096, 4096), now);
+        segmenter.FlushIfIdle(now + 2 * Stopwatch.Frequency);
+
+        float[] expected = Enumerable.Range(Math.Max(0, preRollFrames - 10), Math.Min(preRollFrames, 10))
+            .SelectMany(i => Enumerable.Repeat((i + 1) * 16 / 32768f, 320))
+            .Concat(Enumerable.Repeat(0.125f, 3200))
+            .ToArray();
+        SpeechSegment segment = Assert.Single(segments);
+
+        Assert.Equal(Math.Max(0, preRollFrames - 10) * 320, segment.StartSample);
+        Assert.Equal((preRollFrames + 10) * 320, segment.EndSample);
+        Assert.Equal(expected, segment.Samples.Take(expected.Length));
+        Assert.All(segment.Samples.Skip(expected.Length), sample => Assert.Equal(0f, sample));
+    }
+
     [Fact]
     public void SilenceAndBriefNoiseDoNotReachWhisper()
     {
