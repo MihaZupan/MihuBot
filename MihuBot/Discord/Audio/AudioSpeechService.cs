@@ -93,6 +93,7 @@ public sealed class AudioSpeechService : BackgroundService
     private readonly Action<Exception> _logError;
     private readonly Action<ulong, string>? _logCloudRequest;
     private readonly Action<string>? _logWhisperProcessing;
+    private readonly TimeProvider _timeProvider;
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Exception? _initializationError;
 
@@ -119,7 +120,7 @@ public sealed class AudioSpeechService : BackgroundService
 
     internal AudioSpeechService(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Action<Exception> logError,
         Func<int>? getThreads = null, Func<ulong, IChatClient>? createChat = null, SpokenSongResolver? songs = null,
-        Action<ulong, string>? logCloudRequest = null, Action<string>? logWhisperProcessing = null)
+        Action<ulong, string>? logCloudRequest = null, Action<string>? logWhisperProcessing = null, TimeProvider? timeProvider = null)
     {
         _createTranscriber = createTranscriber;
         _logError = logError;
@@ -128,6 +129,7 @@ public sealed class AudioSpeechService : BackgroundService
         _songs = songs;
         _logCloudRequest = logCloudRequest;
         _logWhisperProcessing = logWhisperProcessing;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     internal static int GetThreads(IConfigurationService configuration)
@@ -231,7 +233,7 @@ public sealed class AudioSpeechService : BackgroundService
 
                     try
                     {
-                        TimeSpan age = Stopwatch.GetElapsedTime(request.Timestamp);
+                        TimeSpan age = _timeProvider.GetElapsedTime(request.Timestamp);
 
                         if (age >= MaxRequestAge)
                         {
@@ -239,9 +241,10 @@ public sealed class AudioSpeechService : BackgroundService
                             continue;
                         }
 
-                        cancellation.CancelAfter(MaxRequestAge - age);
+                        using var deadline = new CancellationTokenSource(MaxRequestAge - age, _timeProvider);
+                        using var deadlineRegistration = deadline.Token.Register(cancellation.Cancel);
                         int threads = _getThreads();
-                        long started = Stopwatch.GetTimestamp();
+                        long started = _timeProvider.GetTimestamp();
                         bool completed = false;
                         string transcript;
 
@@ -253,7 +256,7 @@ public sealed class AudioSpeechService : BackgroundService
                         }
                         finally
                         {
-                            TimeSpan processing = Stopwatch.GetElapsedTime(started);
+                            TimeSpan processing = _timeProvider.GetElapsedTime(started);
                             double clipSeconds = (double)request.Samples.Length / SpeechSegmenter.SampleRate;
                             int queuedSegments;
                             long queuedSamples;
@@ -277,7 +280,7 @@ public sealed class AudioSpeechService : BackgroundService
                             })}");
                         }
 
-                        if (Stopwatch.GetElapsedTime(request.Timestamp) <= MaxRequestAge)
+                        if (_timeProvider.GetElapsedTime(request.Timestamp) <= MaxRequestAge)
                         {
                             await request.OnTranscript(transcript, cancellation.Token);
                         }

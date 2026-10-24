@@ -34,25 +34,27 @@ public sealed class ConfigurationServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReloadsEditsAndAtomicReplacements(bool global)
+    public void ReloadsEditsAndAtomicReplacements(bool global)
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old","Removed":"value"}""");
-        using var service = new ConfigurationService(files.Directory);
+        using var service = files.CreateService();
         ulong? context = global ? null : 42;
         Assert.True(service.TryGet(context, "KEY", out string initial));
         Assert.Equal("old", initial);
 
         files.Write(global, """{"key":"edited","Added":"retained"}""");
-        await WaitFor(() => service.TryGet(context, "KEY", out string value) && value == "edited");
+        Assert.True(service.TryGet(context, "KEY", out string edited));
+        Assert.Equal("edited", edited);
         Assert.False(service.TryGet(context, "Removed", out _));
 
         files.Write(global, """{"KEY":"replaced","Added":"retained"}""", replace: true);
-        await WaitFor(() => service.TryGet(context, "key", out string value) && value == "replaced");
+        Assert.True(service.TryGet(context, "key", out string replaced));
+        Assert.Equal("replaced", replaced);
         service.Set(context, "Local", "written");
         Assert.True(service.Remove(context, "kEy"));
 
-        using var reopened = new ConfigurationService(files.Directory);
+        using var reopened = files.CreateService();
         Assert.True(reopened.TryGet(context, "added", out string retained));
         Assert.Equal("retained", retained);
         Assert.True(reopened.TryGet(context, "local", out string written));
@@ -63,14 +65,15 @@ public sealed class ConfigurationServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task WatchesFilesThatDoNotExistAtStartup(bool global)
+    public void WatchesFilesThatDoNotExistAtStartup(bool global)
     {
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory);
+        using var service = files.CreateService();
         ulong? context = global ? null : 42;
         Assert.False(service.TryGet(context, "Key", out _));
         files.Write(global, """{"Key":"created"}""");
-        await WaitFor(() => service.TryGet(context, "key", out string value) && value == "created");
+        Assert.True(service.TryGet(context, "key", out string value));
+        Assert.Equal("created", value);
     }
 
     [Theory]
@@ -80,16 +83,17 @@ public sealed class ConfigurationServiceTests
     [InlineData(true, "null")]
     [InlineData(false, """{"42":null}""")]
     [InlineData(true, """{"Key":"a","KEY":"b"}""")]
-    public async Task InvalidEditsAreLoggedAndKeepPreviousValuesUntilCorrected(bool global, string invalidJson)
+    public void InvalidEditsAreLoggedAndKeepPreviousValuesUntilCorrected(bool global, string invalidJson)
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old"}""");
         var errors = new ConcurrentQueue<string>();
-        using var service = new ConfigurationService(files.Directory, errors.Enqueue);
+        using var service = files.CreateService(errors.Enqueue);
         ulong? context = global ? null : 42;
 
         File.WriteAllText(files.Path(global), invalidJson);
-        await WaitFor(() => !errors.IsEmpty);
+        files.Notify(global);
+        Assert.NotEmpty(errors);
         Assert.Contains(errors, message => message.Contains(
             $"Could not reload {System.IO.Path.GetFileName(files.Path(global))}; keeping the previous configuration. Exception:",
             StringComparison.Ordinal));
@@ -97,41 +101,51 @@ public sealed class ConfigurationServiceTests
         Assert.Equal("old", previous);
 
         files.Write(global, """{"Key":"corrected"}""");
-        await WaitFor(() => service.TryGet(context, "KEY", out string value) && value == "corrected");
+        Assert.True(service.TryGet(context, "KEY", out string value));
+        Assert.Equal("corrected", value);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task DeletedFilesKeepPreviousValuesAndCanBeRecreated(bool global)
+    public void DeletedFilesKeepPreviousValuesAndCanBeRecreated(bool global)
     {
         using var files = new Files();
         files.Write(global, """{"Key":"old"}""");
         var errors = new ConcurrentQueue<string>();
-        using var service = new ConfigurationService(files.Directory, errors.Enqueue);
+        using var service = files.CreateService(errors.Enqueue);
         ulong? context = global ? null : 42;
 
         File.Delete(files.Path(global));
-        await WaitFor(() => !errors.IsEmpty);
+        files.Notify(global);
+        Assert.NotEmpty(errors);
         Assert.True(service.TryGet(context, "Key", out string previous));
         Assert.Equal("old", previous);
 
         files.Write(global, """{"Key":"recreated"}""");
-        await WaitFor(() => service.TryGet(context, "Key", out string value) && value == "recreated");
+        Assert.True(service.TryGet(context, "Key", out string value));
+        Assert.Equal("recreated", value);
     }
 
     [Fact]
-    public async Task DisposedWatchersDoNotReload()
+    public void DisposedWatchersDoNotReload()
     {
         using var files = new Files();
         files.Write(global: true, """{"Key":"old"}""");
         files.Write(global: false, """{"Key":"old"}""");
-        using var service = new ConfigurationService(files.Directory);
+        using var service = files.CreateService();
+        var inFlight = files.Subscriptions.ToArray();
         service.Dispose();
 
         files.Write(global: true, """{"Key":"new"}""");
         files.Write(global: false, """{"Key":"new"}""");
-        await Task.Delay(1000);
+
+        foreach (var subscription in inFlight)
+        {
+            subscription.Reload();
+        }
+
+        Assert.Empty(files.Subscriptions);
         Assert.True(service.TryGet(null, "Key", out string global));
         Assert.Equal("old", global);
         Assert.True(service.TryGet(42, "Key", out string contextual));
@@ -142,7 +156,7 @@ public sealed class ConfigurationServiceTests
     public void SetAndRemoveRemainCaseInsensitiveAndPersistContextRemoval()
     {
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory);
+        using var service = files.CreateService();
         service.Set(42, "Key", "first");
         service.Set(42, "KEY", "second");
         service.Set(null, "Key", "global");
@@ -162,27 +176,31 @@ public sealed class ConfigurationServiceTests
     [InlineData(true)]
     public async Task ConcurrentWritesAndReloadsPreserveAllValues(bool global)
     {
+        const int Count = 8;
+
         using var files = new Files();
-        using var service = new ConfigurationService(files.Directory);
+        using var service = files.CreateService();
         ulong? context = global ? null : 42;
         service.Set(context, "Initial", "old");
         files.Write(global, """{"Initial":"edited"}""");
-        await WaitFor(() => service.TryGet(context, "Initial", out string value) && value == "edited");
+        Assert.True(service.TryGet(context, "Initial", out string edited));
+        Assert.Equal("edited", edited);
 
-        await Parallel.ForAsync(0, 100, (index, _) =>
+        await Parallel.ForAsync(0, Count, (index, _) =>
         {
             string key = $"Key{index}";
             service.Set(context, key, "value");
+            files.Notify(global);
             Assert.True(service.TryGet(context, key, out string value));
             Assert.Equal("value", value);
             return ValueTask.CompletedTask;
         });
 
-        using var reopened = new ConfigurationService(files.Directory);
+        using var reopened = files.CreateService();
         Assert.True(reopened.TryGet(context, "Initial", out string initial));
         Assert.Equal("edited", initial);
 
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i < Count; i++)
         {
             Assert.True(reopened.TryGet(context, $"Key{i}", out string value));
             Assert.Equal("value", value);
@@ -193,7 +211,7 @@ public sealed class ConfigurationServiceTests
     public void TypedIntegerConfigurationDefaultsOnlyWhenMissing()
     {
         using var files = new Files();
-        using var store = new ConfigurationService(files.Directory);
+        using var store = files.CreateService();
         IConfigurationService configuration = store;
 
         Assert.Equal(8, configuration.GetInt32(null, "Count", 8));
@@ -209,28 +227,35 @@ public sealed class ConfigurationServiceTests
     public void TypedIntegerConfigurationRejectsMalformedValues(string value)
     {
         using var files = new Files();
-        using var store = new ConfigurationService(files.Directory);
+        using var store = files.CreateService();
         IConfigurationService configuration = store;
         configuration.Set(null, "Count", value);
 
         Assert.Throws<InvalidOperationException>(() => configuration.GetInt32(null, "Count", 8));
     }
 
-    private static async Task WaitFor(Func<bool> condition)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-        while (!condition())
-        {
-            await Task.Delay(25, timeout.Token);
-        }
-    }
-
     private sealed class Files : IDisposable
     {
         private readonly DirectoryInfo _directory = System.IO.Directory.CreateTempSubdirectory("MihuBot-Configuration-");
+        public List<Subscription> Subscriptions { get; } = [];
         public string Directory => _directory.FullName;
         public string Path(bool global) => System.IO.Path.Combine(Directory, global ? "GlobalConfiguration.json" : "Configuration.json");
+
+        public ConfigurationService CreateService(Action<string>? logError = null) =>
+            new(Directory, logError, (name, reload) =>
+            {
+                var subscription = new Subscription(this, name, reload);
+                Subscriptions.Add(subscription);
+                return subscription;
+            });
+
+        public void Notify(bool global)
+        {
+            foreach (var subscription in Subscriptions.Where(s => s.Name == System.IO.Path.GetFileName(Path(global))).ToArray())
+            {
+                subscription.Reload();
+            }
+        }
 
         public void Write(bool global, string json, bool replace = false)
         {
@@ -242,8 +267,17 @@ public sealed class ConfigurationServiceTests
             {
                 File.Move(path + ".new", path, overwrite: true);
             }
+
+            Notify(global);
         }
 
         public void Dispose() => _directory.Delete(recursive: true);
+
+        public sealed class Subscription(Files files, string name, Action reload) : IDisposable
+        {
+            public string Name => name;
+            public void Reload() => reload();
+            public void Dispose() => files.Subscriptions.Remove(this);
+        }
     }
 }

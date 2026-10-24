@@ -241,6 +241,7 @@ public sealed class YoutubeArchiveTests
         using var files = new ArchiveFiles();
         using var runtimeConfiguration = new ConfigurationService(files.Root);
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
         builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
         string secret = new('a', 64);
         runtimeConfiguration.Set(null, YoutubeArchiveAuthenticationHandler.SharedSecretsKey, secret);
@@ -290,6 +291,7 @@ public sealed class YoutubeArchiveTests
         var downloader = new FakeDownloader();
         using var service = files.CreateService(downloader);
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
         builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
         string secret = new('b', 64);
         runtimeConfiguration.Set(null, YoutubeArchiveAuthenticationHandler.SharedSecretsKey, secret);
@@ -350,6 +352,7 @@ public sealed class YoutubeArchiveTests
         using var files = new ArchiveFiles();
         using var runtimeConfiguration = new ConfigurationService(files.Root);
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
         builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton<IConfigurationService>(runtimeConfiguration);
         builder.Services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, YoutubeArchiveAuthenticationHandler>(
@@ -401,6 +404,7 @@ public sealed class YoutubeArchiveTests
         using var files = new ArchiveFiles();
         using var runtimeConfiguration = new ConfigurationService(files.Root);
         var builder = WebApplication.CreateBuilder();
+        builder.Logging.ClearProviders();
         builder.WebHost.UseKestrel().UseUrls("http://127.0.0.1:0");
         string startupToken = new('s', 64);
         string runtimeToken = new('r', 64);

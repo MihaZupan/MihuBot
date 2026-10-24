@@ -26,15 +26,23 @@ public sealed class MollyRateLimiter
 
     private readonly TimeSpan _cooldown;
     private readonly int _burst;
+    private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<string, Client> _clients = new(StringComparer.Ordinal);
-    private long _lastCleanupTimestamp = Stopwatch.GetTimestamp();
+    private long _lastCleanupTimestamp;
 
     public MollyRateLimiter() : this(DefaultCooldown, DefaultBurst) { }
 
     public MollyRateLimiter(TimeSpan cooldown, int burst)
+        : this(cooldown, burst, TimeProvider.System)
+    {
+    }
+
+    internal MollyRateLimiter(TimeSpan cooldown, int burst, TimeProvider timeProvider)
     {
         _cooldown = cooldown;
         _burst = burst;
+        _timeProvider = timeProvider;
+        _lastCleanupTimestamp = timeProvider.GetTimestamp();
     }
 
     /// <summary>
@@ -58,7 +66,7 @@ public sealed class MollyRateLimiter
         }
 
         Client client = _clients.GetOrAdd(key, CreateClient);
-        Volatile.Write(ref client.LastUsedTimestamp, Stopwatch.GetTimestamp());
+        Volatile.Write(ref client.LastUsedTimestamp, _timeProvider.GetTimestamp());
 
         bool allowed = client.Limiter.TryEnter();
 
@@ -81,14 +89,18 @@ public sealed class MollyRateLimiter
             : null;
     }
 
-    private Client CreateClient(string key) => new() { Limiter = new SimpleRateLimiter(_cooldown, _burst) };
+    private Client CreateClient(string key) => new()
+    {
+        Limiter = new SimpleRateLimiter(_cooldown, _burst, _timeProvider),
+        LastUsedTimestamp = _timeProvider.GetTimestamp()
+    };
 
     private void CleanupIfNeeded()
     {
-        long now = Stopwatch.GetTimestamp();
+        long now = _timeProvider.GetTimestamp();
         long lastCleanup = Volatile.Read(ref _lastCleanupTimestamp);
 
-        if (Stopwatch.GetElapsedTime(lastCleanup, now) < CleanupInterval && _clients.Count < MaxTrackedClients)
+        if (_timeProvider.GetElapsedTime(lastCleanup, now) < CleanupInterval && _clients.Count < MaxTrackedClients)
         {
             return;
         }
@@ -104,7 +116,7 @@ public sealed class MollyRateLimiter
 
         foreach ((string key, Client client) in _clients)
         {
-            if (Stopwatch.GetElapsedTime(Volatile.Read(ref client.LastUsedTimestamp), now) > fullRefill)
+            if (_timeProvider.GetElapsedTime(Volatile.Read(ref client.LastUsedTimestamp), now) > fullRefill)
             {
                 _clients.TryRemove(new KeyValuePair<string, Client>(key, client));
             }
@@ -115,6 +127,6 @@ public sealed class MollyRateLimiter
     {
         public required SimpleRateLimiter Limiter { get; init; }
 
-        public long LastUsedTimestamp = Stopwatch.GetTimestamp();
+        public long LastUsedTimestamp;
     }
 }

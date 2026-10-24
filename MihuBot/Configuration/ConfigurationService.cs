@@ -21,7 +21,8 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
     {
     }
 
-    internal ConfigurationService(string directory, Action<string> logError = null)
+    internal ConfigurationService(string directory, Action<string> logError = null,
+        Func<string, Action, IDisposable> subscribeToChanges = null)
     {
         logError ??= Console.Error.WriteLine;
         directory = Path.GetFullPath(directory);
@@ -52,18 +53,20 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
             });
 
         Directory.CreateDirectory(directory);
-        _fileProvider = new PhysicalFileProvider(directory);
+        _fileProvider = subscribeToChanges is null ? new PhysicalFileProvider(directory) : null;
         _configurationSubscription = Watch("Configuration.json", _store.Reload);
         _globalConfigurationSubscription = Watch("GlobalConfiguration.json", _globalStore.Reload);
 
         IDisposable Watch(string name, Action reload)
         {
-            IDisposable subscription = ChangeToken.OnChange(() => _fileProvider.Watch(name), () =>
-            {
-                // Editors may emit a change before they have finished writing the file.
-                Thread.Sleep(250);
-                Reload();
-            });
+            IDisposable subscription = subscribeToChanges is not null
+                ? subscribeToChanges(name, Reload)
+                : ChangeToken.OnChange(() => _fileProvider.Watch(name), () =>
+                {
+                    // Editors may emit a change before they have finished writing the file.
+                    Thread.Sleep(250);
+                    Reload();
+                });
 
             // Pick up edits made between loading the store and subscribing to changes.
             if (File.Exists(Path.Combine(directory, name)))
@@ -182,6 +185,6 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
 
         _configurationSubscription.Dispose();
         _globalConfigurationSubscription.Dispose();
-        _fileProvider.Dispose();
+        _fileProvider?.Dispose();
     }
 }

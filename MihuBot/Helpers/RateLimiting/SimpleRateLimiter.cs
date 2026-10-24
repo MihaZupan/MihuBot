@@ -5,22 +5,30 @@ public sealed class SimpleRateLimiter
     private readonly object _lock = new();
     private readonly TimeSpan _cooldown;
     private readonly int _maxTolerance;
-    private long _startTimestamp = Stopwatch.GetTimestamp();
+    private readonly TimeProvider _timeProvider;
+    private long _startTimestamp;
     private long _available;
 
     public SimpleRateLimiter(TimeSpan cooldown, int maxTolerance)
+        : this(cooldown, maxTolerance, TimeProvider.System)
+    {
+    }
+
+    internal SimpleRateLimiter(TimeSpan cooldown, int maxTolerance, TimeProvider timeProvider)
     {
         _cooldown = cooldown;
         _maxTolerance = maxTolerance;
         _available = maxTolerance;
+        _timeProvider = timeProvider;
+        _startTimestamp = timeProvider.GetTimestamp();
     }
 
     public bool TryEnter(int count = 1)
     {
         lock (_lock)
         {
-            long timestamp = Stopwatch.GetTimestamp();
-            TimeSpan elapsed = Stopwatch.GetElapsedTime(_startTimestamp, timestamp);
+            long timestamp = _timeProvider.GetTimestamp();
+            TimeSpan elapsed = _timeProvider.GetElapsedTime(_startTimestamp, timestamp);
             long max = (long)(elapsed / _cooldown) + _available;
 
             if (max > _maxTolerance)

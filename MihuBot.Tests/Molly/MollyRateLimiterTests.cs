@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Time.Testing;
 using MihuBot.Molly;
 
 namespace MihuBot.Tests.Molly;
@@ -9,7 +10,6 @@ public sealed class MollyRateLimiterTests
     /// <summary>Matches MollyRateLimiter.DefaultBurst.</summary>
     private const int DefaultBurst = 10;
 
-    /// <summary>Short cooldown so refill behaviour can be tested without long waits.</summary>
     private static readonly TimeSpan TestCooldown = TimeSpan.FromMilliseconds(200);
 
     private static MollyRateLimiter CreateLimiter(int burst = 5) => new(TestCooldown, burst);
@@ -79,31 +79,31 @@ public sealed class MollyRateLimiterTests
     }
 
     [Fact]
-    public async Task Bucket_PartiallyRefillsOverTime()
+    public void Bucket_PartiallyRefillsOverTime()
     {
-        MollyRateLimiter limiter = CreateLimiter(burst: 5);
+        var time = new FakeTimeProvider();
+        var limiter = new MollyRateLimiter(TestCooldown, 5, time);
         Exhaust(limiter, () => Context("10.0.0.1"));
 
         Assert.False(limiter.TryEnter(Context("10.0.0.1"), out _));
 
-        await Task.Delay(TestCooldown * 2);
+        time.Advance(TestCooldown * 2);
 
-        // Roughly one request is earned per cooldown, so some are restored - but not the whole burst.
         int allowed = Exhaust(limiter, () => Context("10.0.0.1"));
 
-        Assert.InRange(allowed, 1, 4);
+        Assert.Equal(2, allowed);
     }
 
     [Fact]
-    public async Task Bucket_FullyRefillsAfterBeingIdle()
+    public void Bucket_FullyRefillsAfterBeingIdle()
     {
         const int Burst = 5;
 
-        MollyRateLimiter limiter = CreateLimiter(Burst);
+        var time = new FakeTimeProvider();
+        var limiter = new MollyRateLimiter(TestCooldown, Burst, time);
         Exhaust(limiter, () => Context("10.0.0.1"));
 
-        // Idle for long enough to earn the entire burst back.
-        await Task.Delay(TestCooldown * (Burst + 1));
+        time.Advance(TestCooldown * (Burst + 1));
 
         Assert.Equal(Burst, Exhaust(limiter, () => Context("10.0.0.1")));
     }

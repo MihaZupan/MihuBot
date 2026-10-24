@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Time.Testing;
 using MihuBot.DB;
 using MihuBot.Discord.Audio;
 using YoutubeExplode.Common;
@@ -19,6 +20,7 @@ public sealed class AudioAutoplayTests
     [Fact]
     public async Task StatusMonitorRefreshesProgressPauseQueueAndTrackChanges()
     {
+        var time = new FakeTimeProvider();
         await using var scheduler = new AudioScheduler();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var updates = Channel.CreateUnbounded<(Embed Embed, bool NewTrack)>();
@@ -34,7 +36,7 @@ public sealed class AudioAutoplayTests
         {
             Assert.True(updates.Writer.TryWrite((embed, newTrack)));
             return Task.FromResult(true);
-        }, cancellation.Token);
+        }, cancellation.Token, timeProvider: time);
 
         try
         {
@@ -43,7 +45,7 @@ public sealed class AudioAutoplayTests
             Assert.Contains("1:30 / 4:00", initial.Embed.Description);
             current.Remaining = TimeSpan.FromSeconds(140);
 
-            var progress = await ReadUpdateAsync();
+            var progress = await ReadUpdateAsync(TimeSpan.FromSeconds(5));
             Assert.False(progress.NewTrack);
             Assert.Contains("1:40 / 4:00 (2:20 remaining)", progress.Embed.Description);
 
@@ -79,33 +81,42 @@ public sealed class AudioAutoplayTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => monitor);
         }
 
-        async Task<(Embed Embed, bool NewTrack)> ReadUpdateAsync() =>
-            await updates.Reader.ReadAsync(cancellation.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
+        async Task<(Embed Embed, bool NewTrack)> ReadUpdateAsync(TimeSpan? elapsed = null)
+        {
+            time.Advance(elapsed ?? TimeSpan.FromSeconds(1));
+            return await updates.Reader.ReadAsync(cancellation.Token).AsTask().WaitAsync(TimeSpan.FromSeconds(12));
+        }
     }
 
     [Fact]
     public async Task StatusMonitorRetriesFailedUpdatesWhilePaused()
     {
+        var time = new FakeTimeProvider();
         await using var scheduler = new AudioScheduler();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var current = new TestSource(isAutoplay: true);
         scheduler.Enqueue(current);
         Assert.Same(current, await scheduler.GetAudioSourceAsync(cancellation.Token));
         var retried = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int attempts = 0;
         Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => true, (_, _) =>
         {
             if (++attempts == 1)
             {
+                failed.SetResult();
                 return Task.FromResult(false);
             }
 
             retried.SetResult();
             return Task.FromResult(true);
-        }, cancellation.Token);
+        }, cancellation.Token, timeProvider: time);
 
         try
         {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await failed.Task.WaitAsync(cancellation.Token);
+            time.Advance(TimeSpan.FromSeconds(1));
             await retried.Task.WaitAsync(cancellation.Token);
             Assert.Equal(2, attempts);
         }
@@ -119,30 +130,37 @@ public sealed class AudioAutoplayTests
     [Fact]
     public async Task StatusMonitorShowsRetriesAndClearsAutoplayFailuresWhileIdle()
     {
+        var time = new FakeTimeProvider();
         await using var scheduler = new AudioScheduler();
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var updates = Channel.CreateUnbounded<Embed>();
         bool failed = true;
         int attempts = 0;
+        var firstAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task monitor = AudioPlayer.RunStatusUpdatesAsync(scheduler, () => false, (embed, _) =>
         {
             if (++attempts == 1)
             {
+                firstAttempt.SetResult();
                 return Task.FromResult(false);
             }
 
             Assert.True(updates.Writer.TryWrite(embed));
             return Task.FromResult(true);
-        }, cancellation.Token, () => Volatile.Read(ref failed));
+        }, cancellation.Token, () => Volatile.Read(ref failed), time);
 
         try
         {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await firstAttempt.Task.WaitAsync(cancellation.Token);
+            time.Advance(TimeSpan.FromSeconds(1));
             Embed failure = await updates.Reader.ReadAsync(cancellation.Token);
             Assert.Equal(2, attempts);
             Assert.Equal("Nothing playing", failure.Title);
             Assert.Contains("AI autoplay couldn't prepare a song", failure.Description);
 
             Volatile.Write(ref failed, false);
+            time.Advance(TimeSpan.FromSeconds(1));
             Embed recovered = await updates.Reader.ReadAsync(cancellation.Token);
             Assert.Equal("Nothing playing", recovered.Title);
             Assert.Null(recovered.Description);
@@ -150,11 +168,13 @@ public sealed class AudioAutoplayTests
             var next = new TestSource(isAutoplay: true);
             scheduler.Enqueue(next);
             Assert.Same(next, await scheduler.GetAudioSourceAsync(cancellation.Token));
+            time.Advance(TimeSpan.FromSeconds(1));
             Embed playing = await updates.Reader.ReadAsync(cancellation.Token);
             Assert.Equal("Now playing", playing.Title);
             Assert.DoesNotContain("couldn't prepare", playing.Description, StringComparison.Ordinal);
 
             scheduler.SkipCurrent(next);
+            time.Advance(TimeSpan.FromSeconds(1));
             Embed empty = await updates.Reader.ReadAsync(cancellation.Token);
             Assert.Equal("Nothing playing", empty.Title);
             Assert.Null(empty.Description);

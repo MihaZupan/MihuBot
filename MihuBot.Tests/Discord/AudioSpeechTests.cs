@@ -9,6 +9,7 @@ using Discord;
 using Discord.Audio;
 using Discord.Audio.Streams;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Time.Testing;
 using MihuBot.Configuration;
 using MihuBot.Discord.Audio;
 using MihuBot.Helpers;
@@ -949,13 +950,16 @@ public sealed class AudioSpeechTests
     [Fact]
     public async Task RecognitionDeadlineCancelsSlowWorkWithoutExecutingAStaleCommand()
     {
+        var time = new FakeTimeProvider();
+        var started = Signal();
         var completed = Signal();
         bool executed = false;
         await using var worker = new Worker(() => new FakeTranscriber(async (_, token) =>
         {
+            started.SetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, token);
             return "MihuBot skip";
-        }));
+        }), timeProvider: time);
         await worker.ReadyAsync();
 
         Assert.True(worker.Service.TryEnqueue(Request(1, onTranscript: (_, _) =>
@@ -967,7 +971,9 @@ public sealed class AudioSpeechTests
             Assert.Contains("timed out", message, StringComparison.Ordinal);
             completed.SetResult();
             return Task.CompletedTask;
-        }) with { Timestamp = Stopwatch.GetTimestamp() - 19 * Stopwatch.Frequency }));
+        }) with { Timestamp = time.GetTimestamp() }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        time.Advance(AudioSpeechService.MaxRequestAge);
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(executed);
@@ -1242,15 +1248,15 @@ public sealed class AudioSpeechTests
         public ConcurrentQueue<Exception> Errors { get; } = [];
 
         public Worker(Func<ILocalSpeechTranscriber> createTranscriber, Func<int>? getThreads = null,
-            Action<string>? logWhisperProcessing = null)
-            : this(_ => Task.FromResult(createTranscriber()), getThreads, logWhisperProcessing)
+            Action<string>? logWhisperProcessing = null, TimeProvider? timeProvider = null)
+            : this(_ => Task.FromResult(createTranscriber()), getThreads, logWhisperProcessing, timeProvider)
         {
         }
 
         public Worker(Func<CancellationToken, Task<ILocalSpeechTranscriber>> createTranscriber, Func<int>? getThreads = null,
-            Action<string>? logWhisperProcessing = null)
+            Action<string>? logWhisperProcessing = null, TimeProvider? timeProvider = null)
         {
-            Service = new(createTranscriber, Errors.Enqueue, getThreads, logWhisperProcessing: logWhisperProcessing);
+            Service = new(createTranscriber, Errors.Enqueue, getThreads, logWhisperProcessing: logWhisperProcessing, timeProvider: timeProvider);
             Service.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 

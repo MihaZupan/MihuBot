@@ -648,15 +648,17 @@ public sealed class AudioPlayer : IAsyncDisposable
     }
 
     internal static async Task RunStatusUpdatesAsync(AudioScheduler scheduler, Func<bool> isPaused,
-        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken, Func<bool> autoplayFailed = null)
+        Func<Embed, bool, Task<bool>> sendStatus, CancellationToken cancellationToken, Func<bool> autoplayFailed = null,
+        TimeProvider timeProvider = null)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        timeProvider ??= TimeProvider.System;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), timeProvider);
         IAudioSource previous = null;
         long previousRevision = -1;
         bool previouslyPaused = false;
         bool previouslyAutoplayFailed = false;
         bool hasStatus = false;
-        long lastUpdate = Stopwatch.GetTimestamp();
+        long lastUpdate = timeProvider.GetTimestamp();
 
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
@@ -668,7 +670,7 @@ public sealed class AudioPlayer : IAsyncDisposable
             bool changed = sourceChanged || revision != previousRevision || paused != previouslyPaused ||
                 failed != previouslyAutoplayFailed;
 
-            if (!changed && (current is null || paused || Stopwatch.GetElapsedTime(lastUpdate) < TimeSpan.FromSeconds(5)))
+            if (!changed && (current is null || paused || timeProvider.GetElapsedTime(lastUpdate) < TimeSpan.FromSeconds(5)))
             {
                 continue;
             }
@@ -690,7 +692,7 @@ public sealed class AudioPlayer : IAsyncDisposable
             previousRevision = revision;
             previouslyPaused = paused;
             previouslyAutoplayFailed = failed;
-            lastUpdate = Stopwatch.GetTimestamp();
+            lastUpdate = timeProvider.GetTimestamp();
         }
     }
 

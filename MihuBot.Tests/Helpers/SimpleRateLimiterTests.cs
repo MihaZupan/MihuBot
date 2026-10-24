@@ -1,4 +1,5 @@
 using MihuBot.Helpers.RateLimiting;
+using Microsoft.Extensions.Time.Testing;
 
 namespace MihuBot.Tests.Helpers;
 
@@ -41,30 +42,31 @@ public sealed class SimpleRateLimiterTests
     }
 
     [Fact]
-    public async Task RequestsAreEarnedBackOverTime()
+    public void RequestsAreEarnedBackOverTime()
     {
-        var limiter = new SimpleRateLimiter(Cooldown, 5);
+        var time = new FakeTimeProvider();
+        var limiter = new SimpleRateLimiter(Cooldown, 5, time);
         Exhaust(limiter);
 
         Assert.False(limiter.TryEnter());
 
-        await Task.Delay(Cooldown * 2);
+        time.Advance(Cooldown * 2);
 
-        // Roughly one request is earned per cooldown, so not the whole allowance comes back.
         int allowed = Exhaust(limiter);
 
-        Assert.InRange(allowed, 1, 4);
+        Assert.Equal(2, allowed);
     }
 
     [Fact]
-    public async Task AfterALongIdlePeriod_TheFullToleranceIsRestored()
+    public void AfterALongIdlePeriod_TheFullToleranceIsRestored()
     {
         const int MaxTolerance = 4;
 
-        var limiter = new SimpleRateLimiter(Cooldown, MaxTolerance);
+        var time = new FakeTimeProvider();
+        var limiter = new SimpleRateLimiter(Cooldown, MaxTolerance, time);
         Exhaust(limiter);
 
-        await Task.Delay(Cooldown * (MaxTolerance + 1));
+        time.Advance(Cooldown * (MaxTolerance + 1));
 
         Assert.Equal(MaxTolerance, Exhaust(limiter));
     }
@@ -94,12 +96,13 @@ public sealed class SimpleRateLimiterTests
     }
 
     [Fact]
-    public async Task ALongCooldown_DoesNotRegenerateEarly()
+    public void ALongCooldown_DoesNotRegenerateEarly()
     {
-        var limiter = new SimpleRateLimiter(TimeSpan.FromHours(1), 2);
+        var time = new FakeTimeProvider();
+        var limiter = new SimpleRateLimiter(TimeSpan.FromHours(1), 2, time);
         Exhaust(limiter);
 
-        await Task.Delay(50);
+        time.Advance(TimeSpan.FromHours(1) - TimeSpan.FromTicks(1));
 
         Assert.False(limiter.TryEnter());
     }

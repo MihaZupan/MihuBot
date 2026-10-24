@@ -1,7 +1,7 @@
 using GitHub.Copilot;
 using Discord;
 using MihuBot.Agents;
-using System.Diagnostics;
+using Microsoft.Extensions.Time.Testing;
 using System.Text.Json;
 
 namespace MihuBot.Tests.Agents;
@@ -113,22 +113,20 @@ public sealed class AgentProgressTests
     [Fact]
     public async Task CoalescesEventsAndDrainsInFlightEditBeforeFinalResponse()
     {
-        Assert.Equal(TimeSpan.FromSeconds(3), AgentProgress.UpdateInterval);
+        var time = new FakeTimeProvider();
         var progress = new AgentProgress();
         using var cancellation = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var elapsed = Stopwatch.StartNew();
         var edits = new List<string>();
         var errors = new List<Exception>();
 
         Task updater = progress.RunUpdatesAsync(async text =>
         {
-            Assert.True(elapsed.Elapsed >= AgentProgress.UpdateInterval);
             entered.TrySetResult();
             await release.Task;
             edits.Add(Text(text));
-        }, errors.Add, cancellation.Token);
+        }, errors.Add, cancellation.Token, time);
 
         try
         {
@@ -137,6 +135,9 @@ public sealed class AgentProgressTests
                 progress.OnEvent(Delta($"message-{i}", $"Update {i}"));
             }
 
+            time.Advance(AgentProgress.UpdateInterval - TimeSpan.FromTicks(1));
+            Assert.False(entered.Task.IsCompleted);
+            time.Advance(TimeSpan.FromTicks(1));
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             await cancellation.CancelAsync();
             Assert.False(updater.IsCompleted);
@@ -164,12 +165,16 @@ public sealed class AgentProgressTests
         var errors = new List<Exception>();
         var failure = new IOException("Discord message was deleted.");
         int edits = 0;
+        var time = new FakeTimeProvider();
 
-        await progress.RunUpdatesAsync(_ =>
+        Task updater = progress.RunUpdatesAsync(_ =>
         {
             edits++;
             throw failure;
-        }, errors.Add, cancellation.Token);
+        }, errors.Add, cancellation.Token, time);
+
+        time.Advance(AgentProgress.UpdateInterval);
+        await updater.WaitAsync(cancellation.Token);
 
         Assert.Equal(1, edits);
         Assert.Same(failure, Assert.Single(errors));

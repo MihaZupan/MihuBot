@@ -195,18 +195,20 @@ internal sealed class AgentProgress
         }
     }
 
-    public async Task RunUpdatesAsync(Func<Embed, Task> update, Action<Exception> logError, CancellationToken cancellationToken)
+    public async Task RunUpdatesAsync(Func<Embed, Task> update, Action<Exception> logError, CancellationToken cancellationToken,
+        TimeProvider timeProvider = null)
     {
-        var elapsed = Stopwatch.StartNew();
+        timeProvider ??= TimeProvider.System;
+        long started = timeProvider.GetTimestamp();
 
         try
         {
             while (true)
             {
                 // Delay after each completed edit, so a slow/rate-limited request cannot cause a burst of edits.
-                await Task.Delay(UpdateInterval, cancellationToken);
+                await Task.Delay(UpdateInterval, timeProvider, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                await update(Render(elapsed.Elapsed));
+                await update(Render(timeProvider.GetElapsedTime(started)));
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
