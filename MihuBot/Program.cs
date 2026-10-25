@@ -413,7 +413,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
                 builder.Configuration["Spotify:ClientSecret"]))));
     }
 
-    if (builder.Configuration.IsConfigured(OptionalFeatures.Youtube))
+    if (builder.Configuration.IsConfigured(OptionalFeatures.Youtube) && false)
     {
         services.AddSingleton(new YouTubeService(new BaseClientService.Initializer()
         {
