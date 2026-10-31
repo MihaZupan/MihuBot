@@ -91,13 +91,25 @@ public sealed class HetznerClient
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new Exception($"Failed to post to {request.RequestUri?.AbsoluteUri}: {response.StatusCode}");
+            HetznerErrorResponse? error = null;
+
+            try
+            {
+                error = JsonSerializer.Deserialize<HetznerErrorResponse>(responseJson, s_hetznerJsonOptions);
+            }
+            catch (JsonException)
+            {
+            }
+
+            throw new HttpRequestException($"Hetzner {request.Method} {request.RequestUri?.AbsoluteUri} failed: {response.StatusCode}: {error?.Error?.Code ?? "unknown"}: {error?.Error?.Message ?? "No error message"}", inner: null, response.StatusCode);
         }
 
         return JsonSerializer.Deserialize<T>(responseJson, s_hetznerJsonOptions)
             ?? throw new Exception("Deserialized a null response");
     }
 
+    private sealed record HetznerErrorResponse(HetznerError? Error);
+    private sealed record HetznerError(string? Code, string? Message);
 
     public sealed class HetznerServerResponse
     {

@@ -1280,8 +1280,8 @@ public abstract class JobBase
             if (!IsFromAdmin || !TryGetArgument("serverType", out string serverType))
             {
                 serverType = Fast
-                    ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx52" : "cpx51"))
-                    : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx42" : "cpx41"));
+                    ? GetConfigFlag($"Hetzner.VMSizeFast{cpuType}", UseArm ? "cax41" : (useIntelCpu ? "cx53" : "cpx62"))
+                    : GetConfigFlag($"Hetzner.VMSize{cpuType}", UseArm ? "cax31" : (useIntelCpu ? "cx43" : "cpx42"));
             }
 
             Log($"Starting a Hetzner VM ({serverType}) ...");
