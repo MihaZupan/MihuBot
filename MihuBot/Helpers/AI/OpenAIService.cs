@@ -47,9 +47,9 @@ public sealed class OpenAIService
         _configurationService = configurationService;
         _logger = logger;
 
-        if (!configuration.IsConfigured(OptionalFeatures.AzureOpenAI))
+        if (!configuration.IsOpenAIConfigured())
         {
-            throw new InvalidOperationException("Missing AzureOpenAI:Key");
+            throw new InvalidOperationException("No enabled Azure OpenAI endpoints are configured.");
         }
 
         string[] gpt56Family = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"];

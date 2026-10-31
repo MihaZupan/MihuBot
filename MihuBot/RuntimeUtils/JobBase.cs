@@ -1130,6 +1130,11 @@ public abstract class JobBase
 
         async Task RunAzureVirtualMachineAsync(CancellationToken jobTimeout)
         {
+            if (!Parent.Configuration.IsPersonalAzureEnabled())
+            {
+                throw new InvalidOperationException("Azure VM provisioning is disabled (Azure:PersonalEnabled=false). Use a non-Azure runner instead.");
+            }
+
             if (Metadata.ContainsKey("StartedViaMcp"))
             {
                 defaultAzureCoreCount = Math.Min(defaultAzureCoreCount, 8);

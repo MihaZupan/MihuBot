@@ -67,7 +67,7 @@ try
     // Allows supplying config (e.g. an Azure service principal) when running outside of Azure.
     builder.Configuration.AddJsonFile("credentials.json", optional: true);
 
-    if (ProgramState.AzureEnabled)
+    if (builder.Configuration.IsPersonalAzureEnabled())
     {
         ProgramState.AzureCredential = CreateAzureCredential(builder.Configuration);
 
@@ -260,8 +260,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     services.AddSingleton<SystemUsageService>();
     services.AddHostedService(s => s.GetRequiredService<SystemUsageService>());
 
-    // Everything AI-related needs at least the primary AzureOpenAI endpoint.
-    bool openAIEnabled = builder.Configuration.IsConfigured(OptionalFeatures.AzureOpenAI);
+    bool openAIEnabled = builder.Configuration.IsOpenAIConfigured();
 
     bool gitHubEnabled = builder.Configuration.IsConfigured(OptionalFeatures.GitHub);
     bool gitHubDbEnabled = builder.Configuration.IsConfigured(OptionalFeatures.GitHubDatabase);
@@ -270,7 +269,7 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     bool runtimeUtilsEnabled = gitHubEnabled && gitHubDbEnabled;
 
     // Search and triage run on top of the ingested GitHub data.
-    bool gitHubAIEnabled = openAIEnabled && runtimeUtilsEnabled;
+    bool gitHubAIEnabled = builder.Configuration.IsOpenAIEmbeddingConfigured() && runtimeUtilsEnabled;
 
     if (openAIEnabled)
     {

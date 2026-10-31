@@ -50,11 +50,13 @@ public sealed class Magic8BallCommand : CommandBase
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly string[] _commandAndAliases;
 
-    public Magic8BallCommand(IConfigurationService configurationService, IEnumerable<OpenAIService> openAI)
+    public Magic8BallCommand(IConfigurationService configurationService, IEnumerable<OpenAIService> openAI, IConfiguration configuration)
     {
         _configurationService = configurationService;
         // Optional - without it we can only match prompts by prefix.
-        _embeddingGenerator = openAI.FirstOrDefault()?.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, work: false);
+        _embeddingGenerator = configuration.IsConfigured(OptionalFeatures.AzureOpenAI)
+            ? openAI.FirstOrDefault()?.GetEmbeddingGenerator(GitHubDbContext.Defaults.EmbeddingModel, work: false)
+            : null;
         _commandAndAliases = Enumerable.Concat(Aliases, new string[] { Command }).ToArray();
     }
 

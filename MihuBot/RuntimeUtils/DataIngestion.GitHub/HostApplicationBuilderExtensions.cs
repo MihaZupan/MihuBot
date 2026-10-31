@@ -68,7 +68,7 @@ public static class HostApplicationBuilderExtensions
         services.AddHostedService(sp => sp.GetRequiredService<GitHubDataIngestionService>());
 
         // Semantic ingestion requires a Qdrant instance to write the vectors to and AzureOpenAI for the embeddings.
-        if (configuration.IsConfigured(OptionalFeatures.Qdrant) && configuration.IsConfigured(OptionalFeatures.AzureOpenAI))
+        if (configuration.IsConfigured(OptionalFeatures.Qdrant) && configuration.IsOpenAIEmbeddingConfigured())
         {
             services.AddHostedService<GitHubSemanticSearchIngestionService>();
         }

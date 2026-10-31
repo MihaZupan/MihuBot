@@ -125,6 +125,12 @@ environment variables (`Azure__TenantId`, `Azure__ClientId`, `Azure__ClientSecre
 in `docker-compose.yml`, or as a `credentials.json` placed at
 `/data/credentials.json` (the runner copies it in and it survives updates).
 
+Set `Azure__PersonalEnabled=false` (or `Azure:PersonalEnabled` in `credentials.json`)
+and restart to disable personal Azure: Key Vault, VMs, storage, email, and personal
+OpenAI deployments. It defaults to `true`. Work OpenAI remains available; provide
+its keys and all other required secrets via environment variables or
+`credentials.json`, since Key Vault is skipped.
+
 ## Optional integrations
 
 Only Discord (`Discord:AuthToken`) is required for the bot itself. These
@@ -138,7 +144,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | --- | --- |
 | `Telemetry:Endpoint` | OTLP/HTTP trace and metric export |
 | `Copilot:GitHubToken` | Local Copilot agent (`!agent`) |
-| `AzureOpenAI:Key` | AI features (including spoken music commands) and personal deployments at `mihubotai8467177614` |
+| `AzureOpenAI:Key` | Personal deployments at `mihubotai8467177614`; AI features require at least one enabled OpenAI endpoint |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
 | `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol, GPT-6.1 Sol, and `gpt-audio-1.5` at `mizup-mud33obs-swedencentral`; required for the default personal chat model and song-audio clarification |
 | `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol, GPT-6.1 Sol, and embeddings at `issueshelperhu5783781236` |

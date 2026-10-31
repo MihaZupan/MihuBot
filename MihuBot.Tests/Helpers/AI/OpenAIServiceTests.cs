@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using MihuBot.Configuration;
+using MihuBot.Discord.Commands;
 using MihuBot.Helpers.AI;
 using MihuBot.Tests.Configuration;
 
@@ -13,6 +15,55 @@ public sealed class OpenAIServiceTests
     private const string Personal3 = "mizup-mud33obs-swedencentral.openai.azure.com";
     private const string Work1 = "issueshelperhu5783781236.openai.azure.com";
     private const string Work2 = "mizup-ma441ssi-eastus2.openai.azure.com";
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WorkOnlyConfigurationSupportsChatAndEmbeddings(bool personalEnabled)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Azure:PersonalEnabled"] = personalEnabled.ToString(),
+            ["AzureOpenAI:WorkKey1"] = "test-key",
+        }).Build();
+        OpenAIService service = CreateService(configuration, new TestConfigurationService());
+
+        Assert.True(configuration.IsOpenAIConfigured());
+        Assert.True(configuration.IsOpenAIEmbeddingConfigured());
+        AssertChat(service.GetChat(null, work: true), OpenAIService.DefaultModel, Work1);
+        AssertResponsesChat(service.GetResponsesChat(null, work: true), OpenAIService.DefaultModel, Work1);
+
+        using var generator = service.GetEmbeddingGenerator("text-embedding-3-small", work: true);
+        Assert.Equal(Work1, generator.GetService<EmbeddingGeneratorMetadata>()?.ProviderUri?.Host);
+        Assert.Throws<InvalidOperationException>(() => service.GetChat(null, work: false));
+        _ = new Magic8BallCommand(new TestConfigurationService(), [service], configuration);
+    }
+
+    [Fact]
+    public void PersonalAzureDisabledNeverUsesConfiguredPersonalEndpoints()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Azure:PersonalEnabled"] = "false",
+            ["AzureOpenAI:Key"] = "test-key",
+            ["AzureOpenAI:Key2"] = "test-key",
+            ["AzureOpenAI:Key3"] = "test-key",
+            ["AzureOpenAI:WorkKey1"] = "test-key",
+        }).Build();
+        var runtimeConfiguration = new TestConfigurationService();
+        runtimeConfiguration.Set(42, "ChatGPT.ImageDeployment", "gpt-image-2.5-flare");
+        OpenAIService service = CreateService(configuration, runtimeConfiguration);
+
+        AssertChat(service.GetChat(null, work: true), OpenAIService.DefaultModel, Work1);
+        Assert.Throws<InvalidOperationException>(() => service.GetChat(null, work: false));
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat(null, work: false));
+        Assert.Throws<InvalidOperationException>(() => service.GetChat("gpt-6-astra", work: true));
+        Assert.Throws<InvalidOperationException>(() => service.GetResponsesChat("gpt-6-astra", work: true));
+        Assert.Throws<InvalidOperationException>(() => service.GetEmbeddingGenerator("text-embedding-3-small", work: false));
+        Assert.Throws<InvalidOperationException>(() => service.GetAudioChatClient());
+        Assert.Null(service.GetImage(42ul));
+        _ = new Magic8BallCommand(runtimeConfiguration, [service], configuration);
+    }
 
     [Theory]
     [InlineData("gpt-6-luna", Work1, Personal3)]
@@ -279,6 +330,11 @@ public sealed class OpenAIServiceTests
 
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(keys).Build();
 
+        return CreateService(configuration, runtimeConfiguration);
+    }
+
+    private static OpenAIService CreateService(IConfiguration configuration, TestConfigurationService runtimeConfiguration)
+    {
         // Routing only inspects SDK metadata, never calls the logger or starts its background services.
         var logger = (Logger)RuntimeHelpers.GetUninitializedObject(typeof(Logger));
 

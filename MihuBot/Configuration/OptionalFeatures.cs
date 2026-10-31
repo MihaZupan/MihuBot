@@ -9,6 +9,7 @@ namespace MihuBot.Configuration;
 public sealed record OptionalFeature(string Description, params string[] Keys)
 {
     public bool RuntimeConfiguration { get; init; }
+    public bool RequiresPersonalAzure { get; init; }
 }
 
 public static class OptionalFeatures
@@ -22,14 +23,14 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature Copilot = new("Local Copilot agent (!agent)", "Copilot:GitHubToken");
 
-    public static readonly OptionalFeature AzureOpenAI = new("AI (chat, embeddings, GitHub search/triage, MCP server) and personal AI deployments 1", "AzureOpenAI:Key");
-    public static readonly OptionalFeature AzureOpenAI2 = new("Personal AI deployments 2", "AzureOpenAI:Key2");
-    public static readonly OptionalFeature AzureOpenAI3 = new("Personal AI deployments 3", "AzureOpenAI:Key3");
+    public static readonly OptionalFeature AzureOpenAI = new("Personal AI deployments 1", "AzureOpenAI:Key") { RequiresPersonalAzure = true };
+    public static readonly OptionalFeature AzureOpenAI2 = new("Personal AI deployments 2", "AzureOpenAI:Key2") { RequiresPersonalAzure = true };
+    public static readonly OptionalFeature AzureOpenAI3 = new("Personal AI deployments 3", "AzureOpenAI:Key3") { RequiresPersonalAzure = true };
     public static readonly OptionalFeature AzureOpenAIWork1 = new("Work AI deployments 1", "AzureOpenAI:WorkKey1");
     public static readonly OptionalFeature AzureOpenAIWork2 = new("Work AI deployments 2", "AzureOpenAI:WorkKey2");
 
-    public static readonly OptionalFeature AzureStorage = new("Archiving Discord attachments to blob storage", "AzureStorage:ConnectionString");
-    public static readonly OptionalFeature AzureStorageRuntimeUtils = new("Fuzzing coverage reports and jitdiff extra assemblies", "AzureStorage:ConnectionString-RuntimeUtils");
+    public static readonly OptionalFeature AzureStorage = new("Archiving Discord attachments to blob storage", "AzureStorage:ConnectionString") { RequiresPersonalAzure = true };
+    public static readonly OptionalFeature AzureStorageRuntimeUtils = new("Fuzzing coverage reports and jitdiff extra assemblies", "AzureStorage:ConnectionString-RuntimeUtils") { RequiresPersonalAzure = true };
     public static readonly OptionalFeature GitHub = new("GitHub API access (runtime-utils jobs, data ingestion, self-update)", "GitHub:Token");
     public static readonly OptionalFeature GitHubOAuth = new("Signing in with GitHub", $"GitHub:ClientId{Constants.DevSuffix}", $"GitHub:ClientSecret{Constants.DevSuffix}");
     public static readonly OptionalFeature GitHubDatabase = new("GitHub data database (ingestion, search, triage, duplicate detection)", "GitHub-PostgreSQL:ConnectionString");
@@ -70,7 +71,7 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature MollyAlertEmail = new(
         $"Molly alert emails, in addition to the Discord notification (recipients come from the runtime '{MollyAlertEmailToName}')",
-        MollyAlertEmailConnectionStringName, MollyAlertEmailFromName);
+        MollyAlertEmailConnectionStringName, MollyAlertEmailFromName) { RequiresPersonalAzure = true };
 
     public static readonly OptionalFeature OpenWeather = new("Weather and location lookups (!weather)", "OpenWeather:ApiKey");
     public static readonly OptionalFeature QBittorrent = new("Torrent downloads (!pirate)", "QBittorrent:Host", "QBittorrent:Username", "QBittorrent:Password");
@@ -112,7 +113,23 @@ public static class OptionalFeatures
         YoutubeArchive,
     ];
 
+    public static bool IsPersonalAzureEnabled(this IConfiguration configuration) =>
+        ProgramState.AzureEnabled && configuration.GetValue("Azure:PersonalEnabled", true);
+
+    public static bool IsOpenAIConfigured(this IConfiguration configuration) =>
+        ProgramState.AzureEnabled &&
+        (configuration.IsConfigured(AzureOpenAI) ||
+         configuration.IsConfigured(AzureOpenAI2) ||
+         configuration.IsConfigured(AzureOpenAI3) ||
+         configuration.IsConfigured(AzureOpenAIWork1) ||
+         configuration.IsConfigured(AzureOpenAIWork2));
+
+    public static bool IsOpenAIEmbeddingConfigured(this IConfiguration configuration) =>
+        ProgramState.AzureEnabled &&
+        (configuration.IsConfigured(AzureOpenAI) || configuration.IsConfigured(AzureOpenAIWork1));
+
     public static bool IsConfigured(this IConfiguration configuration, OptionalFeature feature) =>
+        (!feature.RequiresPersonalAzure || configuration.IsPersonalAzureEnabled()) &&
         feature.Keys.All(key => !string.IsNullOrWhiteSpace(configuration[key]));
 
     public static bool IsConfigured(this IConfigurationService configuration, OptionalFeature feature) =>
