@@ -2,6 +2,11 @@
 
 All exchanges use `POST /api/molly`, with `application/octet-stream` bodies, over HTTPS.
 
+Responses apply a best-effort timing floor randomly selected per request from 10 ms (inclusive) to 20 ms (exclusive) after rate limiting and reading the request body, including decryption failures and subsequent server errors.
+Rate limiting and body reading do not count toward the floor; rejections or errors during those steps are not delayed.
+Processing time counts toward this floor; slower requests incur no additional delay, and disconnecting does not cancel the wait.
+This reduces timing differences for fast paths, but does not make request processing constant-time.
+
 ## Discovering a transport key
 
 The client pins the server's static X25519 public key, which is used **only for discovery**.

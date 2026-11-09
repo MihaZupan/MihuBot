@@ -61,20 +61,29 @@ public static class MollyServiceExtensions
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
-        // Unknown recipient keys and failed authentication all fail closed.
-        if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId))
+        Task minimumResponseDelay = Task.Delay(RandomNumberGenerator.GetInt32(10, 20), CancellationToken.None);
+
+        try
         {
-            return Results.BadRequest();
+            // Unknown recipient keys and failed authentication all fail closed.
+            if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId))
+            {
+                return Results.BadRequest();
+            }
+
+            MollyApiResponse response = request.Action == MollyApiActions.TransportKey
+                ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
+                : await ExecuteAsync(molly, request, cancellationToken);
+
+            context.Response.Headers.CacheControl = "no-store";
+            byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId);
+            CryptographicOperations.ZeroMemory(responseKey);
+            return Results.Bytes(encrypted, EncryptedContentType);
         }
-
-        MollyApiResponse response = request.Action == MollyApiActions.TransportKey
-            ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
-            : await ExecuteAsync(molly, request, cancellationToken);
-
-        context.Response.Headers.CacheControl = "no-store";
-        byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId);
-        CryptographicOperations.ZeroMemory(responseKey);
-        return Results.Bytes(encrypted, EncryptedContentType);
+        finally
+        {
+            await minimumResponseDelay;
+        }
     }
 
     private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, CancellationToken cancellationToken)

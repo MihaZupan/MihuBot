@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -193,6 +194,21 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
         JsonElement data = Data(response);
         return (data.GetProperty("id").GetString()!, data.GetProperty("serverHmac").GetString()!);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    public async Task Responses_ApplyRandomizedTimingFloor(HttpStatusCode expectedStatus)
+    {
+        byte[] body = expectedStatus == HttpStatusCode.OK ? _envelope.EncryptRequest("unknown") : new byte[8];
+        long start = Stopwatch.GetTimestamp();
+
+        using HttpResponseMessage response = await PostRawAsync(body);
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.True(elapsed >= TimeSpan.FromMilliseconds(10), $"Response arrived after {elapsed.TotalMilliseconds} ms.");
     }
 
     [Fact]
