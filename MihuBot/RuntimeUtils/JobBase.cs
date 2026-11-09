@@ -289,80 +289,77 @@ public abstract class JobBase
 
     public async Task RunJobAsync()
     {
-        Log("Starting ...");
-
-        if (!ProgramState.AzureEnabled)
-        {
-            Log("No Azure support. Aborting ...");
-            NotifyJobCompletion();
-            return;
-        }
-
-        if (Parent.GetMissingFeature(RequiredFeatures) is { } missingFeature)
-        {
-            Log($"Missing configuration for '{missingFeature.Description}' ({string.Join(", ", missingFeature.Keys)}). Aborting ...");
-            NotifyJobCompletion();
-            return;
-        }
-
-        if (CustomArguments.Contains("-noTimeLimit", StringComparison.OrdinalIgnoreCase))
-        {
-            MaxJobDuration = IsFromAdmin ? TimeSpan.FromDays(7) : MaxJobDuration * 2;
-        }
-
-        ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
-
-        Exception initializationException = null;
-        try
-        {
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-            await ParsePRListAsync(CustomArguments, "dependsOn", timeoutCts.Token);
-            await ParsePRListAsync(CustomArguments, "combineWith", timeoutCts.Token);
-
-            await InitializeAsync(timeoutCts.Token);
-
-            Metadata.Add("JobMaxEndTime", (StartTime + MaxJobDuration).Ticks.ToString());
-        }
-        catch (Exception ex)
-        {
-            initializationException = ex;
-        }
-
-        bool startGithubActions = RunUsingGitHubActions && initializationException is null;
-
-        if (SuppressTrackingIssue)
-        {
-            if (startGithubActions)
-            {
-                await Logger.DebugAsync($"Can't use GH Actions when tracking issue is suppressed: <{ProgressDashboardUrl}>");
-            }
-        }
-        else
-        {
-            string customArguments = !string.IsNullOrWhiteSpace(CustomArguments)
-                ? $"Using arguments: ````{CustomArguments}````"
-                : string.Empty;
-
-            TrackingIssue = await Github.Issue.Create(
-                IssueRepositoryOwner,
-                IssueRepositoryName,
-                new NewIssue(JobTitle.TruncateWithDotDotDot(80))
-                {
-                    Body =
-                        $"""
-                        Job is in progress - see {ProgressDashboardUrl}
-                        {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
-                        {customArguments}
-
-                        {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
-                        """
-                });
-        }
-
         string logsArtifactPath = null;
 
         try
         {
+            Log("Starting ...");
+
+            if (!ProgramState.AzureEnabled)
+            {
+                throw new InvalidOperationException("No Azure support. Aborting ...");
+            }
+
+            if (Parent.GetMissingFeature(RequiredFeatures) is { } missingFeature)
+            {
+                throw new InvalidOperationException($"Missing configuration for '{missingFeature.Description}' ({string.Join(", ", missingFeature.Keys)}). Aborting ...");
+            }
+
+            if (CustomArguments.Contains("-noTimeLimit", StringComparison.OrdinalIgnoreCase))
+            {
+                MaxJobDuration = IsFromAdmin ? TimeSpan.FromDays(7) : MaxJobDuration * 2;
+            }
+
+            ShouldMentionJobInitiator = GetConfigFlag("ShouldMentionJobInitiator", true);
+
+            Exception initializationException = null;
+
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+                await ParsePRListAsync(CustomArguments, "dependsOn", timeoutCts.Token);
+                await ParsePRListAsync(CustomArguments, "combineWith", timeoutCts.Token);
+
+                await InitializeAsync(timeoutCts.Token);
+
+                Metadata.Add("JobMaxEndTime", (StartTime + MaxJobDuration).Ticks.ToString());
+            }
+            catch (Exception ex)
+            {
+                initializationException = ex;
+            }
+
+            bool startGithubActions = RunUsingGitHubActions && initializationException is null;
+
+            if (SuppressTrackingIssue)
+            {
+                if (startGithubActions)
+                {
+                    await Logger.DebugAsync($"Can't use GH Actions when tracking issue is suppressed: <{ProgressDashboardUrl}>");
+                }
+            }
+            else
+            {
+                string customArguments = !string.IsNullOrWhiteSpace(CustomArguments)
+                    ? $"Using arguments: ````{CustomArguments}````"
+                    : string.Empty;
+
+                TrackingIssue = await Github.Issue.Create(
+                    IssueRepositoryOwner,
+                    IssueRepositoryName,
+                    new NewIssue(JobTitle.TruncateWithDotDotDot(80))
+                    {
+                        Body =
+                            $"""
+                            Job is in progress - see {ProgressDashboardUrl}
+                            {(ShouldLinkToPROrBranch ? TestedPROrBranchLink : "")}
+                            {customArguments}
+
+                            {(startGithubActions ? $"<!-- RUN_AS_GITHUB_ACTION_{ExternalId} -->" : "")}
+                            """
+                    });
+            }
+
             using var jobTimeoutCts = new CancellationTokenSource(MaxJobDuration);
             var jobTimeout = jobTimeoutCts.Token;
 
