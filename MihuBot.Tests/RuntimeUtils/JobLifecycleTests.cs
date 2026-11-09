@@ -55,6 +55,7 @@ public sealed class JobLifecycleTests
         Assert.False(job.RunnerStarted);
         Assert.False(job.WasCancelled);
         Assert.Null(job.TrackingIssue);
+        Assert.True(job.LogArtifactSaveRequested);
 
         string expectedError = missingConfiguration
             ? $"Missing configuration for '{OptionalFeatures.AzureStorageRuntimeUtils.Description}' ({string.Join(", ", OptionalFeatures.AzureStorageRuntimeUtils.Keys)}). Aborting ..."
@@ -104,6 +105,13 @@ public sealed class JobLifecycleTests
         public Task Completion => JobCompletionTcs.Task;
         public bool Initialized { get; private set; }
         public bool RunnerStarted { get; private set; }
+        public bool LogArtifactSaveRequested { get; private set; }
+
+        protected override Task SaveLogsArtifactAsync()
+        {
+            LogArtifactSaveRequested = true;
+            return Task.CompletedTask;
+        }
 
         protected override Task InitializeAsync(CancellationToken jobTimeout)
         {

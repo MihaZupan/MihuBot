@@ -38,6 +38,7 @@ public abstract class JobBase
     private readonly RollingLog _logs = new(100_000);
     private long _artifactsCount;
     private long _totalArtifactsSize;
+    private string _logsArtifactPath;
     protected readonly CancellationTokenSource _idleTimeoutCts = new();
     protected readonly List<(string FileName, string Url, long Size)> Artifacts = new();
 
@@ -289,8 +290,6 @@ public abstract class JobBase
 
     public async Task RunJobAsync()
     {
-        string logsArtifactPath = null;
-
         try
         {
             Log("Starting ...");
@@ -455,7 +454,7 @@ public abstract class JobBase
                 TrackingIssueUrl = TrackingIssue?.HtmlUrl,
                 Metadata = Metadata,
                 Artifacts = GetArtifactsSnapshot(),
-                LogsArtifactUrl = logsArtifactPath is null ? null : Parent.LogsStorage.GetFileUrl(logsArtifactPath, TimeSpan.MaxValue, writeAccess: false),
+                LogsArtifactUrl = _logsArtifactPath is null ? null : Parent.LogsStorage.GetFileUrl(_logsArtifactPath, TimeSpan.MaxValue, writeAccess: false),
                 ErrorMessage = ErrorMessage,
                 WasCancelled = WasCancelled,
             });
@@ -472,25 +471,25 @@ public abstract class JobBase
                 }
             }
         }
+    }
 
-        async Task SaveLogsArtifactAsync()
+    protected virtual async Task SaveLogsArtifactAsync()
+    {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString()));
+
+        try
         {
-            var stream = new MemoryStream(Encoding.UTF8.GetBytes(_logs.ToString()));
-
-            try
-            {
-                string path = $"{ExternalId}.txt";
-                await Parent.Storage.UploadAsync(LogsContainer, path, stream, CancellationToken.None);
-                logsArtifactPath = path;
-            }
-            catch (Exception ex)
-            {
-                await Logger.DebugAsync(ex.ToString());
-            }
-
-            stream.Position = 0;
-            await ArtifactReceivedAsync("logs.txt", stream, CancellationToken.None);
+            string path = $"{ExternalId}.txt";
+            await Parent.Storage.UploadAsync(LogsContainer, path, stream, CancellationToken.None);
+            _logsArtifactPath = path;
         }
+        catch (Exception ex)
+        {
+            await Logger.DebugAsync(ex.ToString());
+        }
+
+        stream.Position = 0;
+        await ArtifactReceivedAsync("logs.txt", stream, CancellationToken.None);
     }
 
     protected virtual Task InitializeAsync(CancellationToken jobTimeout) => Task.CompletedTask;
