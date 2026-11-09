@@ -19,4 +19,9 @@ public sealed class MollyApiResponse
     [JsonPropertyName("data")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? Data { get; set; }
+
+    /// <summary>The latest transport key, included when the request used an older application key.</summary>
+    [JsonPropertyName("transportKey")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MollyTransportKeyResponse? TransportKey { get; set; }
 }

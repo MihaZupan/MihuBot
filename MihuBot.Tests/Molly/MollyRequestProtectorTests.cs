@@ -73,7 +73,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         byte[] body = Encrypt("login", """{"keyHash":"AAAA"}""");
 
-        Assert.True(_protector.TryDecryptRequest(body, out MollyApiRequest? request, out _));
+        Assert.True(_protector.TryDecryptRequest(body, out MollyApiRequest? request, out _, out _));
         Assert.Equal("login", request.Action);
         Assert.Equal("AAAA", request.Data.GetProperty("keyHash").GetString());
     }
@@ -87,7 +87,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(_protector.GetTransportKey().PublicKey)).CopyTo(body, 0);
         MollyTestEnvelope.MaskRequestBody(body);
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
         byte[] body = Encrypt("login");
         body[^1] ^= 0xFF;
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
         body[^1] ^= 0xFF;
         MollyTestEnvelope.MaskRequestBody(body);
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Theory]
@@ -116,15 +116,15 @@ public sealed class MollyRequestProtectorTests : IDisposable
     [InlineData(48 + XAesGcm.NonceSizeInBytes + XAesGcm.TagSizeInBytes + 2 - 1)] // One byte short of the padding-length field.
     public void ARequestTooShortToBeAnEnvelope_IsRejected(int length)
     {
-        Assert.False(_protector.TryDecryptRequest(new byte[length], out _, out _));
+        Assert.False(_protector.TryDecryptRequest(new byte[length], out _, out _, out _));
     }
 
     [Fact]
     public void PlaintextThatIsntTheExpectedShape_IsRejected()
     {
-        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("not json"), out _, out _));
-        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("123"), out _, out _));
-        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("null"), out _, out _));
+        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("not json"), out _, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("123"), out _, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(_client.Encrypt("null"), out _, out _, out _));
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         byte[] body = _client.Encrypt($$"""{"timestamp":{{_time.GetUtcNow().ToUnixTimeSeconds()}},"nonce":"{{MollyTestEnvelope.NewNonce()}}"}""");
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -141,8 +141,8 @@ public sealed class MollyRequestProtectorTests : IDisposable
         long now = _time.GetUtcNow().ToUnixTimeSeconds();
         long tolerance = (long)MollyRequestProtector.TimestampTolerance.TotalSeconds;
 
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now - tolerance), out _, out _));
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now + tolerance), out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now - tolerance), out _, out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now + tolerance), out _, out _, out _));
     }
 
     [Fact]
@@ -151,8 +151,8 @@ public sealed class MollyRequestProtectorTests : IDisposable
         long now = _time.GetUtcNow().ToUnixTimeSeconds();
         long tolerance = (long)MollyRequestProtector.TimestampTolerance.TotalSeconds;
 
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now - tolerance - 1), out _, out _));
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now + tolerance + 1), out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now - tolerance - 1), out _, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: now + tolerance + 1), out _, out _, out _));
     }
 
     [Theory]
@@ -161,7 +161,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     [InlineData(-1)]
     public void AnAbsurdTimestamp_IsRejectedRatherThanThrowing(long timestamp)
     {
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: timestamp), out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", timestamp: timestamp), out _, out _, out _));
     }
 
     [Fact]
@@ -169,8 +169,8 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         string nonce = MollyTestEnvelope.NewNonce();
 
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _));
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _, out _));
     }
 
     [Theory]
@@ -183,7 +183,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         byte[] body = _client.Encrypt($$"""{"action":"ping","timestamp":{{_time.GetUtcNow().ToUnixTimeSeconds()}},"nonce":{{JsonSerializer.Serialize(nonce)}}}""");
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -192,11 +192,11 @@ public sealed class MollyRequestProtectorTests : IDisposable
         byte[] raw = RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength);
         string canonical = Convert.ToBase64String(raw);
 
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical), out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical), out _, out _, out _));
 
         // A spelling with injected whitespace is a different string, but must not be treated as
         // a fresh nonce - it either decodes to the same bytes or is rejected outright.
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical.Insert(4, " ")), out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical.Insert(4, " ")), out _, out _, out _));
     }
 
     [Fact]
@@ -205,8 +205,8 @@ public sealed class MollyRequestProtectorTests : IDisposable
         const string canonical = "AAAAAAAAAAAAAAAAAAAAAA==";
         const string alternative = "AAAAAAAAAAAAAAAAAAAAAB==";
 
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical), out _, out _));
-        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: alternative), out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: canonical), out _, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(Encrypt("ping", nonce: alternative), out _, out _, out _));
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
     {
         _time.Advance(TimeSpan.FromSeconds(7));
         string nonce = MollyTestEnvelope.NewNonce();
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping", nonce: nonce), out _, out _, out _));
 
         long seed = (long)typeof(MollyRequestProtector)
             .GetField("NonceCacheSeed", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
@@ -248,7 +248,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
         for (int i = 0; i < window * 3; i++)
         {
             byte[] body = client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds());
-            Assert.True(protector.TryDecryptRequest(body, out _, out _));
+            Assert.True(protector.TryDecryptRequest(body, out _, out _, out _));
             bodies.Enqueue(body);
             if (bodies.Count > window)
             {
@@ -257,7 +257,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
 
             foreach (byte[] replay in bodies)
             {
-                Assert.False(protector.TryDecryptRequest(replay, out _, out _));
+                Assert.False(protector.TryDecryptRequest(replay, out _, out _, out _));
             }
 
             Assert.Equal(bodies.Count, nonces.Count);
@@ -286,19 +286,19 @@ public sealed class MollyRequestProtectorTests : IDisposable
         for (int i = 0; i < 3; i++)
         {
             Assert.True(protector.TryDecryptRequest(
-                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
         }
 
         _time.Advance(TimeSpan.FromSeconds(ageSeconds));
         long now = _time.GetUtcNow().ToUnixTimeSeconds();
-        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now), out _, out _, out _));
         Assert.Equal(TimeSpan.FromSeconds(expectedToleranceSeconds),
             GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
 
-        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds - 1), out _, out _));
-        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds + 1), out _, out _));
-        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds), out _, out _));
-        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds), out _, out _));
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds - 1), out _, out _, out _));
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds + 1), out _, out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now - expectedToleranceSeconds), out _, out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", timestamp: now + expectedToleranceSeconds), out _, out _, out _));
     }
 
     [Fact]
@@ -307,13 +307,13 @@ public sealed class MollyRequestProtectorTests : IDisposable
         using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 1);
         using var client = new MollyTestEnvelope(protector.GetTransportKey());
         Assert.True(protector.TryDecryptRequest(
-            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
 
         foreach (var (ageSeconds, expectedToleranceSeconds) in new (double, double)[] { (12.5, 12.5), (20, 12.5), (7, 7), (0, 5), (45, 5) })
         {
             _time.Advance(TimeSpan.FromSeconds(ageSeconds));
             Assert.True(protector.TryDecryptRequest(
-                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+                client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
             Assert.Equal(TimeSpan.FromSeconds(expectedToleranceSeconds),
                 GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
         }
@@ -327,12 +327,12 @@ public sealed class MollyRequestProtectorTests : IDisposable
         using var protector = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, _time, trackedNonceCount: 1);
         using var client = new MollyTestEnvelope(protector.GetTransportKey());
         Assert.True(protector.TryDecryptRequest(
-            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
 
         _time.Advance(TimeSpan.FromSeconds(12));
         _time.AdjustUtcNow(TimeSpan.FromSeconds(clockAdjustmentSeconds));
         Assert.True(protector.TryDecryptRequest(
-            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+            client.EncryptRequest("ping", timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
         Assert.Equal(TimeSpan.FromSeconds(12), GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
     }
 
@@ -343,19 +343,19 @@ public sealed class MollyRequestProtectorTests : IDisposable
         using var client = new MollyTestEnvelope(protector.GetTransportKey());
         long now = _time.GetUtcNow().ToUnixTimeSeconds();
         byte[] accepted = client.EncryptRequest("ping", timestamp: now);
-        Assert.True(protector.TryDecryptRequest(accepted, out _, out _));
+        Assert.True(protector.TryDecryptRequest(accepted, out _, out _, out _));
         var order = GetNonceCacheField<Queue<(string Nonce, long StoredAt)>>(protector, "_nonceOrder");
         var original = Assert.Single(order);
 
         _time.Advance(TimeSpan.FromSeconds(1));
         string nonce = MollyTestEnvelope.NewNonce();
-        Assert.False(protector.TryDecryptRequest(accepted, out _, out _));
-        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: nonce, timestamp: now - 30), out _, out _));
+        Assert.False(protector.TryDecryptRequest(accepted, out _, out _, out _));
+        Assert.False(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: nonce, timestamp: now - 30), out _, out _, out _));
         Assert.Equal(original, Assert.Single(order));
         Assert.Equal(MollyRequestProtector.TimestampTolerance, GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
 
         Assert.True(protector.TryDecryptRequest(
-            client.EncryptRequest("ping", nonce: nonce, timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _));
+            client.EncryptRequest("ping", nonce: nonce, timestamp: _time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _));
         Assert.Equal(MollyRequestProtector.MinimumTimestampTolerance, GetNonceCacheField<TimeSpan>(protector, "_timestampTolerance"));
     }
 
@@ -366,15 +366,15 @@ public sealed class MollyRequestProtectorTests : IDisposable
         using var client = new MollyTestEnvelope(protector.GetTransportKey());
 
         string first = MollyTestEnvelope.NewNonce();
-        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _, out _));
 
         // Push the first nonce out of the window of the last SmallWindow seen.
         for (int i = 0; i < SmallWindow; i++)
         {
-            Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: MollyTestEnvelope.NewNonce()), out _, out _));
+            Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: MollyTestEnvelope.NewNonce()), out _, out _, out _));
         }
 
-        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _));
+        Assert.True(protector.TryDecryptRequest(client.EncryptRequest("ping", nonce: first), out _, out _, out _));
     }
 
     [Fact]
@@ -388,17 +388,17 @@ public sealed class MollyRequestProtectorTests : IDisposable
         body.AsSpan(16, 32).Clear();
         MollyTestEnvelope.MaskRequestBody(body);
 
-        Assert.False(_protector.TryDecryptRequest(body, out _, out _));
+        Assert.False(_protector.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
     public void Response_RoundTripsThroughTheClient()
     {
         // Opening a request establishes the per-request key the reply is encrypted under.
-        Assert.True(_protector.TryDecryptRequest(Encrypt("ping"), out _, out byte[]? sessionKey));
+        Assert.True(_protector.TryDecryptRequest(Encrypt("ping"), out _, out byte[]? sessionKey, out MollyPublicKeyId recipientKeyId));
 
         var response = new MollyApiResponse { Status = "ok" };
-        byte[] body = _protector.EncryptResponse(response, sessionKey);
+        byte[] body = _protector.EncryptResponse(response, sessionKey, recipientKeyId);
 
         JsonElement decrypted = _client.DecryptResponse(body);
         Assert.Equal("ok", decrypted.GetProperty("status").GetString());

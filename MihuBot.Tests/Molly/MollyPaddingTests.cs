@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using MihuBot.Helpers.Crypto;
@@ -31,7 +30,7 @@ public sealed class MollyPaddingTests : IDisposable
             string action = bootstrap ? "transport-key" : "ping";
             byte[] body = client.EncryptRequest(action, paddingLength: paddingLength);
 
-            Assert.True(_server.TryDecryptRequest(body, out MollyApiRequest? request, out _));
+            Assert.True(_server.TryDecryptRequest(body, out MollyApiRequest? request, out _, out _));
             Assert.Equal(action, request.Action);
         }
     }
@@ -46,7 +45,7 @@ public sealed class MollyPaddingTests : IDisposable
         plaintext.AsSpan(2, 258).Fill(0xFF);
         data.CopyTo(plaintext, 2 + 258);
 
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRawPlaintext(plaintext), out MollyApiRequest? request, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRawPlaintext(plaintext), out MollyApiRequest? request, out _, out _));
         Assert.Equal(42, request.Data.GetProperty("value").GetInt32());
     }
 
@@ -61,16 +60,17 @@ public sealed class MollyPaddingTests : IDisposable
     public void MissingTruncatedOrDataLessFrames_AreRejected(string hex)
     {
         byte[] body = _client.EncryptRawPlaintext(Convert.FromHexString(hex));
-        Assert.False(_server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey));
+        Assert.False(_server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
         Assert.Null(request);
         Assert.Null(responseKey);
+        Assert.Equal(default(MollyPublicKeyId), recipientKeyId);
     }
 
     [Fact]
     public void PlainJsonWithoutTheLengthPrefix_IsRejected()
     {
         byte[] json = Encoding.UTF8.GetBytes(MollyTestEnvelope.RequestJson("ping"));
-        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(json), out _, out _));
+        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(json), out _, out _, out _));
     }
 
     [Fact]
@@ -79,8 +79,8 @@ public sealed class MollyPaddingTests : IDisposable
         string json = MollyTestEnvelope.RequestJson("ping");
         byte[] malformed = [0xFF, 0xFF, .. Encoding.UTF8.GetBytes(json)];
 
-        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(malformed), out _, out _));
-        Assert.True(_server.TryDecryptRequest(_client.Encrypt(json), out _, out _));
+        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(malformed), out _, out _, out _));
+        Assert.True(_server.TryDecryptRequest(_client.Encrypt(json), out _, out _, out _));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class MollyPaddingTests : IDisposable
         byte[] body = _client.EncryptRequest("ping", paddingLength: 256);
         body[48 + 24 + 2] ^= 0x80;
 
-        Assert.False(_server.TryDecryptRequest(body, out _, out _));
+        Assert.False(_server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Theory]
@@ -103,13 +103,13 @@ public sealed class MollyPaddingTests : IDisposable
     [InlineData(65536)]
     public void ResponsePadding_UsesTheSizePolicyAndBigEndianFrame(int dataLength)
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
         int overhead = JsonSerializer.SerializeToUtf8Bytes(new MollyApiResponse { Status = "ok", Data = "" }).Length;
         string value = new('a', dataLength - overhead);
         var response = new MollyApiResponse { Status = "ok", Data = value };
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         Assert.Equal(dataLength, data.Length);
-        byte[] body = _server.EncryptResponse(response, responseKey);
+        byte[] body = _server.EncryptResponse(response, responseKey, recipientKeyId);
 
         using var aead = new XAesGcm(responseKey);
         Assert.True(aead.TryDecrypt(body, out byte[]? plaintext));
@@ -134,10 +134,10 @@ public sealed class MollyPaddingTests : IDisposable
     [Fact]
     public void ResponsePadding_ContainsFreshRandomBytes()
     {
-        byte[] responseKey = RandomNumberGenerator.GetBytes(32);
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
         var response = new MollyApiResponse { Status = "ok" };
-        byte[] first = _server.EncryptResponse(response, responseKey);
-        byte[] second = _server.EncryptResponse(response, responseKey);
+        byte[] first = _server.EncryptResponse(response, responseKey, recipientKeyId);
+        byte[] second = _server.EncryptResponse(response, responseKey, recipientKeyId);
 
         using var aead = new XAesGcm(responseKey);
         Assert.True(aead.TryDecrypt(first, out byte[]? firstPlaintext));
@@ -148,7 +148,7 @@ public sealed class MollyPaddingTests : IDisposable
     [Fact]
     public void LargeResponses_UseRandomPaddingLengths()
     {
-        byte[] responseKey = RandomNumberGenerator.GetBytes(32);
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
         var response = new MollyApiResponse { Status = "ok", Data = new string('a', 2048) };
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         using var aead = new XAesGcm(responseKey);
@@ -156,7 +156,7 @@ public sealed class MollyPaddingTests : IDisposable
 
         for (int i = 0; i < 32; i++)
         {
-            byte[] body = _server.EncryptResponse(response, responseKey);
+            byte[] body = _server.EncryptResponse(response, responseKey, recipientKeyId);
             Assert.True(aead.TryDecrypt(body, out byte[]? plaintext));
             int paddingLength = (plaintext[0] << 8) | plaintext[1];
             Assert.InRange(paddingLength, 0, 512);

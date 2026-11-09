@@ -47,10 +47,10 @@ public static class OptionalFeatures
     public const string MollyDatabaseKeyName = "Molly:DatabaseKey";
 
     /// <summary>
-    /// The transport key: the server's static X25519 private key. Its public half is hardcoded into
-    /// the closed-source Molly client. It authenticates discovery of rotating, memory-only keys;
+    /// The transport keys: the server's static X25519 private keys. Their public halves are pinned by
+    /// the closed-source Molly client. They authenticate discovery of rotating, memory-only keys;
     /// application requests must use those rotating keys. Unrelated to the database. Never leaves the server.
-    /// Base64 encoded raw 32-byte key.
+    /// Comma-separated base64 encoded raw 32-byte keys, oldest first. Discovery advertises the last key.
     /// </summary>
     public const string MollyTransportPrivateKeyName = "Molly:TransportPrivateKey";
 

@@ -10,6 +10,29 @@ namespace MihuBot.Tests.Molly;
 
 public sealed class MollyKeyRotationTests
 {
+    [Fact]
+    public void PublicKeyId_OwnsItsBytes_AndComparesTheEntireIdentifier()
+    {
+        byte[] bytes = Enumerable.Range(0, 16).Select(i => (byte)i).ToArray();
+        var id = new MollyPublicKeyId(bytes);
+        var keys = new Dictionary<MollyPublicKeyId, string> { [id] = "key" };
+        var equal = new MollyPublicKeyId(bytes);
+        bytes.AsSpan().Clear();
+        Assert.True(id == equal);
+        Assert.True(id.Equals((object)equal));
+        Assert.Equal("key", keys[equal]);
+
+        for (int i = 0; i < 16; i++)
+        {
+            byte[] different = Enumerable.Range(0, 16).Select(j => (byte)j).ToArray();
+            different[i] ^= 0x80;
+            var other = new MollyPublicKeyId(different);
+            Assert.True(id != other);
+            Assert.False(id.Equals((object)other));
+            Assert.False(keys.ContainsKey(other));
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -35,7 +58,7 @@ public sealed class MollyKeyRotationTests
         Assert.NotEqual(body.AsSpan(0, 16).ToArray(), nextBody.AsSpan(0, 16).ToArray());
         Assert.Equal(-1, body.AsSpan(0, 48).IndexOf(recipientPublicKey));
         byte[] originalBody = body.ToArray();
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? keys));
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? keys, out _));
         Assert.Equal(originalBody, body);
         CryptographicOperations.ZeroMemory(keys);
     }
@@ -45,26 +68,26 @@ public sealed class MollyKeyRotationTests
     [InlineData(true)]
     public void KeyLookup_RequiresExactlyTheFirstSixteenSha512Bytes(bool bootstrap)
     {
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, TimeProvider.System);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], TimeProvider.System);
         byte[] publicKey = bootstrap
             ? MollyTestKeys.TransportPublicKeyBytes
             : Convert.FromBase64String(keys.GetCurrentKey().PublicKey);
         byte[] hash = SHA512.HashData(publicKey);
 
-        MollyTransportKeyRing.TransportKey? key = keys.TryGetKey(hash.AsSpan(0, 16), out bool isBootstrap);
+        MollyTransportKeyRing.TransportKey? key = keys.TryGetKey(new MollyPublicKeyId(hash.AsSpan(0, 16)), out bool isBootstrap);
         Assert.NotNull(key);
         Assert.Equal(bootstrap, isBootstrap);
         Assert.Equal(publicKey, key.PublicKey);
-        Assert.Equal(hash.AsSpan(0, 16).ToArray(), key.KeyId);
+        Assert.Equal(new MollyPublicKeyId(hash.AsSpan(0, 16)), key.KeyId);
 
         foreach (int length in new[] { 0, 15, 17, 32, 64 })
         {
-            Assert.Null(keys.TryGetKey(hash.AsSpan(0, length), out _));
+            Assert.Throws<ArgumentOutOfRangeException>(() => new MollyPublicKeyId(hash.AsSpan(0, length)));
         }
 
-        Assert.Null(keys.TryGetKey(publicKey, out _));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MollyPublicKeyId(publicKey));
         hash[15] ^= 1;
-        Assert.Null(keys.TryGetKey(hash.AsSpan(0, 16), out _));
+        Assert.Null(keys.TryGetKey(new MollyPublicKeyId(hash.AsSpan(0, 16)), out _));
     }
 
     [Theory]
@@ -130,7 +153,7 @@ public sealed class MollyKeyRotationTests
     }
 
     [Fact]
-    public void KeyRotatesAtThirtyMinutes_AdvertisesThirtyOne_AndIsRetiredAtThirtyTwo()
+    public void KeyRotatesAtThirtySeconds_AdvertisesThirtyMinutes_AndIsRetiredAtThirtyOneMinutes()
     {
         var time = new ManualTimeProvider();
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
@@ -138,21 +161,19 @@ public sealed class MollyKeyRotationTests
         using var firstClient = new MollyTestEnvelope(first);
 
         Assert.NotEqual(MollyTestKeys.TransportPublicKeyBytes, Convert.FromBase64String(first.PublicKey));
-        Assert.Equal(time.GetUtcNow().AddMinutes(31).ToUnixTimeSeconds(), first.ExpiresAt);
+        Assert.Equal(time.GetUtcNow().AddMinutes(30).ToUnixTimeSeconds(), first.ExpiresAt);
 
-        time.Advance(TimeSpan.FromMinutes(29));
-        Assert.Equal(first.PublicKey, server.GetTransportKey().PublicKey);
-        time.Advance(TimeSpan.FromSeconds(59));
+        time.Advance(TimeSpan.FromSeconds(29));
         Assert.Equal(first.PublicKey, server.GetTransportKey().PublicKey);
         time.Advance(TimeSpan.FromSeconds(1));
         MollyTransportKeyResponse second = server.GetTransportKey();
         Assert.NotEqual(first.PublicKey, second.PublicKey);
-        Assert.Equal(first.ExpiresAt + 1800, second.ExpiresAt);
+        Assert.Equal(first.ExpiresAt + 30, second.ExpiresAt);
         using var secondClient = new MollyTestEnvelope(second);
         AssertAccepted(server, firstClient, time);
         AssertAccepted(server, secondClient, time);
 
-        time.Advance(TimeSpan.FromMinutes(1));
+        time.Advance(TimeSpan.FromMinutes(29) + TimeSpan.FromSeconds(30));
         Assert.Equal(first.ExpiresAt, time.GetUtcNow().ToUnixTimeSeconds());
         AssertAccepted(server, firstClient, time);
         AssertAccepted(server, secondClient, time);
@@ -166,6 +187,49 @@ public sealed class MollyKeyRotationTests
         AssertAccepted(server, secondClient, time);
     }
 
+    [Theory]
+    [InlineData(0, 0, "ok")]
+    [InlineData(30, 0, "invalid")]
+    [InlineData(0, 30, "ok")]
+    [InlineData(0, 31 * 60, "ok")]
+    public void Responses_AdvertiseTheLatestKey_OnlyWhenTheRequestUsedAnOlderKey(int secondsBeforeDecryption, int secondsAfterDecryption, string status)
+    {
+        var time = new ManualTimeProvider();
+        using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
+        MollyTransportKeyResponse first = server.GetTransportKey();
+        using var client = new MollyTestEnvelope(first);
+        time.Advance(TimeSpan.FromSeconds(secondsBeforeDecryption));
+        byte[] body = client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
+        time.Advance(TimeSpan.FromSeconds(secondsAfterDecryption));
+        var response = new MollyApiResponse { Status = status, Data = "application result" };
+        byte[] encrypted = server.EncryptResponse(response, responseKey, recipientKeyId);
+        CryptographicOperations.ZeroMemory(responseKey);
+        JsonElement envelope = client.DecryptResponse(encrypted);
+
+        Assert.Equal(status, envelope.GetProperty("status").GetString());
+        Assert.Equal("application result", envelope.GetProperty("data").GetString());
+        bool rotated = secondsBeforeDecryption + secondsAfterDecryption != 0;
+        Assert.Equal(rotated, envelope.TryGetProperty("transportKey", out JsonElement update));
+
+        if (rotated)
+        {
+            MollyTransportKeyResponse advertised = update.Deserialize<MollyTransportKeyResponse>()!;
+            MollyTransportKeyResponse current = server.GetTransportKey();
+            Assert.NotEqual(first.PublicKey, advertised.PublicKey);
+            Assert.Equal(current.PublicKey, advertised.PublicKey);
+            Assert.Equal(current.ExpiresAt, advertised.ExpiresAt);
+            Assert.Equal(current.DiscoveryPublicKey, advertised.DiscoveryPublicKey);
+
+            using var updatedClient = new MollyTestEnvelope(advertised);
+            byte[] updatedBody = updatedClient.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
+            Assert.True(server.TryDecryptRequest(updatedBody, out _, out responseKey, out recipientKeyId));
+            byte[] updatedResponse = server.EncryptResponse(response, responseKey, recipientKeyId);
+            CryptographicOperations.ZeroMemory(responseKey);
+            Assert.False(updatedClient.DecryptResponse(updatedResponse).TryGetProperty("transportKey", out _));
+        }
+    }
+
     [Fact]
     public void DelayedMaintenance_ReplacesExpiredKeys()
     {
@@ -174,7 +238,7 @@ public sealed class MollyKeyRotationTests
         using var oldClient = new MollyTestEnvelope(server.GetTransportKey());
         time.Advance(TimeSpan.FromMinutes(62));
         MollyTransportKeyResponse current = server.GetTransportKey();
-        Assert.Equal(time.GetUtcNow().AddMinutes(31).ToUnixTimeSeconds(), current.ExpiresAt);
+        Assert.Equal(time.GetUtcNow().AddMinutes(30).ToUnixTimeSeconds(), current.ExpiresAt);
         AssertRejected(server, oldClient, time);
         using var client = new MollyTestEnvelope(current);
         AssertAccepted(server, client, time);
@@ -184,20 +248,96 @@ public sealed class MollyKeyRotationTests
     public void MaintenanceTimer_RotatesAndExpiresKeysWithoutAnyRequests()
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse first = keys.GetCurrentKey();
-        time.Advance(TimeSpan.FromMinutes(30));
+        time.Advance(TimeSpan.FromSeconds(30));
         MollyTransportKeyResponse second = keys.GetCurrentKey();
         Assert.NotEqual(first.PublicKey, second.PublicKey);
         AssertKeyAvailable(keys, first);
         AssertKeyAvailable(keys, second);
 
-        time.Advance(TimeSpan.FromMinutes(2));
-        Assert.Null(keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey)), out _));
+        time.Advance(TimeSpan.FromMinutes(30) + TimeSpan.FromSeconds(30));
+        Assert.Null(keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey))), out _));
         AssertKeyAvailable(keys, second);
-        time.Advance(TimeSpan.FromMinutes(30));
-        Assert.Null(keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(second.PublicKey)), out _));
+        time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Null(keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(second.PublicKey))), out _));
         Assert.NotEqual(second.PublicKey, keys.GetCurrentKey().PublicKey);
+    }
+
+    [Fact]
+    public void FrequentRotation_RetainsAllUnretiredKeys_AndRemovesExpiredKeys()
+    {
+        var time = new ManualTimeProvider();
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
+        List<MollyTransportKeyResponse> descriptors = [keys.GetCurrentKey()];
+
+        for (int i = 0; i < 180; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(30));
+            MollyTransportKeyResponse current = keys.GetCurrentKey();
+            Assert.NotEqual(descriptors[^1].PublicKey, current.PublicKey);
+            Assert.Equal(time.GetUtcNow().AddMinutes(30).ToUnixTimeSeconds(), current.ExpiresAt);
+            descriptors.Add(current);
+        }
+
+        int retained = 0;
+
+        foreach (MollyTransportKeyResponse descriptor in descriptors)
+        {
+            if (descriptor.ExpiresAt + 60 > time.GetUtcNow().ToUnixTimeSeconds())
+            {
+                AssertKeyAvailable(keys, descriptor);
+                retained++;
+            }
+            else
+            {
+                var keyId = new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(descriptor.PublicKey)));
+                Assert.Null(keys.TryGetKey(keyId, out _));
+            }
+        }
+
+        Assert.Equal(62, retained);
+    }
+
+    [Fact]
+    public void Descriptor_IsCachedUntilRotation_AndSharedByDiscoveryAndKeyUpdates()
+    {
+        var time = new ManualTimeProvider();
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
+        MollyTransportKeyResponse first = keys.GetCurrentKey();
+        var firstKeyId = new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey)));
+        Assert.Same(first, keys.GetCurrentKey());
+        time.Advance(TimeSpan.FromSeconds(10));
+        Assert.Same(first, keys.GetCurrentKey());
+
+        time.Advance(TimeSpan.FromSeconds(20));
+        MollyTransportKeyResponse second = keys.GetCurrentKey();
+        Assert.NotSame(first, second);
+        Assert.Same(second, keys.GetCurrentKey());
+        Assert.Same(second, keys.GetKeyUpdate(firstKeyId));
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        Assert.Same(second, keys.GetCurrentKey());
+        Assert.Same(second, keys.GetKeyUpdate(firstKeyId));
+    }
+
+    [Fact]
+    public void ApplicationKeyRotation_RetainsAllConfiguredDiscoveryKeys()
+    {
+        var time = new ManualTimeProvider();
+        using var keys = new MollyTransportKeyRing(new[] { MollyTestKeys.TransportPrivateKeyBytes, MollyTestKeys.OtherTransportPrivateKeyBytes }, time);
+        MollyTransportKeyResponse first = keys.GetCurrentKey();
+        time.Advance(TimeSpan.FromMinutes(32));
+        MollyTransportKeyResponse current = keys.GetCurrentKey();
+
+        Assert.NotEqual(first.PublicKey, current.PublicKey);
+        Assert.Equal(Convert.ToBase64String(MollyTestKeys.OtherTransportPublicKeyBytes), current.DiscoveryPublicKey);
+
+        foreach (byte[] publicKey in new[] { MollyTestKeys.TransportPublicKeyBytes, MollyTestKeys.OtherTransportPublicKeyBytes })
+        {
+            Assert.NotNull(keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(publicKey)), out bool bootstrap));
+            Assert.True(bootstrap);
+        }
     }
 
     [Fact]
@@ -219,7 +359,7 @@ public sealed class MollyKeyRotationTests
     public void BackwardWallClockChange_RetainsKeyUntilItsUtcDeadline()
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse first = keys.GetCurrentKey();
         time.UtcNow -= TimeSpan.FromDays(1);
         time.Advance(TimeSpan.FromMinutes(32));
@@ -228,7 +368,7 @@ public sealed class MollyKeyRotationTests
 
         time.UtcNow = DateTimeOffset.FromUnixTimeSeconds(first.ExpiresAt).AddSeconds(50);
         time.Advance(TimeSpan.FromSeconds(10));
-        Assert.Null(keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey)), out _));
+        Assert.Null(keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey))), out _));
         Assert.NotEqual(first.PublicKey, keys.GetCurrentKey().PublicKey);
     }
 
@@ -248,7 +388,7 @@ public sealed class MollyKeyRotationTests
     public void KeyReads_DoNotConsultTheClock()
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse first = keys.GetCurrentKey();
         using var ephemeral = X25519DiffieHellman.GenerateKey();
         byte[] publicKey = ephemeral.ExportPublicKey();
@@ -256,11 +396,11 @@ public sealed class MollyKeyRotationTests
         time.ThrowOnRead = true;
 
         Assert.Equal(first.PublicKey, keys.GetCurrentKey().PublicKey);
-        Assert.True(keys.TryDeriveSharedSecret(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey)), publicKey, shared, out bool bootstrap));
+        Assert.True(keys.TryDeriveSharedSecret(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey))), publicKey, shared, out bool bootstrap));
         Assert.False(bootstrap);
-        Assert.True(keys.TryDeriveSharedSecret(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.TransportPublicKeyBytes), publicKey, shared, out bootstrap));
+        Assert.True(keys.TryDeriveSharedSecret(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.TransportPublicKeyBytes)), publicKey, shared, out bootstrap));
         Assert.True(bootstrap);
-        Assert.False(keys.TryDeriveSharedSecret(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.OtherTransportPublicKeyBytes), publicKey, shared, out _));
+        Assert.False(keys.TryDeriveSharedSecret(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.OtherTransportPublicKeyBytes)), publicKey, shared, out _));
         CryptographicOperations.ZeroMemory(shared);
     }
 
@@ -268,7 +408,7 @@ public sealed class MollyKeyRotationTests
     public async Task Readers_DoNotWaitForMaintenance()
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse first = keys.GetCurrentKey();
         using var ephemeral = X25519DiffieHellman.GenerateKey();
         byte[] publicKey = ephemeral.ExportPublicKey();
@@ -280,7 +420,7 @@ public sealed class MollyKeyRotationTests
             resumeMaintenance.Task.GetAwaiter().GetResult();
         };
 
-        Task maintenance = Task.Run(() => time.Advance(TimeSpan.FromMinutes(30)));
+        Task maintenance = Task.Run(() => time.Advance(TimeSpan.FromSeconds(30)));
         try
         {
             await enteredMaintenance.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -288,8 +428,8 @@ public sealed class MollyKeyRotationTests
             {
                 Assert.Equal(first.PublicKey, keys.GetCurrentKey().PublicKey);
                 byte[] shared = new byte[32];
-                Assert.True(keys.TryDeriveSharedSecret(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey)), publicKey, shared, out _));
-                Assert.True(keys.TryDeriveSharedSecret(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.TransportPublicKeyBytes), publicKey, shared, out _));
+                Assert.True(keys.TryDeriveSharedSecret(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(first.PublicKey))), publicKey, shared, out _));
+                Assert.True(keys.TryDeriveSharedSecret(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(MollyTestKeys.TransportPublicKeyBytes)), publicKey, shared, out _));
                 CryptographicOperations.ZeroMemory(shared);
             }).WaitAsync(TimeSpan.FromSeconds(10));
         }
@@ -309,10 +449,10 @@ public sealed class MollyKeyRotationTests
     public void ExistingReferences_RemainUsableAfterRetirementOrShutdown(bool bootstrap)
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse first = keys.GetCurrentKey();
         byte[] recipientPublicKey = bootstrap ? MollyTestKeys.TransportPublicKeyBytes : Convert.FromBase64String(first.PublicKey);
-        byte[] recipientKeyId = MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey);
+        var recipientKeyId = new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey));
         MollyTransportKeyRing.TransportKey? key = keys.TryGetKey(recipientKeyId, out bool isBootstrap);
         Assert.NotNull(key);
         Assert.Equal(bootstrap, isBootstrap);
@@ -343,11 +483,11 @@ public sealed class MollyKeyRotationTests
     public void RetirementBetweenLookupAndDerivation_DoesNotInvalidateReaders(bool bootstrap)
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         byte[] recipientPublicKey = bootstrap
             ? MollyTestKeys.TransportPublicKeyBytes
             : Convert.FromBase64String(keys.GetCurrentKey().PublicKey);
-        byte[] recipientKeyId = MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey);
+        var recipientKeyId = new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey));
         MollyTransportKeyRing.TransportKey? candidate = keys.TryGetKey(recipientKeyId, out _);
         Assert.NotNull(candidate);
 
@@ -386,7 +526,7 @@ public sealed class MollyKeyRotationTests
     public void UnreferencedKeys_CanBeCollectedAfterRetirementOrShutdown(bool shutdown)
     {
         var time = new ManualTimeProvider();
-        using var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        using var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         WeakReference reference = CaptureCurrentKeyReference(keys);
         if (shutdown)
         {
@@ -407,7 +547,7 @@ public sealed class MollyKeyRotationTests
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference CaptureCurrentKeyReference(MollyTransportKeyRing keys)
     {
-        MollyTransportKeyRing.TransportKey? key = keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(keys.GetCurrentKey().PublicKey)), out _);
+        MollyTransportKeyRing.TransportKey? key = keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(keys.GetCurrentKey().PublicKey))), out _);
         Assert.NotNull(key);
         return new WeakReference(key);
     }
@@ -436,7 +576,7 @@ public sealed class MollyKeyRotationTests
         var time = new ManualTimeProvider();
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
         MollyTransportKeyResponse first = server.GetTransportKey();
-        time.Advance(TimeSpan.FromMinutes(30));
+        time.Advance(TimeSpan.FromSeconds(30));
         string[] publicKeys = new string[32];
         Parallel.For(0, publicKeys.Length, i =>
         {
@@ -460,7 +600,7 @@ public sealed class MollyKeyRotationTests
     {
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var bootstrap = new MollyTestEnvelope();
-        Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest(action, data), out _, out _));
+        Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest(action, data), out _, out _, out _));
     }
 
     [Fact]
@@ -470,16 +610,19 @@ public sealed class MollyKeyRotationTests
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
         using var bootstrap = new MollyTestEnvelope();
         byte[] body = bootstrap.EncryptRequest("transport-key", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
-        Assert.True(server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey));
+        Assert.True(server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey, out MollyPublicKeyId recipientKeyId));
         Assert.Equal("transport-key", request.Action);
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, sessionKey);
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, sessionKey, recipientKeyId);
         CryptographicOperations.ZeroMemory(sessionKey);
-        JsonElement data = bootstrap.DecryptResponse(response).GetProperty("data");
-        Assert.Equal(new[] { "expiresAt", "publicKey" },
+        JsonElement envelope = bootstrap.DecryptResponse(response);
+        Assert.False(envelope.TryGetProperty("transportKey", out _));
+        JsonElement data = envelope.GetProperty("data");
+        Assert.Equal(new[] { "discoveryPublicKey", "expiresAt", "publicKey" },
             data.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
-        Assert.False(server.TryDecryptRequest(body, out _, out _));
+        Assert.Equal(Convert.ToBase64String(MollyTestKeys.TransportPublicKeyBytes), data.GetProperty("discoveryPublicKey").GetString());
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
         Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key",
-            timestamp: time.GetUtcNow().AddMinutes(-1).ToUnixTimeSeconds()), out _, out _));
+            timestamp: time.GetUtcNow().AddMinutes(-1).ToUnixTimeSeconds()), out _, out _, out _));
     }
 
     [Fact]
@@ -487,7 +630,7 @@ public sealed class MollyKeyRotationTests
     {
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var client = new MollyTestEnvelope(server.GetTransportKey());
-        Assert.False(server.TryDecryptRequest(client.EncryptRequest("transport-key"), out _, out _));
+        Assert.False(server.TryDecryptRequest(client.EncryptRequest("transport-key"), out _, out _, out _));
     }
 
     [Theory]
@@ -501,7 +644,7 @@ public sealed class MollyKeyRotationTests
         using var client = new MollyTestEnvelope(server.GetTransportKey());
         byte[] body = client.EncryptRequest("ping");
         body[offset] ^= 0x80;
-        Assert.False(server.TryDecryptRequest(body, out _, out _));
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -510,13 +653,13 @@ public sealed class MollyKeyRotationTests
         var time = new ManualTimeProvider();
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
         using var oldClient = new MollyTestEnvelope(server.GetTransportKey());
-        time.Advance(TimeSpan.FromMinutes(30));
+        time.Advance(TimeSpan.FromSeconds(30));
         MollyTransportKeyResponse next = server.GetTransportKey();
         byte[] body = oldClient.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
         MollyTestEnvelope.MaskRequestBody(body);
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(next.PublicKey)).CopyTo(body, 0);
         MollyTestEnvelope.MaskRequestBody(body);
-        Assert.False(server.TryDecryptRequest(body, out _, out _));
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -525,7 +668,7 @@ public sealed class MollyKeyRotationTests
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var client = new MollyTestEnvelope(server.GetTransportKey());
         byte[] body = client.EncryptRequest("ping");
-        Assert.False(server.TryDecryptRequest(body.AsSpan(16), out _, out _));
+        Assert.False(server.TryDecryptRequest(body.AsSpan(16), out _, out _, out _));
     }
 
     [Theory]
@@ -537,16 +680,16 @@ public sealed class MollyKeyRotationTests
         using var client = bootstrap ? new MollyTestEnvelope() : new MollyTestEnvelope(server.GetTransportKey());
         string action = bootstrap ? "transport-key" : "ping";
         byte[] body = client.EncryptRequest(action);
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey));
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
         Assert.Equal(32, responseKey.Length);
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, responseKey);
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, responseKey, recipientKeyId);
         using var responseCipher = new XAesGcm(responseKey);
         MollyTestEnvelope.MaskRequestBody(body);
         Assert.False(responseCipher.TryDecrypt(body.AsSpan(48), out _));
         Assert.Equal("ok", client.DecryptResponse(response).GetProperty("status").GetString());
         CryptographicOperations.ZeroMemory(responseKey);
 
-        Assert.True(server.TryDecryptRequest(client.EncryptRequest(action), out _, out byte[]? nextKeys));
+        Assert.True(server.TryDecryptRequest(client.EncryptRequest(action), out _, out byte[]? nextKeys, out _));
         Assert.Equal(32, nextKeys.Length);
         using var nextResponseCipher = new XAesGcm(nextKeys);
         Assert.False(nextResponseCipher.TryDecrypt(response, out _));
@@ -560,8 +703,8 @@ public sealed class MollyKeyRotationTests
         MollyTransportKeyResponse descriptor = server.GetTransportKey();
         using var client = new MollyTestEnvelope(descriptor);
         byte[] body = client.EncryptRequest("ping");
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? sessionKeys));
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, sessionKeys);
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? sessionKeys, out MollyPublicKeyId recipientKeyId));
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, sessionKeys, recipientKeyId);
         CryptographicOperations.ZeroMemory(sessionKeys);
 
         using var stolenIdentity = X25519DiffieHellman.ImportPrivateKey(MollyTestKeys.TransportPrivateKeyBytes);
@@ -585,35 +728,36 @@ public sealed class MollyKeyRotationTests
     public void Dispose_StopsMaintenanceAndPreventsFurtherLookup(int minutes)
     {
         var time = new ManualTimeProvider();
-        var keys = new MollyTransportKeyRing(MollyTestKeys.TransportPrivateKeyBytes, time);
+        var keys = new MollyTransportKeyRing([MollyTestKeys.TransportPrivateKeyBytes], time);
         MollyTransportKeyResponse current = keys.GetCurrentKey();
         time.Advance(TimeSpan.FromMinutes(minutes));
         keys.Dispose();
         keys.Dispose();
         Assert.Throws<ObjectDisposedException>(() => keys.GetCurrentKey());
-        Assert.Throws<ObjectDisposedException>(() => keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(current.PublicKey)), out _));
+        Assert.Throws<ObjectDisposedException>(() => keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(current.PublicKey))), out _));
         time.ThrowOnRead = true;
         time.Advance(TimeSpan.FromHours(2));
     }
 
     private static void AssertKeyAvailable(MollyTransportKeyRing keys, MollyTransportKeyResponse descriptor)
     {
-        MollyTransportKeyRing.TransportKey? material = keys.TryGetKey(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(descriptor.PublicKey)), out bool bootstrap);
+        MollyTransportKeyRing.TransportKey? material = keys.TryGetKey(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(descriptor.PublicKey))), out bool bootstrap);
         Assert.NotNull(material);
         Assert.False(bootstrap);
     }
 
     private static void AssertAccepted(MollyRequestProtector server, MollyTestEnvelope client, TimeProvider time)
     {
-        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys));
+        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys, out _));
         CryptographicOperations.ZeroMemory(keys);
     }
 
     private static void AssertRejected(MollyRequestProtector server, MollyTestEnvelope client, TimeProvider time)
     {
-        Assert.False(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out MollyApiRequest? request, out byte[]? keys));
+        Assert.False(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out MollyApiRequest? request, out byte[]? keys, out MollyPublicKeyId recipientKeyId));
         Assert.Null(request);
         Assert.Null(keys);
+        Assert.Equal(default(MollyPublicKeyId), recipientKeyId);
     }
 
     private sealed class ManualTimeProvider : TimeProvider

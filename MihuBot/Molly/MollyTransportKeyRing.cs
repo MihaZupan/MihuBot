@@ -5,34 +5,65 @@ using MihuBot.Molly.Api;
 
 namespace MihuBot.Molly;
 
-/// <summary>Independent, memory-only transport keys. The static key authenticates discovery only.</summary>
+/// <summary>Independent, memory-only transport keys. Static keys authenticate discovery only.</summary>
 internal sealed class MollyTransportKeyRing : IDisposable
 {
-    internal static readonly TimeSpan RotationInterval = TimeSpan.FromMinutes(30);
-    internal static readonly TimeSpan RotationGrace = TimeSpan.FromMinutes(2);
-    internal static readonly TimeSpan KeyValidity = RotationInterval + (RotationGrace / 2);
+    internal static readonly TimeSpan RotationInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan KeyValidity = TimeSpan.FromMinutes(30);
 
     internal static readonly TimeSpan MaintenanceInterval = TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan RotationThreshold = KeyValidity - RotationInterval;
-    private static readonly TimeSpan RetirementThreshold = RotationThreshold - RotationGrace;
+    private static readonly TimeSpan RetirementThreshold = -TimeSpan.FromMinutes(1);
 
     private readonly TimeProvider _time;
     private readonly ITimer _maintenanceTimer;
     private readonly Lock _maintenanceLock = new();
     private KeySnapshot? _snapshot;
 
-    public MollyTransportKeyRing(ReadOnlySpan<byte> identityPrivateKey, TimeProvider time)
+    public MollyTransportKeyRing(IEnumerable<byte[]> identityPrivateKeys, TimeProvider time)
     {
         _time = time;
-        TransportKey identity = TransportKey.Import(identityPrivateKey);
-        _snapshot = new KeySnapshot(identity, [TransportKey.Generate(time)]);
+        TransportKey[] identities = identityPrivateKeys.Select(key => TransportKey.Import(key)).ToArray();
+        ArgumentOutOfRangeException.ThrowIfZero(identities.Length);
+
+        TransportKey current = TransportKey.Generate(time);
+        _snapshot = new KeySnapshot(identities, new() { [current.KeyId] = current }, current, CreateDescriptor(current, identities[^1]));
         _maintenanceTimer = time.CreateTimer(_ => UpdateSnapshot(), null, MaintenanceInterval, MaintenanceInterval);
     }
 
-    public MollyTransportKeyResponse GetCurrentKey() => ReadSnapshot().Keys[^1].Descriptor;
+    public MollyTransportKeyResponse GetCurrentKey() => ReadSnapshot().Descriptor;
 
-    public bool TryDeriveSharedSecret(ReadOnlySpan<byte> recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap)
+    public MollyTransportKeyResponse? GetKeyUpdate(MollyPublicKeyId recipientKeyId)
+    {
+        KeySnapshot snapshot = ReadSnapshot();
+        if (recipientKeyId == snapshot.Current.KeyId)
+        {
+            return null;
+        }
+
+        foreach (TransportKey identity in snapshot.Identities)
+        {
+            if (recipientKeyId == identity.KeyId)
+            {
+                return null;
+            }
+        }
+
+        return snapshot.Descriptor;
+    }
+
+    private static MollyTransportKeyResponse CreateDescriptor(TransportKey current, TransportKey identity)
+    {
+        return new MollyTransportKeyResponse
+        {
+            PublicKey = Convert.ToBase64String(current.PublicKey),
+            ExpiresAt = current.ExpiresAt,
+            DiscoveryPublicKey = Convert.ToBase64String(identity.PublicKey),
+        };
+    }
+
+    public bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap)
     {
         TransportKey? key = TryGetKey(recipientKeyId, out bootstrap);
         if (key is null)
@@ -44,24 +75,21 @@ internal sealed class MollyTransportKeyRing : IDisposable
         return true;
     }
 
-    internal TransportKey? TryGetKey(ReadOnlySpan<byte> recipientKeyId, out bool bootstrap)
+    internal TransportKey? TryGetKey(MollyPublicKeyId recipientKeyId, out bool bootstrap)
     {
         KeySnapshot snapshot = ReadSnapshot();
-        bootstrap = CryptographicOperations.FixedTimeEquals(recipientKeyId, snapshot.Identity.KeyId);
-        if (bootstrap)
+        foreach (TransportKey identity in snapshot.Identities)
         {
-            return snapshot.Identity;
-        }
-
-        foreach (TransportKey key in snapshot.Keys)
-        {
-            if (CryptographicOperations.FixedTimeEquals(recipientKeyId, key.KeyId))
+            if (recipientKeyId == identity.KeyId)
             {
-                return key;
+                bootstrap = true;
+                return identity;
             }
         }
 
-        return null;
+        bootstrap = false;
+
+        return snapshot.Keys.GetValueOrDefault(recipientKeyId);
     }
 
     private KeySnapshot ReadSnapshot() =>
@@ -78,16 +106,22 @@ internal sealed class MollyTransportKeyRing : IDisposable
 
             DateTimeOffset now = _time.GetUtcNow();
 
-            TimeSpan RemainingValidity(TransportKey key) => DateTimeOffset.FromUnixTimeSeconds(key.Descriptor.ExpiresAt) - now;
+            TimeSpan RemainingValidity(TransportKey key) => DateTimeOffset.FromUnixTimeSeconds(key.ExpiresAt) - now;
 
-            List<TransportKey> retained = snapshot.Keys.Where(key => RemainingValidity(key) > RetirementThreshold).ToList();
+            Dictionary<MollyPublicKeyId, TransportKey> retained = snapshot.Keys
+                .Where(pair => RemainingValidity(pair.Value) > RetirementThreshold)
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+            TransportKey current = snapshot.Current;
+            MollyTransportKeyResponse descriptor = snapshot.Descriptor;
 
-            if (retained.Count == 0 || RemainingValidity(retained[^1]) <= RotationThreshold)
+            if (retained.Count == 0 || RemainingValidity(current) <= RotationThreshold)
             {
-                retained.Add(TransportKey.Generate(_time));
+                current = TransportKey.Generate(_time);
+                retained.Add(current.KeyId, current);
+                descriptor = CreateDescriptor(current, snapshot.Identities[^1]);
             }
 
-            Volatile.Write(ref _snapshot, new KeySnapshot(snapshot.Identity, [.. retained]));
+            Volatile.Write(ref _snapshot, new KeySnapshot(snapshot.Identities, retained, current, descriptor));
         }
     }
 
@@ -104,14 +138,14 @@ internal sealed class MollyTransportKeyRing : IDisposable
         }
     }
 
-    private sealed record KeySnapshot(TransportKey Identity, TransportKey[] Keys);
+    private sealed record KeySnapshot(TransportKey[] Identities, Dictionary<MollyPublicKeyId, TransportKey> Keys, TransportKey Current, MollyTransportKeyResponse Descriptor);
 
     internal sealed class TransportKey
     {
         private readonly byte[] _privateKey;
         public readonly byte[] PublicKey;
-        public readonly byte[] KeyId;
-        public readonly MollyTransportKeyResponse Descriptor;
+        public readonly MollyPublicKeyId KeyId;
+        public readonly long ExpiresAt;
 
         public static TransportKey Import(ReadOnlySpan<byte> privateKey)
         {
@@ -126,12 +160,8 @@ internal sealed class MollyTransportKeyRing : IDisposable
             _privateKey = privateKey;
             using var key = X25519DiffieHellman.ImportPrivateKey(_privateKey);
             PublicKey = key.ExportPublicKey();
-            KeyId = SHA512.HashData(PublicKey).AsSpan(0, MollyRequestProtector.RecipientKeyIdLength).ToArray();
-            Descriptor = new MollyTransportKeyResponse
-            {
-                PublicKey = Convert.ToBase64String(PublicKey),
-                ExpiresAt = expiresAt.ToUnixTimeSeconds(),
-            };
+            KeyId = new MollyPublicKeyId(SHA512.HashData(PublicKey).AsSpan(0, MollyRequestProtector.RecipientKeyIdLength));
+            ExpiresAt = expiresAt.ToUnixTimeSeconds();
         }
 
         public void DeriveRawSecretAgreement(ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared)

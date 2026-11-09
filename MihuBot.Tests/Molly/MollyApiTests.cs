@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using MihuBot.DB;
 using MihuBot.Helpers;
 using MihuBot.Molly;
@@ -34,6 +35,8 @@ public sealed class MollyApiFixture : IAsyncLifetime
     public MollyIdProtector IdProtector => _app.Services.GetRequiredService<MollyIdProtector>();
 
     public MollyTransportKeyResponse TransportKey { get; private set; } = null!;
+
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string protectedId)
@@ -72,6 +75,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
             serviceProvider.GetRequiredService<IConfiguration>(),
             discordLogger: null));
 
+        builder.Services.AddSingleton(_ => new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, TimeProvider));
         builder.Services.AddMollyServices();
 
         _app = builder.Build();
@@ -287,13 +291,56 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
         JsonElement envelope = bootstrap.DecryptResponse(await response.Content.ReadAsByteArrayAsync());
         Assert.Equal("ok", Status(envelope));
         MollyTransportKeyResponse key = Data(envelope).Deserialize<MollyTransportKeyResponse>()!;
-        Assert.Equal(_fixture.TransportKey.PublicKey, key.PublicKey);
+        Assert.NotEqual(Convert.ToBase64String(MollyTestKeys.TransportPublicKeyBytes), key.PublicKey);
         Assert.Equal(32, Convert.FromBase64String(key.PublicKey).Length);
-        Assert.InRange(key.ExpiresAt, MollyTestEnvelope.Now() + 1, MollyTestEnvelope.Now() + 31 * 60);
-        Assert.Equal(2, Data(envelope).EnumerateObject().Count());
+        Assert.InRange(key.ExpiresAt, MollyTestEnvelope.Now() + 29 * 60, MollyTestEnvelope.Now() + 30 * 60);
+        Assert.Equal(Convert.ToBase64String(MollyTestKeys.TransportPublicKeyBytes), key.DiscoveryPublicKey);
+        Assert.Equal(3, Data(envelope).EnumerateObject().Count());
 
         using HttpResponseMessage rejected = await PostRawAsync(bootstrap.EncryptRequest("login", LoginData(MollyTestKeys.NewKeyHash())));
         Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+    }
+
+    [Fact]
+    public async Task Responses_KeepClientsOnTheLatestTransportKey_WithoutRepeatingDiscovery()
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var fixture = new MollyApiFixture { TimeProvider = time };
+        await fixture.InitializeAsync();
+
+        try
+        {
+            MollyTransportKeyResponse key = fixture.TransportKey;
+
+            for (int i = 0; i < 6; i++)
+            {
+                bool expectsUpdate = i % 2 == 0;
+
+                if (expectsUpdate)
+                {
+                    time.Advance(TimeSpan.FromSeconds(30));
+                }
+
+                using var client = new MollyTestEnvelope(key);
+                using var content = new ByteArrayContent(client.EncryptRequest("unknown", timestamp: time.GetUtcNow().ToUnixTimeSeconds()));
+                using HttpResponseMessage response = await fixture.Client.PostAsync(Group, content);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                JsonElement envelope = client.DecryptResponse(await response.Content.ReadAsByteArrayAsync());
+                Assert.Equal("invalid", Status(envelope));
+                Assert.Equal(expectsUpdate, envelope.TryGetProperty("transportKey", out JsonElement update));
+
+                if (expectsUpdate)
+                {
+                    MollyTransportKeyResponse next = update.Deserialize<MollyTransportKeyResponse>()!;
+                    Assert.NotEqual(key.PublicKey, next.PublicKey);
+                    key = next;
+                }
+            }
+        }
+        finally
+        {
+            await fixture.DisposeAsync();
+        }
     }
 
     [Fact]

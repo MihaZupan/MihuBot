@@ -159,7 +159,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Qdrant:Host` (+`:Port`) | Vector search + semantic ingestion (FTS still works) |
 | `Hetzner:ApiKey` | Hetzner runner VMs → jobs fall back to Azure VMs |
 | `GoogleMaps:ApiKey` | Static map image on relayed Telegram locations |
-| `Molly:DatabaseKey` + `Molly:TransportPrivateKey` | Molly remote lockout API and dashboard |
+| `Molly:DatabaseKey` + `Molly:TransportPrivateKey` | Molly remote lockout API and dashboard. Transport private keys are comma-separated base64 32-byte keys, oldest first; a single key still works |
 | `Molly:AlertEmailConnectionString`+`:AlertEmailFrom` | Emails Molly alerts via Azure Communication Services. Recipients come from the runtime `Molly.AlertEmailTo` config key (comma-separated). Every recipient must have a Proton Mail key |
 | `Youtube:ApiKey` | YouTube API search/playlists (scraping fallback remains) |
 | `YoutubeArchive:Directory` | YouTube archival API. Use `/youtube-archive` for the archive mount; configure comma-separated tokens through global runtime `YoutubeArchive.SharedSecrets` |
@@ -168,6 +168,9 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Tenor:ApiKey` | Tenor links in `!emote` |
 | `Minecraft:Host`+`RconPassword` | `!mc`, Minecraft remote page + nav link |
 | `QBittorrent:Host`/`Username`/`Password` | `!pirate` |
+
+To rotate Molly's discovery key, append the new private key to `Molly:TransportPrivateKey`
+and restart. Retain older keys until clients have adopted the new pin, then remove them and restart.
 | `Jellyfin:Host`+`ApiKey` | `!pirate` |
 
 With Azure OpenAI configured, startup automatically downloads the local speech

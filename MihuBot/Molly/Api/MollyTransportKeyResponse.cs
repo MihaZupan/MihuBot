@@ -11,4 +11,7 @@ public sealed class MollyTransportKeyResponse
 
     [JsonPropertyName("expiresAt")]
     public required long ExpiresAt { get; init; }
+
+    [JsonPropertyName("discoveryPublicKey")]
+    public required string DiscoveryPublicKey { get; init; }
 }

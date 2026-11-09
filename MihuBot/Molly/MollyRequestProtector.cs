@@ -15,7 +15,7 @@ namespace MihuBot.Molly;
 
 /// <summary>
 /// Molly transport: <c>recipient key ID XOR tag (16) || ephemeral public key (32) ||
-/// nonce (24) || ciphertext || tag (16)</c>. The pinned static public key is used
+/// nonce (24) || ciphertext || tag (16)</c>. Pinned static public keys are used
 /// exclusively for discovery; application requests require a rotating, memory-only key.
 /// </summary>
 /// <remarks>
@@ -73,7 +73,7 @@ public sealed class MollyRequestProtector : IDisposable
     private TimeSpan _timestampTolerance = TimestampTolerance;
 
     public MollyRequestProtector(IConfiguration configuration)
-        : this(Convert.FromBase64String(configuration[OptionalFeatures.MollyTransportPrivateKeyName]!))
+        : this(configuration[OptionalFeatures.MollyTransportPrivateKeyName]!.Split(',', StringSplitOptions.TrimEntries).Select(Convert.FromBase64String))
     { }
 
     /// <summary>
@@ -81,8 +81,11 @@ public sealed class MollyRequestProtector : IDisposable
     /// </summary>
     /// <param name="privateKey">The server's raw 32-byte X25519 private key.</param>
     public MollyRequestProtector(ReadOnlySpan<byte> privateKey, TimeProvider? timeProvider = null, int trackedNonceCount = TrackedNonceCount)
+        : this([privateKey.ToArray()], timeProvider, trackedNonceCount)
+    { }
+
+    private MollyRequestProtector(IEnumerable<byte[]> privateKeys, TimeProvider? timeProvider = null, int trackedNonceCount = TrackedNonceCount)
     {
-        ArgumentOutOfRangeException.ThrowIfNotEqual(privateKey.Length, X25519DiffieHellman.PrivateKeySizeInBytes, OptionalFeatures.MollyTransportPrivateKeyName);
         ArgumentOutOfRangeException.ThrowIfLessThan(trackedNonceCount, 1);
 
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -92,7 +95,7 @@ public sealed class MollyRequestProtector : IDisposable
         // Add must detect duplicates before eviction, without growing the set.
         _nonces = new HashSet<string>(checked(trackedNonceCount + 1), StringComparer.Ordinal);
 
-        _keys = new MollyTransportKeyRing(privateKey, _timeProvider);
+        _keys = new MollyTransportKeyRing(privateKeys, _timeProvider);
     }
 
     public MollyTransportKeyResponse GetTransportKey() => _keys.GetCurrentKey();
@@ -100,13 +103,15 @@ public sealed class MollyRequestProtector : IDisposable
     /// <summary>
     /// Opens a sealed request and checks that it is fresh and hasn't been seen before. On success,
     /// <paramref name="responseKey"/> holds the 32-byte key for encrypting the response.
+    /// <paramref name="recipientKeyId"/> identifies the authenticated recipient for response key updates.
     /// A rejected request consumes nothing, so a client whose clock is off can retry after correcting it.
     /// </summary>
     /// <remarks>The nonce is only remembered once the request is accepted.</remarks>
-    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey)
+    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey, out MollyPublicKeyId recipientKeyId)
     {
         request = null;
         responseKey = null;
+        recipientKeyId = default;
 
         if (body.Length < HeaderLength + XAesGcm.CombinedOverheadInBytes + sizeof(ushort))
         {
@@ -165,6 +170,7 @@ public sealed class MollyRequestProtector : IDisposable
         }
 
         responseKey = derivedResponseKey;
+        recipientKeyId = new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength));
         return true;
     }
 
@@ -173,8 +179,10 @@ public sealed class MollyRequestProtector : IDisposable
     /// <see cref="TryDecryptRequest"/>. That key is unique to the request, so the response only
     /// decrypts for the client that made it - no nonce echo is needed to bind them.
     /// </summary>
-    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey)
+    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyPublicKeyId recipientKeyId)
     {
+        response.TransportKey = _keys.GetKeyUpdate(recipientKeyId);
+
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         int paddingLength = data.Length <= 1024 ? 1024 - data.Length : RandomNumberGenerator.GetInt32(513);
         byte[] plaintext = new byte[checked(sizeof(ushort) + paddingLength + data.Length)];
@@ -211,7 +219,7 @@ public sealed class MollyRequestProtector : IDisposable
 
         try
         {
-            if (!_keys.TryDeriveSharedSecret(header.Slice(0, RecipientKeyIdLength), header.Slice(RecipientKeyIdLength), shared, out bootstrap))
+            if (!_keys.TryDeriveSharedSecret(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength), shared, out bootstrap))
             {
                 return false;
             }

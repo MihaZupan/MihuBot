@@ -1,7 +1,9 @@
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using MihuBot.Configuration;
 using MihuBot.Molly;
+using MihuBot.Molly.Api;
 
 namespace MihuBot.Tests.Molly;
 
@@ -30,6 +32,70 @@ public sealed class MollyServiceRegistrationTests
 
         // MollyService also needs a database and loggers, so only its registration is checked.
         Assert.True(isService.IsService(typeof(MollyService)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ConfiguredDiscoveryKeys_AllAuthenticateDiscovery_AndAdvertiseTheLastKey(bool reverseOrder)
+    {
+        string[] privateKeys = [MollyTestKeys.TransportPrivateKey, MollyTestKeys.OtherTransportPrivateKey];
+        byte[][] publicKeys = [MollyTestKeys.TransportPublicKeyBytes, MollyTestKeys.OtherTransportPublicKeyBytes];
+
+        if (reverseOrder)
+        {
+            Array.Reverse(privateKeys);
+            Array.Reverse(publicKeys);
+        }
+
+        using var server = new MollyRequestProtector(Configuration(
+            (OptionalFeatures.MollyTransportPrivateKeyName, $" {privateKeys[0]} , {privateKeys[1]} ")));
+
+        foreach (byte[] publicKey in publicKeys)
+        {
+            using var bootstrap = new MollyTestEnvelope(publicKey);
+            Assert.True(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
+            byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, responseKey, recipientKeyId);
+            CryptographicOperations.ZeroMemory(responseKey);
+            var data = bootstrap.DecryptResponse(response).GetProperty("data");
+            Assert.Equal(Convert.ToBase64String(publicKeys[^1]), data.GetProperty("discoveryPublicKey").GetString());
+            Assert.Equal(server.GetTransportKey().PublicKey, data.GetProperty("publicKey").GetString());
+            Assert.DoesNotContain(Convert.FromBase64String(data.GetProperty("publicKey").GetString()!), publicKeys);
+            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("ping"), out _, out _, out _));
+            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key", "{}"), out _, out _, out _));
+
+            using var client = new MollyTestEnvelope(Convert.FromBase64String(data.GetProperty("publicKey").GetString()!));
+            Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping"), out _, out responseKey, out _));
+            CryptographicOperations.ZeroMemory(responseKey);
+        }
+    }
+
+    [Theory]
+    [InlineData("not-base64", typeof(FormatException))]
+    [InlineData("", typeof(ArgumentOutOfRangeException))]
+    [InlineData("AA==", typeof(ArgumentOutOfRangeException))]
+    public void ConfiguredDiscoveryKeys_RejectAnyInvalidEntry(string invalidKey, Type exceptionType)
+    {
+        IConfiguration configuration = Configuration(
+            (OptionalFeatures.MollyTransportPrivateKeyName, $"{MollyTestKeys.TransportPrivateKey},{invalidKey}"));
+
+        Assert.Throws(exceptionType, () => new MollyRequestProtector(configuration));
+    }
+
+    [Fact]
+    public void RemovingADiscoveryKey_RejectsItsClients_AndRetainsTheLatestPin()
+    {
+        using var original = new MollyRequestProtector(Configuration(
+            (OptionalFeatures.MollyTransportPrivateKeyName, $"{MollyTestKeys.TransportPrivateKey},{MollyTestKeys.OtherTransportPrivateKey}")));
+        byte[] latestPublicKey = Convert.FromBase64String(original.GetTransportKey().DiscoveryPublicKey);
+        using var restarted = new MollyRequestProtector(Configuration(
+            (OptionalFeatures.MollyTransportPrivateKeyName, MollyTestKeys.OtherTransportPrivateKey)));
+        using var oldClient = new MollyTestEnvelope();
+        using var updatedClient = new MollyTestEnvelope(latestPublicKey);
+
+        Assert.False(restarted.TryDecryptRequest(oldClient.EncryptRequest("transport-key"), out _, out _, out _));
+        Assert.True(restarted.TryDecryptRequest(updatedClient.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out _));
+        CryptographicOperations.ZeroMemory(responseKey);
     }
 
     [Theory]

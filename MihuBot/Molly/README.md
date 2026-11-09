@@ -16,11 +16,17 @@ A successful response has `status: "ok"` and a `data` object containing:
 | --- | --- |
 | `publicKey` | Standard padded base64 of the 32-byte X25519 public key |
 | `expiresAt` | Unix seconds; stop using this key before this time |
+| `discoveryPublicKey` | Standard padded base64 of the latest static 32-byte X25519 public key |
 
 The pinned-key exchange authenticates this descriptor; it has no standalone signature and must not be accepted from an unauthenticated JSON response.
-Validate the public key's encoding and length, and use the authenticated `expiresAt` rather than assuming a fixed key lifetime.
-Cache the descriptor and refresh before expiry, allowing for clock skew and request latency.
+Validate both public keys' encoding and length, and use the authenticated `expiresAt` rather than assuming a fixed key lifetime.
+Cache the descriptor and replace it with authenticated updates from application responses as described below.
+If it approaches expiry without an update, refresh through discovery, allowing for clock skew and request latency.
 Seal application requests to the advertised public key.
+
+After authenticating the response using an already trusted discovery key, clients may persist
+`discoveryPublicKey` as their pin for future discovery. Never use it for application requests.
+Older clients may ignore this field and keep using their existing pin while the server retains that key.
 
 ## Wire format and derivation
 
@@ -72,9 +78,18 @@ The server checks timestamp freshness and rejects recently used request nonces.
 Response bytes are `nonce (24) || ciphertext || tag (16)`, encrypted with `responseKey`; the data after removing padding is a UTF-8 JSON `status`/`data` envelope.
 The separate directional keys prevent a request ciphertext from authenticating as a response.
 
+When an application request used an older in-memory key, its response also contains a top-level
+`transportKey` object with the same fields as the discovery descriptor, regardless of the operation's status.
+The server selects this update when encrypting the response, including if rotation occurred during the operation.
+Authenticate the response before accepting the descriptor, and use its key for subsequent requests.
+Responses to requests using the current key omit `transportKey`; discovery still returns its descriptor in `data`.
+Regularly interacting clients can follow these updates without periodically repeating discovery.
+
 ## Key lifecycle and recovery
 
 Rotating key pairs are independently generated, never derived from the static identity key.
+The server generates a new key every 30 seconds; each is advertised as valid for 30 minutes.
+Keys are retained for one additional minute of retirement grace; clients must still honor `expiresAt`.
 Retirement prevents new lookups of a key but allows existing exchanges to finish; it is not a guarantee that key material has been erased from memory.
 Transient session-key and plaintext byte buffers are cleared on a best-effort basis; this does not cover every exception path or managed JSON/string copy.
 Discovery itself is not forward-secret: later disclosure of the identity private key reveals its public descriptors, not the rotating private keys.
