@@ -12,9 +12,7 @@ internal static class CryptographicOperationsExtensions
             ArgumentOutOfRangeException.ThrowIfZero(expected.Length);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(expected.Length, 4096);
 
-            return
-                expected.Length == actual.Length &&
-                CryptographicOperations.FixedTimeEquals(MemoryMarshal.AsBytes(expected), MemoryMarshal.AsBytes(actual));
+            return CryptographicOperations.FixedTimeEquals(MemoryMarshal.AsBytes(expected), MemoryMarshal.AsBytes(actual));
         }
     }
 }

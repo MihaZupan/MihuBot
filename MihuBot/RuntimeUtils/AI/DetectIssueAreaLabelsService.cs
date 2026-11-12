@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using MihuBot.Configuration;
-using MihuBot.DB;
 using MihuBot.DB.GitHub;
 using MihuBot.Discord;
 

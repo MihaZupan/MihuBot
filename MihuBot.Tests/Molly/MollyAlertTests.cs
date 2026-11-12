@@ -22,7 +22,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
 
     private async Task<(string Token, Guid Id)> RegisterAsync(string nickname = "alert-user")
     {
-        MollyLoginResult login = await Molly.LoginAsync(MollyTestKeys.NewKeyHash(), default);
+        MollyLoginResult login = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash());
         await Molly.AssociateAsync(login.ProtectedId, $"{nickname}-{Guid.NewGuid():N}"[..32], default);
 
         return (login.ProtectedId!, _fixture.Unprotect(login.ProtectedId));
@@ -393,7 +393,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Alert_ForAnUnknownEntry_IsRejected()
     {
-        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
+        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
 
         // A token issued under a different server key can't even be unprotected.
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.SubmitAlertAsync(token, Payload("{}"), default)).Status);
@@ -521,7 +521,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Alerts_AreDeletedWithTheirEntry()
     {
-        MollyLoginResult login = await Molly.LoginAsync(MollyTestKeys.NewKeyHash(), default);
+        MollyLoginResult login = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash());
         Guid id = _fixture.Unprotect(login.ProtectedId);
 
         await Molly.SubmitAlertAsync(login.ProtectedId, LocationPayload(login.ProtectedId!), default);

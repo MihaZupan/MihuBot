@@ -3,10 +3,14 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using MihuBot.DB;
 using MihuBot.Helpers;
 using MihuBot.Molly;
+using MihuBot.Molly.Api;
+using MihuBot.Molly.Attestation;
 
 namespace MihuBot.Tests.Molly;
 
@@ -55,6 +59,8 @@ public static class MollyTestKeys
 public sealed class MollyServiceFixture : IAsyncLifetime
 {
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"molly-tests-{Guid.NewGuid():N}.db");
+    private readonly string _revocationCachePath = Path.Combine(Path.GetTempPath(), $"molly-tests-revocations-{Guid.NewGuid():N}.json");
+    private readonly ConcurrentDictionary<string, MollyTestDevice> _devices = new(StringComparer.Ordinal);
     private ServiceProvider _services = null!;
 
     public MollyService Service { get; private set; } = null!;
@@ -63,10 +69,13 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
     public IDbContextFactory<MollyDbContext> DbFactory { get; private set; } = null!;
 
+    /// <summary>Starts out with a fresh, empty revocation list. Never touches the network.</summary>
+    public MollyAttestationRevocations Revocations { get; private set; } = null!;
+
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string? protectedId)
     {
-        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id));
+        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id, out _));
         return id;
     }
 
@@ -88,11 +97,48 @@ public sealed class MollyServiceFixture : IAsyncLifetime
             await db.Database.MigrateAsync();
         }
 
+        Revocations = CreateRevocations(_revocationCachePath);
+        Assert.True(Revocations.Apply("""{"entries":{}}"""u8, DateTimeOffset.UtcNow));
+
         Service = CreateService(MollyTestKeys.DatabaseKey, MollyTestKeys.TransportPrivateKey);
     }
 
+    public static MollyAttestationRevocations CreateRevocations(string cachePath, TimeProvider? time = null) =>
+        new(cachePath, new HttpClient(new UnreachableHandler()), time ?? TimeProvider.System, NullLogger<MollyAttestationRevocations>.Instance);
+
+    public MollyAttestationService CreateAttestationService(TimeProvider? time = null, MollyAttestationRevocations? revocations = null, IEnumerable<MollyAttestationApp>? apps = null) =>
+        new(apps ?? [MollyTestPki.App], MollyTestPki.Instance.TrustAnchors, revocations ?? Revocations, NullLogger<MollyAttestationService>.Instance, time ?? TimeProvider.System);
+
+    /// <summary>
+    /// Logs in like the Android client: sends an attested login from the device simulated for
+    /// <paramref name="keyHash"/> (or <paramref name="device"/>), bound to a new exchange.
+    /// </summary>
+    public async Task<MollyLoginResult> LoginAsync(string? keyHash, MollyService? service = null, MollyTestDevice? device = null, MollyTestProofOptions? options = null, MollyExchangeContext? exchange = null)
+    {
+        service ??= Service;
+        device ??= _devices.GetOrAdd(keyHash ?? "", _ => new MollyTestDevice());
+        exchange ??= MollyTestDevice.NewExchange();
+
+        byte[] keyHashBytes = TryDecodeBase64(keyHash);
+        MollyAttestationProof proof = device.CreateProof(keyHashBytes, exchange, options);
+
+        return await service.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, exchange, default);
+    }
+
+    private static byte[] TryDecodeBase64(string? value)
+    {
+        try
+        {
+            return value is null ? [] : Convert.FromBase64String(value);
+        }
+        catch (FormatException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>Creates another service over the same database, e.g. to test a different key.</summary>
-    public MollyService CreateService(string databaseKey, string transportPrivateKey)
+    public MollyService CreateService(string databaseKey, string transportPrivateKey, MollyAttestationService? attestation = null)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -104,7 +150,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
         // No Discord connection in tests. MollyService treats that as "don't announce alerts" and
         // skips its maintenance loop, which the tests drive explicitly instead.
-        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), IdProtector, configuration, discordLogger: null);
+        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), IdProtector, attestation ?? CreateAttestationService(), configuration, discordLogger: null);
     }
 
     public async Task<MollyDbEntry> GetEntryAsync(Guid id)
@@ -140,6 +186,13 @@ public sealed class MollyServiceFixture : IAsyncLifetime
         await db.SaveChangesAsync();
     }
 
+    public async Task SetLastLoginAsync(Guid id, DateTime lastLogin)
+    {
+        await using MollyDbContext db = DbFactory.CreateDbContext();
+        (await db.Entries.FirstAsync(e => e.Id == id)).LastLoginAt = lastLogin;
+        await db.SaveChangesAsync();
+    }
+
     public async Task SetEncryptedDeviceStatusAsync(Guid id, byte[]? status)
     {
         await using MollyDbContext db = DbFactory.CreateDbContext();
@@ -172,7 +225,15 @@ public sealed class MollyServiceFixture : IAsyncLifetime
         try
         {
             File.Delete(_databasePath);
+            File.Delete(_revocationCachePath);
         }
         catch { }
     }
+}
+
+/// <summary>Fails every request, so tests can never reach the real revocation list.</summary>
+public sealed class UnreachableHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        throw new HttpRequestException("Tests don't use the network.");
 }

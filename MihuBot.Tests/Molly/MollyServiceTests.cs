@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
+using MihuBot.Molly.Attestation;
 
 namespace MihuBot.Tests.Molly;
 
@@ -13,7 +14,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public MollyServiceTests(MollyServiceFixture fixture) => _fixture = fixture;
 
     private async Task<MollyLoginResult> RegisterAsync(string? keyHash = null) =>
-        await Molly.LoginAsync(keyHash ?? MollyTestKeys.NewKeyHash(), default);
+        await _fixture.LoginAsync(keyHash ?? MollyTestKeys.NewKeyHash());
 
     /// <summary>The real entry id behind the opaque token a login hands out.</summary>
     private Guid IdOf(MollyLoginResult result) => _fixture.Unprotect(result.ProtectedId);
@@ -93,7 +94,6 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(result));
 
         Assert.NotNull(entry.EncryptedServerHmac);
-        Assert.Equal(entry.DerivedHash[0], entry.HashPrefix);
         Assert.False(entry.EncryptedServerHmac.AsSpan().IndexOf(result.ServerHmac!) >= 0, "The server HMAC must not be stored unencrypted.");
 
         // The nonce is stored inline, ahead of the ciphertext, and the tag trails it.
@@ -142,7 +142,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyLoginResult original = await RegisterAsync(keyHash);
 
         MollyService otherServer = _fixture.CreateService(MollyTestKeys.OtherDatabaseKey, MollyTestKeys.TransportPrivateKey);
-        MollyLoginResult result = await otherServer.LoginAsync(keyHash, default);
+        MollyLoginResult result = await _fixture.LoginAsync(keyHash, otherServer);
 
         Assert.NotEqual(IdOf(original), IdOf(result));
     }
@@ -156,7 +156,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [InlineData("AAAAA")]                   // Length isn't a multiple of 4.
     public async Task Login_InvalidKeyHash_IsRejected(string? keyHash)
     {
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(keyHash, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(keyHash)).Status);
     }
 
     [Theory]
@@ -167,7 +167,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         string keyHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(length));
 
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(keyHash, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(keyHash)).Status);
     }
 
     [Theory]
@@ -179,7 +179,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         string keyHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(length));
 
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.LoginAsync(keyHash, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(keyHash)).Status);
     }
 
     [Fact]
@@ -187,12 +187,12 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     {
         string keyHash = MollyTestKeys.NewKeyHash();
 
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(" " + keyHash, default)).Status);
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(keyHash + "\n", default)).Status);
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(keyHash.Insert(4, " "), default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(" " + keyHash)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(keyHash + "\n")).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(keyHash.Insert(4, " "))).Status);
 
         // Trailing whitespace that keeps the length a multiple of 4 must not sneak through.
-        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.LoginAsync(keyHash + "\n\n\n\n", default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(keyHash + "\n\n\n\n")).Status);
     }
 
     [Fact]
@@ -621,21 +621,77 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task Ping_TokenFromAnotherServerKey_IsRejected()
     {
         // Tokens are bound to the server key, so one issued under a different key can't be unprotected.
-        string foreignToken = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid());
+        string foreignToken = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
 
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(foreignToken, null, null, null, default)).Status);
+    }
+
+    [Theory]
+    [InlineData("ping")]
+    [InlineData("alert")]
+    [InlineData("associate")]
+    public async Task Tokens_FromBeforeTheLastLogin_AreRejectedOnceTheNewerTokenIsUsed(string action)
+    {
+        // A copied token stops working once the device uses the token of a newer login. Until then it
+        // keeps working: the newer login's response may never have reached the device.
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult first = await _fixture.LoginAsync(keyHash);
+        MollyLoginResult second = await _fixture.LoginAsync(keyHash);
+
+        Assert.Equal(MollyResultStatus.Ok, await SendAsync(first.ProtectedId));
+        Assert.Equal(MollyResultStatus.Ok, await SendAsync(second.ProtectedId));
+        Assert.Equal(MollyResultStatus.InvalidRequest, await SendAsync(first.ProtectedId));
+        Assert.Equal(MollyResultStatus.Ok, await SendAsync(second.ProtectedId));
+
+        async Task<MollyResultStatus> SendAsync(string? token) => action switch
+        {
+            "ping" => (await Molly.PingAsync(token, 42, null, null, default)).Status,
+            "alert" => (await Molly.SubmitAlertAsync(token, """{"type":"test"}"""u8.ToArray(), default)).Status,
+            _ => (await Molly.AssociateAsync(token, "superseded", default)).Status,
+        };
+    }
+
+    [Fact]
+    public async Task UsingAnOlderToken_NeverRevivesItAfterANewerOneWasUsed()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult first = await _fixture.LoginAsync(keyHash);
+        MollyLoginResult second = await _fixture.LoginAsync(keyHash);
+        MollyLoginResult third = await _fixture.LoginAsync(keyHash);
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(third.ProtectedId, 42, null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(second.ProtectedId, 42, null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(first.ProtectedId, 42, null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(third.ProtectedId, 42, null, null, default)).Status);
+    }
+
+    [Fact]
+    public async Task Logins_SupersedeEarlierTokens_EvenIfTheClockSteppedBack()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        Guid id = IdOf(await _fixture.LoginAsync(keyHash));
+
+        // As if the previous login happened before the server clock was stepped back.
+        DateTime ahead = DateTime.UtcNow.AddMinutes(5);
+        await _fixture.SetLastLoginAsync(id, ahead);
+        string earlier = _fixture.IdProtector.Protect(id, ahead);
+
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(login.ProtectedId, 42, null, null, default)).Status);
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(earlier, 42, null, null, default)).Status);
     }
 
     [Fact]
     public async Task Lock_BlocksEveryEndpoint()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(login.ProtectedId, "locked-user", default);
 
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: true);
 
-        MollyLoginResult locked = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult locked = await _fixture.LoginAsync(keyHash);
         Assert.Equal(MollyResultStatus.Command, locked.Status);
         Assert.Equal(MollyCommand.Lock, locked.Command);
         Assert.Null(locked.ServerHmac);
@@ -651,7 +707,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task BlockedEndpoints_StillRecordThatTheDeviceCheckedIn(bool wipe)
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         Guid id = IdOf(login);
 
         await Molly.AssociateAsync(login.ProtectedId, "checked-in-user", default);
@@ -670,7 +726,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         // Each blocked endpoint has to refresh LastSeen even though it returns a command.
         foreach (Func<Task<MollyCommand>> checkIn in (Func<Task<MollyCommand>>[])
         [
-            async () => (await Molly.LoginAsync(keyHash, default)).Command,
+            async () => (await _fixture.LoginAsync(keyHash)).Command,
             async () => (await Molly.AssociateAsync(login.ProtectedId, "new-name", default)).Command,
             async () => (await Molly.PingAsync(login.ProtectedId, null, null, null, default)).Command,
         ])
@@ -685,12 +741,12 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Unlock_RestoresAccess()    {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
 
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: true);
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: false);
 
-        MollyLoginResult result = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult result = await _fixture.LoginAsync(keyHash);
         Assert.Equal(MollyResultStatus.Ok, result.Status);
         Assert.Equal(login.ServerHmac, result.ServerHmac);
     }
@@ -699,20 +755,23 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task Wipe_DeletesSecretsButKeepsServingTheCommand()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(login.ProtectedId, "wiped-user", default);
+
+        Assert.NotNull((await _fixture.GetEntryAsync(IdOf(login))).EncryptedAttestationState);
 
         await Molly.RequestWipeAsync(IdOf(login));
 
         MollyDbEntry entry = await _fixture.GetEntryAsync(IdOf(login));
         Assert.Null(entry.EncryptedServerHmac);
+        Assert.Null(entry.EncryptedAttestationState);
         Assert.True(entry.WipeRequested);
         Assert.True(entry.LockRequested);
 
         // The nickname is kept so the entry still shows up on the dashboard.
         Assert.NotNull(entry.EncryptedNickname);
 
-        Assert.Equal(MollyCommand.Wipe, (await Molly.LoginAsync(keyHash, default)).Command);
+        Assert.Equal(MollyCommand.Wipe, (await _fixture.LoginAsync(keyHash)).Command);
         Assert.Equal(MollyCommand.Wipe, (await Molly.PingAsync(login.ProtectedId, null, null, null, default)).Command);
     }
 
@@ -720,19 +779,19 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task Wipe_CannotBeUndoneByUnlocking()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
 
         await Molly.RequestWipeAsync(IdOf(login));
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: false);
 
-        Assert.Equal(MollyCommand.Wipe, (await Molly.LoginAsync(keyHash, default)).Command);
+        Assert.Equal(MollyCommand.Wipe, (await _fixture.LoginAsync(keyHash)).Command);
     }
 
     [Fact]
     public async Task Delete_RemovesTheEntryAndItsAlerts()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(login.ProtectedId, "deleted-user", default);
         await Molly.SubmitAlertAsync(login.ProtectedId, Encoding.UTF8.GetBytes("""{"type":"test"}"""), default);
 
@@ -744,7 +803,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         Assert.Equal(0, await _fixture.CountAlertsAsync(IdOf(login)));
 
         // Nothing is left to serve a command from, so the device just registers again.
-        Assert.Equal(MollyCommand.None, (await Molly.LoginAsync(keyHash, default)).Command);
+        Assert.Equal(MollyCommand.None, (await _fixture.LoginAsync(keyHash)).Command);
     }
 
     [Fact]
@@ -791,12 +850,12 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task CorruptedServerHmac_IsReportedAsInvalidRatherThanThrowing()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
 
         // Too short to even contain a nonce and tag.
         await _fixture.SetEncryptedServerHmacAsync(IdOf(login), [1, 2, 3]);
 
-        await Assert.ThrowsAsync<CryptographicException>(() => Molly.LoginAsync(keyHash, default));
+        await Assert.ThrowsAsync<CryptographicException>(() => _fixture.LoginAsync(keyHash));
     }
 
     [Fact]
@@ -849,7 +908,11 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         Assert.NotNull(user.LocationEnabled);
         Assert.InRange(user.BatteryLevel!.Value, 0, 100);
+
+        // Seeded with a plausible attested state, so the dashboard's details have something to show.
+        Assert.Equal(new MollyKnownDevice("Google Pixel 8 Pro", "GrapheneOS"), MollyKnownDevice.TryIdentify(user.Attestation!.VerifiedBootKey));
         Assert.Equal("1.0.0", user.AppVersion);
+        Assert.Equal(100, user.Attestation.AppVersion);
     }
 
     [Fact]
@@ -948,13 +1011,13 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task LockInactiveEntries_MakesTheDeviceReceiveTheLockCommand()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(login.ProtectedId, "gone-quiet", default);
 
         await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
 
-        MollyLoginResult locked = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult locked = await _fixture.LoginAsync(keyHash);
 
         Assert.Equal(MollyCommand.Lock, locked.Command);
         Assert.Null(locked.ServerHmac);
@@ -999,7 +1062,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task LockInactiveEntries_CanBeUndoneByAnAdmin()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(login.ProtectedId, "back-again", default);
 
         await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
@@ -1007,14 +1070,14 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: false);
 
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.LoginAsync(keyHash, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(keyHash)).Status);
     }
 
     [Fact]
     public async Task Unlock_RefreshesLastSeen_SoTheSweepDoesNotImmediatelyRelock()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult login = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult login = await _fixture.LoginAsync(keyHash);
         Guid id = IdOf(login);
 
         await Molly.AssociateAsync(login.ProtectedId, "unlocked-user", default);
@@ -1031,7 +1094,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.LockInactiveEntriesAsync();
 
         Assert.False((await _fixture.GetEntryAsync(id)).LockRequested);
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.LoginAsync(keyHash, default)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(keyHash)).Status);
     }
 
     [Fact]
@@ -1067,12 +1130,12 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task DeleteUnassociatedEntries_DeletedEntryIsReRegisteredOnNextLogin()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
-        MollyLoginResult original = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult original = await _fixture.LoginAsync(keyHash);
 
         await _fixture.SetLastSeenAsync(IdOf(original), DateTime.UtcNow.AddDays(-90));
         await Molly.DeleteUnassociatedEntriesAsync();
 
-        MollyLoginResult reRegistered = await Molly.LoginAsync(keyHash, default);
+        MollyLoginResult reRegistered = await _fixture.LoginAsync(keyHash);
 
         Assert.Equal(MollyResultStatus.Ok, reRegistered.Status);
         Assert.NotEqual(IdOf(original), IdOf(reRegistered));

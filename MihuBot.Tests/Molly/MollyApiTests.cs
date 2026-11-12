@@ -18,6 +18,7 @@ using MihuBot.Helpers;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Api;
+using MihuBot.Molly.Attestation;
 
 namespace MihuBot.Tests.Molly;
 
@@ -27,6 +28,7 @@ namespace MihuBot.Tests.Molly;
 public sealed class MollyApiFixture : IAsyncLifetime
 {
     private readonly string _databasePath = Path.Combine(Path.GetTempPath(), $"molly-api-tests-{Guid.NewGuid():N}.db");
+    private readonly string _revocationCachePath = Path.Combine(Path.GetTempPath(), $"molly-api-tests-revocations-{Guid.NewGuid():N}.json");
     private WebApplication _app = null!;
 
     public HttpClient Client { get; private set; } = null!;
@@ -42,7 +44,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string protectedId)
     {
-        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id));
+        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id, out _));
         return id;
     }
 
@@ -63,7 +65,14 @@ public sealed class MollyApiFixture : IAsyncLifetime
         {
             ["Molly:DatabaseKey"] = MollyTestKeys.DatabaseKey,
             ["Molly:TransportPrivateKey"] = MollyTestKeys.TransportPrivateKey,
+            ["Molly:AttestationApps"] = MollyTestPki.AppsConfiguration,
         });
+
+        // Test roots instead of Google's, and a revocation list that never touches the network.
+        MollyAttestationRevocations revocations = MollyServiceFixture.CreateRevocations(_revocationCachePath);
+        Assert.True(revocations.Apply("""{"entries":{}}"""u8, DateTimeOffset.UtcNow));
+        builder.Services.AddSingleton(MollyTestPki.Instance.TrustAnchors);
+        builder.Services.AddSingleton(revocations);
 
         builder.Services.AddPooledDbContextFactory<MollyDbContext>(options => options.UseSqlite($"Data Source={_databasePath}"));
 
@@ -73,6 +82,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
             serviceProvider.GetRequiredService<IDbContextFactory<MollyDbContext>>(),
             serviceProvider.GetRequiredService<ILogger<MollyService>>(),
             serviceProvider.GetRequiredService<MollyIdProtector>(),
+            serviceProvider.GetRequiredService<MollyAttestationService>(),
             serviceProvider.GetRequiredService<IConfiguration>(),
             discordLogger: null));
 
@@ -125,6 +135,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
         try
         {
             File.Delete(_databasePath);
+            File.Delete(_revocationCachePath);
         }
         catch { }
     }
@@ -187,9 +198,19 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
     private static string LoginData(string keyHash) => $$"""{"keyHash":"{{keyHash}}"}""";
 
+    /// <summary>The full client flow: an attested login bound to the exchange it's sealed in.</summary>
+    private async Task<JsonElement> AttestedLoginAsync(string keyHash, MollyTestDevice device, MollyTestProofOptions? options = null, MollyExchangeContext? signedExchange = null)
+    {
+        MollyExchangeContext exchange = _envelope.PrepareExchange();
+        MollyAttestationProof proof = device.CreateProof(Convert.FromBase64String(keyHash), signedExchange ?? exchange, options);
+        string data = JsonSerializer.Serialize(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof });
+
+        return await PostAsync("login", data, NewClientIp());
+    }
+
     private async Task<(string Id, string ServerHmac)> RegisterAsync()
     {
-        JsonElement response = await PostAsync("login", LoginData(MollyTestKeys.NewKeyHash()));
+        JsonElement response = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice());
         Assert.Equal("ok", Status(response));
 
         JsonElement data = Data(response);
@@ -218,7 +239,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
         // The database id is never sent to the client, only a token it can hand back.
         Assert.False(Guid.TryParse(id, out _));
-        Assert.True(_fixture.IdProtector.TryUnprotect(id, out Guid entryId));
+        Assert.True(_fixture.IdProtector.TryUnprotect(id, out Guid entryId, out _));
         Assert.NotEqual(Guid.Empty, entryId);
 
         Assert.Equal(64, Convert.FromBase64String(serverHmac).Length);
@@ -493,7 +514,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     [Fact]
     public async Task OversizedBody_IsRejectedByTheServer()
     {
-        byte[] body = _envelope.EncryptRequest("login", LoginData(new string('A', 20_000)));
+        byte[] body = _envelope.EncryptRequest("login", LoginData(new string('A', MollyServiceExtensions.MaxRequestBodyLength + 1)));
 
         HttpResponseMessage response = await PostRawAsync(body);
 
@@ -501,11 +522,12 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     }
 
     [Theory]
-    [InlineData(8192, HttpStatusCode.OK)]
-    [InlineData(8193, HttpStatusCode.RequestEntityTooLarge)]
-    public async Task Padding_CountsTowardTheRequestSizeLimit(int bodyLength, HttpStatusCode expectedStatus)
+    [InlineData(0, HttpStatusCode.OK)]
+    [InlineData(1, HttpStatusCode.RequestEntityTooLarge)]
+    public async Task Padding_CountsTowardTheRequestSizeLimit(int bytesOverTheLimit, HttpStatusCode expectedStatus)
     {
-        string json = MollyTestEnvelope.RequestJson("login", LoginData(MollyTestKeys.NewKeyHash()));
+        int bodyLength = MollyServiceExtensions.MaxRequestBodyLength + bytesOverTheLimit;
+        string json = MollyTestEnvelope.RequestJson("ping", "{}");
         int paddingLength = bodyLength - _envelope.Encrypt(json).Length;
         byte[] body = _envelope.Encrypt(json, paddingLength);
         Assert.Equal(bodyLength, body.Length);
@@ -533,11 +555,45 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     [Fact]
     public async Task BodyAtTheSizeLimit_IsStillProcessed()
     {
-        // Comfortably under the 8 KB limit, but far larger than a real request.
+        // Comfortably under the limit, but far larger than a real request's key hash.
         JsonElement response = await PostAsync("login", LoginData(new string('A', 4_000)));
 
         // The key hash is too long to be valid, but the body was read and decrypted.
         Assert.Equal("invalid", Status(response));
+    }
+
+    [Fact]
+    public async Task Login_WithoutAttestation_ReleasesNothing()
+    {
+        JsonElement response = await PostAsync("login", LoginData(MollyTestKeys.NewKeyHash()));
+
+        Assert.Equal("invalid", Status(response));
+        Assert.False(response.TryGetProperty("data", out _));
+    }
+
+    [Fact]
+    public async Task AttestedLogin_EnrollsAndThenLogsIn()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        var device = new MollyTestDevice();
+
+        JsonElement first = await AttestedLoginAsync(keyHash, device);
+        JsonElement second = await AttestedLoginAsync(keyHash, device, new MollyTestProofOptions { IncludeEnrollmentEvidence = false });
+
+        Assert.Equal("ok", Status(first));
+        Assert.Equal("ok", Status(second));
+        Assert.Equal(Data(first).GetProperty("serverHmac").GetString(), Data(second).GetProperty("serverHmac").GetString());
+    }
+
+    [Fact]
+    public async Task AttestedLogin_BoundToAnotherExchange_IsRejected()
+    {
+        // A proof can't be moved into an exchange whose response someone else can decrypt.
+        JsonElement response = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice(), signedExchange: MollyTestDevice.NewExchange());
+
+        // Retryable for the client, as a transport-level retry re-sealing a signed request would end up here too.
+        Assert.Equal("invalid", Status(response));
+        Assert.False(response.TryGetProperty("data", out _));
     }
 
     [Fact]

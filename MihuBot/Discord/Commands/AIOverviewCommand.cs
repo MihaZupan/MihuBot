@@ -4,7 +4,6 @@ using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.Helpers.AI;
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 
 namespace MihuBot.Discord.Commands;

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MihuBot.Configuration;
 using MihuBot.Molly;
 using MihuBot.Molly.Api;
+using MihuBot.Molly.Attestation;
 
 namespace MihuBot.Tests.Molly;
 
@@ -30,8 +31,9 @@ public sealed class MollyServiceRegistrationTests
         Assert.NotNull(provider.GetService<MollyIdProtector>());
         Assert.NotNull(provider.GetService<MollyRequestProtector>());
 
-        // MollyService also needs a database and loggers, so only its registration is checked.
+        // These also need a database and loggers, so only their registration is checked.
         Assert.True(isService.IsService(typeof(MollyService)));
+        Assert.True(isService.IsService(typeof(MollyAttestationService)));
     }
 
     [Theory]
@@ -54,18 +56,18 @@ public sealed class MollyServiceRegistrationTests
         foreach (byte[] publicKey in publicKeys)
         {
             using var bootstrap = new MollyTestEnvelope(publicKey);
-            Assert.True(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId));
+            Assert.True(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
             byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, responseKey, recipientKeyId);
             CryptographicOperations.ZeroMemory(responseKey);
             var data = bootstrap.DecryptResponse(response).GetProperty("data");
             Assert.Equal(Convert.ToBase64String(publicKeys[^1]), data.GetProperty("discoveryPublicKey").GetString());
             Assert.Equal(server.GetTransportKey().PublicKey, data.GetProperty("publicKey").GetString());
             Assert.DoesNotContain(Convert.FromBase64String(data.GetProperty("publicKey").GetString()!), publicKeys);
-            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("ping"), out _, out _, out _));
-            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key", "{}"), out _, out _, out _));
+            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("ping"), out _, out _, out _, out _));
+            Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key", "{}"), out _, out _, out _, out _));
 
             using var client = new MollyTestEnvelope(Convert.FromBase64String(data.GetProperty("publicKey").GetString()!));
-            Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping"), out _, out responseKey, out _));
+            Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping"), out _, out responseKey, out _, out _));
             CryptographicOperations.ZeroMemory(responseKey);
         }
     }
@@ -93,8 +95,8 @@ public sealed class MollyServiceRegistrationTests
         using var oldClient = new MollyTestEnvelope();
         using var updatedClient = new MollyTestEnvelope(latestPublicKey);
 
-        Assert.False(restarted.TryDecryptRequest(oldClient.EncryptRequest("transport-key"), out _, out _, out _));
-        Assert.True(restarted.TryDecryptRequest(updatedClient.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out _));
+        Assert.False(restarted.TryDecryptRequest(oldClient.EncryptRequest("transport-key"), out _, out _, out _, out _));
+        Assert.True(restarted.TryDecryptRequest(updatedClient.EncryptRequest("transport-key"), out _, out byte[]? responseKey, out _, out _));
         CryptographicOperations.ZeroMemory(responseKey);
     }
 

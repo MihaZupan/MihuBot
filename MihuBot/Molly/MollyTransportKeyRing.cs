@@ -63,14 +63,17 @@ internal sealed class MollyTransportKeyRing : IDisposable
         };
     }
 
-    public bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap)
+    /// <param name="createdAt">When the key was generated; <see cref="DateTimeOffset.MinValue"/> for identity keys.</param>
+    public bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap, out DateTimeOffset createdAt)
     {
         TransportKey? key = TryGetKey(recipientKeyId, out bootstrap);
         if (key is null)
         {
+            createdAt = default;
             return false;
         }
 
+        createdAt = key.CreatedAt;
         key.DeriveRawSecretAgreement(ephemeralPublicKey, shared);
         return true;
     }
@@ -145,22 +148,28 @@ internal sealed class MollyTransportKeyRing : IDisposable
         private readonly byte[] _privateKey;
         public readonly byte[] PublicKey;
         public readonly MollyPublicKeyId KeyId;
+        public readonly DateTimeOffset CreatedAt;
         public readonly long ExpiresAt;
 
         public static TransportKey Import(ReadOnlySpan<byte> privateKey)
         {
             ArgumentOutOfRangeException.ThrowIfNotEqual(privateKey.Length, X25519DiffieHellman.PrivateKeySizeInBytes);
-            return new TransportKey(privateKey.ToArray(), expiresAt: DateTimeOffset.MaxValue);
+            return new TransportKey(privateKey.ToArray(), createdAt: DateTimeOffset.MinValue, expiresAt: DateTimeOffset.MaxValue);
         }
 
-        public static TransportKey Generate(TimeProvider time) => new(RandomNumberGenerator.GetBytes(X25519DiffieHellman.PrivateKeySizeInBytes), time.GetUtcNow() + KeyValidity);
+        public static TransportKey Generate(TimeProvider time)
+        {
+            DateTimeOffset now = time.GetUtcNow();
+            return new(RandomNumberGenerator.GetBytes(X25519DiffieHellman.PrivateKeySizeInBytes), now, now + KeyValidity);
+        }
 
-        private TransportKey(byte[] privateKey, DateTimeOffset expiresAt)
+        private TransportKey(byte[] privateKey, DateTimeOffset createdAt, DateTimeOffset expiresAt)
         {
             _privateKey = privateKey;
             using var key = X25519DiffieHellman.ImportPrivateKey(_privateKey);
             PublicKey = key.ExportPublicKey();
             KeyId = new MollyPublicKeyId(SHA512.HashData(PublicKey).AsSpan(0, MollyRequestProtector.RecipientKeyIdLength));
+            CreatedAt = createdAt;
             ExpiresAt = expiresAt.ToUnixTimeSeconds();
         }
 

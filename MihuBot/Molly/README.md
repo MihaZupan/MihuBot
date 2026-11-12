@@ -1,6 +1,7 @@
 # Molly transport
 
 All exchanges use `POST /api/molly`, with `application/octet-stream` bodies, over HTTPS.
+Logins additionally require Android key attestation, see [Attestation.md](Attestation.md).
 
 Responses apply a best-effort timing floor randomly selected per request from 10 ms (inclusive) to 20 ms (exclusive) after rate limiting and reading the request body, including decryption failures and subsequent server errors.
 Rate limiting and body reading do not count toward the floor; rejections or errors during those steps are not delayed.

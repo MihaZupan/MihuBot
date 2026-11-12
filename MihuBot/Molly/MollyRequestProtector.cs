@@ -107,11 +107,13 @@ public sealed class MollyRequestProtector : IDisposable
     /// A rejected request consumes nothing, so a client whose clock is off can retry after correcting it.
     /// </summary>
     /// <remarks>The nonce is only remembered once the request is accepted.</remarks>
-    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey, out MollyPublicKeyId recipientKeyId)
+    /// <param name="exchange">The authenticated, unmasked transport header, which attestation proofs are bound to.</param>
+    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, [NotNullWhen(true)] out MollyExchangeContext? exchange)
     {
         request = null;
         responseKey = null;
         recipientKeyId = default;
+        exchange = null;
 
         if (body.Length < HeaderLength + XAesGcm.CombinedOverheadInBytes + sizeof(ushort))
         {
@@ -122,7 +124,7 @@ public sealed class MollyRequestProtector : IDisposable
         body.Slice(0, HeaderLength).CopyTo(header);
         TensorPrimitives.Xor(header.Slice(0, RecipientKeyIdLength), body.Slice(body.Length - RecipientKeyIdLength), header.Slice(0, RecipientKeyIdLength));
 
-        if (!TryDeriveSessionKeys(header, out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap))
+        if (!TryDeriveSessionKeys(header, out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt))
         {
             // A low-order / contributory ephemeral key (all-zero agreement) or other derivation
             // failure - the ephemeral key is attacker-controlled, so this is just a bad request.
@@ -171,6 +173,8 @@ public sealed class MollyRequestProtector : IDisposable
 
         responseKey = derivedResponseKey;
         recipientKeyId = new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength));
+        TimeSpan keyAge = bootstrap ? TimeSpan.MaxValue : _timeProvider.GetUtcNow() - keyCreatedAt;
+        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), keyAge);
         return true;
     }
 
@@ -207,19 +211,20 @@ public sealed class MollyRequestProtector : IDisposable
     /// which the platform throws on per RFC 7748 6.1. The ephemeral key is attacker-controlled, so this
     /// has to be a graceful rejection rather than an unhandled exception.
     /// </returns>
-    private bool TryDeriveSessionKeys(ReadOnlySpan<byte> header, [NotNullWhen(true)] out byte[]? requestKey, [NotNullWhen(true)] out byte[]? responseKey, out bool bootstrap)
+    private bool TryDeriveSessionKeys(ReadOnlySpan<byte> header, [NotNullWhen(true)] out byte[]? requestKey, [NotNullWhen(true)] out byte[]? responseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(header.Length, HeaderLength);
 
         requestKey = null;
         responseKey = null;
         bootstrap = false;
+        keyCreatedAt = default;
         Span<byte> shared = stackalloc byte[X25519DiffieHellman.SecretAgreementSizeInBytes];
         Span<byte> keys = stackalloc byte[2 * XAesGcm.KeySizeInBytes];
 
         try
         {
-            if (!_keys.TryDeriveSharedSecret(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength), shared, out bootstrap))
+            if (!_keys.TryDeriveSharedSecret(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength), shared, out bootstrap, out keyCreatedAt))
             {
                 return false;
             }

@@ -56,6 +56,13 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature Molly = new("Molly remote lockout support (api/Molly, molly page)", MollyDatabaseKeyName, MollyTransportPrivateKeyName);
 
+    /// <summary>
+    /// The Molly app builds allowed to enroll with Android key attestation: comma-separated
+    /// <c>package:sha256hex</c> entries (SHA-256 of the app signing certificate). Without it any
+    /// well-formed app identity can enroll, and is then pinned. Not part of <see cref="Molly"/>.
+    /// </summary>
+    public const string MollyAttestationAppsName = "Molly:AttestationApps";
+
     /// <summary>Azure Communication Services connection string used to send Molly alert emails.</summary>
     public const string MollyAlertEmailConnectionStringName = "Molly:AlertEmailConnectionString";
 

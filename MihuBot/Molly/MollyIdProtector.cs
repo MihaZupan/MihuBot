@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using MihuBot.Configuration;
@@ -9,6 +10,7 @@ namespace MihuBot.Molly;
 
 /// <summary>
 /// Wraps entry ids in an opaque, authenticated token so the database identifier is never handed to a client.
+/// The token also carries the time of the login that issued it, so a newer login can supersede it.
 /// </summary>
 /// <remarks>
 /// The key is derived from the static database key, so tokens stay valid across restarts. Clients that
@@ -25,7 +27,9 @@ public sealed class MollyIdProtector
 {
     private const int IdLength = 16; // Guid
 
-    private const int TokenLength = XAesGcm.NonceSizeInBytes + IdLength + XAesGcm.TagSizeInBytes;
+    private const int PayloadLength = IdLength + sizeof(long);
+
+    private const int TokenLength = XAesGcm.NonceSizeInBytes + PayloadLength + XAesGcm.TagSizeInBytes;
 
     /// <summary>Matches the minimum <see cref="MollyService"/> enforces for the database key.</summary>
     private const int MinDatabaseKeyLength = 32;
@@ -60,23 +64,26 @@ public sealed class MollyIdProtector
         }
     }
 
-    /// <summary>Returns <c>base64(nonce || encrypted id || tag)</c>.</summary>
-    public string Protect(Guid id)
+    /// <summary>Returns <c>base64(nonce || encrypted (id || issuedAt ticks) || tag)</c>.</summary>
+    public string Protect(Guid id, DateTime issuedAt)
     {
-        Span<byte> idBytes = stackalloc byte[IdLength];
-        bool wrote = id.TryWriteBytes(idBytes);
+        Span<byte> payload = stackalloc byte[PayloadLength];
+        bool wrote = id.TryWriteBytes(payload);
         Debug.Assert(wrote);
+        BinaryPrimitives.WriteInt64LittleEndian(payload.Slice(IdLength), issuedAt.Ticks);
 
-        return Convert.ToBase64String(_aead.Encrypt(idBytes));
+        return Convert.ToBase64String(_aead.Encrypt(payload));
     }
 
     /// <summary>
     /// Recovers the id from a token. Fails for anything this server didn't issue, including
     /// tokens issued under a different server key and tampered ones.
     /// </summary>
-    public bool TryUnprotect(string? token, out Guid id)
+    /// <param name="issuedAt">When the issuing login happened.</param>
+    public bool TryUnprotect(string? token, out Guid id, out DateTime issuedAt)
     {
         id = Guid.Empty;
+        issuedAt = DateTime.MinValue;
 
         Span<byte> bytes = stackalloc byte[TokenLength];
 
@@ -88,13 +95,21 @@ public sealed class MollyIdProtector
             return false;
         }
 
-        if (!_aead.TryDecrypt(bytes, out byte[]? idBytes))
+        if (!_aead.TryDecrypt(bytes, out byte[]? payload))
         {
             // Forged, tampered with, or issued under a different server key.
             return false;
         }
 
-        id = new Guid(idBytes);
+        long ticks = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(IdLength));
+
+        if (ticks < 0 || ticks > DateTime.MaxValue.Ticks)
+        {
+            return false;
+        }
+
+        id = new Guid(payload.AsSpan(0, IdLength));
+        issuedAt = new DateTime(ticks, DateTimeKind.Utc);
         return true;
     }
 }

@@ -46,6 +46,9 @@ namespace MihuBot.Migrations.MollyDb
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime>("ActiveSessionIssuedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("AlertsMuted")
                         .HasColumnType("INTEGER");
 
@@ -54,6 +57,9 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.Property<byte[]>("DerivedHash")
                         .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedAttestationState")
                         .HasColumnType("BLOB");
 
                     b.Property<byte[]>("EncryptedDeviceStatus")
@@ -65,8 +71,8 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<byte[]>("EncryptedServerHmac")
                         .HasColumnType("BLOB");
 
-                    b.Property<int>("HashPrefix")
-                        .HasColumnType("INTEGER");
+                    b.Property<DateTime>("LastLoginAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("LastSeenAt")
                         .HasColumnType("TEXT");
@@ -79,7 +85,8 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.HasKey("Id");
 
-                    b.HasIndex("HashPrefix");
+                    b.HasIndex("DerivedHash")
+                        .IsUnique();
 
                     b.ToTable("mollyEntries");
                 });

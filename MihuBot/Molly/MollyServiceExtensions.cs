@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
@@ -7,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using MihuBot.Configuration;
 using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Api;
+using MihuBot.Molly.Attestation;
 
 #nullable enable
 
@@ -14,8 +14,11 @@ namespace MihuBot.Molly;
 
 public static class MollyServiceExtensions
 {
-    /// <summary>Requests larger than this are rejected by the server while the body is being read.</summary>
-    private const int MaxRequestBodyLength = 8 * 1024;
+    /// <summary>
+    /// Requests larger than this are rejected by the server while the body is being read. Sized for an
+    /// enrollment login carrying several bounded attestation certificate chains.
+    /// </summary>
+    internal const int MaxRequestBodyLength = 32 * 1024;
 
     private const string EncryptedContentType = "application/octet-stream";
 
@@ -29,7 +32,11 @@ public static class MollyServiceExtensions
         services.TryAddSingleton<MollyIdProtector>();
         services.TryAddSingleton<MollyRequestProtector>();
         services.TryAddSingleton<ProtonMailEncryptor>();
+        services.TryAddSingleton<MollyAttestationTrustAnchors>();
+        services.TryAddSingleton<MollyAttestationRevocations>();
+        services.TryAddSingleton<MollyAttestationService>();
         services.TryAddSingleton<MollyService>();
+        services.AddHostedService<MollyAttestationRevocationRefresher>();
 
         return services;
     }
@@ -66,14 +73,14 @@ public static class MollyServiceExtensions
         try
         {
             // Unknown recipient keys and failed authentication all fail closed.
-            if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId))
+            if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out MollyExchangeContext? exchange))
             {
                 return Results.BadRequest();
             }
 
             MollyApiResponse response = request.Action == MollyApiActions.TransportKey
                 ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
-                : await ExecuteAsync(molly, request, cancellationToken);
+                : await ExecuteAsync(molly, request, exchange, cancellationToken);
 
             context.Response.Headers.CacheControl = "no-store";
             byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId);
@@ -86,7 +93,7 @@ public static class MollyServiceExtensions
         }
     }
 
-    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, CancellationToken cancellationToken)
+    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         switch (request.Action)
         {
@@ -97,7 +104,7 @@ public static class MollyServiceExtensions
                     return Invalid();
                 }
 
-                MollyLoginResult result = await molly.LoginAsync(data.KeyHash, cancellationToken);
+                MollyLoginResult result = await molly.LoginAsync(data, exchange, cancellationToken);
 
                 return new MollyApiResponse
                 {

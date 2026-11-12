@@ -1,9 +1,24 @@
 @using MihuBot.Molly
 @using MihuBot.Molly.Alerts
+@using MihuBot.Molly.Attestation
 @inject MollyService molly
 @implements IDisposable
 
 <p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
+
+@if (_revocationStatus != MollyRevocationStatus.Fresh)
+{
+    <div class="alert alert-warning" role="alert">
+        @if (_revocationStatus == MollyRevocationStatus.Stale)
+        {
+            <text>Android attestation revocation data is stale. New enrollments and fallback-mode logins are refused; enrolled strict-mode devices can still log in.</text>
+        }
+        else
+        {
+            <text>Android attestation revocation data is unavailable. No login can be attested until it has been fetched.</text>
+        }
+    </div>
+}
 
 @if (_users.Length == 0)
 {
@@ -20,6 +35,7 @@ else
                 <th scope="col">Registered</th>
                 <th scope="col">Last seen</th>
                 <th scope="col">Device</th>
+                <th scope="col">Attestation</th>
                 <th scope="col">Status</th>
                 <th scope="col">Actions</th>
             </tr>
@@ -27,11 +43,30 @@ else
         <tbody>
             @foreach (MollyUserInfo user in _users)
             {
-                <tr>
-                    <td scope="row">@user.Nickname</td>
+                string detailsId = $"molly-details-{user.Id:N}";
+
+                @* Keyed so a refresh that reorders rows keeps each row's expanded state (the checkbox) with its device. *@
+                <tr @key="user.Id">
+                    <td scope="row">
+                        <input type="checkbox" class="details-toggle visually-hidden" id="@detailsId" />
+                        <label for="@detailsId" class="me-1" title="Show or hide details and more actions">
+                            <span class="bi bi-chevron-right" aria-hidden="true"></span>
+                            <span class="visually-hidden">Details</span>
+                        </label>
+                        @user.Nickname
+                    </td>
                     <td>@user.CreatedAt.ToString("yyyy-MM-dd")</td>
                     <td title="@user.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">
                         <span class="elapsed">@((DateTime.UtcNow - user.LastSeenAt).ToElapsedTime()) ago</span>
+
+                        @* Status updates don't need a login, so a device can keep pinging while it can't (or doesn't) attest. *@
+                        @if (!user.LockRequested && StaleLoginBadge(user.LastLoginAt) is { } staleLoginBadge)
+                        {
+                            <br />
+                            <span class="badge @staleLoginBadge" title="Last attested login @user.LastLoginAt.ToString("yyyy-MM-dd HH:mm:ss") UTC">
+                                No login for @((DateTime.UtcNow - user.LastLoginAt).ToElapsedTime(includeSeconds: false))
+                            </span>
+                        }
                     </td>
                     <td>
                         @* Only ever reported by a ping, so a device that never sent one shows nothing. *@
@@ -51,6 +86,33 @@ else
                         @if (user.AppVersion is { } appVersion)
                         {
                             <small class="ms-2" title="App version">@appVersion</small>
+                        }
+                    </td>
+                    <td>
+                        @switch (user.Attestation?.Mode)
+                        {
+                            case MollyAttestationMode.Strict:
+                                <span class="badge bg-success" title="Logins are attested by the enrolled hardware attest key">Strict</span>
+                                break;
+
+                            case MollyAttestationMode.Fallback:
+                                <span class="badge bg-warning text-dark" title="No app attest key support: logins rely on a pinned signing key and fresh manufacturer attestation">Fallback</span>
+                                break;
+
+                            default:
+                                if (user.AttestationEnrolled)
+                                {
+                                    <span class="badge bg-danger" title="The pinned attestation state can't be read, so logins are refused">Unreadable</span>
+                                }
+                                else if (user.WipeRequested)
+                                {
+                                    <span class="badge bg-secondary" title="The attestation state was deleted by the wipe">Cleared</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary" title="Enrolls on its next login">Not enrolled</span>
+                                }
+                                break;
                         }
                     </td>
                     <td>
@@ -84,70 +146,152 @@ else
                                     @onclick="() => SetLockRequestedAsync(user, !user.LockRequested)">
                                 @(user.LockRequested ? "Unlock" : "Lock")
                             </button>
-
-                            @if (_pendingWipeId == user.Id)
-                            {
-                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
-                                        @onclick="() => WipeAsync(user)">
-                                    Confirm wipe
-                                </button>
-                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
-                                        @onclick="() => _pendingWipeId = null">
-                                    Cancel
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
-                                        title="Shift+click to skip the confirmation"
-                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingWipeId = user.Id, () => WipeAsync(user))">
-                                    Wipe
-                                </button>
-                            }
                         }
+                    </td>
+                </tr>
 
-                        @if (IsAdmin)
+                <tr @key="detailsId" class="details-row">
+                    <td colspan="7">
+                        @if (user.Attestation is { } attestation)
                         {
-                            @if (_pendingClearAlertsId == user.Id)
+                            <dl class="row small mb-0">
+                                <dt class="col-sm-2">Device</dt>
+                                <dd class="col-sm-10">
+                                    @if (MollyKnownDevice.TryIdentify(attestation.VerifiedBootKey) is { } device)
+                                    {
+                                        <text>@device.Model, @device.Os</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Unknown model</text>
+                                    }
+
+                                    <span class="ms-2 text-secondary">
+                                        @(attestation.VerifiedBootState == AndroidVerifiedBootState.Verified ? "manufacturer-signed OS" : "custom-signed OS"),
+                                        locked bootloader
+                                    </span>
+                                </dd>
+
+                                <dt class="col-sm-2">Verified boot key</dt>
+                                <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.VerifiedBootKey)</code></dd>
+
+                                <dt class="col-sm-2">Keys</dt>
+                                <dd class="col-sm-10">
+                                    @attestation.Mode mode,
+                                    @(attestation.SecurityLevel == AndroidSecurityLevel.StrongBox ? "StrongBox" : "TEE")
+                                </dd>
+
+                                <dt class="col-sm-2">App</dt>
+                                <dd class="col-sm-10">@attestation.PackageName, version code @attestation.AppVersion</dd>
+
+                                <dt class="col-sm-2">App signer</dt>
+                                <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.SignatureDigest)</code></dd>
+
+                                <dt class="col-sm-2">OS</dt>
+                                <dd class="col-sm-10">
+                                    Android @FormatOsVersion(attestation.OsVersion), patch @FormatPatchLevel(attestation.OsPatchLevel)
+
+                                    @if (attestation.VendorPatchLevel is { } vendorPatch)
+                                    {
+                                        <text>, vendor @FormatPatchLevel(vendorPatch)</text>
+                                    }
+
+                                    @if (attestation.BootPatchLevel is { } bootPatch)
+                                    {
+                                        <text>, boot @FormatPatchLevel(bootPatch)</text>
+                                    }
+                                </dd>
+
+                                <dt class="col-sm-2">Enrolled</dt>
+                                <dd class="col-sm-10">@attestation.EnrolledAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
+
+                                <dt class="col-sm-2">Last attested</dt>
+                                <dd class="col-sm-10">
+                                    @attestation.LastAttestedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC
+                                    <span class="ms-2 text-secondary">(@((DateTime.UtcNow - attestation.LastAttestedAt).ToElapsedTime()) ago)</span>
+                                </dd>
+                            </dl>
+                        }
+                        else if (user.AttestationEnrolled)
+                        {
+                            <span class="small">The pinned attestation state can't be read.</span>
+                        }
+                        else if (user.WipeRequested)
+                        {
+                            <span class="small">The attestation state was deleted by the wipe.</span>
+                        }
+                        else
+                        {
+                            <span class="small">Not enrolled yet. Attestation details appear after the next login.</span>
+                        }
+
+                        <div class="mt-2">
+                            @if (!user.WipeRequested)
                             {
-                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
-                                        @onclick="() => ClearAlertsAsync(user)">
-                                    Confirm clear alerts
-                                </button>
-                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
-                                        @onclick="() => _pendingClearAlertsId = null">
-                                    Cancel
-                                </button>
-                            }
-                            else
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
-                                        title="Shift+click to skip the confirmation"
-                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingClearAlertsId = user.Id, () => ClearAlertsAsync(user))">
-                                    Clear alerts
-                                </button>
+                                @if (_pendingWipeId == user.Id)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
+                                            @onclick="() => WipeAsync(user)">
+                                        Confirm wipe
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
+                                            @onclick="() => _pendingWipeId = null">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
+                                            title="Shift+click to skip the confirmation"
+                                            @onclick="e => ConfirmOrRunAsync(e, () => _pendingWipeId = user.Id, () => WipeAsync(user))">
+                                        Wipe
+                                    </button>
+                                }
                             }
 
-                            @if (_pendingDeleteId == user.Id)
+                            @if (IsAdmin)
                             {
-                                <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
-                                        @onclick="() => DeleteAsync(user)">
-                                    Confirm delete
-                                </button>
-                                <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
-                                        @onclick="() => _pendingDeleteId = null">
-                                    Cancel
-                                </button>
+                                @if (_pendingClearAlertsId == user.Id)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
+                                            @onclick="() => ClearAlertsAsync(user)">
+                                        Confirm clear alerts
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
+                                            @onclick="() => _pendingClearAlertsId = null">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
+                                            title="Shift+click to skip the confirmation"
+                                            @onclick="e => ConfirmOrRunAsync(e, () => _pendingClearAlertsId = user.Id, () => ClearAlertsAsync(user))">
+                                        Clear alerts
+                                    </button>
+                                }
+
+                                @if (_pendingDeleteId == user.Id)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
+                                            @onclick="() => DeleteAsync(user)">
+                                        Confirm delete
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
+                                            @onclick="() => _pendingDeleteId = null">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
+                                            title="Shift+click to skip the confirmation"
+                                            @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteId = user.Id, () => DeleteAsync(user))">
+                                        Delete
+                                    </button>
+                                }
                             }
-                            else
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
-                                        title="Shift+click to skip the confirmation"
-                                        @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteId = user.Id, () => DeleteAsync(user))">
-                                    Delete
-                                </button>
-                            }
-                        }
+                        </div>
                     </td>
                 </tr>
             }
@@ -256,8 +400,30 @@ else
         _ => "bi bi-battery-full text-success",
     };
 
+    private static readonly TimeSpan StaleLoginWarning = TimeSpan.FromDays(2);
+    private static readonly TimeSpan StaleLoginDanger = TimeSpan.FromDays(5);
+
+    /// <summary>The badge classes for a device that hasn't logged in recently, or null if it has.</summary>
+    private static string? StaleLoginBadge(DateTime lastLoginAt)
+    {
+        TimeSpan elapsed = DateTime.UtcNow - lastLoginAt;
+
+        return elapsed >= StaleLoginDanger ? "bg-danger"
+            : elapsed >= StaleLoginWarning ? "bg-warning text-dark"
+            : null;
+    }
+
+    /// <summary>Attested OS versions are <c>MMmmpp</c>, e.g. 160000 for Android 16.0.0.</summary>
+    private static string FormatOsVersion(long version) => $"{version / 10000}.{version / 100 % 100}.{version % 100}";
+
+    /// <summary>Patch levels are stored as <c>YYYYMMDD</c>, with day 0 for month-only levels (as OS patch levels are).</summary>
+    private static string FormatPatchLevel(long patchLevel) => patchLevel % 100 == 0
+        ? $"{patchLevel / 10000:D4}-{patchLevel / 100 % 100:D2}"
+        : $"{patchLevel / 10000:D4}-{patchLevel / 100 % 100:D2}-{patchLevel % 100:D2}";
+
     private MollyUserInfo[] _users = [];
     private MollyAlertInfo[] _alerts = [];
+    private MollyRevocationStatus _revocationStatus = MollyRevocationStatus.Fresh;
     private Guid? _pendingWipeId;
     private Guid? _pendingDeleteId;
     private Guid? _pendingClearAlertsId;
@@ -308,6 +474,7 @@ else
     {
         _users = await molly.GetRegisteredUsersAsync();
         _alerts = await molly.GetRecentAlertsAsync();
+        _revocationStatus = molly.AttestationRevocationStatus;
     }
 
     /// <summary>

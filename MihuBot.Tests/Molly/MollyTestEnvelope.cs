@@ -26,6 +26,12 @@ public sealed class MollyTestEnvelope : IDisposable
     /// <summary>The key derived for the most recent request, reused to open its response.</summary>
     private byte[] _responseKey = [];
 
+    /// <summary>Set by <see cref="PrepareExchange"/> for the next request.</summary>
+    private X25519DiffieHellman? _nextEphemeral;
+
+    /// <summary>Set by <see cref="PrepareExchange"/> for the next request built by <see cref="EncryptRequest"/>.</summary>
+    private string? _nextNonce;
+
     public MollyTestEnvelope(byte[]? serverPublicKey = null)
     {
         _serverPublicKey = serverPublicKey ?? MollyTestKeys.TransportPublicKeyBytes;
@@ -56,8 +62,12 @@ public sealed class MollyTestEnvelope : IDisposable
         {"action":{{JsonSerializer.Serialize(action)}},"timestamp":{{timestamp ?? Now()}},"nonce":{{JsonSerializer.Serialize(nonce ?? NewNonce())}},"data":{{data ?? "null"}}}
         """;
 
-    public byte[] EncryptRequest(string action, string? data = null, string? nonce = null, long? timestamp = null, int paddingLength = 0) =>
-        Encrypt(RequestJson(action, data, nonce, timestamp), paddingLength);
+    public byte[] EncryptRequest(string action, string? data = null, string? nonce = null, long? timestamp = null, int paddingLength = 0)
+    {
+        nonce ??= _nextNonce;
+        _nextNonce = null;
+        return Encrypt(RequestJson(action, data, nonce, timestamp), paddingLength);
+    }
 
     public byte[] Encrypt(string data, int paddingLength = 0) => Encrypt(Encoding.UTF8.GetBytes(data), paddingLength);
 
@@ -73,10 +83,24 @@ public sealed class MollyTestEnvelope : IDisposable
         return EncryptRawPlaintext(plaintext);
     }
 
+    /// <summary>
+    /// Generates the ephemeral key and request nonce for the next request ahead of time and returns the
+    /// exchange, so an attestation proof can be bound to it before it's sealed - like the real client has to.
+    /// </summary>
+    public MollyExchangeContext PrepareExchange()
+    {
+        _nextEphemeral?.Dispose();
+        _nextEphemeral = X25519DiffieHellman.GenerateKey();
+        _nextNonce = NewNonce();
+        // The age is only known to the server; the client doesn't sign it.
+        return new MollyExchangeContext(GetRecipientKeyId(_serverPublicKey), _nextEphemeral.ExportPublicKey(), Convert.FromBase64String(_nextNonce), TimeSpan.Zero);
+    }
+
     /// <summary>Seals plaintext verbatim, including deliberately malformed padding frames.</summary>
     public byte[] EncryptRawPlaintext(ReadOnlySpan<byte> plaintext)
     {
-        using X25519DiffieHellman ephemeral = X25519DiffieHellman.GenerateKey();
+        using X25519DiffieHellman ephemeral = _nextEphemeral ?? X25519DiffieHellman.GenerateKey();
+        _nextEphemeral = null;
         byte[] ephemeralPublicKey = ephemeral.ExportPublicKey();
 
         byte[] header = new byte[HeaderLength];
@@ -135,5 +159,9 @@ public sealed class MollyTestEnvelope : IDisposable
         }
     }
 
-    public void Dispose() => CryptographicOperations.ZeroMemory(_responseKey);
+    public void Dispose()
+    {
+        CryptographicOperations.ZeroMemory(_responseKey);
+        _nextEphemeral?.Dispose();
+    }
 }

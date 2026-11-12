@@ -8,3 +8,31 @@
     text-overflow: ellipsis;
     vertical-align: bottom;
 }
+
+/* Each device's details row is always rendered, and shown by the browser while its row's (visually
+   hidden) checkbox is checked. Blazor never renders the checked state, so refreshes don't reset it. */
+.details-row {
+    display: none;
+}
+
+tr:has(.details-toggle:checked) + .details-row {
+    display: table-row;
+}
+
+.details-toggle + label {
+    cursor: pointer;
+}
+
+.details-toggle + label .bi {
+    display: inline-block;
+    transition: transform 0.15s;
+}
+
+.details-toggle:checked + label .bi {
+    transform: rotate(90deg);
+}
+
+.details-toggle:focus-visible + label {
+    outline: 2px solid var(--bs-focus-ring-color);
+    outline-offset: 2px;
+}
