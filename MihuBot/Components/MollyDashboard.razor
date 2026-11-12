@@ -92,11 +92,11 @@ else
                         @switch (user.Attestation?.Mode)
                         {
                             case MollyAttestationMode.Strict:
-                                <span class="badge bg-success" title="Logins are attested by the enrolled hardware attest key">Strict</span>
+                                <span class="badge bg-success" title="Logins are attested by the enrolled hardware attest key (@KeyStorage(user.Attestation))">Strict</span>
                                 break;
 
                             case MollyAttestationMode.Fallback:
-                                <span class="badge bg-warning text-dark" title="No app attest key support: logins rely on a pinned signing key and fresh manufacturer attestation">Fallback</span>
+                                <span class="badge bg-warning text-dark" title="No app attest key support: logins rely on a pinned signing key and fresh manufacturer attestation (@KeyStorage(user.Attestation))">Fallback</span>
                                 break;
 
                             default:
@@ -161,27 +161,10 @@ else
                                     {
                                         <text>Unknown model</text>
                                     }
-
-                                    <span class="ms-2 text-secondary">
-                                        @(attestation.VerifiedBootState == AndroidVerifiedBootState.Verified ? "manufacturer-signed OS" : "custom-signed OS"),
-                                        locked bootloader
-                                    </span>
                                 </dd>
 
                                 <dt class="col-sm-2">Verified boot key</dt>
                                 <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.VerifiedBootKey)</code></dd>
-
-                                <dt class="col-sm-2">Keys</dt>
-                                <dd class="col-sm-10">
-                                    @attestation.Mode mode,
-                                    @(attestation.SecurityLevel == AndroidSecurityLevel.StrongBox ? "StrongBox" : "TEE")
-                                </dd>
-
-                                <dt class="col-sm-2">App</dt>
-                                <dd class="col-sm-10">@attestation.PackageName, version code @attestation.AppVersion</dd>
-
-                                <dt class="col-sm-2">App signer</dt>
-                                <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.SignatureDigest)</code></dd>
 
                                 <dt class="col-sm-2">OS</dt>
                                 <dd class="col-sm-10">
@@ -197,9 +180,6 @@ else
                                         <text>, boot @FormatPatchLevel(bootPatch)</text>
                                     }
                                 </dd>
-
-                                <dt class="col-sm-2">Enrolled</dt>
-                                <dd class="col-sm-10">@attestation.EnrolledAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
 
                                 <dt class="col-sm-2">Last attested</dt>
                                 <dd class="col-sm-10">
@@ -404,6 +384,9 @@ else
             : elapsed >= StaleLoginWarning ? "bg-warning text-dark"
             : null;
     }
+
+    private static string KeyStorage(MollyAttestationState attestation) =>
+        attestation.SecurityLevel == AndroidSecurityLevel.StrongBox ? "StrongBox keys" : "TEE keys";
 
     /// <summary>Attested OS versions are <c>MMmmpp</c>, e.g. 160000 for Android 16.0.0.</summary>
     private static string FormatOsVersion(long version) => $"{version / 10000}.{version / 100 % 100}.{version % 100}";
