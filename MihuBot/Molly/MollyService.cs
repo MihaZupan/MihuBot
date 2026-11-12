@@ -543,8 +543,7 @@ public sealed class MollyService
     /// <summary>
     /// Releases the entry's server secret to a device that proves, with fresh Android hardware key
     /// attestation, that it is the device the entry was enrolled from (see <see cref="MollyAttestationVerifier"/>).
-    /// An unknown key hash registers a new entry, and an entry from before attestation enrolls, with its
-    /// existing secret, on its first attested login.
+    /// An unknown key hash registers a new entry.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -592,8 +591,9 @@ public sealed class MollyService
         byte[]? verifiedState = match?.EncryptedAttestationState;
         MollyAttestationState? pinned = null;
 
-        if (verifiedState is not null && !TryDecryptAttestationState(match!.Id, verifiedState, out pinned))
+        if (match is not null && (verifiedState is null || !TryDecryptAttestationState(match.Id, verifiedState, out pinned)))
         {
+            // Entries are enrolled when they register, and only a (pending, so handled above) wipe clears that.
             // Never treated as "not enrolled yet" - that would let anyone with the key hash re-enroll.
             return await LockAfterAttestationFailureAsync(db, match.Id, MollyAttestationFailure.UnreadablePinnedState, cancellationToken);
         }
@@ -656,11 +656,6 @@ public sealed class MollyService
             // A concurrent login changed the pinned state first, or the entry was locked or wiped
             // meanwhile. Either way the retry sees the current state.
             return MollyLoginResult.Failed(MollyAttestationFailure.ConcurrentLogin);
-        }
-
-        if (verifiedState is null)
-        {
-            _logger.LogInformation("An existing Molly entry enrolled its device in {Mode} attestation mode", state.Mode);
         }
 
         byte[] serverHmac = Decrypt(id, match.EncryptedServerHmac, EncryptedField.ServerHmac);
@@ -909,7 +904,7 @@ public sealed class MollyService
                     TryDecryptAttestationState(e.Id, encryptedState, out attestation);
                 }
 
-                return new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LastLoginAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, status.BatteryLevel, status.LocationEnabled, status.AppVersion, e.EncryptedAttestationState is not null, attestation);
+                return new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LastLoginAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, status.BatteryLevel, status.LocationEnabled, status.AppVersion, attestation);
             })
             .OrderByDescending(u => u.CreatedAt)];
     }

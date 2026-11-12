@@ -176,13 +176,6 @@ no longer matches its pins. Never have two logins with the same keys in flight a
 
 Keys under any other alias were left behind by an interrupted attempt; delete them at startup.
 
-A client registered before attestation generates a key set under its existing alias and enrolls its
-existing entry with it. As its key hash can't change, it keeps those keys and retries later if
-enrollment fails. There is no client-side way out if enrollment never succeeds (e.g. the device fails
-the policy, or the key set's short-lived certificates expire first): a passphrase change needs the
-existing entry's secret, so it can't enroll a new entry either. Its stored `id` predates the current
-format and gets `invalid`, so background requests only work again once a login succeeds.
-
 ## Server policy
 
 - Chains must end in a pinned Google attestation root key (RSA, and the 2025 ECDSA P-384 generation),

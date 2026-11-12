@@ -24,7 +24,7 @@ public sealed class MollyDbEntry
 
     /// <summary>
     /// The pinned Android attestation state (<see cref="Attestation.MollyAttestationState"/>), stored as
-    /// <c>nonce || ciphertext || tag</c>. Null only for entries that haven't enrolled yet.
+    /// <c>nonce || ciphertext || tag</c>. Null only once the entry was wiped.
     /// </summary>
     public byte[]? EncryptedAttestationState { get; set; }
 
@@ -37,7 +37,6 @@ public sealed class MollyDbEntry
 
     /// <summary>
     /// When the last successful login issued a token, so every later login issues a strictly newer one.
-    /// <see cref="DateTime.MinValue"/> for entries that haven't logged in since this was introduced.
     /// </summary>
     public DateTime LastLoginAt { get; set; }
 
@@ -45,7 +44,6 @@ public sealed class MollyDbEntry
     /// When the newest token the device has actually used was issued. Tokens issued before it are
     /// rejected. A login alone doesn't supersede the device's current token: its response may never
     /// arrive, and the device would then lose its session. Only ever moves forward.
-    /// <see cref="DateTime.MinValue"/> until a token issued since this was introduced is used.
     /// </summary>
     public DateTime ActiveSessionIssuedAt { get; set; }
 

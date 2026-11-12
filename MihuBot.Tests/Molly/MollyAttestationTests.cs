@@ -501,27 +501,15 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
-    public async Task LegacyEntries_EnrollOnTheirNextLogin_KeepingTheirSecret()
+    public async Task EntriesWithoutPinnedState_AreLockedRatherThanReEnrolled()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
         var device = new MollyTestDevice();
-        MollyLoginResult original = await LoginAsync(keyHash, device);
-        Guid id = _fixture.Unprotect(original.ProtectedId);
-        await Molly.AssociateAsync(original.ProtectedId, "legacy-user", default);
+        Guid id = _fixture.Unprotect((await LoginAsync(keyHash, device)).ProtectedId);
         await SetAttestationStateAsync(id, null);
 
-        // An old client can't attest, and nothing about the entry changes.
-        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash }, MollyTestDevice.NewExchange(), default), MollyAttestationFailure.MissingProof);
+        AssertLocked(await LoginAsync(keyHash, device), MollyAttestationFailure.UnreadablePinnedState);
         Assert.Null((await _fixture.GetEntryAsync(id)).EncryptedAttestationState);
-        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(original.ProtectedId, null, null, null, default)).Status);
-
-        MollyLoginResult enrolled = await LoginAsync(keyHash, device);
-
-        AssertOk(enrolled);
-        Assert.Equal(id, _fixture.Unprotect(enrolled.ProtectedId));
-        Assert.Equal(original.ServerHmac, enrolled.ServerHmac);
-        Assert.NotNull((await _fixture.GetEntryAsync(id)).EncryptedAttestationState);
-        Assert.Equal(MollyAttestationMode.Strict, Assert.Single(await Molly.GetRegisteredUsersAsync(), u => u.Id == id).Attestation?.Mode);
     }
 
     [Fact]

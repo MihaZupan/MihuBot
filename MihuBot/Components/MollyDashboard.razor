@@ -100,17 +100,13 @@ else
                                 break;
 
                             default:
-                                if (user.AttestationEnrolled)
-                                {
-                                    <span class="badge bg-danger" title="The pinned attestation state can't be read, so logins are refused">Unreadable</span>
-                                }
-                                else if (user.WipeRequested)
+                                if (user.WipeRequested)
                                 {
                                     <span class="badge bg-secondary" title="The attestation state was deleted by the wipe">Cleared</span>
                                 }
                                 else
                                 {
-                                    <span class="badge bg-secondary" title="Enrolls on its next login">Not enrolled</span>
+                                    <span class="badge bg-danger" title="The pinned attestation state can't be read, so logins are refused">Unreadable</span>
                                 }
                                 break;
                         }
@@ -212,17 +208,13 @@ else
                                 </dd>
                             </dl>
                         }
-                        else if (user.AttestationEnrolled)
-                        {
-                            <span class="small">The pinned attestation state can't be read.</span>
-                        }
                         else if (user.WipeRequested)
                         {
                             <span class="small">The attestation state was deleted by the wipe.</span>
                         }
                         else
                         {
-                            <span class="small">Not enrolled yet. Attestation details appear after the next login.</span>
+                            <span class="small">The pinned attestation state can't be read.</span>
                         }
 
                         <div class="mt-2">
