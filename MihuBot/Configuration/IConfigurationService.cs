@@ -20,6 +20,9 @@ public interface IConfigurationService
 
     bool TryGet(ulong? context, string key, out string value);
 
+    KeyValuePair<string, string>[] GetAll(ulong? context) =>
+        throw new NotSupportedException();
+
     bool GetOrDefault(ulong? context, string key, bool defaultValue)
     {
         if (TryGet(context, key, out string str) && bool.TryParse(str, out bool value))

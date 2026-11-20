@@ -176,6 +176,16 @@ public sealed class ConfigurationService : IConfigurationService, IDisposable
         return found;
     }
 
+    public KeyValuePair<string, string>[] GetAll(ulong? context)
+    {
+        KeyValuePair<string, string>[] entries = context.HasValue
+            ? _store.Query(configuration => configuration.TryGetValue(context.Value, out var values) ? values.ToArray() : [])
+            : _globalStore.Query(configuration => configuration.ToArray());
+
+        Array.Sort(entries, (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key));
+        return entries;
+    }
+
     public void Dispose()
     {
         lock (_reloadLock)

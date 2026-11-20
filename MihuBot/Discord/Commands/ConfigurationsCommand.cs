@@ -16,9 +16,9 @@ public sealed class ConfigurationsCommand : CommandBase
 
     public override async Task ExecuteAsync(CommandContext ctx)
     {
-        const string Usage = "Usage: `!config [get/set/remove] context key`";
+        const string Usage = "Usage: `!config [get/set/remove] context key` or `!config list context`";
 
-        if (ctx.Arguments.Length < 3)
+        if (ctx.Arguments.Length < 2)
         {
             await ctx.ReplyAsync(Usage);
             return;
@@ -34,6 +34,33 @@ public sealed class ConfigurationsCommand : CommandBase
             context = id;
         }
         else
+        {
+            await ctx.ReplyAsync(Usage);
+            return;
+        }
+
+        if (ctx.Arguments[0].Equals("list", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!ctx.IsFromAdmin)
+            {
+                await ctx.ReplyAsync("Only admins can list configuration entries", mention: true);
+                return;
+            }
+
+            KeyValuePair<string, string>[] entries = _configuration.GetAll(context);
+
+            if (entries.Length == 0)
+            {
+                await ctx.ReplyAsync("No entries", mention: true);
+                return;
+            }
+
+            string content = string.Join("\n", entries.Select(e => $"{e.Key} = {e.Value}"));
+            await ctx.Channel.SendTextFileAsync($"Config-{context?.ToString() ?? "global"}.txt", content, $"{entries.Length} entries");
+            return;
+        }
+
+        if (ctx.Arguments.Length < 3)
         {
             await ctx.ReplyAsync(Usage);
             return;

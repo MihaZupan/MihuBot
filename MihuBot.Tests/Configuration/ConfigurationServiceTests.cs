@@ -234,6 +234,21 @@ public sealed class ConfigurationServiceTests
         Assert.Throws<InvalidOperationException>(() => configuration.GetInt32(null, "Count", 8));
     }
 
+    [Fact]
+    public void GetAllReturnsSortedEntriesForOnlyTheRequestedContext()
+    {
+        using var files = new Files();
+        using var service = files.CreateService();
+        service.Set(42, "b", "2");
+        service.Set(42, "A", "1");
+        service.Set(43, "Other", "x");
+        service.Set(null, "Global", "g");
+
+        Assert.Equal([new("A", "1"), new("b", "2")], service.GetAll(42));
+        Assert.Equal([new("Global", "g")], service.GetAll(null));
+        Assert.Empty(service.GetAll(44));
+    }
+
     private sealed class Files : IDisposable
     {
         private readonly DirectoryInfo _directory = System.IO.Directory.CreateTempSubdirectory("MihuBot-Configuration-");
