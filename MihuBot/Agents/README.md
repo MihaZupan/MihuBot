@@ -97,7 +97,7 @@ processes, writes outside the workspace, and abrupt host termination cannot be
 reliably cleaned up this way.
 
 The global runtime configuration key `Agent.Model` optionally selects a model;
-otherwise it uses `OpenAIService.DefaultAgentModel` (`gpt-6.1-sol`). Sessions use
+otherwise it uses `OpenAIService.DefaultAgentModel` (`gpt-6.2-sol`). Sessions use
 `high` reasoning effort:
 
 ```text

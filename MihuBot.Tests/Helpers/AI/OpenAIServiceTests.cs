@@ -118,6 +118,8 @@ public sealed class OpenAIServiceTests
     [InlineData("gpt-6-luna", Personal3)]
     [InlineData("gpt-6-sol", Personal3)]
     [InlineData("gpt-6.1-sol", Personal3)]
+    [InlineData("gpt-6.2-sol", Personal3)]
+    [InlineData("gpt-6.2-astra", Personal3)]
     [InlineData("gpt-6-astra", Personal1)]
     public void GetChat_NoWorkCredentialsFallsBackToPersonal(string deployment, string host)
     {

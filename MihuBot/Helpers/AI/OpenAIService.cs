@@ -20,7 +20,7 @@ public sealed record ModelInfo(
 public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-6-luna";
-    public const string DefaultAgentModel = "gpt-6.1-sol";
+    public const string DefaultAgentModel = "gpt-6.2-sol";
     public const string DefaultAudioModel = "gpt-audio-1.5";
 
     // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-29).
@@ -35,6 +35,8 @@ public sealed class OpenAIService
         new("gpt-6-sol", 1_050_000, 2m, 0.20m, 10m, LongContextThreshold: 272_000),
         new("gpt-6-astra", 1_050_000, 10m, 1m, 50m, LongContextThreshold: 272_000),
         new("gpt-6.1-sol", 1_050_000, 2m, 0.10m, 10m, LongContextThreshold: 272_000),
+        new("gpt-6.2-sol", 1_050_000, 2m, 0.10m, 10m, LongContextThreshold: 272_000),
+        new("gpt-6.2-astra", 1_050_000, 8m, 0.40m, 40m, LongContextThreshold: 272_000),
     ];
 
     private readonly Logger _logger;
@@ -60,7 +62,7 @@ public sealed class OpenAIService
         AddClient(OptionalFeatures.AzureOpenAI, "mihubotai8467177614", work: false, [.. gpt56Family, Gpt6Astra, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAI2, "mihaz-m30zd4gd-eastus", work: false, [.. gpt56Family, Gpt6Astra]);
         AddClient(OptionalFeatures.AzureOpenAI3, "mizup-mud33obs-swedencentral", work: false,
-            [.. gpt6LunaSol, DefaultAudioModel, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
+            [.. gpt6LunaSol, "gpt-6.2-sol", "gpt-6.2-astra", DefaultAudioModel, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]);
         AddClient(OptionalFeatures.AzureOpenAIWork1, "issueshelperhu5783781236", work: true, [.. gpt6LunaSol, .. embeddings]);
         AddClient(OptionalFeatures.AzureOpenAIWork2, "mizup-ma441ssi-eastus2", work: true, [.. gpt56Family, Gpt6Astra]);
 

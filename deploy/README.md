@@ -150,7 +150,7 @@ debug channel (see `MihuBot/Configuration/OptionalFeatures.cs`):
 | `Copilot:GitHubToken` | Local Copilot agent (`!agent`) |
 | `AzureOpenAI:Key` | Personal deployments at `mihubotai8467177614`; AI features require at least one enabled OpenAI endpoint |
 | `AzureOpenAI:Key2` | Personal deployments at `mihaz-m30zd4gd-eastus` |
-| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol, GPT-6.1 Sol, and `gpt-audio-1.5` at `mizup-mud33obs-swedencentral`; required for the default personal chat model and song-audio clarification |
+| `AzureOpenAI:Key3` | Personal GPT-6 Luna/Sol, GPT-6.1 Sol, GPT-6.2 Sol/Astra, and `gpt-audio-1.5` at `mizup-mud33obs-swedencentral`; required for the default personal chat model and song-audio clarification |
 | `AzureOpenAI:WorkKey1` | Work GPT-6 Luna/Sol, GPT-6.1 Sol, and embeddings at `issueshelperhu5783781236` |
 | `AzureOpenAI:WorkKey2` | Work GPT-5.6 and GPT-6 Astra at `mizup-ma441ssi-eastus2` |
 | `AzureStorage:ConnectionString` | Archiving Discord attachments to blob storage (files stay on disk) |

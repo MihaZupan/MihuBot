@@ -15,9 +15,9 @@ public sealed class AgentTests
     }
 
     [Theory]
-    [InlineData(null, "gpt-6.1-sol")]
-    [InlineData("", "gpt-6.1-sol")]
-    [InlineData("   ", "gpt-6.1-sol")]
+    [InlineData(null, "gpt-6.2-sol")]
+    [InlineData("", "gpt-6.2-sol")]
+    [InlineData("   ", "gpt-6.2-sol")]
     [InlineData("custom-model", "custom-model")]
     public void AgentModelDefaultsToSolAndRespectsOverrides(string? configured, string expected)
     {
@@ -28,7 +28,7 @@ public sealed class AgentTests
             configuration.Set(null, "Agent.Model", configured);
         }
 
-        Assert.Equal("gpt-6.1-sol", OpenAIService.DefaultAgentModel);
+        Assert.Equal("gpt-6.2-sol", OpenAIService.DefaultAgentModel);
         Assert.Equal(expected, CopilotAgentService.GetModel(configuration));
     }
 
