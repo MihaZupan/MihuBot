@@ -38,6 +38,23 @@ public sealed class OptionalFeaturesTests
         Assert.True(configuration.IsOpenAIEmbeddingConfigured());
     }
 
+    [Theory]
+    [InlineData(null, null, true)]
+    [InlineData("true", "false", false)]
+    [InlineData("false", "true", false)]
+    public void KeyVaultSettingOnlyDisablesKeyVault(string? personalSetting, string? keyVaultSetting, bool keyVaultEnabled)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Azure:PersonalEnabled"] = personalSetting,
+            ["Azure:KeyVaultEnabled"] = keyVaultSetting,
+            ["AzureStorage:ConnectionString"] = "test-value",
+        }).Build();
+
+        Assert.Equal(keyVaultEnabled, configuration.IsKeyVaultEnabled());
+        Assert.Equal(personalSetting != "false", configuration.IsConfigured(OptionalFeatures.AzureStorage));
+    }
+
     [Fact]
     public void DisabledPersonalCredentialsCannotEnableAI()
     {

@@ -123,6 +123,9 @@ public static class OptionalFeatures
     public static bool IsPersonalAzureEnabled(this IConfiguration configuration) =>
         ProgramState.AzureEnabled && configuration.GetValue("Azure:PersonalEnabled", true);
 
+    public static bool IsKeyVaultEnabled(this IConfiguration configuration) =>
+        configuration.IsPersonalAzureEnabled() && configuration.GetValue("Azure:KeyVaultEnabled", true);
+
     public static bool IsOpenAIConfigured(this IConfiguration configuration) =>
         ProgramState.AzureEnabled &&
         (configuration.IsConfigured(AzureOpenAI) ||

@@ -71,9 +71,12 @@ try
     {
         ProgramState.AzureCredential = CreateAzureCredential(builder.Configuration);
 
-        builder.Configuration.AddAzureKeyVault(
-            new Uri("https://mihubotkv.vault.azure.net/"),
-            ProgramState.AzureCredential);
+        if (builder.Configuration.IsKeyVaultEnabled())
+        {
+            builder.Configuration.AddAzureKeyVault(
+                new Uri("https://mihubotkv.vault.azure.net/"),
+                ProgramState.AzureCredential);
+        }
     }
 
     // Discord is the one integration MihuBot can't run without.

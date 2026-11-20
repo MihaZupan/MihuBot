@@ -131,6 +131,10 @@ OpenAI deployments. It defaults to `true`. Work OpenAI remains available; provid
 its keys and all other required secrets via environment variables or
 `credentials.json`, since Key Vault is skipped.
 
+To keep personal Azure enabled but skip only Key Vault, set
+`Azure__KeyVaultEnabled=false` (defaults to `true`) and provide all secrets via
+environment variables or `credentials.json`.
+
 ## Optional integrations
 
 Only Discord (`Discord:AuthToken`) is required for the bot itself. These
