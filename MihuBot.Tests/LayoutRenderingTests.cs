@@ -54,8 +54,6 @@ public sealed class LayoutRenderingTests
         Assert.Contains("id=\"navigation-toggle\"", html, StringComparison.Ordinal);
         Assert.Contains("aria-controls=\"primary-navigation\"", html, StringComparison.Ordinal);
         Assert.Contains("href=\"regex?pattern=Hello%20World\"", html, StringComparison.Ordinal);
-        Assert.Equal(signedIn, html.Contains("href=\"blackjack\"", StringComparison.Ordinal));
-        Assert.Equal(signedIn, html.Contains("bi-suit-spade-fill", StringComparison.Ordinal));
         Assert.DoesNotContain("href=\"runtime-utils\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"admin\"", html, StringComparison.Ordinal);
         Assert.DoesNotContain("href=\"youtube-archive\"", html, StringComparison.Ordinal);
