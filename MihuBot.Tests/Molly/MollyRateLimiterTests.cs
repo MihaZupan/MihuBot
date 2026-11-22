@@ -8,7 +8,7 @@ namespace MihuBot.Tests.Molly;
 public sealed class MollyRateLimiterTests
 {
     /// <summary>Matches MollyRateLimiter.DefaultBurst.</summary>
-    private const int DefaultBurst = 10;
+    private const int DefaultBurst = 20;
 
     private static readonly TimeSpan TestCooldown = TimeSpan.FromMilliseconds(200);
 
@@ -48,6 +48,16 @@ public sealed class MollyRateLimiterTests
         int allowed = Exhaust(limiter, () => Context("10.0.0.1"));
 
         Assert.Equal(DefaultBurst, allowed);
+    }
+
+    [Fact]
+    public void DefaultCooldown_ReportsThirtySecondsUntilTheNextRequest()
+    {
+        var limiter = new MollyRateLimiter();
+        Exhaust(limiter, () => Context("10.0.0.1"));
+
+        Assert.False(limiter.TryEnter(Context("10.0.0.1"), out TimeSpan retryAfter));
+        Assert.Equal(TimeSpan.FromSeconds(30), retryAfter);
     }
 
     [Fact]
