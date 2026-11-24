@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO.Hashing;
 using System.Numerics.Tensors;
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using MihuBot.Configuration;
 using MihuBot.Helpers.Crypto;
@@ -53,6 +54,15 @@ public sealed class MollyRequestProtector : IDisposable
     /// <summary>The request nonce, as raw bytes before base64 encoding.</summary>
     public const int RequestNonceLength = 16;
 
+    /// <summary>Bucketed padding rounds larger plaintexts up to multiples of this (16 KiB).</summary>
+    public const int PaddingBucketLength = 16 * 1024;
+
+    /// <summary>Data up to this long is always padded to at least this long.</summary>
+    public const int SmallPaddedDataLength = 1024;
+
+    /// <summary>Every message gets between zero and this many random padding bytes on top of its size class.</summary>
+    public const int MaxRandomPaddingLength = 512;
+
     /// <summary>How many recently seen nonces are remembered for replay detection.</summary>
     public const int TrackedNonceCount = 100_000;
 
@@ -60,6 +70,15 @@ public sealed class MollyRequestProtector : IDisposable
     private const int EncodedNonceLength = (RequestNonceLength + 2) / 3 * 4;
 
     private static readonly long NonceCacheSeed = BinaryPrimitives.ReadInt64LittleEndian(RandomNumberGenerator.GetBytes(sizeof(long)));
+
+    /// <summary>
+    /// Responses are only ever parsed as JSON, never embedded in HTML. The default encoder escapes characters such as
+    /// <c>+</c> as <c>\u002B</c>, so a base64 payload's length would depend on its bytes: by several hundred bytes for
+    /// a <c>share-fetch</c>. Padding hides that while it stays inside one size class, but a response near a 1 KiB or
+    /// 16 KiB boundary would then cross it depending on content. Relaxed escaping makes every response's size class a
+    /// function of its structure only.
+    /// </summary>
+    private static readonly JsonSerializerOptions s_responseJsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private readonly MollyTransportKeyRing _keys;
 
@@ -124,7 +143,7 @@ public sealed class MollyRequestProtector : IDisposable
         body.Slice(0, HeaderLength).CopyTo(header);
         TensorPrimitives.Xor(header.Slice(0, RecipientKeyIdLength), body.Slice(body.Length - RecipientKeyIdLength), header.Slice(0, RecipientKeyIdLength));
 
-        if (!TryDeriveSessionKeys(header, out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt))
+        if (!TryDeriveSessionKeys(header, out byte[]? requestKey, out byte[]? derivedResponseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt, out MollyTransportKeyRing.TransportKey? transportKey))
         {
             // A low-order / contributory ephemeral key (all-zero agreement) or other derivation
             // failure - the ephemeral key is attacker-controlled, so this is just a bad request.
@@ -174,7 +193,10 @@ public sealed class MollyRequestProtector : IDisposable
         responseKey = derivedResponseKey;
         recipientKeyId = new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength));
         TimeSpan keyAge = bootstrap ? TimeSpan.MaxValue : _timeProvider.GetUtcNow() - keyCreatedAt;
-        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), keyAge);
+        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), keyAge)
+        {
+            TransportKey = bootstrap ? null : transportKey,
+        };
         return true;
     }
 
@@ -183,12 +205,24 @@ public sealed class MollyRequestProtector : IDisposable
     /// <see cref="TryDecryptRequest"/>. That key is unique to the request, so the response only
     /// decrypts for the client that made it - no nonce echo is needed to bind them.
     /// </summary>
-    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyPublicKeyId recipientKeyId)
+    /// <param name="bucketed">
+    /// Whether data longer than <see cref="SmallPaddedDataLength"/> is first padded so the whole plaintext is a multiple
+    /// of <see cref="PaddingBucketLength"/> (see FileSharing.md, "Padding"). Either way, up to
+    /// <see cref="MaxRandomPaddingLength"/> random bytes are added on top.
+    /// </param>
+    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyPublicKeyId recipientKeyId, bool bucketed = false)
     {
         response.TransportKey = _keys.GetKeyUpdate(recipientKeyId);
 
-        byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
-        int paddingLength = data.Length <= 1024 ? 1024 - data.Length : RandomNumberGenerator.GetInt32(513);
+        byte[] data = JsonSerializer.SerializeToUtf8Bytes(response, s_responseJsonOptions);
+
+        int paddingLength =
+            data.Length <= SmallPaddedDataLength ? SmallPaddedDataLength - data.Length :
+            bucketed ? (PaddingBucketLength - ((sizeof(ushort) + data.Length) % PaddingBucketLength)) % PaddingBucketLength :
+            0;
+
+        paddingLength += RandomNumberGenerator.GetInt32(MaxRandomPaddingLength + 1);
+
         byte[] plaintext = new byte[checked(sizeof(ushort) + paddingLength + data.Length)];
         BinaryPrimitives.WriteUInt16BigEndian(plaintext, (ushort)paddingLength);
         RandomNumberGenerator.Fill(plaintext.AsSpan(sizeof(ushort), paddingLength));
@@ -202,6 +236,58 @@ public sealed class MollyRequestProtector : IDisposable
     }
 
     /// <summary>
+    /// <c>X25519(transport private key, identity public key)</c> for the rotating key the exchange was sealed
+    /// to, authenticating file sharing requests. Uses the key resolved when the request was decrypted, so an
+    /// accepted exchange still completes if the key retires meanwhile. Discovery keys, unknown keys, and
+    /// low-order identity keys (an all-zero agreement) are rejected.
+    /// </summary>
+    internal bool TryDeriveShareAgreement(MollyExchangeContext exchange, ReadOnlySpan<byte> identityPublicKey, Span<byte> shared)
+    {
+        if (exchange.RecipientKeyId.Length != RecipientKeyIdLength ||
+            identityPublicKey.Length != X25519DiffieHellman.PublicKeySizeInBytes ||
+            shared.Length != X25519DiffieHellman.SecretAgreementSizeInBytes)
+        {
+            return false;
+        }
+
+        var recipientKeyId = new MollyPublicKeyId(exchange.RecipientKeyId);
+        MollyTransportKeyRing.TransportKey? key = exchange.TransportKey;
+
+        if (key is null)
+        {
+            // Exchanges that weren't decrypted here (tests) are resolved now.
+            key = _keys.TryGetKey(recipientKeyId, out bool bootstrap);
+
+            if (bootstrap)
+            {
+                return false;
+            }
+        }
+
+        if (key is null || key.KeyId != recipientKeyId)
+        {
+            return false;
+        }
+
+        try
+        {
+            key.DeriveRawSecretAgreement(identityPublicKey, shared);
+        }
+        catch (CryptographicException)
+        {
+            CryptographicOperations.ZeroMemory(shared);
+            return false;
+        }
+
+        if (CryptographicOperations.FixedTimeEquals(shared, 0))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// ECDH followed by HKDF to separate 32-byte request and response keys, bound to the recipient
     /// key ID and the client's ephemeral public key.
     /// Direction separation prevents reflecting a request ciphertext as a response.
@@ -211,7 +297,7 @@ public sealed class MollyRequestProtector : IDisposable
     /// which the platform throws on per RFC 7748 6.1. The ephemeral key is attacker-controlled, so this
     /// has to be a graceful rejection rather than an unhandled exception.
     /// </returns>
-    private bool TryDeriveSessionKeys(ReadOnlySpan<byte> header, [NotNullWhen(true)] out byte[]? requestKey, [NotNullWhen(true)] out byte[]? responseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt)
+    private bool TryDeriveSessionKeys(ReadOnlySpan<byte> header, [NotNullWhen(true)] out byte[]? requestKey, [NotNullWhen(true)] out byte[]? responseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt, out MollyTransportKeyRing.TransportKey? transportKey)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(header.Length, HeaderLength);
 
@@ -219,12 +305,13 @@ public sealed class MollyRequestProtector : IDisposable
         responseKey = null;
         bootstrap = false;
         keyCreatedAt = default;
+        transportKey = null;
         Span<byte> shared = stackalloc byte[X25519DiffieHellman.SecretAgreementSizeInBytes];
         Span<byte> keys = stackalloc byte[2 * XAesGcm.KeySizeInBytes];
 
         try
         {
-            if (!_keys.TryDeriveSharedSecret(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength), shared, out bootstrap, out keyCreatedAt))
+            if (!_keys.TryDeriveSharedSecret(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength), shared, out bootstrap, out keyCreatedAt, out transportKey))
             {
                 return false;
             }

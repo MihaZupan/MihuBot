@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using MihuBot.Molly.Api;
 
@@ -64,9 +65,13 @@ internal sealed class MollyTransportKeyRing : IDisposable
     }
 
     /// <param name="createdAt">When the key was generated; <see cref="DateTimeOffset.MinValue"/> for identity keys.</param>
-    public bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap, out DateTimeOffset createdAt)
+    public bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap, out DateTimeOffset createdAt) =>
+        TryDeriveSharedSecret(recipientKeyId, ephemeralPublicKey, shared, out bootstrap, out createdAt, out _);
+
+    /// <param name="key">The resolved key, so later steps of the exchange keep working after it retires.</param>
+    internal bool TryDeriveSharedSecret(MollyPublicKeyId recipientKeyId, ReadOnlySpan<byte> ephemeralPublicKey, Span<byte> shared, out bool bootstrap, out DateTimeOffset createdAt, [NotNullWhen(true)] out TransportKey? key)
     {
-        TransportKey? key = TryGetKey(recipientKeyId, out bootstrap);
+        key = TryGetKey(recipientKeyId, out bootstrap);
         if (key is null)
         {
             createdAt = default;

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using MihuBot.DB;
 using MihuBot.Molly;
+using MihuBot.Molly.Sharing;
 
 namespace MihuBot.Tests.Molly;
 
@@ -69,6 +70,45 @@ public sealed class MollyMigrationTests
         Assert.Null(entry.EncryptedAttestationState);
         Assert.Equal(DateTime.MinValue, entry.LastLoginAt);
         Assert.Equal(DateTime.MinValue, entry.ActiveSessionIssuedAt);
+    }
+
+    [Fact]
+    public async Task FileSharingMigration_KeepsEntriesUnbound_AndAddsTheShareTables()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new MollyDbContext(new DbContextOptionsBuilder<MollyDbContext>().UseSqlite(connection).Options);
+        var migrator = db.GetService<IMigrator>();
+
+        await migrator.MigrateAsync("20261111034500_MollyAttestation");
+
+        Guid id = Guid.NewGuid();
+        DateTime now = DateTime.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO mollyEntries
+                (Id, DerivedHash, CreatedAt, LastSeenAt, LastLoginAt, ActiveSessionIssuedAt, LockRequested, WipeRequested, AlertsMuted)
+            VALUES ({id}, {new byte[64]}, {now}, {now}, {now}, {now}, 0, 0, 0)
+            """);
+
+        await migrator.MigrateAsync();
+
+        MollyDbEntry entry = await db.Entries.SingleAsync();
+        Assert.Equal(id, entry.Id);
+        Assert.Null(entry.SharePartyHash);
+        Assert.Null(entry.ShareIdentityBoundAt);
+
+        Guid shareId = Guid.NewGuid();
+        db.ShareEntries.Add(new MollyShareDbEntry { Id = shareId, OwnerEntryId = id, RecipientKeyHash = new byte[64], CreatedAt = now });
+        db.ShareTrustees.Add(new MollyShareTrusteeDbEntry { EntryId = shareId, Slot = 0, TrusteeKeyHash = new byte[64], EncryptedSlot = [1] });
+        db.ShareUpdates.Add(new MollyShareUpdateDbEntry { PartyHash = new byte[64], UpdatedAt = 1 });
+        await db.SaveChangesAsync();
+
+        // Grants outlive their owner entry until maintenance deletes them, and trustee slots go with their grant.
+        await db.Entries.ExecuteDeleteAsync();
+        Assert.Equal(1, await db.ShareEntries.CountAsync());
+
+        await db.ShareEntries.Where(e => e.Id == shareId).ExecuteDeleteAsync();
+        Assert.Equal(0, await db.ShareTrustees.CountAsync());
     }
 
     [Fact]

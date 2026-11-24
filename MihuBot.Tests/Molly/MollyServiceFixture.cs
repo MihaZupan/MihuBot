@@ -53,6 +53,19 @@ public static class MollyTestKeys
     }
 }
 
+public static class MollyServiceTestExtensions
+{
+    /// <summary>The party hash of the identity <see cref="AssociateAsync"/> binds every entry to.</summary>
+    public static readonly byte[] TestIdentityPartyHash = SHA512.HashData("molly-test-identity"u8);
+
+    /// <summary>
+    /// <c>associate</c> with a verified proof for <see cref="TestIdentityPartyHash"/>, for tests that are about the
+    /// nickname and session rules rather than the identity.
+    /// </summary>
+    public static Task<MollyCommandResult> AssociateAsync(this MollyService molly, string? protectedId, string? nickname, CancellationToken cancellationToken = default) =>
+        molly.AssociateAsync(protectedId, nickname, TestIdentityPartyHash, cancellationToken);
+}
+
 /// <summary>
 /// A <see cref="MollyService"/> backed by a throw-away SQLite database.
 /// </summary>

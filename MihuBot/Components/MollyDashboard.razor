@@ -1,7 +1,9 @@
 @using MihuBot.Molly
 @using MihuBot.Molly.Alerts
 @using MihuBot.Molly.Attestation
+@using MihuBot.Molly.Sharing
 @inject MollyService molly
+@inject MollyShareService shares
 @implements IDisposable
 
 <p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
@@ -37,6 +39,7 @@ else
                 <th scope="col">Device</th>
                 <th scope="col">Attestation</th>
                 <th scope="col">Status</th>
+                <th scope="col">Sharing</th>
                 <th scope="col">Actions</th>
             </tr>
         </thead>
@@ -44,6 +47,7 @@ else
             @foreach (MollyUserInfo user in _users)
             {
                 string detailsId = $"molly-details-{user.Id:N}";
+                MollyShareDeviceInfo sharing = _sharing.GetValueOrDefault(user.Id);
 
                 @* Keyed so a refresh that reorders rows keeps each row's expanded state (the checkbox) with its device. *@
                 <tr @key="user.Id">
@@ -131,6 +135,25 @@ else
                         }
                     </td>
                     <td>
+                        @if (sharing is not null)
+                        {
+                            @if (sharing.Owned.Length > 0)
+                            {
+                                <span class="badge bg-info text-dark me-1" title="Shares this device created">@sharing.Owned.Length shared</span>
+                            }
+
+                            @if (ReceivedCount(sharing) is > 0 and var received)
+                            {
+                                <span class="badge bg-info text-dark me-1" title="Shares for this device's identity">@received received</span>
+                            }
+
+                            @if (sharing.PendingTrusteeRequests > 0)
+                            {
+                                <span class="badge bg-warning text-dark" title="Started recoveries this device's identity hasn't approved as a trustee">@sharing.PendingTrusteeRequests to approve</span>
+                            }
+                        }
+                    </td>
+                    <td>
                         <button type="button" class="btn btn-sm btn-outline-light me-2" disabled="@_busy"
                                 @onclick="() => SetAlertsMutedAsync(user, !user.AlertsMuted)">
                             @(user.AlertsMuted ? "Unmute alerts" : "Mute alerts")
@@ -147,7 +170,7 @@ else
                 </tr>
 
                 <tr @key="detailsId" class="details-row">
-                    <td colspan="7">
+                    <td colspan="8">
                         @if (user.Attestation is { } attestation)
                         {
                             <dl class="row small mb-0">
@@ -195,6 +218,131 @@ else
                         else
                         {
                             <span class="small">The pinned attestation state can't be read.</span>
+                        }
+
+                        @if (sharing is not null)
+                        {
+                            <dl class="row small mb-0 mt-2">
+                                <dt class="col-sm-2">File sharing</dt>
+                                <dd class="col-sm-10">
+                                    @if (sharing.IdentityBoundAt is { } boundAt)
+                                    {
+                                        <text>Identity bound @boundAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</text>
+
+                                        @* Which devices share an identity reveals linked devices, so only real admins see it. *@
+                                        @if (IsAdmin && sharing.SameIdentityDevices.Length > 0)
+                                        {
+                                            <text>, also bound on @string.Join(", ", sharing.SameIdentityDevices.Select(NicknameOf))</text>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <text>No identity bound</text>
+                                    }
+                                </dd>
+
+                                <dt class="col-sm-2">Last share request</dt>
+                                <dd class="col-sm-10">
+                                    @if (sharing.LastActivityAt is { } activeAt)
+                                    {
+                                        <text>@activeAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</text>
+                                        <span class="ms-2 text-secondary">(@((DateTime.UtcNow - activeAt).ToElapsedTime()) ago)</span>
+                                    }
+                                    else
+                                    {
+                                        <text>Never</text>
+                                    }
+                                </dd>
+
+                                <dt class="col-sm-2">Received</dt>
+                                <dd class="col-sm-10">
+                                    @sharing.ReceivedAvailable available, @sharing.ReceivedStarted being recovered, @sharing.ReceivedReleased released;
+                                    @sharing.PendingTrusteeRequests trustee requests to approve
+                                </dd>
+
+                                <dt class="col-sm-2">Shared</dt>
+                                <dd class="col-sm-10">
+                                    @sharing.Owned.Length shares
+
+                                    @if (sharing.Reservations > 0)
+                                    {
+                                        <text>, @sharing.Reservations reserved for creation</text>
+                                    }
+                                </dd>
+                            </dl>
+
+                            @if (sharing.Owned.Length > 0)
+                            {
+                                <table class="table table-dark table-sm small mt-2 mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Share</th>
+                                            <th scope="col">State</th>
+                                            <th scope="col">Created</th>
+                                            <th scope="col">Started</th>
+                                            <th scope="col">Released</th>
+                                            <th scope="col">Approvals</th>
+                                            <th scope="col">Expires</th>
+                                            @if (IsAdmin)
+                                            {
+                                                <th scope="col">Actions</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (MollyShareOwnedInfo share in sharing.Owned)
+                                        {
+                                            <tr @key="share.Id">
+                                                <td title="@share.Id"><code>@(share.Id.ToString("N")[..8])</code></td>
+                                                <td>@share.State</td>
+                                                <td>@FormatDate(share.CreatedAt)</td>
+                                                <td>@FormatDate(share.StartedAt)</td>
+                                                <td>@FormatDate(share.ReleasedAt)</td>
+                                                <td>
+                                                    @if (share.Threshold is { } threshold)
+                                                    {
+                                                        <text>@share.Approvals of @threshold needed (@share.Trustees trustees)</text>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    @if (share.ExpiresAt is { } expiresAt)
+                                                    {
+                                                        <span title="Unless the owner device keeps making share requests (active and started shares)">@FormatDate(expiresAt)</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <text>Next maintenance (device wiped)</text>
+                                                    }
+                                                </td>
+                                                @if (IsAdmin)
+                                                {
+                                                    <td>
+                                                        @if (_pendingDeleteShareId == share.Id)
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
+                                                                    @onclick="() => DeleteShareAsync(share)">
+                                                                Confirm delete
+                                                            </button>
+                                                            <button type="button" class="btn btn-sm btn-secondary me-2" disabled="@_busy"
+                                                                    @onclick="() => _pendingDeleteShareId = null">
+                                                                Cancel
+                                                            </button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button type="button" class="btn btn-sm btn-outline-danger me-2" disabled="@_busy"
+                                                                    title="Deletes the share like its owner would. Shift+click to skip the confirmation"
+                                                                    @onclick="e => ConfirmOrRunAsync(e, () => _pendingDeleteShareId = share.Id, () => DeleteShareAsync(share))">
+                                                                Delete share
+                                                            </button>
+                                                        }
+                                                    </td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
                         }
 
                         <div class="mt-2">
@@ -398,12 +546,20 @@ else
 
     private MollyUserInfo[] _users = [];
     private MollyAlertInfo[] _alerts = [];
+    private Dictionary<Guid, MollyShareDeviceInfo> _sharing = [];
     private MollyRevocationStatus _revocationStatus = MollyRevocationStatus.Fresh;
     private Guid? _pendingWipeId;
     private Guid? _pendingDeleteId;
     private Guid? _pendingClearAlertsId;
     private long? _pendingDeleteAlertId;
+    private Guid? _pendingDeleteShareId;
     private bool _busy;
+
+    private static int ReceivedCount(MollyShareDeviceInfo sharing) => sharing.ReceivedAvailable + sharing.ReceivedStarted + sharing.ReceivedReleased;
+
+    private static string FormatDate(DateTime? value) => value?.ToString("yyyy-MM-dd HH:mm") ?? "";
+
+    private string NicknameOf(Guid id) => _users.FirstOrDefault(u => u.Id == id)?.Nickname ?? id.ToString();
 
     /// <summary>Keeps the device list and alerts current without a manual reload.</summary>
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
@@ -449,6 +605,7 @@ else
     {
         _users = await molly.GetRegisteredUsersAsync();
         _alerts = await molly.GetRecentAlertsAsync();
+        _sharing = await shares.GetDeviceInfoAsync();
         _revocationStatus = molly.AttestationRevocationStatus;
     }
 
@@ -515,6 +672,17 @@ else
         await RunAsync("delete alert", () => molly.DeleteAlertAsync(alert.Id));
     }
 
+    private async Task DeleteShareAsync(MollyShareOwnedInfo share)
+    {
+        // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
+        if (!IsAdmin)
+        {
+            return;
+        }
+
+        await RunAsync("delete share", () => shares.AdminDeleteAsync(share.Id));
+    }
+
     private async Task RunAsync(string action, Func<Task> operation)
     {
         if (_busy)
@@ -539,6 +707,7 @@ else
             _pendingDeleteId = null;
             _pendingClearAlertsId = null;
             _pendingDeleteAlertId = null;
+            _pendingDeleteShareId = null;
             await RefreshAsync();
         }
         finally

@@ -7,6 +7,7 @@ using MihuBot.Configuration;
 using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Api;
 using MihuBot.Molly.Attestation;
+using MihuBot.Molly.Sharing;
 
 #nullable enable
 
@@ -15,10 +16,10 @@ namespace MihuBot.Molly;
 public static class MollyServiceExtensions
 {
     /// <summary>
-    /// Requests larger than this are rejected by the server while the body is being read. Sized for an
-    /// enrollment login carrying several bounded attestation certificate chains.
+    /// Encrypted request bodies larger than this are rejected by the server while the body is being read.
+    /// Sized for a padded <c>share-create</c>, which carries a 64 KiB file and the fixed-size trustee roster.
     /// </summary>
-    internal const int MaxRequestBodyLength = 32 * 1024;
+    internal const int MaxRequestBodyLength = 256 * 1024;
 
     private const string EncryptedContentType = "application/octet-stream";
 
@@ -36,6 +37,7 @@ public static class MollyServiceExtensions
         services.TryAddSingleton<MollyAttestationRevocations>();
         services.TryAddSingleton<MollyAttestationService>();
         services.TryAddSingleton<MollyService>();
+        services.TryAddSingleton<MollyShareService>();
         services.AddHostedService<MollyAttestationRevocationRefresher>();
 
         return services;
@@ -53,7 +55,7 @@ public static class MollyServiceExtensions
         return group;
     }
 
-    private static async Task<IResult> HandleRequestAsync(HttpContext context, MollyService molly, MollyRequestProtector protector, CancellationToken cancellationToken)
+    private static async Task<IResult> HandleRequestAsync(HttpContext context, MollyService molly, MollyShareService shares, MollyRequestProtector protector, CancellationToken cancellationToken)
     {
         var rateLimiter = context.RequestServices.GetRequiredService<MollyRateLimiter>();
 
@@ -80,10 +82,10 @@ public static class MollyServiceExtensions
 
             MollyApiResponse response = request.Action == MollyApiActions.TransportKey
                 ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
-                : await ExecuteAsync(molly, request, exchange, cancellationToken);
+                : await ExecuteAsync(molly, shares, request, exchange, cancellationToken);
 
             context.Response.Headers.CacheControl = "no-store";
-            byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId);
+            byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId, bucketed: MollyShareService.IsShareAction(request.Action));
             CryptographicOperations.ZeroMemory(responseKey);
             return Results.Bytes(encrypted, EncryptedContentType);
         }
@@ -93,7 +95,7 @@ public static class MollyServiceExtensions
         }
     }
 
-    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyApiRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
+    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyShareService shares, MollyApiRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         switch (request.Action)
         {
@@ -131,9 +133,12 @@ public static class MollyServiceExtensions
                     return Invalid();
                 }
 
-                MollyCommandResult result = await molly.AssociateAsync(data.Id, data.Nickname, cancellationToken);
+                MollyCommandResult result = await shares.AssociateAsync(data, exchange, cancellationToken);
 
-                return ToResponse(result, static command => new MollyCommandResponse { Command = command });
+                return ToResponse(result, () => new MollyAssociateResponse
+                {
+                    Identity = result.Status == MollyResultStatus.Ok ? result.Identity?.ToAssociateWireValue() : null,
+                });
             }
 
             case MollyApiActions.Ping:
@@ -145,7 +150,7 @@ public static class MollyServiceExtensions
 
                 MollyCommandResult result = await molly.PingAsync(data.Id, data.BatteryLevel, data.LocationEnabled, data.AppVersion, cancellationToken);
 
-                return ToResponse(result, static command => new MollyPingResponse { Command = command });
+                return ToResponse(result, static () => new MollyPingResponse());
             }
 
             case MollyApiActions.Alert:
@@ -161,7 +166,26 @@ public static class MollyServiceExtensions
                 MollyCommandResult result = await molly.SubmitAlertAsync(data.Id, payload, cancellationToken);
                 CryptographicOperations.ZeroMemory(payload);
 
-                return ToResponse(result, static command => new MollyCommandResponse { Command = command });
+                return ToResponse(result, static () => new MollyCommandResponse());
+            }
+
+            case MollyApiActions.ShareReserve:
+            case MollyApiActions.ShareCreate:
+            case MollyApiActions.ShareUpdate:
+            case MollyApiActions.ShareSync:
+            case MollyApiActions.ShareGet:
+            case MollyApiActions.ShareStart:
+            case MollyApiActions.ShareApprove:
+            case MollyApiActions.ShareFetch:
+            case MollyApiActions.ShareDelete:
+            case MollyApiActions.ShareDismiss:
+            {
+                if (GetData<MollyShareRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                return await shares.ExecuteAsync(request.Action, data, cancellationToken);
             }
 
             default:
@@ -218,16 +242,18 @@ public static class MollyServiceExtensions
 
     private static MollyApiResponse Invalid() => new() { Status = MollyResultStatus.InvalidRequest.ToWireValue() };
 
-    private static MollyApiResponse ToResponse<TResponse>(MollyCommandResult result, Func<string?, TResponse> createResponse)
+    private static MollyApiResponse ToResponse<TResponse>(MollyCommandResult result, Func<TResponse> createResponse) where TResponse : MollyCommandResponse
     {
-        return new MollyApiResponse
+        // Ok may still carry a non-blocking command, so both cases report it.
+        if (result.Status is not (MollyResultStatus.Ok or MollyResultStatus.Command))
         {
-            Status = result.Status.ToWireValue(),
+            return new MollyApiResponse { Status = result.Status.ToWireValue() };
+        }
 
-            // Ok may still carry a non-blocking command, so both cases report it.
-            Data = result.Status is MollyResultStatus.Ok or MollyResultStatus.Command
-                ? createResponse(result.Command.ToWireValue())
-                : null,
-        };
+        TResponse response = createResponse();
+        response.Command = result.Command.ToWireValue();
+        response.ShareUpdatedAt = result.ShareUpdatedAt;
+
+        return new MollyApiResponse { Status = result.Status.ToWireValue(), Data = response };
     }
 }

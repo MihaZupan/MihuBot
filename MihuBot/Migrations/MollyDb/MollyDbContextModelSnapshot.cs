@@ -15,7 +15,7 @@ namespace MihuBot.Migrations.MollyDb
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
             modelBuilder.Entity("MihuBot.Molly.MollyAlertDbEntry", b =>
                 {
@@ -80,6 +80,15 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<bool>("LockRequested")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("ShareActiveAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ShareIdentityBoundAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("SharePartyHash")
+                        .HasColumnType("BLOB");
+
                     b.Property<bool>("WipeRequested")
                         .HasColumnType("INTEGER");
 
@@ -91,9 +100,119 @@ namespace MihuBot.Migrations.MollyDb
                     b.ToTable("mollyEntries");
                 });
 
+            modelBuilder.Entity("MihuBot.Molly.Sharing.MollyShareDbEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("EncryptedDataKeySealed")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedFile")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedHeader")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedObjects")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedSkey")
+                        .HasColumnType("BLOB");
+
+                    b.Property<Guid>("OwnerEntryId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("RecipientKeyHash")
+                        .HasColumnType("BLOB");
+
+                    b.Property<DateTime?>("ReleasedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("RequestDigest")
+                        .HasColumnType("BLOB");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("State")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Threshold")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerEntryId");
+
+                    b.HasIndex("RecipientKeyHash");
+
+                    b.ToTable("mollyShareEntries");
+                });
+
+            modelBuilder.Entity("MihuBot.Molly.Sharing.MollyShareTrusteeDbEntry", b =>
+                {
+                    b.Property<Guid>("EntryId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Slot")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("EncryptedApproval")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedShare")
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("EncryptedSlot")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<byte[]>("TrusteeKeyHash")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("EntryId", "Slot");
+
+                    b.HasIndex("TrusteeKeyHash");
+
+                    b.ToTable("mollyShareTrustees");
+                });
+
+            modelBuilder.Entity("MihuBot.Molly.Sharing.MollyShareUpdateDbEntry", b =>
+                {
+                    b.Property<byte[]>("PartyHash")
+                        .HasColumnType("BLOB");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("PartyHash");
+
+                    b.ToTable("mollyShareUpdates");
+                });
+
             modelBuilder.Entity("MihuBot.Molly.MollyAlertDbEntry", b =>
                 {
                     b.HasOne("MihuBot.Molly.MollyDbEntry", "Entry")
+                        .WithMany()
+                        .HasForeignKey("EntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Entry");
+                });
+
+            modelBuilder.Entity("MihuBot.Molly.Sharing.MollyShareTrusteeDbEntry", b =>
+                {
+                    b.HasOne("MihuBot.Molly.Sharing.MollyShareDbEntry", "Entry")
                         .WithMany()
                         .HasForeignKey("EntryId")
                         .OnDelete(DeleteBehavior.Cascade)

@@ -16,7 +16,7 @@ namespace MihuBot.Tests.Molly;
 /// </summary>
 public sealed class MollyRequestProtectorTests : IDisposable
 {
-    private delegate bool DeriveSessionKeys(ReadOnlySpan<byte> header, out byte[]? requestKey, out byte[]? responseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt);
+    private delegate bool DeriveSessionKeys(ReadOnlySpan<byte> header, out byte[]? requestKey, out byte[]? responseKey, out bool bootstrap, out DateTimeOffset keyCreatedAt, out MollyTransportKeyRing.TransportKey? transportKey);
 
     /// <summary>Small enough to fill within a test, so nonce eviction is reachable.</summary>
     private const int SmallWindow = 4;
@@ -65,7 +65,7 @@ public sealed class MollyRequestProtectorTests : IDisposable
             .GetMethod("TryDeriveSessionKeys", BindingFlags.Instance | BindingFlags.NonPublic)!
             .CreateDelegate<DeriveSessionKeys>(_protector);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => derive(new byte[length], out _, out _, out _, out _));
+        Assert.Throws<ArgumentOutOfRangeException>(() => derive(new byte[length], out _, out _, out _, out _, out _));
     }
 
     [Fact]

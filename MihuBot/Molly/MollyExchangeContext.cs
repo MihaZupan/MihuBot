@@ -14,4 +14,11 @@ namespace MihuBot.Molly;
 /// How long ago the server generated the transport key the request was sealed to, when it was decrypted.
 /// Transport keys are unpredictable before they're published, so this bounds how old the attestation can be.
 /// </param>
-public sealed record MollyExchangeContext(byte[] RecipientKeyId, byte[] ClientEphemeralPublicKey, byte[] RequestNonce, TimeSpan RecipientKeyAge);
+public sealed record MollyExchangeContext(byte[] RecipientKeyId, byte[] ClientEphemeralPublicKey, byte[] RequestNonce, TimeSpan RecipientKeyAge)
+{
+    /// <summary>
+    /// The rotating (never discovery) key the request was decrypted with, so later steps of the exchange
+    /// don't depend on it still being retained. Null for discovery exchanges and contexts built elsewhere.
+    /// </summary>
+    internal MollyTransportKeyRing.TransportKey? TransportKey { get; init; }
+}

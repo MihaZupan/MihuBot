@@ -56,4 +56,19 @@ public sealed class MollyDbEntry
 
     /// <summary>Suppresses the Discord notification for this device's alerts. They're still stored.</summary>
     public bool AlertsMuted { get; set; }
+
+    /// <summary>
+    /// The keyed party hash (<see cref="Sharing.MollyShareCrypto.ComputePartyHash"/>) of the Signal identity the entry
+    /// is bound to for file sharing (FileSharing.md, "Identity binding"). Null while unbound; cleared by a wipe.
+    /// </summary>
+    public byte[]? SharePartyHash { get; set; }
+
+    /// <summary>When <see cref="SharePartyHash"/> was bound, for the rebind cooldown.</summary>
+    public DateTime? ShareIdentityBoundAt { get; set; }
+
+    /// <summary>
+    /// The device's last authorized file sharing request. Its grants expire once this is too old
+    /// (<see cref="Sharing.MollyShareService.OwnerInactivityRetention"/>).
+    /// </summary>
+    public DateTime? ShareActiveAt { get; set; }
 }

@@ -4,12 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace MihuBot.Molly.Api;
 
-public sealed class MollyPingResponse
+public sealed class MollyPingResponse : MollyCommandResponse
 {
     [JsonPropertyName("response")]
     public string Response => "pong";
-
-    [JsonPropertyName("command")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Command { get; set; }
 }

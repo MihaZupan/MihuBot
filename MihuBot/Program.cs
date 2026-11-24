@@ -29,6 +29,7 @@ using MihuBot.Helpers.Crypto;
 using MihuBot.Helpers.Diagnostics;
 using MihuBot.Helpers.Torrent;
 using MihuBot.Molly;
+using MihuBot.Molly.Sharing;
 using MihuBot.RuntimeUtils;
 using MihuBot.RuntimeUtils.AI;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
@@ -628,6 +629,9 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 
     if (app.Services.GetService<MollyService>() is not null)
     {
+        // Starts its retention maintenance right away rather than on the first request.
+        app.Services.GetRequiredService<MollyShareService>();
+
         app.MapGroup("/api/molly").MapMollyApis();
     }
 

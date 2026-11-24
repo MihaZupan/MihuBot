@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using MihuBot.DB;
 using MihuBot.Helpers;
+using MihuBot.Helpers.Crypto;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Api;
@@ -389,24 +391,52 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     }
 
     [Fact]
-    public async Task Associate_ReturnsOk()
+    public async Task Associate_WithoutAnIdentity_ReturnsInvalid()
     {
         (string id, _) = await RegisterAsync();
 
         JsonElement response = await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"api-user"}""");
 
-        Assert.Equal("ok", Status(response));
+        Assert.Equal("invalid", Status(response));
+        Assert.DoesNotContain(await _fixture.Service.GetRegisteredUsersAsync(), u => u.Id == _fixture.Unprotect(id));
+    }
+
+    [Fact]
+    public async Task Associate_ReportsTheIdentityBinding()
+    {
+        (string id, _) = await RegisterAsync();
+        using var identity = new MollyTestIdentity();
+        using var other = new MollyTestIdentity();
+
+        Assert.Equal("bound", Data(await AssociateAsync(id, identity)).GetProperty("identity").GetString());
+        Assert.Equal("bound", Data(await AssociateAsync(id, identity)).GetProperty("identity").GetString());
+        Assert.Equal("cooldown", Data(await AssociateAsync(id, other)).GetProperty("identity").GetString());
+        Assert.Equal("invalid", Status(await AssociateAsync(id, identity, corruptMac: true, expectedStatus: "invalid")));
+    }
+
+    /// <summary>Associates the session through the wire, asking to bind its entry to <paramref name="identity"/>.</summary>
+    private async Task<JsonElement> AssociateAsync(string session, MollyTestIdentity identity, bool corruptMac = false, string nickname = "api-user", string expectedStatus = "ok")
+    {
+        MollyExchangeContext exchange = _envelope.PrepareExchange();
+        MollyAssociateIdentity proof = MollyShareTestClient.CreateIdentityProof(identity, exchange, Convert.FromBase64String(_fixture.TransportKey.PublicKey));
+
+        if (corruptMac)
+        {
+            proof.Mac = Convert.ToBase64String(new byte[64]);
+        }
+
+        JsonElement response = await PostAsync("associate", JsonSerializer.Serialize(new MollyAssociateRequest { Id = session, Nickname = nickname, Identity = proof }));
+        Assert.Equal(expectedStatus, Status(response));
+        return response;
     }
 
     [Fact]
     public async Task Associate_TooLongNickname_ReturnsInvalid()
     {
         (string id, _) = await RegisterAsync();
-        string nickname = new('a', MollyService.MaxNicknameLengthInBytes + 1);
+        using var identity = new MollyTestIdentity();
 
-        JsonElement response = await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"{{nickname}}"}""");
-
-        Assert.Equal("invalid", Status(response));
+        await AssociateAsync(id, identity, nickname: new string('a', MollyService.MaxNicknameLengthInBytes + 1), expectedStatus: "invalid");
     }
 
     [Fact]
@@ -424,8 +454,9 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     public async Task Ping_CarriesOptionalDeviceStatus()
     {
         (string id, _) = await RegisterAsync();
+        using var identity = new MollyTestIdentity();
 
-        await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"version-test"}""");
+        await AssociateAsync(id, identity, nickname: "version-test");
 
         JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}","batteryLevel":73,"locationEnabled":false,"appVersion":"1.2.3-beta.4"}""");
 
@@ -444,7 +475,8 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     public async Task Ping_WithoutAppVersion_PreservesLastReportedVersion(string versionProperty)
     {
         (string id, _) = await RegisterAsync();
-        await PostAsync("associate", $$"""{"id":"{{id}}","nickname":"version-test"}""");
+        using var identity = new MollyTestIdentity();
+        await AssociateAsync(id, identity, nickname: "version-test");
         await PostAsync("ping", $$"""{"id":"{{id}}","appVersion":"1.2.3"}""");
 
         JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"{{versionProperty}}}""");
@@ -527,7 +559,10 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     public async Task Padding_CountsTowardTheRequestSizeLimit(int bytesOverTheLimit, HttpStatusCode expectedStatus)
     {
         int bodyLength = MollyServiceExtensions.MaxRequestBodyLength + bytesOverTheLimit;
-        string json = MollyTestEnvelope.RequestJson("ping", "{}");
+
+        // The 16-bit padding length can't fill the whole limit, so most of it is an ignored JSON property.
+        int fillerLength = bodyLength - 1024 - _envelope.Encrypt(MollyTestEnvelope.RequestJson("ping", """{"filler":""}""")).Length;
+        string json = MollyTestEnvelope.RequestJson("ping", $$"""{"filler":"{{new string('a', fillerLength)}}"}""");
         int paddingLength = bodyLength - _envelope.Encrypt(json).Length;
         byte[] body = _envelope.Encrypt(json, paddingLength);
         Assert.Equal(bodyLength, body.Length);
@@ -550,6 +585,121 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
         plaintext.AsSpan().Fill(0xFF);
         using HttpResponseMessage response = await PostRawAsync(_envelope.EncryptRawPlaintext(plaintext));
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ShareResponses_ArePaddedToSizeClasses_SmallOnesLikePings()
+    {
+        (string ownerSession, _) = await RegisterAsync();
+        (string recipientSession, _) = await RegisterAsync();
+        (string trusteeSession, _) = await RegisterAsync();
+        using var owner = new MollyTestIdentity();
+        using var recipient = new MollyTestIdentity();
+        using var trustee = new MollyTestIdentity();
+        byte[] unknownEntry = RandomNumberGenerator.GetBytes(16);
+
+        async Task<(int Length, JsonElement Response)> ShareAsync(string session, string action, byte[] body)
+        {
+            MollyShareRequest request = MollyShareTestClient.CreateRequest(session, body);
+            using HttpResponseMessage response = await PostRawAsync(_envelope.EncryptRequest(action, JsonSerializer.Serialize(request)));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+            byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+            return (bytes.Length, _envelope.DecryptResponse(bytes));
+        }
+
+        static string Result(JsonElement response) => Data(response).GetProperty("result").GetString()!;
+
+        static int Buckets(int count) => XAesGcm.CombinedOverheadInBytes + (count * MollyRequestProtector.PaddingBucketLength);
+
+        static void AssertSizeClass(int size, int length) => Assert.InRange(length, size, size + MollyRequestProtector.MaxRandomPaddingLength);
+
+        // The size class of every small response, pings included.
+        const int Small = XAesGcm.CombinedOverheadInBytes + 2 + MollyRequestProtector.SmallPaddedDataLength;
+
+        using (HttpResponseMessage pong = await PostRawAsync(_envelope.EncryptRequest("ping", $$"""{"id":"{{ownerSession}}"}""")))
+        {
+            AssertSizeClass(Small, (await pong.Content.ReadAsByteArrayAsync()).Length);
+        }
+
+        // Before binding, nothing is performed.
+        (int length, JsonElement response) = await ShareAsync(ownerSession, "share-reserve", []);
+        Assert.Equal("unbound", Result(response));
+        AssertSizeClass(Small, length);
+
+        await AssociateAsync(ownerSession, owner);
+        await AssociateAsync(recipientSession, recipient);
+        await AssociateAsync(trusteeSession, trustee);
+
+        (length, response) = await ShareAsync(ownerSession, "share-reserve", []);
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Small, length);
+        var share = new MollyTestShare(owner, recipient, [trustee], 1, entry: Convert.FromBase64String(Data(response).GetProperty("entryId").GetString()!));
+
+        (length, response) = await ShareAsync(recipientSession, "share-get", share.Entry);
+        Assert.Equal("not-found", Result(response));
+        AssertSizeClass(Small, length);
+
+        (length, response) = await ShareAsync(ownerSession, "share-create", share.CreateBody());
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Small, length);
+
+        (length, response) = await ShareAsync(recipientSession, "share-get", share.Entry);
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Buckets(5), length);
+
+        (length, response) = await ShareAsync(recipientSession, "share-get", unknownEntry);
+        Assert.Equal("not-found", Result(response));
+        AssertSizeClass(Small, length);
+
+        (length, response) = await ShareAsync("invalid-session", "share-get", share.Entry);
+        Assert.Equal("invalid", Status(response));
+        AssertSizeClass(Small, length);
+
+        (length, response) = await ShareAsync(recipientSession, "share-start", share.StartBody());
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Small, length);
+
+        // A trustee request carries its sealed package.
+        (length, response) = await ShareAsync(trusteeSession, "share-sync", []);
+        long startedAt = Assert.Single(Data(response).GetProperty("trusteeRequests").EnumerateArray()).GetProperty("startedAt").GetInt64();
+        AssertSizeClass(Buckets(1), length);
+
+        (length, response) = await ShareAsync(trusteeSession, "share-approve", share.ApproveBody(0, startedAt));
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Small, length);
+
+        (length, response) = await ShareAsync(recipientSession, "share-fetch", share.Entry);
+        Assert.Equal("ok", Result(response));
+        AssertSizeClass(Buckets(6), length);
+
+        (length, response) = await ShareAsync(ownerSession, "share-delete", unknownEntry);
+        Assert.Equal("not-found", Result(response));
+        AssertSizeClass(Small, length);
+
+        // Pings of the bound entry carry the update hint, the same one its sync reports.
+        JsonElement ping = await PostAsync("ping", $$"""{"id":"{{recipientSession}}"}""");
+        long updatedAt = Data(ping).GetProperty("shareUpdatedAt").GetInt64();
+        Assert.True(updatedAt > 0);
+
+        (length, response) = await ShareAsync(recipientSession, "share-sync", []);
+        Assert.Equal(updatedAt, Data(response).GetProperty("updatedAt").GetInt64());
+        AssertSizeClass(Small, length);
+    }
+
+    [Fact]
+    public async Task Ping_OmitsTheShareUpdateHintUntilBound()
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
+        Assert.False(Data(response).TryGetProperty("shareUpdatedAt", out _));
+
+        using var identity = new MollyTestIdentity();
+        await AssociateAsync(id, identity);
+
+        response = await PostAsync("ping", $$"""{"id":"{{id}}"}""");
+        Assert.Equal(0, Data(response).GetProperty("shareUpdatedAt").GetInt64());
     }
 
     [Fact]

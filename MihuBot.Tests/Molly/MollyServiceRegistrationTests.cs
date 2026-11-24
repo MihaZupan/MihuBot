@@ -5,6 +5,7 @@ using MihuBot.Configuration;
 using MihuBot.Molly;
 using MihuBot.Molly.Api;
 using MihuBot.Molly.Attestation;
+using MihuBot.Molly.Sharing;
 
 namespace MihuBot.Tests.Molly;
 
@@ -33,6 +34,7 @@ public sealed class MollyServiceRegistrationTests
 
         // These also need a database and loggers, so only their registration is checked.
         Assert.True(isService.IsService(typeof(MollyService)));
+        Assert.True(isService.IsService(typeof(MollyShareService)));
         Assert.True(isService.IsService(typeof(MollyAttestationService)));
     }
 

@@ -15,6 +15,7 @@ using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Api;
 using MihuBot.Molly.Attestation;
+using MihuBot.Molly.Sharing;
 
 #nullable enable
 
@@ -50,6 +51,9 @@ public sealed class MollyService
     private const int MaxAlertsPerEntry = 100;
 
     private static readonly TimeSpan StatusAlertRetention = TimeSpan.FromDays(2);
+
+    /// <summary>An entry bound to an identity can't be rebound to a different one for this long.</summary>
+    public static readonly TimeSpan IdentityRebindCooldown = TimeSpan.FromHours(24);
 
     /// <summary>The admin dashboard, linked from alert emails.</summary>
     private const string DashboardUrl = "https://mihubot.xyz/molly";
@@ -570,7 +574,7 @@ public sealed class MollyService
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? match = await FindEntryAsync(db, derivedHash, cancellationToken);
+        MollyDbEntry? match = await db.Entries.FirstOrDefaultAsync(e => e.DerivedHash == derivedHash, cancellationToken);
 
         MollyCommand pending = match is null ? MollyCommand.None : GetPendingCommand(match);
 
@@ -664,13 +668,6 @@ public sealed class MollyService
     }
 
     /// <summary>
-    /// Finds the entry for a derived key hash through its unique index. The derived hash is keyed with
-    /// the server key, so clients can't choose what the lookup compares against.
-    /// </summary>
-    private static Task<MollyDbEntry?> FindEntryAsync(MollyDbContext db, byte[] derivedHash, CancellationToken cancellationToken) =>
-        db.Entries.FirstOrDefaultAsync(e => e.DerivedHash == derivedHash, cancellationToken);
-
-    /// <summary>
     /// An enrolled device failing attestation for good may mean it was tampered with, so the entry is
     /// locked until an admin unlocks it, and the device is told right away. Like alert notifications,
     /// the Discord message doesn't say which device it was, nor why - that's in the server log.
@@ -736,8 +733,13 @@ public sealed class MollyService
 
         return state is not null;
     }
+
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>.</param>
-    public async Task<MollyCommandResult> AssociateAsync(string? protectedId, string? nickname, CancellationToken cancellationToken)
+    /// <param name="identityPartyHash">
+    /// The party hash of the Signal identity whose <c>associate</c> proof verified, to bind the entry to (see
+    /// <see cref="BindIdentity"/>).
+    /// </param>
+    internal async Task<MollyCommandResult> AssociateAsync(string? protectedId, string? nickname, byte[] identityPartyHash, CancellationToken cancellationToken)
     {
         if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt) ||
             string.IsNullOrWhiteSpace(nickname) ||
@@ -776,9 +778,44 @@ public sealed class MollyService
         entry.EncryptedNickname = Encrypt(entry.Id, PadNickname(nickname), EncryptedField.Nickname);
         entry.LastSeenAt = DateTime.UtcNow;
 
+        MollyIdentityBinding binding = BindIdentity(entry, identityPartyHash);
+
         await db.SaveChangesAsync(cancellationToken);
 
-        return MollyCommandResult.Ok(command);
+        return MollyCommandResult.Ok(command) with { Identity = binding };
+    }
+
+    /// <summary>
+    /// Makes <paramref name="partyHash"/> the entry's current identity (FileSharing.md, "Identity binding"):
+    /// binds it if the entry has none, or replaces a different identity bound at least
+    /// <see cref="IdentityRebindCooldown"/> ago. A more recently bound identity stays and the result is
+    /// <see cref="MollyIdentityBinding.Cooldown"/>. Only updates the tracked <paramref name="entry"/>; the caller saves it.
+    /// </summary>
+    private MollyIdentityBinding BindIdentity(MollyDbEntry entry, byte[] partyHash)
+    {
+        ArgumentOutOfRangeException.ThrowIfNotEqual(partyHash.Length, MollyShareCrypto.PartyHashLength);
+
+        DateTime now = DateTime.UtcNow;
+
+        if (entry.SharePartyHash is { } currentHash)
+        {
+            if (CryptographicOperations.FixedTimeEquals(currentHash, partyHash))
+            {
+                return MollyIdentityBinding.Bound;
+            }
+
+            if (now - entry.ShareIdentityBoundAt < IdentityRebindCooldown)
+            {
+                return MollyIdentityBinding.Cooldown;
+            }
+        }
+
+        _logger.LogInformation("A Molly entry was bound to a {Kind} Signal identity", entry.SharePartyHash is null ? "first" : "new");
+
+        entry.SharePartyHash = partyHash;
+        entry.ShareIdentityBoundAt = now;
+
+        return MollyIdentityBinding.Bound;
     }
 
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>, if the device has one.</param>
@@ -839,9 +876,74 @@ public sealed class MollyService
 
         await MarkSeenAsync(db, entry, cancellationToken);
 
-        return command.IsBlocking()
-            ? MollyCommandResult.Blocked(command)
-            : MollyCommandResult.Ok(command);
+        if (command.IsBlocking())
+        {
+            return MollyCommandResult.Blocked(command);
+        }
+
+        return MollyCommandResult.Ok(command) with { ShareUpdatedAt = await TryGetShareUpdatedAtAsync(db, entry, cancellationToken) };
+    }
+
+    /// <summary>
+    /// Runs the usual session rules for a file sharing request. An ok result carries the entry, which the request
+    /// acts as along with its current identity, in <see cref="MollyCommandResult.EntryId"/> and
+    /// <see cref="MollyCommandResult.PartyHash"/> (null while unbound). A pending lock or wipe is returned as a blocked result.
+    /// </summary>
+    /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>.</param>
+    internal async Task<MollyCommandResult> AuthorizeShareRequestAsync(string? protectedId, CancellationToken cancellationToken)
+    {
+        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
+        {
+            return MollyCommandResult.Invalid;
+        }
+
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+
+        if (entry is null)
+        {
+            // Like the other actions: the entry's key material is gone, so the device has to wipe.
+            return MollyCommandResult.Blocked(MollyCommand.Wipe);
+        }
+
+        if (IsSuperseded(entry, issuedAt))
+        {
+            return MollyCommandResult.Invalid;
+        }
+
+        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
+
+        MollyCommand command = GetPendingCommand(entry);
+
+        if (!command.IsBlocking())
+        {
+            // Owner activity, which keeps the device's grants alive.
+            entry.ShareActiveAt = DateTime.UtcNow;
+        }
+
+        await MarkSeenAsync(db, entry, cancellationToken);
+
+        if (command.IsBlocking())
+        {
+            return MollyCommandResult.Blocked(command);
+        }
+
+        return MollyCommandResult.Ok(command) with { EntryId = entry.Id, PartyHash = entry.SharePartyHash };
+    }
+
+    /// <summary>The update hint of the entry's current identity (0 if nothing affected it yet), or null if it has none.</summary>
+    private static async Task<long?> TryGetShareUpdatedAtAsync(MollyDbContext db, MollyDbEntry entry, CancellationToken cancellationToken)
+    {
+        if (entry.SharePartyHash is not { } partyHash)
+        {
+            return null;
+        }
+
+        return await db.ShareUpdates
+            .Where(u => u.PartyHash == partyHash)
+            .Select(u => u.UpdatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <summary>
@@ -950,7 +1052,8 @@ public sealed class MollyService
             login = await RegisterAsync(db, derivedHash, state, cancellationToken);
         }
 
-        await AssociateAsync(login.ProtectedId, nickname, cancellationToken);
+        // Bound to a random identity, as associating requires one.
+        await AssociateAsync(login.ProtectedId, nickname, RandomNumberGenerator.GetBytes(SHA512.HashSizeInBytes), cancellationToken);
 
         // Muted from the start - a local dummy device shouldn't be announcing its seeded alert.
         if (_idProtector.TryUnprotect(login.ProtectedId, out Guid entryId, out _))
@@ -1037,6 +1140,10 @@ public sealed class MollyService
         entry.EncryptedServerHmac = null;
         entry.EncryptedAttestationState = null;
 
+        // The grants this device created are deleted by the file sharing maintenance.
+        entry.SharePartyHash = null;
+        entry.ShareIdentityBoundAt = null;
+
         await db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("A Molly entry was marked for a wipe");
@@ -1050,7 +1157,7 @@ public sealed class MollyService
     {
         await using MollyDbContext db = _db.CreateDbContext();
 
-        // Alerts are cascade deleted along with the entry.
+        // Alerts are cascade deleted along with the entry, and the grants it created by the file sharing maintenance.
         int deleted = await db.Entries
             .Where(e => e.Id == id)
             .ExecuteDeleteAsync(cancellationToken);
@@ -1107,11 +1214,9 @@ public sealed class MollyService
     }
 
     /// <summary>The command the entry currently has pending, if any.</summary>
-    private static MollyCommand GetPendingCommand(MollyDbEntry entry) => GetPendingCommand(entry.WipeRequested, entry.LockRequested);
-
-    private static MollyCommand GetPendingCommand(bool wipeRequested, bool lockRequested) =>
-        wipeRequested ? MollyCommand.Wipe :
-        lockRequested ? MollyCommand.Lock :
+    private static MollyCommand GetPendingCommand(MollyDbEntry entry) =>
+        entry.WipeRequested ? MollyCommand.Wipe :
+        entry.LockRequested ? MollyCommand.Lock :
         MollyCommand.None;
 
     /// <summary>
@@ -1249,6 +1354,9 @@ public sealed class MollyService
 
         return plaintext;
     }
+
+    /// <summary>Strict base64 of exactly <paramref name="length"/> bytes. See <see cref="TryDecodeBase64(string?, int, int, out byte[])"/>.</summary>
+    internal static bool TryDecodeBase64(string? value, int length, out byte[] bytes) => TryDecodeBase64(value, length, length, out bytes);
 
     /// <summary>Strict base64, as sent by the app. Whitespace and other slack encodings are rejected.</summary>
     internal static bool TryDecodeBase64(string? value, int minLength, int maxLength, out byte[] bytes)
