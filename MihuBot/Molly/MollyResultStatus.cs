@@ -14,6 +14,11 @@ public enum MollyResultStatus
     InvalidRequest,
     /// <summary>The entry exists, but the device has to run <see cref="MollyLoginResult.Command"/> instead.</summary>
     Command,
+    /// <summary>
+    /// Login only: the key hash isn't known and the request carried nothing that authorizes registering it
+    /// (no valid, unused registration token nor current session). Nothing was attested or changed.
+    /// </summary>
+    Unregistered,
 }
 
 public static class MollyResultStatusExtensions
@@ -23,6 +28,7 @@ public static class MollyResultStatusExtensions
     {
         MollyResultStatus.Ok => "ok",
         MollyResultStatus.Command => "command",
+        MollyResultStatus.Unregistered => "unregistered",
         _ => "invalid",
     };
 }

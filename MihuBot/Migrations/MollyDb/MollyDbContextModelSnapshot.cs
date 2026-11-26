@@ -80,6 +80,9 @@ namespace MihuBot.Migrations.MollyDb
                     b.Property<bool>("LockRequested")
                         .HasColumnType("INTEGER");
 
+                    b.Property<byte[]>("PreviousDerivedHash")
+                        .HasColumnType("BLOB");
+
                     b.Property<DateTime?>("ShareActiveAt")
                         .HasColumnType("TEXT");
 
@@ -96,6 +99,8 @@ namespace MihuBot.Migrations.MollyDb
 
                     b.HasIndex("DerivedHash")
                         .IsUnique();
+
+                    b.HasIndex("PreviousDerivedHash");
 
                     b.ToTable("mollyEntries");
                 });

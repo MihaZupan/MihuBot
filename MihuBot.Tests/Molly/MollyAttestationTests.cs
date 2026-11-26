@@ -86,7 +86,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
     {
         int entries = await _fixture.CountEntriesAsync();
 
-        MollyLoginResult result = await Molly.LoginAsync(new MollyLoginRequest { KeyHash = MollyTestKeys.NewKeyHash() }, MollyTestDevice.NewExchange(), default);
+        MollyLoginResult result = await Molly.LoginAsync(new MollyLoginRequest { KeyHash = MollyTestKeys.NewKeyHash(), RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, MollyTestDevice.NewExchange(), default);
 
         AssertRejected(result, MollyAttestationFailure.MissingProof);
         Assert.Equal(entries, await _fixture.CountEntriesAsync());
@@ -121,8 +121,8 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
 
         MollyExchangeContext sent = exchange with { RequestNonce = RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength) };
 
-        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, sent, default), MollyAttestationFailure.ChallengeMismatch);
-        AssertOk(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, exchange, default));
+        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, sent, default), MollyAttestationFailure.ChallengeMismatch);
+        AssertOk(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, exchange, default));
     }
 
     [Fact]
@@ -137,10 +137,10 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         MollyExchangeContext resealed = exchange with { RequestNonce = RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength) };
 
         // E.g. a transport-level retry re-sealed the signed request, which says nothing about the device.
-        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, resealed, default), MollyAttestationFailure.ChallengeMismatch);
+        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, resealed, default), MollyAttestationFailure.ChallengeMismatch);
         Assert.False((await _fixture.GetEntryAsync(id)).LockRequested);
 
-        AssertOk(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, exchange, default));
+        AssertOk(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, exchange, default));
     }
 
     [Fact]
@@ -186,7 +186,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         // A different, equally valid chain for another key with the same challenge.
         proof.FreshChain = [.. MollyTestPki.Instance.IssueManufacturerChain(ECDsa.Create(ECCurve.NamedCurves.nistP256), device.Describe(challenge)).Select(Convert.ToBase64String)];
 
-        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, exchange, default), MollyAttestationFailure.InvalidSignature);
+        AssertRejected(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, exchange, default), MollyAttestationFailure.InvalidSignature);
     }
 
     [Fact]

@@ -24,7 +24,8 @@ Everything below travels inside the encrypted transport described in [README.md]
   version string pings report), OS version, OS/vendor/boot patch levels. Forward updates are fine; changes to pins or any downgrade are rejected.
 - Pins are permanent; there is no recovery or re-pairing. Clearing app data, reinstalling or a
   factory reset also loses the device-bound Keystore HMAC key that the key hash is derived from, so
-  even the same passphrase then produces a new key hash, registering and enrolling a new entry. The
+  even the same passphrase then produces a new key hash, which needs a new setup code
+  ([Provisioning.md](Provisioning.md)) to register and enroll a new entry. The
   old entry is orphaned with its pins. The mode is pinned too: a fallback enrollment can't later
   become strict. If an enrolled entry's login fails attestation (anything but a temporary or retryable
   failure, or a certificate that isn't valid at the server's current time), the entry is locked until
@@ -63,12 +64,23 @@ only accepts a request nonce once, and each request has a new ephemeral key. Gen
 with the ephemeral key, before the fresh key, and send that same nonce in the login request.
 
 Every login uses a key set known before the passphrase is typed (the committed one, or the one just
-generated for a setup or passphrase change; see the key lifecycle below). So once the transport key
+generated for a setup; see the key lifecycle below). So once the transport key
 is known, generate the request's ephemeral key, nonce and fresh key while the KDF runs.
 
 ## Login
 
-`login` data: `{"keyHash": "...", "attestation": {...}}`, where `attestation` contains:
+`login` data: `{"keyHash": "...", "attestation": {...}}`, plus at most one of these, which only matter
+if the key hash is unknown:
+
+- `registrationToken`: the token from a setup code ([Provisioning.md](Provisioning.md)). Registers a
+  new entry for the key hash and enrolls the attested keys. A token can register one entry; a login
+  that fails before registering (e.g. attestation) doesn't use it up.
+- `id`: the device's current session, for a passphrase change. Moves that session's entry to the key
+  hash instead of registering one; see "Passphrase changes" below.
+
+Without either, an unknown key hash gets `unregistered` and nothing is attested or registered.
+
+`attestation` contains:
 
 | Field | Meaning |
 | --- | --- |
@@ -87,8 +99,8 @@ Chains hold at most 8 certificates of at most 4096 bytes each. The request body 
 | fallback | Full chain to a Google root | Full chain to a Google root | Omitted |
 
 Always send `signingKeyChain`/`attestKeyChain`. They are needed whenever the key hash has nothing
-pinned yet (a new or changed passphrase, a typo, or a lost enrollment response), which the client
-can't always know. Enrolling validates them fully, so a key set whose short-lived (RKP) certificates
+pinned yet (a new setup, or a lost enrollment response), which the client can't always know.
+Enrolling validates them fully, so a key set whose short-lived (RKP) certificates
 have expired can no longer enroll a new key hash. Once keys are pinned, the server only checks that
 the re-sent chains are for them, not whether their certificates are still valid.
 
@@ -133,7 +145,8 @@ The transcript is 476 bytes with SHA-512
 | --- | --- | --- |
 | `ok` | `serverHmac` and `id` as before | See below for when to keep them |
 | `command` | Lock/wipe, delivered without attestation. Also the answer to a login of an enrolled entry that failed attestation, which locks the entry | As before |
-| `invalid` | Anything else: a malformed request or missing attestation, a transport key older than 2 minutes, a lost race, an enrollment whose evidence doesn't verify, or the server can't verify right now | Retry once in a new exchange (with a recent transport key, a new ephemeral key, fresh key and signature); if that is `invalid` too, the login failed (see the key lifecycle below). Never replace keys |
+| `unregistered` | The key hash is unknown, and the request carried no valid, unused `registrationToken` (nor an `id`) | Don't retry. On unlock, the passphrase is wrong. During setup, the setup code was invalid, expired or already used |
+| `invalid` | Anything else: a malformed request or missing attestation, a transport key older than 2 minutes, a lost race, an enrollment whose evidence doesn't verify, an `id` that isn't the device's current session, or the server can't verify right now | Retry once in a new exchange (with a recent transport key, a new ephemeral key, fresh key and signature); if that is `invalid` too, the login failed (see the key lifecycle below). Never replace keys |
 
 The server doesn't tell clients why a login was rejected.
 None of these is a wipe command or a reason to clear an existing background session.
@@ -144,37 +157,51 @@ then the previous `id` keeps working, so a login whose response is lost, or that
 keep, doesn't cost the device its background session. Replace the stored `id` once the login is kept,
 and persist it before using it.
 
-Each unlock usually takes two requests (discovery, login), which count towards the per-IP rate limit:
-a burst of 10, then one per minute. That is only about five unlocks (or mistyped passphrases) in quick
-succession before requests are throttled, so budget retries accordingly.
+Each unlock usually takes two requests (discovery, login), which count towards the per-IP rate limit
+shared with every other Molly request: a burst of 50, then one every 5 seconds.
 
 ### Persistent key lifecycle
 
-The app's persistent keys (its key set) belong to the Keystore HMAC key that the key hash is derived
-with: name them after its alias (molly2's `keystore_alias`, a random UUID), e.g. `<alias>.attest`
-and `<alias>.sign`, and store their mode and security level in the same preferences commit as the
-alias. They are created, committed and deleted together with the HMAC key, so the committed alias
-always names both the HMAC key and the keys its entry is pinned to.
+The app's persistent keys (its key set) are named after their own alias (molly2's
+`attestation_alias`, a random UUID), e.g. `<alias>.attest` and `<alias>.sign`. The alias, the keys'
+mode and security level are stored in the same preferences commit as the Keystore HMAC key's alias
+(`keystore_alias`) that the key hash is derived with. Installs from before passphrase changes kept the
+key set use the HMAC key's alias for both.
 
-Initial setup and passphrase changes (or removing the passphrase, or anything else that creates a new
-HMAC key) generate a new alias, HMAC key and key set, so each attempt enrolls a new key hash with keys
-generated for it. If the attempt fails for any reason, including `invalid` or a timeout, abort it:
-delete the new HMAC key and key set, and commit nothing. Whatever the attempt may have enrolled on the
-server is orphaned and harmless, and the next attempt starts over with a new alias. Never retry an
-enrollment with different keys for the same key hash. A passphrase change takes two logins, each in
-its own exchange: one with the old passphrase and the committed keys to unlock, then the enrollment
-of the new key hash with the new keys.
+Initial setup (or setting a passphrase again after removing it, which dropped the session) generates
+a new HMAC key and a new key set, and enrolls the new key hash with `registrationToken`. If the
+attempt fails for any reason, including `unregistered`, `invalid` or a timeout, abort it: delete the
+new HMAC key and key set, and commit nothing. Whatever the attempt may have registered on the server
+is orphaned and harmless, and the next attempt starts over with new keys (a lost response does use up
+the token, so it then needs a new setup code). Never retry an enrollment with different keys for the
+same key hash. Delete the stored token once a login is kept.
 
 Unlocks use the committed key set; never delete or replace it, other than as part of a committed
-passphrase change. The server can't tell a mistyped passphrase from a new one, so an unknown key hash
-is enrolled with these keys and returns `ok`. Only treat a login as successful, and only keep its
-`id`, once the returned secret has unlocked the local data; otherwise report an incorrect passphrase
-(the typo's entry is harmless). `invalid` (after its retry) means a temporary server problem or a
-malformed request; either way that unlock failed. A key hash is only ever attested with the keys of
-its own alias, so a correctly behaving client only gets `command` (lock) from a login once the device
-no longer matches its pins. Never have two logins with the same keys in flight at once.
+passphrase change or removal. Only treat a login as successful, and only keep its `id`, once the
+returned secret has unlocked the local data. `unregistered` means the passphrase is wrong. `invalid`
+(after its retry) means a temporary server problem or a malformed request; either way that unlock
+failed. A key hash is only ever attested with the committed key set, so a correctly behaving client
+only gets `command` (lock) from a login once the device no longer matches its pins. Never have two
+logins with the same keys in flight at once.
 
-Keys under any other alias were left behind by an interrupted attempt; delete them at startup.
+Key sets under any other alias were left behind by an interrupted attempt; delete them at startup.
+
+### Passphrase changes
+
+A passphrase change keeps the entry, its pins and its server secret, and moves it to the new key
+hash. It takes two logins, each in its own exchange: one with the old passphrase to unlock (and keep
+that login's `id`), then, within 10 minutes, one with the new key hash, a new HMAC key, the
+**committed** key set and that `id`. The server only accepts the `id` of the entry's latest login,
+as proof the device just knew the old passphrase. It verifies the second login against the entry's pins, like any login of an
+enrolled entry, but a failure only gets `invalid` and doesn't lock the entry (devices keep `id`s in
+the clear, so a copied one mustn't be enough to lock it). If the change fails, delete only the new HMAC
+key and commit nothing; on success, commit the new HMAC key's alias and delete the old HMAC key.
+
+Until the device uses an `id` issued by a login with the new key hash, the old one keeps logging in
+too, with the same secret, so a lost response can't lock the device out. Whichever of the two key
+hashes logged in most recently is the entry's current one, and using that login's `id` drops the other.
+
+Removing the passphrase stops logging in and clears the session; delete the HMAC key and key set.
 
 ## Server policy
 

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Buffers.Text;
+using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -95,7 +96,12 @@ public sealed class MollyService
     private readonly MollyAttestationService _attestation;
     private readonly byte[] _databaseKey;
 
-    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, MollyAttestationService attestation, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null)
+    /// <summary>How long after a login its session can still move the entry to a new key hash (a passphrase change).</summary>
+    public static readonly TimeSpan RekeyWindow = TimeSpan.FromMinutes(10);
+
+    public MollyRegistrationTokens RegistrationTokens { get; }
+
+    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, MollyAttestationService attestation, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null, ServiceConfiguration? serviceConfiguration = null)
     {
         _db = db;
         _logger = logger;
@@ -115,6 +121,8 @@ public sealed class MollyService
         _databaseKey = Convert.FromBase64String(configuration[OptionalFeatures.MollyDatabaseKeyName]!);
 
         ArgumentOutOfRangeException.ThrowIfLessThan(_databaseKey.Length, MinKeyHashLength, OptionalFeatures.MollyDatabaseKeyName);
+
+        RegistrationTokens = new MollyRegistrationTokens(_databaseKey, logger, serviceConfiguration);
 
         if (discordLogger is not null)
         {
@@ -185,31 +193,21 @@ public sealed class MollyService
     /// <param name="payload">The raw JSON body the device sent.</param>
     public async Task<MollyCommandResult> SubmitAlertAsync(string? protectedId, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
-        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt) ||
-            payload.IsEmpty ||
-            payload.Length > MaxAlertLength)
+        if (payload.IsEmpty || payload.Length > MaxAlertLength)
         {
             return MollyCommandResult.Invalid;
         }
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, cancellationToken);
 
-        if (entry is null)
+        if (!session.IsOpen)
         {
-            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
-            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
-            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
-            return MollyCommandResult.Blocked(MollyCommand.Wipe);
+            return session.Rejection;
         }
 
-        if (IsSuperseded(entry, issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
-
-        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
+        MollyDbEntry entry = session.Entry;
 
         // The id is the caller's session token rather than part of the alert, and the row is already
         // linked to the entry, so it isn't worth storing.
@@ -228,11 +226,9 @@ public sealed class MollyService
 
         HandleAlertPayload(entry, stored);
 
-        MollyCommand command = GetPendingCommand(entry);
-
-        return command.IsBlocking()
-            ? MollyCommandResult.Blocked(command)
-            : MollyCommandResult.Ok(command);
+        return session.Command.IsBlocking()
+            ? MollyCommandResult.Blocked(session.Command)
+            : MollyCommandResult.Ok(session.Command);
     }
 
     /// <summary>
@@ -542,6 +538,7 @@ public sealed class MollyService
         await LockInactiveEntriesAsync(cancellationToken);
         await DeleteExpiredStatusAlertsAsync(cancellationToken);
         await DeleteExcessAlertsAsync(cancellationToken);
+        RegistrationTokens.Prune();
     }
 
     /// <summary>
@@ -574,14 +571,24 @@ public sealed class MollyService
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? match = await db.Entries.FirstOrDefaultAsync(e => e.DerivedHash == derivedHash, cancellationToken);
+        MollyDbEntry? match = await db.Entries.FirstOrDefaultAsync(e => e.DerivedHash == derivedHash || e.PreviousDerivedHash == derivedHash, cancellationToken);
 
-        MollyCommand pending = match is null ? MollyCommand.None : GetPendingCommand(match);
+        if (match is null)
+        {
+            if (request.Id is not null)
+            {
+                return await RekeyAsync(db, request, keyHashBytes, derivedHash, exchange, cancellationToken);
+            }
+
+            return await RegisterWithTokenAsync(db, request, keyHashBytes, derivedHash, exchange, cancellationToken);
+        }
+
+        MollyCommand pending = GetPendingCommand(match);
 
         if (pending.IsBlocking())
         {
             // The device is checking in, and it gets the command whether or not it can attest.
-            await MarkSeenAsync(db, match!, cancellationToken);
+            await MarkSeenAsync(db, match, cancellationToken);
             return MollyLoginResult.Blocked(pending);
         }
 
@@ -592,43 +599,11 @@ public sealed class MollyService
             return MollyLoginResult.Failed(failure);
         }
 
-        byte[]? verifiedState = match?.EncryptedAttestationState;
-        MollyAttestationState? pinned = null;
+        PinnedVerification verified = await VerifyPinnedAttestationAsync(db, match, evidence!, keyHashBytes, exchange, lockOnFailure: true, cancellationToken);
 
-        if (match is not null && (verifiedState is null || !TryDecryptAttestationState(match.Id, verifiedState, out pinned)))
+        if (verified.Failure is not null)
         {
-            // Entries are enrolled when they register, and only a (pending, so handled above) wipe clears that.
-            // Never treated as "not enrolled yet" - that would let anyone with the key hash re-enroll.
-            return await LockAfterAttestationFailureAsync(db, match.Id, MollyAttestationFailure.UnreadablePinnedState, cancellationToken);
-        }
-
-        MollyAttestationResult outcome = _attestation.Verify(evidence!, keyHashBytes, exchange, pinned);
-
-        if (outcome.Failure != MollyAttestationFailure.None)
-        {
-            _logger.LogWarning("Molly attestation for {Subject} was rejected: {Failure}", pinned is null ? "a new registration" : "an enrolled device", outcome.Failure);
-
-            if (pinned is not null && outcome.Failure.IsPermanent())
-            {
-                return await LockAfterAttestationFailureAsync(db, match!.Id, outcome.Failure, cancellationToken);
-            }
-
-            return MollyLoginResult.Failed(outcome.Failure);
-        }
-
-        MollyAttestationState state = outcome.State!;
-
-        if (match is null)
-        {
-            try
-            {
-                return await RegisterAsync(db, derivedHash, state, cancellationToken);
-            }
-            catch (DbUpdateException)
-            {
-                // A concurrent login registered the same key hash first. The retry verifies against its pins.
-                return MollyLoginResult.Failed(MollyAttestationFailure.ConcurrentLogin);
-            }
+            return verified.Failure;
         }
 
         if (match.EncryptedServerHmac is null)
@@ -638,19 +613,24 @@ public sealed class MollyService
         }
 
         Guid id = match.Id;
-        byte[] newState = EncryptAttestationState(id, state);
-        DateTime now = DateTime.UtcNow;
+        byte[] currentHash = match.DerivedHash;
+        byte[] newState = EncryptAttestationState(id, verified.State!);
+        DateTime now = NextLoginTime(match);
 
-        // Ids issued at the previous login must be superseded, even within one clock tick or after the clock stepped back.
-        if (now <= match.LastLoginAt)
-        {
-            now = new DateTime(match.LastLoginAt.Ticks + 1, DateTimeKind.Utc);
-        }
+        // The hash of the latest login is always the current one: logging in with the other hash of an unconfirmed
+        // passphrase change means the device kept (or went back to) it, so the two swap until a session confirms one.
+        bool viaPrevious = !CryptographicOperations.FixedTimeEquals(currentHash, derivedHash);
+        byte[]? otherHash = viaPrevious ? currentHash : match.PreviousDerivedHash;
+        byte[]? previousHash = match.PreviousDerivedHash;
+        byte[] pinnedState = verified.PinnedState!;
 
-        // Only succeeds if the entry is still neither locked nor wiped, so that never has to be read back.
+        // Only succeeds if the entry is still neither locked nor wiped, so that never has to be read back, and if neither
+        // hash changed meanwhile (e.g. a session confirming a passphrase change dropped the previous one).
         int updated = await db.Entries
-            .Where(e => e.Id == id && e.EncryptedAttestationState == verifiedState && !e.LockRequested && !e.WipeRequested)
+            .Where(e => e.Id == id && e.DerivedHash == currentHash && e.PreviousDerivedHash == previousHash && e.EncryptedAttestationState == pinnedState && !e.LockRequested && !e.WipeRequested)
             .ExecuteUpdateAsync(e => e
+                .SetProperty(entry => entry.DerivedHash, derivedHash)
+                .SetProperty(entry => entry.PreviousDerivedHash, otherHash)
                 .SetProperty(entry => entry.EncryptedAttestationState, newState)
                 .SetProperty(entry => entry.LastSeenAt, now)
                 .SetProperty(entry => entry.LastLoginAt, now), cancellationToken);
@@ -665,6 +645,53 @@ public sealed class MollyService
         byte[] serverHmac = Decrypt(id, match.EncryptedServerHmac, EncryptedField.ServerHmac);
 
         return MollyLoginResult.Success(_idProtector.Protect(id, now), serverHmac);
+    }
+
+    /// <summary>
+    /// Ids issued at the previous login must be superseded, even within one clock tick or after the clock stepped back.
+    /// </summary>
+    private static DateTime NextLoginTime(MollyDbEntry entry)
+    {
+        DateTime now = DateTime.UtcNow;
+
+        return now <= entry.LastLoginAt
+            ? new DateTime(entry.LastLoginAt.Ticks + 1, DateTimeKind.Utc)
+            : now;
+    }
+
+    /// <summary>The outcome of <see cref="VerifyPinnedAttestationAsync"/>: the verified state, or the result to answer the login with.</summary>
+    private sealed record PinnedVerification(MollyAttestationState? State, byte[]? PinnedState, MollyLoginResult? Failure);
+
+    /// <summary>
+    /// Verifies a login of an enrolled entry against its pinned attestation state. With <paramref name="lockOnFailure"/>,
+    /// evidence rejected for good locks the entry. On success, <see cref="PinnedVerification.PinnedState"/> is the stored
+    /// state that was verified against.
+    /// </summary>
+    private async Task<PinnedVerification> VerifyPinnedAttestationAsync(MollyDbContext db, MollyDbEntry entry, MollyAttestationEvidence evidence, byte[] keyHashBytes, MollyExchangeContext exchange, bool lockOnFailure, CancellationToken cancellationToken)
+    {
+        byte[]? verifiedState = entry.EncryptedAttestationState;
+
+        if (verifiedState is null || !TryDecryptAttestationState(entry.Id, verifiedState, out MollyAttestationState? pinned))
+        {
+            // Entries are enrolled when they register, and only a (pending, so handled by the caller) wipe clears that.
+            // Never treated as "not enrolled yet" - that would let anyone with the key hash re-enroll.
+            return new(null, null, lockOnFailure
+                ? await LockAfterAttestationFailureAsync(db, entry.Id, MollyAttestationFailure.UnreadablePinnedState, cancellationToken)
+                : MollyLoginResult.Failed(MollyAttestationFailure.UnreadablePinnedState));
+        }
+
+        MollyAttestationResult outcome = _attestation.Verify(evidence, keyHashBytes, exchange, pinned);
+
+        if (outcome.Failure != MollyAttestationFailure.None)
+        {
+            _logger.LogWarning("Molly attestation for an enrolled device was rejected: {Failure}", outcome.Failure);
+
+            return new(null, null, lockOnFailure && outcome.Failure.IsPermanent()
+                ? await LockAfterAttestationFailureAsync(db, entry.Id, outcome.Failure, cancellationToken)
+                : MollyLoginResult.Failed(outcome.Failure));
+        }
+
+        return new(outcome.State!, verifiedState, null);
     }
 
     /// <summary>
@@ -687,6 +714,139 @@ public sealed class MollyService
         }
 
         return MollyLoginResult.Blocked(MollyCommand.Lock, failure);
+    }
+
+    /// <summary>
+    /// Moves the entry of the session in <see cref="MollyLoginRequest.Id"/> to the request's unknown key hash: a
+    /// passphrase change (Attestation.md). The login has to be attested by the entry's pinned keys, which stay pinned,
+    /// and gets the entry's server secret. The previous key hash keeps logging in until the change is confirmed
+    /// (<see cref="MollyDbEntry.PreviousDerivedHash"/>), so a lost response can't lock the device out.
+    /// </summary>
+    private async Task<MollyLoginResult> RekeyAsync(MollyDbContext db, MollyLoginRequest request, byte[] keyHashBytes, byte[] derivedHash, MollyExchangeContext exchange, CancellationToken cancellationToken)
+    {
+        Session session = await OpenSessionAsync(db, request.Id, stopOnBlockingCommand: true, cancellationToken);
+
+        if (!session.IsOpen)
+        {
+            return session.Rejection.Status == MollyResultStatus.Command
+                ? MollyLoginResult.Blocked(session.Rejection.Command)
+                : MollyLoginResult.Invalid;
+        }
+
+        MollyDbEntry entry = session.Entry;
+
+        // The session has to come from the entry's latest login, moments ago: proof that the device just logged in with
+        // the old passphrase. Session ids alone are kept in the clear on devices, so they mustn't release the secret.
+        if (session.IssuedAt.Ticks != entry.LastLoginAt.Ticks || DateTime.UtcNow - entry.LastLoginAt > RekeyWindow)
+        {
+            return MollyLoginResult.Invalid;
+        }
+
+        MollyAttestationFailure failure = _attestation.TryDecode(request.Attestation, exchange, out MollyAttestationEvidence? evidence);
+
+        if (failure != MollyAttestationFailure.None)
+        {
+            return MollyLoginResult.Failed(failure);
+        }
+
+        // Session ids are less secret than key hashes (devices keep them in the clear), so a failed move only gets
+        // rejected: locking would let anyone holding a copied id lock the entry. The device's own logins still lock it.
+        PinnedVerification verified = await VerifyPinnedAttestationAsync(db, entry, evidence!, keyHashBytes, exchange, lockOnFailure: false, cancellationToken);
+
+        if (verified.Failure is not null)
+        {
+            return verified.Failure;
+        }
+
+        if (entry.EncryptedServerHmac is null)
+        {
+            _logger.LogWarning("A Molly entry is missing its server HMAC");
+            return MollyLoginResult.Invalid;
+        }
+
+        Guid id = entry.Id;
+        byte[] currentHash = entry.DerivedHash;
+        byte[] pinnedState = verified.PinnedState!;
+        byte[] newState = EncryptAttestationState(id, verified.State!);
+        DateTime now = NextLoginTime(entry);
+        int updated;
+
+        try
+        {
+            updated = await db.Entries
+                .Where(e => e.Id == id && e.DerivedHash == currentHash && e.EncryptedAttestationState == pinnedState && !e.LockRequested && !e.WipeRequested)
+                .ExecuteUpdateAsync(e => e
+                    .SetProperty(x => x.DerivedHash, derivedHash)
+                    .SetProperty(x => x.PreviousDerivedHash, currentHash)
+                    .SetProperty(x => x.EncryptedAttestationState, newState)
+                    .SetProperty(x => x.LastSeenAt, now)
+                    .SetProperty(x => x.LastLoginAt, now), cancellationToken);
+        }
+        catch (DbException)
+        {
+            // The key hash was registered concurrently. The retry logs in with it like any known key hash.
+            return MollyLoginResult.Failed(MollyAttestationFailure.ConcurrentLogin);
+        }
+
+        if (updated == 0)
+        {
+            return MollyLoginResult.Failed(MollyAttestationFailure.ConcurrentLogin);
+        }
+
+        _logger.LogInformation("Moved a Molly entry to a new key hash");
+
+        byte[] serverHmac = Decrypt(id, entry.EncryptedServerHmac, EncryptedField.ServerHmac);
+
+        return MollyLoginResult.Success(_idProtector.Protect(id, now), serverHmac);
+    }
+
+    /// <summary>
+    /// Registers a new entry for the unknown key hash if <see cref="MollyLoginRequest.RegistrationToken"/> is a valid,
+    /// unused token (Provisioning.md), which a successful registration redeems.
+    /// </summary>
+    private async Task<MollyLoginResult> RegisterWithTokenAsync(MollyDbContext db, MollyLoginRequest request, byte[] keyHashBytes, byte[] derivedHash, MollyExchangeContext exchange, CancellationToken cancellationToken)
+    {
+        if (RegistrationTokens.CheckRedeemable(request.RegistrationToken, derivedHash, out MollyRegistrationTokens.Redemption redemption) is { } rejected)
+        {
+            return rejected;
+        }
+
+        MollyAttestationFailure failure = _attestation.TryDecode(request.Attestation, exchange, out MollyAttestationEvidence? evidence);
+
+        if (failure != MollyAttestationFailure.None)
+        {
+            return MollyLoginResult.Failed(failure);
+        }
+
+        MollyAttestationResult outcome = _attestation.Verify(evidence!, keyHashBytes, exchange, pinned: null);
+
+        if (outcome.Failure != MollyAttestationFailure.None)
+        {
+            _logger.LogWarning("Molly attestation for a new registration was rejected: {Failure}", outcome.Failure);
+            return MollyLoginResult.Failed(outcome.Failure);
+        }
+
+        if (RegistrationTokens.TryRedeem(redemption) is { } concurrent)
+        {
+            return concurrent;
+        }
+
+        try
+        {
+            return await RegisterAsync(db, derivedHash, outcome.State!, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            RegistrationTokens.Release(redemption);
+
+            if (ex is DbUpdateException)
+            {
+                // A concurrent login registered the same key hash first. The retry verifies against its pins.
+                return MollyLoginResult.Failed(MollyAttestationFailure.ConcurrentLogin);
+            }
+
+            throw;
+        }
     }
 
     private async Task<MollyLoginResult> RegisterAsync(MollyDbContext db, byte[] derivedHash, MollyAttestationState state, CancellationToken cancellationToken)
@@ -741,39 +901,21 @@ public sealed class MollyService
     /// </param>
     internal async Task<MollyCommandResult> AssociateAsync(string? protectedId, string? nickname, byte[] identityPartyHash, CancellationToken cancellationToken)
     {
-        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt) ||
-            string.IsNullOrWhiteSpace(nickname) ||
-            Encoding.UTF8.GetByteCount(nickname) > MaxNicknameLengthInBytes)
+        if (string.IsNullOrWhiteSpace(nickname) || Encoding.UTF8.GetByteCount(nickname) > MaxNicknameLengthInBytes)
         {
             return MollyCommandResult.Invalid;
         }
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
 
-        if (entry is null)
+        if (!session.IsOpen)
         {
-            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
-            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
-            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
-            return MollyCommandResult.Blocked(MollyCommand.Wipe);
+            return session.Rejection;
         }
 
-        if (IsSuperseded(entry, issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
-
-        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
-
-        MollyCommand command = GetPendingCommand(entry);
-
-        if (command.IsBlocking())
-        {
-            await MarkSeenAsync(db, entry, cancellationToken);
-            return MollyCommandResult.Blocked(command);
-        }
+        MollyDbEntry entry = session.Entry;
 
         entry.EncryptedNickname = Encrypt(entry.Id, PadNickname(nickname), EncryptedField.Nickname);
         entry.LastSeenAt = DateTime.UtcNow;
@@ -782,7 +924,7 @@ public sealed class MollyService
 
         await db.SaveChangesAsync(cancellationToken);
 
-        return MollyCommandResult.Ok(command) with { Identity = binding };
+        return MollyCommandResult.Ok(session.Command) with { Identity = binding };
     }
 
     /// <summary>
@@ -836,31 +978,17 @@ public sealed class MollyService
             return MollyCommandResult.Ok();
         }
 
-        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
-
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+        // The status is recorded even while a lock or wipe is pending, so the dashboard shows how the device is doing.
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, cancellationToken);
 
-        if (entry is null)
+        if (!session.IsOpen)
         {
-            // The token decrypts but the entry is gone (deleted by an admin, or dropped by the
-            // unassociated-entry cleanup). Its server-side key material went with it, so the device's
-            // data is unrecoverable - tell it to wipe rather than leaving it stuck on a dead token.
-            return MollyCommandResult.Blocked(MollyCommand.Wipe);
+            return session.Rejection;
         }
 
-        if (IsSuperseded(entry, issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
-
-        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
-
-        MollyCommand command = GetPendingCommand(entry);
+        MollyDbEntry entry = session.Entry;
 
         if (batteryLevel.HasValue || locationEnabled.HasValue || appVersion is not null)
         {
@@ -876,12 +1004,34 @@ public sealed class MollyService
 
         await MarkSeenAsync(db, entry, cancellationToken);
 
-        if (command.IsBlocking())
+        if (session.Command.IsBlocking())
         {
-            return MollyCommandResult.Blocked(command);
+            return MollyCommandResult.Blocked(session.Command);
         }
 
-        return MollyCommandResult.Ok(command) with { ShareUpdatedAt = await TryGetShareUpdatedAtAsync(db, entry, cancellationToken) };
+        return MollyCommandResult.Ok(session.Command) with { ShareUpdatedAt = await TryGetShareUpdatedAtAsync(db, entry, cancellationToken) };
+    }
+
+    /// <summary>
+    /// Issues a registration token for a setup code another device can use to register (Provisioning.md), on behalf of
+    /// the device with the session <paramref name="protectedId"/>. Subject to the usual session rules and to
+    /// <see cref="MollyRegistrationTokens.TryIssueForDevice"/>; a limited or disabled request succeeds without a
+    /// <see cref="MollyCommandResult.RegistrationToken"/>.
+    /// </summary>
+    public async Task<MollyCommandResult> IssueRegistrationTokenAsync(string? protectedId, CancellationToken cancellationToken)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
+
+        if (!session.IsOpen)
+        {
+            return session.Rejection;
+        }
+
+        await MarkSeenAsync(db, session.Entry, cancellationToken);
+
+        return MollyCommandResult.Ok(session.Command) with { RegistrationToken = RegistrationTokens.TryIssueForDevice(session.Entry.Id) };
     }
 
     /// <summary>
@@ -892,44 +1042,23 @@ public sealed class MollyService
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>.</param>
     internal async Task<MollyCommandResult> AuthorizeShareRequestAsync(string? protectedId, CancellationToken cancellationToken)
     {
-        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
-
         await using MollyDbContext db = _db.CreateDbContext();
 
-        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
 
-        if (entry is null)
+        if (!session.IsOpen)
         {
-            // Like the other actions: the entry's key material is gone, so the device has to wipe.
-            return MollyCommandResult.Blocked(MollyCommand.Wipe);
+            return session.Rejection;
         }
 
-        if (IsSuperseded(entry, issuedAt))
-        {
-            return MollyCommandResult.Invalid;
-        }
+        MollyDbEntry entry = session.Entry;
 
-        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
-
-        MollyCommand command = GetPendingCommand(entry);
-
-        if (!command.IsBlocking())
-        {
-            // Owner activity, which keeps the device's grants alive.
-            entry.ShareActiveAt = DateTime.UtcNow;
-        }
+        // Owner activity, which keeps the device's grants alive.
+        entry.ShareActiveAt = DateTime.UtcNow;
 
         await MarkSeenAsync(db, entry, cancellationToken);
 
-        if (command.IsBlocking())
-        {
-            return MollyCommandResult.Blocked(command);
-        }
-
-        return MollyCommandResult.Ok(command) with { EntryId = entry.Id, PartyHash = entry.SharePartyHash };
+        return MollyCommandResult.Ok(session.Command) with { EntryId = entry.Id, PartyHash = entry.SharePartyHash };
     }
 
     /// <summary>The update hint of the entry's current identity (0 if nothing affected it yet), or null if it has none.</summary>
@@ -947,6 +1076,61 @@ public sealed class MollyService
     }
 
     /// <summary>
+    /// The entry behind a session token with its pending command (<see cref="OpenSessionAsync"/>), or the
+    /// <see cref="Rejection"/> to answer with instead.
+    /// </summary>
+    private readonly record struct Session(MollyDbEntry? Entry, DateTime IssuedAt, MollyCommand Command, MollyCommandResult? Rejection)
+    {
+        [MemberNotNullWhen(true, nameof(Entry))]
+        [MemberNotNullWhen(false, nameof(Rejection))]
+        public bool IsOpen => Rejection is null;
+
+        public static Session Rejected(MollyCommandResult rejection) => new(null, default, MollyCommand.None, rejection);
+    }
+
+    /// <summary>
+    /// Applies the rules every request carrying a session token shares: the token has to be one this server issued, for
+    /// a session no newer one superseded, and using it activates its session. A token whose entry is gone gets a wipe:
+    /// the entry's server-side key material went with it (deleted by an admin, or dropped by the unassociated-entry
+    /// cleanup), so the device's data is unrecoverable, and it mustn't be left stuck on a dead token.
+    /// </summary>
+    /// <param name="stopOnBlockingCommand">
+    /// Whether a pending lock or wipe ends the request: the check-in is recorded and the command is the answer. Otherwise
+    /// the caller handles <see cref="Session.Command"/> itself, e.g. alerts are stored either way.
+    /// </param>
+    private async Task<Session> OpenSessionAsync(MollyDbContext db, string? protectedId, bool stopOnBlockingCommand, CancellationToken cancellationToken)
+    {
+        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
+        {
+            return Session.Rejected(MollyCommandResult.Invalid);
+        }
+
+        MollyDbEntry? entry = await db.Entries.FirstOrDefaultAsync(e => e.Id == entryId, cancellationToken);
+
+        if (entry is null)
+        {
+            return Session.Rejected(MollyCommandResult.Blocked(MollyCommand.Wipe));
+        }
+
+        if (IsSuperseded(entry, issuedAt))
+        {
+            return Session.Rejected(MollyCommandResult.Invalid);
+        }
+
+        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
+
+        MollyCommand command = GetPendingCommand(entry);
+
+        if (stopOnBlockingCommand && command.IsBlocking())
+        {
+            await MarkSeenAsync(db, entry, cancellationToken);
+            return Session.Rejected(MollyCommandResult.Blocked(command));
+        }
+
+        return new Session(entry, issuedAt, command, null);
+    }
+
+    /// <summary>
     /// Whether a newer session replaced the one the token was issued for. Tokens from before the
     /// entry's last login could have been copied off the device, so they stop working once the device
     /// uses a token from a newer login. Until then the previous token keeps working, so a login whose
@@ -959,6 +1143,10 @@ public sealed class MollyService
     /// Records that the device uses the token issued at <paramref name="issuedAt"/>, superseding older
     /// ones. Conditional, so a concurrent request with an older token can never move it back.
     /// </summary>
+    /// <remarks>
+    /// A session from the entry's latest login also confirms a passphrase change: the device kept the key hash that
+    /// login used (<see cref="MollyDbEntry.DerivedHash"/>), so the other one stops logging in.
+    /// </remarks>
     private static async Task ActivateSessionAsync(MollyDbContext db, MollyDbEntry entry, DateTime issuedAt, CancellationToken cancellationToken)
     {
         if (issuedAt.Ticks <= entry.ActiveSessionIssuedAt.Ticks)
@@ -968,7 +1156,9 @@ public sealed class MollyService
 
         await db.Entries
             .Where(e => e.Id == entry.Id && e.ActiveSessionIssuedAt < issuedAt)
-            .ExecuteUpdateAsync(e => e.SetProperty(x => x.ActiveSessionIssuedAt, issuedAt), cancellationToken);
+            .ExecuteUpdateAsync(e => e
+                .SetProperty(x => x.ActiveSessionIssuedAt, issuedAt)
+                .SetProperty(x => x.PreviousDerivedHash, x => x.LastLoginAt == issuedAt ? null : x.PreviousDerivedHash), cancellationToken);
     }
 
     /// <summary>

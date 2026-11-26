@@ -15,10 +15,10 @@ namespace MihuBot.Molly;
 public sealed class MollyRateLimiter
 {
     /// <summary>How many requests a client may make back-to-back before being throttled.</summary>
-    private const int DefaultBurst = 20;
+    private const int DefaultBurst = 50;
 
     /// <summary>How long it takes to earn one more request once the burst is used up.</summary>
-    private static readonly TimeSpan DefaultCooldown = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DefaultCooldown = TimeSpan.FromSeconds(5);
 
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
 

@@ -12,12 +12,20 @@ namespace MihuBot.Molly;
 /// </summary>
 [Table("mollyEntries")]
 [Index(nameof(DerivedHash), IsUnique = true)]
+[Index(nameof(PreviousDerivedHash))]
 public sealed class MollyDbEntry
 {
     public Guid Id { get; set; }
 
     /// <summary>HMAC-SHA512 of the client-provided key hash, keyed with the server key.</summary>
     public byte[] DerivedHash { get; set; } = [];
+
+    /// <summary>
+    /// The other key hash of a passphrase change that isn't confirmed yet (Attestation.md, "Passphrase changes"),
+    /// derived like <see cref="DerivedHash"/>. Both log in until the device uses a session issued by a login with
+    /// <see cref="DerivedHash"/>, the hash of the entry's latest login. Null otherwise.
+    /// </summary>
+    public byte[]? PreviousDerivedHash { get; set; }
 
     /// <summary>Secret handed back to the client on login, stored as <c>nonce || ciphertext || tag</c>.</summary>
     public byte[]? EncryptedServerHmac { get; set; }

@@ -76,6 +76,13 @@ public sealed class ServiceConfiguration(IConfigurationService configuration)
         set => Set(nameof(DisableRuntimeUtilsApiSubmissions), value);
     }
 
+    /// <summary>Stops Molly devices from requesting registration tokens. The Molly dashboard can still issue them.</summary>
+    public bool DisableMollyDeviceRegistrationTokens
+    {
+        get => Get(nameof(DisableMollyDeviceRegistrationTokens));
+        set => Set(nameof(DisableMollyDeviceRegistrationTokens), value);
+    }
+
     private bool Get(string name) => _configuration.GetOrDefault(null, name, false);
 
     private void Set(string name, bool value) => _configuration.Set(null, name, value.ToString());

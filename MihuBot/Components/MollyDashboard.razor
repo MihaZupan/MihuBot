@@ -4,9 +4,41 @@
 @using MihuBot.Molly.Sharing
 @inject MollyService molly
 @inject MollyShareService shares
+@inject MollyRequestProtector protector
+@inject NavigationManager navigation
 @implements IDisposable
 
 <p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
+
+<div class="mb-3">
+    <button type="button" class="btn btn-sm btn-outline-light" disabled="@_busy" @onclick="CreateSetupCode"
+            title="A single-use code a new device scans (or has entered by hand) to connect to this server and register">
+        Create setup code
+    </button>
+
+    @if (_setupCode is { } setupCode)
+    {
+        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="() => _setupCode = null">Hide</button>
+
+        <div class="card text-bg-dark border-secondary mt-2" style="max-width: 32rem;">
+            <div class="card-body">
+                <p class="card-text">
+                    Scan this in Molly on the new device, or enter the fields below there by hand.
+                    It registers one device and expires at @setupCode.ExpiresAt.ToString("yyyy-MM-dd HH:mm") UTC.
+                </p>
+                <img src="@setupCode.QrCode" alt="Setup code" class="bg-white p-2 mb-3" style="max-width: 100%;" />
+                <dl class="mb-0">
+                    <dt>Server URL</dt>
+                    <dd><code class="user-select-all">@setupCode.Code.ApiUrl</code></dd>
+                    <dt>Server key</dt>
+                    <dd><code class="user-select-all text-break">@setupCode.Code.Key</code></dd>
+                    <dt>Registration token</dt>
+                    <dd class="mb-0"><code class="user-select-all text-break">@setupCode.Code.Token</code></dd>
+                </dl>
+            </div>
+        </div>
+    }
+</div>
 
 @if (_revocationStatus != MollyRevocationStatus.Fresh)
 {
@@ -681,6 +713,23 @@ else
         }
 
         await RunAsync("delete share", () => shares.AdminDeleteAsync(share.Id));
+    }
+
+    private sealed record SetupCodeView(MollySetupCode Code, string QrCode, DateTime ExpiresAt);
+
+    private SetupCodeView? _setupCode;
+
+    /// <summary>Not rate limited, unlike setup codes created by devices.</summary>
+    private void CreateSetupCode()
+    {
+        MollyRegistrationToken token = molly.RegistrationTokens.IssueForDashboard();
+
+        // The address the dashboard was opened at, which the device can reach as well.
+        string apiUrl = new Uri(new Uri(navigation.BaseUri), "api/molly").ToString();
+
+        MollySetupCode code = MollySetupCode.Create(apiUrl, protector.GetTransportKey().DiscoveryPublicKey, token.Token);
+
+        _setupCode = new SetupCodeView(code, code.ToQrCodeDataUri(), token.ExpiresAt);
     }
 
     private async Task RunAsync(string action, Func<Task> operation)

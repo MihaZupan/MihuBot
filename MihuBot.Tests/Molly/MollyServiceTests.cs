@@ -1,8 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
+using MihuBot.Configuration;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Attestation;
+using MihuBot.Tests.Configuration;
 
 namespace MihuBot.Tests.Molly;
 
@@ -1139,5 +1142,227 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         Assert.Equal(MollyResultStatus.Ok, reRegistered.Status);
         Assert.NotEqual(IdOf(original), IdOf(reRegistered));
+    }
+
+    [Fact]
+    public async Task Login_UnknownKeyHashWithoutAToken_IsUnregisteredAndRegistersNothing()
+    {
+        int entries = await _fixture.CountEntriesAsync();
+
+        MollyLoginResult result = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), withRegistrationToken: false);
+
+        Assert.Equal(MollyResultStatus.Unregistered, result.Status);
+        Assert.Null(result.ServerHmac);
+        Assert.Equal(entries, await _fixture.CountEntriesAsync());
+    }
+
+    [Fact]
+    public async Task Login_RegistrationTokens_AreSingleUse()
+    {
+        string token = Molly.RegistrationTokens.IssueForDashboard().Token;
+
+        Assert.Equal(MollyResultStatus.Ok, (await LoginWithTokenAsync(MollyTestKeys.NewKeyHash(), token)).Status);
+        Assert.Equal(MollyResultStatus.Unregistered, (await LoginWithTokenAsync(MollyTestKeys.NewKeyHash(), token)).Status);
+    }
+
+    [Fact]
+    public async Task Login_ATokenRedeemedForTheSameKeyHash_IsARetryRatherThanUnregistered()
+    {
+        string token = Molly.RegistrationTokens.IssueForDashboard().Token;
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult registered = await LoginWithTokenAsync(keyHash, token);
+
+        // The entry isn't found (as while its registration is still being saved), but the token was redeemed for this key hash.
+        await _fixture.SetLastSeenAsync(IdOf(registered), DateTime.UtcNow.AddDays(-90));
+        await Molly.DeleteUnassociatedEntriesAsync();
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await LoginWithTokenAsync(keyHash, token)).Status);
+    }
+
+    [Fact]
+    public async Task Login_ExpiredOrForeignRegistrationTokens_AreRejected()
+    {
+        string expired = Molly.RegistrationTokens.Protect(Guid.NewGuid(), DateTime.UtcNow - MollyRegistrationTokens.Lifetime - TimeSpan.FromSeconds(1));
+        string foreign = new MollyRegistrationTokens(MollyTestKeys.OtherDatabaseKeyBytes, NullLogger.Instance, serviceConfiguration: null).Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string valid = Molly.RegistrationTokens.Protect(Guid.NewGuid(), DateTime.UtcNow - TimeSpan.FromHours(23));
+
+        Assert.Equal(MollyResultStatus.Unregistered, (await LoginWithTokenAsync(MollyTestKeys.NewKeyHash(), expired)).Status);
+        Assert.Equal(MollyResultStatus.Unregistered, (await LoginWithTokenAsync(MollyTestKeys.NewKeyHash(), foreign)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await LoginWithTokenAsync(MollyTestKeys.NewKeyHash(), valid)).Status);
+    }
+
+    [Fact]
+    public async Task Login_ARegistrationWhoseAttestationFails_DoesntSpendTheToken()
+    {
+        string token = Molly.RegistrationTokens.IssueForDashboard().Token;
+        string keyHash = MollyTestKeys.NewKeyHash();
+
+        MollyLoginResult rejected = await _fixture.LoginAsync(keyHash, options: new MollyTestProofOptions { IncludeEnrollmentEvidence = false }, withRegistrationToken: false, registrationToken: token);
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, rejected.Status);
+        Assert.Equal(MollyResultStatus.Ok, (await LoginWithTokenAsync(keyHash, token)).Status);
+    }
+
+    [Fact]
+    public async Task Login_WithASession_MovesTheEntryToTheNewKeyHashKeepingItsSecretAndPins()
+    {
+        string oldKeyHash = MollyTestKeys.NewKeyHash();
+        string newKeyHash = MollyTestKeys.NewKeyHash();
+        _fixture.ShareDevice(oldKeyHash, newKeyHash);
+
+        MollyLoginResult original = await _fixture.LoginAsync(oldKeyHash);
+        MollyDbEntry before = await _fixture.GetEntryAsync(IdOf(original));
+
+        MollyLoginResult moved = await _fixture.LoginAsync(newKeyHash, sessionId: original.ProtectedId);
+
+        Assert.Equal(MollyResultStatus.Ok, moved.Status);
+        Assert.Equal(IdOf(original), IdOf(moved));
+        Assert.Equal(original.ServerHmac, moved.ServerHmac);
+        Assert.Equal(before.CreatedAt, (await _fixture.GetEntryAsync(IdOf(moved))).CreatedAt);
+
+        // Until the device uses the new session, the old key hash still logs in, in case it never got the response.
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(oldKeyHash, withRegistrationToken: false)).Status);
+        MollyLoginResult again = await _fixture.LoginAsync(newKeyHash, withRegistrationToken: false);
+        Assert.Equal(MollyResultStatus.Ok, again.Status);
+
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(again.ProtectedId, null, null, null, default)).Status);
+
+        Assert.Null((await _fixture.GetEntryAsync(IdOf(moved))).PreviousDerivedHash);
+        Assert.Equal(MollyResultStatus.Unregistered, (await _fixture.LoginAsync(oldKeyHash, withRegistrationToken: false)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(newKeyHash, withRegistrationToken: false)).Status);
+    }
+
+    [Fact]
+    public async Task Login_WithASession_ThenUsingTheOldKeyHash_DropsTheNewOne()
+    {
+        string oldKeyHash = MollyTestKeys.NewKeyHash();
+        string newKeyHash = MollyTestKeys.NewKeyHash();
+        _fixture.ShareDevice(oldKeyHash, newKeyHash);
+
+        MollyLoginResult original = await _fixture.LoginAsync(oldKeyHash);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(newKeyHash, sessionId: original.ProtectedId)).Status);
+
+        // The passphrase change was abandoned: the device unlocks with the old passphrase and uses that session.
+        MollyLoginResult unlocked = await _fixture.LoginAsync(oldKeyHash, withRegistrationToken: false);
+        Assert.Equal(MollyResultStatus.Ok, (await Molly.PingAsync(unlocked.ProtectedId, null, null, null, default)).Status);
+
+        Assert.Equal(MollyResultStatus.Unregistered, (await _fixture.LoginAsync(newKeyHash, withRegistrationToken: false)).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(oldKeyHash, withRegistrationToken: false)).Status);
+    }
+
+    [Fact]
+    public async Task Login_WithASession_FromAnotherDevice_IsRejectedWithoutLocking()
+    {
+        MollyLoginResult original = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash());
+
+        MollyLoginResult result = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: new MollyTestDevice(), sessionId: original.ProtectedId);
+
+        // A copied session id must not be enough to lock the entry.
+        Assert.Equal(MollyResultStatus.InvalidRequest, result.Status);
+        Assert.False((await _fixture.GetEntryAsync(IdOf(original))).LockRequested);
+        Assert.Null((await _fixture.GetEntryAsync(IdOf(original))).PreviousDerivedHash);
+    }
+
+    [Fact]
+    public async Task Login_WithASessionThatIsntFromTheLatestRecentLogin_IsInvalid()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyTestDevice device = _fixture.ShareDevice(keyHash, keyHash);
+
+        // Not superseded (never used), but a later login happened: it doesn't prove the device knows the passphrase now.
+        MollyLoginResult first = await _fixture.LoginAsync(keyHash);
+        await _fixture.LoginAsync(keyHash);
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: device, sessionId: first.ProtectedId)).Status);
+
+        // The latest login's session, but too long ago.
+        MollyLoginResult latest = await _fixture.LoginAsync(keyHash);
+        DateTime stale = DateTime.UtcNow - MollyService.RekeyWindow - TimeSpan.FromMinutes(1);
+        await _fixture.SetLastLoginAsync(IdOf(latest), stale);
+        string staleSession = _fixture.IdProtector.Protect(IdOf(latest), stale);
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: device, sessionId: staleSession)).Status);
+    }
+
+    [Fact]
+    public async Task Login_WithASupersededSession_IsInvalid()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult first = await _fixture.LoginAsync(keyHash);
+        MollyLoginResult second = await _fixture.LoginAsync(keyHash);
+        await Molly.PingAsync(second.ProtectedId, null, null, null, default);
+
+        MollyLoginResult result = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: _fixture.ShareDevice(keyHash, keyHash), sessionId: first.ProtectedId);
+
+        Assert.Equal(MollyResultStatus.InvalidRequest, result.Status);
+    }
+
+    [Fact]
+    public async Task IssueRegistrationToken_IsLimitedPerDevice()
+    {
+        MollyLoginResult login = await RegisterAsync();
+
+        for (int i = 0; i < MollyRegistrationTokens.MaxPerDevicePerDay; i++)
+        {
+            MollyCommandResult issued = await Molly.IssueRegistrationTokenAsync(login.ProtectedId, default);
+
+            Assert.Equal(MollyResultStatus.Ok, issued.Status);
+            Assert.NotNull(issued.RegistrationToken);
+        }
+
+        MollyCommandResult limited = await Molly.IssueRegistrationTokenAsync(login.ProtectedId, default);
+
+        Assert.Equal(MollyResultStatus.Ok, limited.Status);
+        Assert.Null(limited.RegistrationToken);
+
+        // Another device isn't affected.
+        Assert.NotNull((await Molly.IssueRegistrationTokenAsync((await RegisterAsync()).ProtectedId, default)).RegistrationToken);
+    }
+
+    [Fact]
+    public async Task IssueRegistrationToken_ForALockedEntry_ReturnsTheCommand()
+    {
+        MollyLoginResult login = await RegisterAsync();
+        await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: true);
+
+        MollyCommandResult result = await Molly.IssueRegistrationTokenAsync(login.ProtectedId, default);
+
+        Assert.Equal(MollyResultStatus.Command, result.Status);
+        Assert.Null(result.RegistrationToken);
+    }
+
+    [Fact]
+    public async Task IssueRegistrationToken_WhileDisabled_IsOmittedButTheDashboardCanStillIssue()
+    {
+        var services = new ServiceConfiguration(new TestConfigurationService());
+        MollyService molly = _fixture.CreateService(MollyTestKeys.DatabaseKey, MollyTestKeys.TransportPrivateKey, serviceConfiguration: services);
+        MollyLoginResult login = await RegisterAsync();
+
+        services.DisableMollyDeviceRegistrationTokens = true;
+
+        MollyCommandResult disabled = await molly.IssueRegistrationTokenAsync(login.ProtectedId, default);
+
+        Assert.Equal(MollyResultStatus.Ok, disabled.Status);
+        Assert.Null(disabled.RegistrationToken);
+        Assert.NotNull(molly.RegistrationTokens.IssueForDashboard().Token);
+
+        services.DisableMollyDeviceRegistrationTokens = false;
+
+        Assert.NotNull((await molly.IssueRegistrationTokenAsync(login.ProtectedId, default)).RegistrationToken);
+    }
+
+    private Task<MollyLoginResult> LoginWithTokenAsync(string keyHash, string token) =>
+        _fixture.LoginAsync(keyHash, withRegistrationToken: false, registrationToken: token);
+
+    [Fact]
+    public void SetupCode_MatchesTheFormatTheClientParses()
+    {
+        // The same text as ControlServerSetupCodeTest in molly2.
+        byte[] key = [.. Enumerable.Range(0, 32).Select(i => (byte)i)];
+
+        MollySetupCode code = MollySetupCode.Create("https://mihubot.xyz/api/molly", Convert.ToBase64String(key), "abc_DEF-123");
+
+        Assert.Equal("molly2://setup?url=https%3A%2F%2Fmihubot.xyz%2Fapi%2Fmolly&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&token=abc_DEF-123", code.Text);
+        Assert.StartsWith("data:image/png;base64,", code.ToQrCodeDataUri(), StringComparison.Ordinal);
     }
 }

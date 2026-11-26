@@ -203,6 +203,9 @@ Molly logins require Android attestation. Before upgrading, ship the attesting
 client (and optionally set `Molly:AttestationApps`); older clients can no longer unlock and
 their existing sessions stop working, but they still receive pending lock and wipe commands when
 they try to log in. Back up `State/MihuBot-molly.db` first.
+New Molly devices need a setup code from the `/molly` dashboard (or from an enrolled
+device) to register; clients without setup code support can no longer set up or
+change their passphrase, but enrolled ones can still unlock.
 If startup fails with `UNIQUE constraint failed: mollyEntries.DerivedHash`,
 duplicate registrations exist and must be resolved by hand. Allow outbound HTTPS
 to `android.googleapis.com` for the revocation list, cached in

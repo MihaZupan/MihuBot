@@ -12,6 +12,9 @@ public sealed record MollyLoginResult(MollyResultStatus Status, string? Protecte
 {
     public static MollyLoginResult Invalid { get; } = new(MollyResultStatus.InvalidRequest, null, null, MollyCommand.None);
 
+    /// <summary>An unknown key hash without anything authorizing its registration.</summary>
+    public static MollyLoginResult Unregistered { get; } = new(MollyResultStatus.Unregistered, null, null, MollyCommand.None);
+
     public static MollyLoginResult Success(string protectedId, byte[] serverHmac, MollyCommand command = MollyCommand.None) =>
         new(MollyResultStatus.Ok, protectedId, serverHmac, command);
 

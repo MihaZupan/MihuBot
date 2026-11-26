@@ -169,6 +169,22 @@ public static class MollyServiceExtensions
                 return ToResponse(result, static () => new MollyCommandResponse());
             }
 
+            case MollyApiActions.RegistrationToken:
+            {
+                if (GetData<MollyRegistrationTokenRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                MollyCommandResult result = await molly.IssueRegistrationTokenAsync(data.Id, cancellationToken);
+
+                return ToResponse(result, () => new MollyRegistrationTokenResponse
+                {
+                    Token = result.RegistrationToken?.Token,
+                    ExpiresAt = result.RegistrationToken is { } token ? new DateTimeOffset(token.ExpiresAt).ToUnixTimeSeconds() : null,
+                });
+            }
+
             case MollyApiActions.ShareReserve:
             case MollyApiActions.ShareCreate:
             case MollyApiActions.ShareUpdate:

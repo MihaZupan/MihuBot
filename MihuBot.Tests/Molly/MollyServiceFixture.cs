@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using MihuBot.Configuration;
 using MihuBot.DB;
 using MihuBot.Helpers;
 using MihuBot.Molly;
@@ -126,7 +127,13 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     /// Logs in like the Android client: sends an attested login from the device simulated for
     /// <paramref name="keyHash"/> (or <paramref name="device"/>), bound to a new exchange.
     /// </summary>
-    public async Task<MollyLoginResult> LoginAsync(string? keyHash, MollyService? service = null, MollyTestDevice? device = null, MollyTestProofOptions? options = null, MollyExchangeContext? exchange = null)
+    /// <param name="withRegistrationToken">
+    /// Whether to include a fresh dashboard registration token, so an unknown key hash registers like it used to
+    /// before tokens. Ignored with <paramref name="sessionId"/> or <paramref name="registrationToken"/>.
+    /// </param>
+    /// <param name="sessionId">A session to move to <paramref name="keyHash"/> if it's unknown, as in a passphrase change.</param>
+    /// <param name="registrationToken">A specific registration token to send.</param>
+    public async Task<MollyLoginResult> LoginAsync(string? keyHash, MollyService? service = null, MollyTestDevice? device = null, MollyTestProofOptions? options = null, MollyExchangeContext? exchange = null, bool withRegistrationToken = true, string? sessionId = null, string? registrationToken = null)
     {
         service ??= Service;
         device ??= _devices.GetOrAdd(keyHash ?? "", _ => new MollyTestDevice());
@@ -135,7 +142,19 @@ public sealed class MollyServiceFixture : IAsyncLifetime
         byte[] keyHashBytes = TryDecodeBase64(keyHash);
         MollyAttestationProof proof = device.CreateProof(keyHashBytes, exchange, options);
 
-        return await service.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof }, exchange, default);
+        string? token = registrationToken ?? (sessionId is null && withRegistrationToken
+            ? service.RegistrationTokens.IssueForDashboard().Token
+            : null);
+
+        return await service.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = token, Id = sessionId }, exchange, default);
+    }
+
+    /// <summary>Uses the device simulated for <paramref name="keyHash"/> for <paramref name="otherKeyHash"/> as well, as after a passphrase change.</summary>
+    public MollyTestDevice ShareDevice(string keyHash, string otherKeyHash)
+    {
+        MollyTestDevice device = _devices.GetOrAdd(keyHash, _ => new MollyTestDevice());
+        _devices[otherKeyHash] = device;
+        return device;
     }
 
     private static byte[] TryDecodeBase64(string? value)
@@ -151,7 +170,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     }
 
     /// <summary>Creates another service over the same database, e.g. to test a different key.</summary>
-    public MollyService CreateService(string databaseKey, string transportPrivateKey, MollyAttestationService? attestation = null)
+    public MollyService CreateService(string databaseKey, string transportPrivateKey, MollyAttestationService? attestation = null, ServiceConfiguration? serviceConfiguration = null)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -163,7 +182,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
         // No Discord connection in tests. MollyService treats that as "don't announce alerts" and
         // skips its maintenance loop, which the tests drive explicitly instead.
-        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), IdProtector, attestation ?? CreateAttestationService(), configuration, discordLogger: null);
+        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), IdProtector, attestation ?? CreateAttestationService(), configuration, discordLogger: null, serviceConfiguration: serviceConfiguration);
     }
 
     public async Task<MollyDbEntry> GetEntryAsync(Guid id)

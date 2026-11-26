@@ -201,11 +201,13 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     private static string LoginData(string keyHash) => $$"""{"keyHash":"{{keyHash}}"}""";
 
     /// <summary>The full client flow: an attested login bound to the exchange it's sealed in.</summary>
-    private async Task<JsonElement> AttestedLoginAsync(string keyHash, MollyTestDevice device, MollyTestProofOptions? options = null, MollyExchangeContext? signedExchange = null)
+    /// <param name="registrationToken">Defaults to a fresh dashboard token; pass null to send none.</param>
+    private async Task<JsonElement> AttestedLoginAsync(string keyHash, MollyTestDevice device, MollyTestProofOptions? options = null, MollyExchangeContext? signedExchange = null, string? registrationToken = "")
     {
         MollyExchangeContext exchange = _envelope.PrepareExchange();
         MollyAttestationProof proof = device.CreateProof(Convert.FromBase64String(keyHash), signedExchange ?? exchange, options);
-        string data = JsonSerializer.Serialize(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof });
+        registrationToken = registrationToken == "" ? _fixture.Service.RegistrationTokens.IssueForDashboard().Token : registrationToken;
+        string data = JsonSerializer.Serialize(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = registrationToken });
 
         return await PostAsync("login", data, NewClientIp());
     }
@@ -715,10 +717,36 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     [Fact]
     public async Task Login_WithoutAttestation_ReleasesNothing()
     {
-        JsonElement response = await PostAsync("login", LoginData(MollyTestKeys.NewKeyHash()));
+        string token = _fixture.Service.RegistrationTokens.IssueForDashboard().Token;
+        JsonElement response = await PostAsync("login", $$"""{"keyHash":"{{MollyTestKeys.NewKeyHash()}}","registrationToken":"{{token}}"}""");
 
         Assert.Equal("invalid", Status(response));
         Assert.False(response.TryGetProperty("data", out _));
+    }
+
+    [Fact]
+    public async Task Login_OfAnUnknownKeyHashWithoutAToken_IsUnregistered()
+    {
+        JsonElement response = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice(), registrationToken: null);
+
+        Assert.Equal("unregistered", Status(response));
+        Assert.False(response.TryGetProperty("data", out _));
+    }
+
+    [Fact]
+    public async Task RegistrationToken_IsIssuedToASessionAndRegistersAnotherDevice()
+    {
+        (string id, _) = await RegisterAsync();
+
+        JsonElement response = await PostAsync("registration-token", $$"""{"id":"{{id}}"}""");
+        Assert.Equal("ok", Status(response));
+
+        string token = Data(response).GetProperty("token").GetString()!;
+        long expiresAt = Data(response).GetProperty("expiresAt").GetInt64();
+        Assert.InRange(expiresAt - DateTimeOffset.UtcNow.ToUnixTimeSeconds(), 86_000, 86_400);
+
+        Assert.Equal("ok", Status(await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice(), registrationToken: token)));
+        Assert.Equal("unregistered", Status(await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice(), registrationToken: token)));
     }
 
     [Fact]

@@ -10,6 +10,7 @@ public static class MollyApiActions
     public const string Associate = "associate";
     public const string Ping = "ping";
     public const string Alert = "alert";
+    public const string RegistrationToken = "registration-token";
 
     // File sharing, see FileSharing.md.
     public const string ShareReserve = "share-reserve";
