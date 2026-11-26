@@ -14,7 +14,7 @@ public sealed class MollyLoginRequest
     public MollyAttestationProof? Attestation { get; set; }
 
     /// <summary>
-    /// Authorizes registering a new entry if the key hash is unknown: a token from a setup code (Provisioning.md).
+    /// Authorizes registering a new entry if the key hash is unknown: a token from a setup code (Provisioning/README.md).
     /// Ignored for known key hashes.
     /// </summary>
     [JsonPropertyName("registrationToken")]

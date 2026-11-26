@@ -3,10 +3,10 @@ using QRCoder;
 
 #nullable enable
 
-namespace MihuBot.Molly;
+namespace MihuBot.Molly.Provisioning;
 
 /// <summary>
-/// A setup code (Provisioning.md): everything a new device needs to reach this server and register, shown as a QR
+/// A setup code (Provisioning/README.md): everything a new device needs to reach this server and register, shown as a QR
 /// code or entered by hand.
 /// </summary>
 /// <param name="ApiUrl">The absolute URL of the Molly endpoint, e.g. <c>https://mihubot.xyz/api/molly</c>.</param>

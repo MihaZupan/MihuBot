@@ -16,6 +16,7 @@ using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Api;
 using MihuBot.Molly.Attestation;
+using MihuBot.Molly.Provisioning;
 using MihuBot.Molly.Sharing;
 
 #nullable enable
@@ -803,7 +804,7 @@ public sealed class MollyService
 
     /// <summary>
     /// Registers a new entry for the unknown key hash if <see cref="MollyLoginRequest.RegistrationToken"/> is a valid,
-    /// unused token (Provisioning.md), which a successful registration redeems.
+    /// unused token (Provisioning/README.md), which a successful registration redeems.
     /// </summary>
     private async Task<MollyLoginResult> RegisterWithTokenAsync(MollyDbContext db, MollyLoginRequest request, byte[] keyHashBytes, byte[] derivedHash, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
@@ -1014,7 +1015,7 @@ public sealed class MollyService
     }
 
     /// <summary>
-    /// Issues a registration token for a setup code another device can use to register (Provisioning.md), on behalf of
+    /// Issues a registration token for a setup code another device can use to register (Provisioning/README.md), on behalf of
     /// the device with the session <paramref name="protectedId"/>. Subject to the usual session rules and to
     /// <see cref="MollyRegistrationTokens.TryIssueForDevice"/>; a limited or disabled request succeeds without a
     /// <see cref="MollyCommandResult.RegistrationToken"/>.

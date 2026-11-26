@@ -2,7 +2,7 @@
 
 All exchanges use `POST /api/molly`, with `application/octet-stream` bodies, over HTTPS.
 Logins additionally require Android key attestation, see [Attestation/README.md](Attestation/README.md).
-New devices are set up with a setup code and register with a single-use token, see [Provisioning.md](Provisioning.md).
+New devices are set up with a setup code and register with a single-use token, see [Provisioning/README.md](Provisioning/README.md).
 Protected file sharing (`share-*` actions) is specified in [Sharing/README.md](Sharing/README.md), its design in [Sharing/Design.md](Sharing/Design.md).
 Encrypted request bodies may be up to 256 KiB.
 

@@ -9,10 +9,10 @@ using MihuBot.Molly.Attestation;
 
 #nullable enable
 
-namespace MihuBot.Molly;
+namespace MihuBot.Molly.Provisioning;
 
 /// <summary>
-/// Issues and redeems registration tokens (Provisioning.md). Issued tokens aren't stored: they're sealed records of
+/// Issues and redeems registration tokens (Provisioning/README.md). Issued tokens aren't stored: they're sealed records of
 /// their id and issuance time (see <see cref="Protect"/>). The ids of redeemed tokens and the issuance counts for
 /// devices are only kept in memory, so after a restart a token redeemed within its lifetime could be redeemed again,
 /// and the limits start over.

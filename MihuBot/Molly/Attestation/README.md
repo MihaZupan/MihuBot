@@ -25,7 +25,7 @@ Everything below travels inside the encrypted transport described in [README.md]
 - Pins are permanent; there is no recovery or re-pairing. Clearing app data, reinstalling or a
   factory reset also loses the device-bound Keystore HMAC key that the key hash is derived from, so
   even the same passphrase then produces a new key hash, which needs a new setup code
-  ([Provisioning.md](../Provisioning.md)) to register and enroll a new entry. The
+  ([Provisioning/README.md](../Provisioning/README.md)) to register and enroll a new entry. The
   old entry is orphaned with its pins. The mode is pinned too: a fallback enrollment can't later
   become strict. If an enrolled entry's login fails attestation (anything but a temporary or retryable
   failure, or a certificate that isn't valid at the server's current time), the entry is locked until
@@ -72,7 +72,7 @@ is known, generate the request's ephemeral key, nonce and fresh key while the KD
 `login` data: `{"keyHash": "...", "attestation": {...}}`, plus at most one of these, which only matter
 if the key hash is unknown:
 
-- `registrationToken`: the token from a setup code ([Provisioning.md](../Provisioning.md)). Registers a
+- `registrationToken`: the token from a setup code ([Provisioning/README.md](../Provisioning/README.md)). Registers a
   new entry for the key hash and enrolls the attested keys. A token can register one entry; a login
   that fails before registering (e.g. attestation) doesn't use it up.
 - `id`: the device's current session, for a passphrase change. Moves that session's entry to the key

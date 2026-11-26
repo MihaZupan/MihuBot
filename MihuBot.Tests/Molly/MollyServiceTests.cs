@@ -5,6 +5,7 @@ using MihuBot.Configuration;
 using MihuBot.Molly;
 using MihuBot.Molly.Alerts;
 using MihuBot.Molly.Attestation;
+using MihuBot.Molly.Provisioning;
 using MihuBot.Tests.Configuration;
 
 namespace MihuBot.Tests.Molly;
