@@ -1,8 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
+using CommunityToolkit.VectorData.Qdrant;
 using Grpc.Net.Client;
 using Microsoft.Extensions.VectorData;
-using Microsoft.SemanticKernel.Connectors.Qdrant;
 using MihuBot.DB.GitHub;
 using MihuBot.RuntimeUtils.DataIngestion.GitHub;
 using Qdrant.Client;

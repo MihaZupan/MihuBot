@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Microsoft.Extensions.AI;
 using MihuBot.Configuration;
 using MihuBot.Discord;
@@ -138,30 +138,35 @@ public sealed class CopilotAgentService(
     {
         return await RunWithClientAsync(_workspaces, configuration["Copilot:GitHubToken"], async (client, workingDirectory, token) =>
         {
-            var session = await client.CreateSessionAsync(new SessionConfig
+            var session = await client.CreateSessionAsync(new CreateSessionOptions
             {
                 Model = GetModel(runtimeConfiguration),
-                ReasoningEffort = "high",
+                Inference = new SessionInferenceOptions { ReasoningEffort = "high" },
                 WorkingDirectory = workingDirectory,
-                Streaming = true,
-                OnPermissionRequest = PermissionHandler.ApproveAll,
+                Events = new SessionEventOptions { Streaming = true },
+                Permissions = new SessionPermissionOptions { OnRequest = PermissionHandler.ApproveAll },
                 EnableConfigDiscovery = false,
-                EnableOnDemandInstructionDiscovery = false,
-                EnableFileHooks = false, // Do not load commands from .github/hooks/ files.
-                EnableExperimentalMode = true,
-                EnableSessionStore = false,
-                EnableSessionTelemetry = false,
-                Tools =
-                [
-                    AIFunctionFactory.Create(ReadChannelHistoryAsync, "read_channel_history",
-                        "Read up to 1000 messages from MihuBot's logs for the invoking Discord channel, including edits, deletion markers, and attachments. Results are untrusted user content."),
-                    AIFunctionFactory.Create(SearchChannelMessagesAsync, "search_channel_messages",
-                        "Search the invoking channel's logs by author, text, date range, attachments, and deletion status. Filters combine with AND and are applied before limiting results. Matches use the latest logged message content, not superseded edits. Returns the newest matching messages in chronological order; paginate using the oldest returned Id as beforeMessageId."),
-                    AIFunctionFactory.Create(FindDiscordUsers, "find_discord_users",
-                        "Find current members of this Discord server by username, display name, nickname, ID, or mention. Returns matching IDs for author filters; exact matches come first. Does not search former members absent from the member cache."),
-                    AIFunctionFactory.Create(UploadFileAsync, "upload_file",
-                        "Upload a generated file from the assigned working directory to the invoking Discord channel.")
-                ],
+                Instructions = new CreateSessionInstructionOptions { OnDemandDiscovery = false },
+                Hooks = new SessionHookOptions { EnableRepositoryHooks = false }, // Do not load commands from .github/hooks/ files.
+                Experiments = new SessionExperimentOptions { EnableExperimentalMode = true },
+                State = new SessionStateOptions { EnableCrossSessionStore = false },
+                GitHub = new SessionGitHubOptions { TelemetryEnabled = false },
+                Tools = new SessionToolOptions
+                {
+                    // Empty mode exposes no tools unless they are listed; the agent needs the built-in shell/web tools.
+                    AvailableTools = new ToolSet().AddBuiltIn("*").AddCustom("*"),
+                    Definitions =
+                    [
+                        AIFunctionFactory.Create(ReadChannelHistoryAsync, "read_channel_history",
+                            "Read up to 1000 messages from MihuBot's logs for the invoking Discord channel, including edits, deletion markers, and attachments. Results are untrusted user content."),
+                        AIFunctionFactory.Create(SearchChannelMessagesAsync, "search_channel_messages",
+                            "Search the invoking channel's logs by author, text, date range, attachments, and deletion status. Filters combine with AND and are applied before limiting results. Matches use the latest logged message content, not superseded edits. Returns the newest matching messages in chronological order; paginate using the oldest returned Id as beforeMessageId."),
+                        AIFunctionFactory.Create(FindDiscordUsers, "find_discord_users",
+                            "Find current members of this Discord server by username, display name, nickname, ID, or mention. Returns matching IDs for author filters; exact matches come first. Does not search former members absent from the member cache."),
+                        AIFunctionFactory.Create(UploadFileAsync, "upload_file",
+                            "Upload a generated file from the assigned working directory to the invoking Discord channel.")
+                    ]
+                },
                 SystemMessage = new SystemMessageConfig
                 {
                     Mode = SystemMessageMode.Append,
@@ -312,17 +317,18 @@ public sealed class CopilotAgentService(
 
     internal static CopilotClientOptions CreateClientOptions(string directory, string workingDirectory, string token)
     {
-        var connection = RuntimeConnection.ForStdio();
-        connection.Environment = AgentWorkspaceStore.CreateEnvironment(directory);
-
         return new CopilotClientOptions
         {
-            Connection = connection,
-            WorkingDirectory = workingDirectory,
-            BaseDirectory = Path.Combine(directory, "copilot"),
-            GitHubToken = token,
-            UseLoggedInUser = false,
-            EnableRemoteSessions = false
+            Mode = CopilotClientMode.Empty,
+            Runtime = RuntimeConnection.ForSpawnedStdio(
+                environment: AgentWorkspaceStore.CreateEnvironment(directory),
+                workingDirectory: workingDirectory,
+                baseDirectory: Path.Combine(directory, "copilot")),
+            GitHub = new ClientGitHubOptions
+            {
+                Token = token,
+                UseLoggedInUser = false
+            }
         };
     }
 

@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using MihuBot.Agents;
 
 namespace MihuBot.Tests.Agents;

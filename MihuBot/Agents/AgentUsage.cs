@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Microsoft.Extensions.AI;
 using MihuBot.Helpers.AI;
 

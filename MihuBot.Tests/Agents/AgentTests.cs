@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using MihuBot.Agents;
 using MihuBot.Discord;
 using MihuBot.Helpers.AI;
@@ -150,13 +150,13 @@ public sealed class AgentTests
         string run = store.Create();
         string work = Path.Combine(run, "work");
         CopilotClientOptions options = CopilotAgentService.CreateClientOptions(run, work, "test-token");
-        var connection = Assert.IsType<StdioRuntimeConnection>(options.Connection);
+        var connection = Assert.IsType<SpawnedStdioRuntimeConnection>(options.Runtime);
 
-        Assert.Equal(work, options.WorkingDirectory);
-        Assert.Equal(Path.Combine(run, "copilot"), options.BaseDirectory);
-        Assert.Equal("test-token", options.GitHubToken);
-        Assert.False(options.UseLoggedInUser);
-        Assert.False(options.EnableRemoteSessions);
+        Assert.Equal(CopilotClientMode.Empty, options.Mode);
+        Assert.Equal(work, connection.WorkingDirectory);
+        Assert.Equal(Path.Combine(run, "copilot"), connection.BaseDirectory);
+        Assert.Equal("test-token", options.GitHub.Token);
+        Assert.False(options.GitHub.UseLoggedInUser);
         Assert.NotNull(connection.Environment);
         Assert.Equal(Path.Combine(run, "home"), connection.Environment["HOME"]);
         Assert.Equal(Path.Combine(run, "tmp"), connection.Environment["TMPDIR"]);

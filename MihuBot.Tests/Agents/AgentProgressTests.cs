@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using Discord;
 using MihuBot.Agents;
 using Microsoft.Extensions.Time.Testing;

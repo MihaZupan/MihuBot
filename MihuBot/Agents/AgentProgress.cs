@@ -1,4 +1,4 @@
-using GitHub.Copilot;
+using Microsoft.Copilot;
 using System.Text.Json;
 
 namespace MihuBot.Agents;
