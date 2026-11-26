@@ -981,8 +981,10 @@ public sealed class MollyShareService
     }
 
     /// <summary>
-    /// B deletes a grant it hasn't started, freeing its quota. Once started, only A can end it. Raises A's and B's
-    /// update hints; an active grant has no trustees yet.
+    /// B deletes a grant it hasn't started, freeing its quota and raising A's and B's update hints (an active grant has
+    /// no trustees yet). Once released, B can delete its copy instead: the file and everything only B uses are erased and
+    /// the entry leaves B's lists and quota, while A keeps the released record and its approvals unchanged, so only B's
+    /// hint is raised. While started, only A can end it.
     /// </summary>
     private async Task<MollyShareResponse> DismissAsync(Caller caller, byte[] body, CancellationToken cancellationToken)
     {
@@ -997,23 +999,37 @@ public sealed class MollyShareService
         await using MollyDbContext db = _db.CreateDbContext();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        Guid? ownerEntryId = await db.ShareEntries
-            .Where(e => e.Id == id && e.RecipientKeyHash == caller.PartyHash && e.State == MollyShareState.Active)
-            .Select(e => (Guid?)e.OwnerEntryId)
+        var row = await db.ShareEntries
+            .Where(e => e.Id == id && e.RecipientKeyHash == caller.PartyHash && (e.State == MollyShareState.Active || e.State == MollyShareState.Released))
+            .Select(e => new { e.State, e.OwnerEntryId })
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (ownerEntryId is null)
+        if (row is null)
         {
             return s_notFound;
         }
 
-        await db.ShareEntries
-            .Where(e => e.Id == id && e.State == MollyShareState.Active)
-            .ExecuteDeleteAsync(cancellationToken);
-
         var updates = new UpdateHints();
-        updates.AddOwner(ownerEntryId.Value);
         updates.Add(caller.PartyHash);
+
+        if (row.State == MollyShareState.Active)
+        {
+            await db.ShareEntries
+                .Where(e => e.Id == id && e.State == MollyShareState.Active)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            updates.AddOwner(row.OwnerEntryId);
+        }
+        else
+        {
+            await db.ShareEntries
+                .Where(e => e.Id == id && e.State == MollyShareState.Released)
+                .ExecuteUpdateAsync(e => e
+                    .SetProperty(x => x.RecipientKeyHash, (byte[]?)null)
+                    .SetProperty(x => x.EncryptedObjects, (byte[]?)null)
+                    .SetProperty(x => x.EncryptedFile, (byte[]?)null)
+                    .SetProperty(x => x.EncryptedDataKeySealed, (byte[]?)null), cancellationToken);
+        }
 
         await updates.ApplyAsync(db, cancellationToken);
         await transaction.CommitAsync(cancellationToken);

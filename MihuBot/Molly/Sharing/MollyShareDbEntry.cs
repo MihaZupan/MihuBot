@@ -34,7 +34,7 @@ public sealed class MollyShareDbEntry
     /// </summary>
     public Guid OwnerEntryId { get; set; }
 
-    /// <summary>B's party hash. Null while reserved.</summary>
+    /// <summary>B's party hash. Null while reserved, and once B deleted its copy of a released entry (<c>share-dismiss</c>).</summary>
     public byte[]? RecipientKeyHash { get; set; }
 
     public MollyShareState State { get; set; }

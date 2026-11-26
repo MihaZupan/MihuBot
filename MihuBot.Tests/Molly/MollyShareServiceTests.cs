@@ -467,6 +467,45 @@ public sealed class MollyShareServiceTests : IClassFixture<MollyServiceFixture>,
     }
 
     [Fact]
+    public async Task Dismiss_OfAReleasedEntry_ErasesOnlyTheRecipientsCopy()
+    {
+        (Party owner, Party recipient, Party[] trustees, MollyTestShare share) = await CreateShareAsync(threshold: 1, count: 1);
+        long startedAt = await StartAsync(recipient, share);
+        Assert.Equal("ok", Result(await SendAsync(trustees[0], MollyApiActions.ShareApprove, share.ApproveBody(0, startedAt))));
+
+        long ownerBefore = (await PingUpdatedAtAsync(owner))!.Value;
+        long recipientBefore = (await PingUpdatedAtAsync(recipient))!.Value;
+
+        Assert.Equal("not-found", Result(await SendAsync(owner, MollyApiActions.ShareDismiss, share.Entry)));
+        Assert.Equal("ok", Result(await SendAsync(recipient, MollyApiActions.ShareDismiss, share.Entry)));
+        Assert.Equal("not-found", Result(await SendAsync(recipient, MollyApiActions.ShareDismiss, share.Entry)));
+
+        // B's copy is gone, from its lists and quota too.
+        Assert.Empty((await SyncAsync(recipient)).GetProperty("received").EnumerateArray());
+        Assert.Equal("not-found", Result(await SendAsync(recipient, MollyApiActions.ShareGet, share.Entry)));
+        Assert.Equal("not-found", Result(await SendAsync(recipient, MollyApiActions.ShareFetch, share.Entry)));
+
+        MollyShareDbEntry stored = (await GetEntryAsync(share))!;
+        Assert.Equal(MollyShareState.Released, stored.State);
+        Assert.Null(stored.RecipientKeyHash);
+        Assert.Null(stored.EncryptedObjects);
+        Assert.Null(stored.EncryptedFile);
+        Assert.Null(stored.EncryptedDataKeySealed);
+
+        // A's record and approvals are unchanged, and A isn't told.
+        JsonElement owned = Assert.Single((await SyncAsync(owner)).GetProperty("owned").EnumerateArray());
+        Assert.Equal("released", owned.GetProperty("state").GetString());
+        Assert.Equal(share.ApprovalSignatures[0], Bytes(Assert.Single(owned.GetProperty("approvals").EnumerateArray()), "signature"));
+        Assert.Equal(ownerBefore, await PingUpdatedAtAsync(owner));
+        Assert.True(await PingUpdatedAtAsync(recipient) > recipientBefore);
+
+        // A can still delete it, and the approving trustee's repeat still confirms.
+        Assert.Equal("ok", Result(await SendAsync(trustees[0], MollyApiActions.ShareApprove, share.ApproveBody(0, startedAt))));
+        Assert.Equal("ok", Result(await SendAsync(owner, MollyApiActions.ShareDelete, share.Entry)));
+        Assert.Null(await GetEntryAsync(share));
+    }
+
+    [Fact]
     public async Task Reserve_HandsOutFreshEntries_ThatOnlyTheReservingDeviceCanUse_WithinTheHour()
     {
         Party owner = await NewPartyAsync();

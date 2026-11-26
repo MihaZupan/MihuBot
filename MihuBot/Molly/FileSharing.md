@@ -287,13 +287,18 @@ is `rejected` while `started`. Any other submission in `released`, or on a missi
 days a released entry is kept; no fetch authorized after the delete commits returns the payload. Its caller
 is the device that created the grant.
 
-`share-dismiss` lets B delete an `active` grant, i.e. one it hasn't started, freeing its received quota; in any
-other state the result is `not-found`. Clients dismiss grants they don't display (unknown owner, or an owner key
+`share-dismiss` lets B delete an `active` grant, i.e. one it hasn't started, freeing its received quota. Once
+`released`, it deletes B's copy instead, e.g. after B saved the file: S erases ENCRYPTED_FILE, DATA_KEY_SEALED,
+FILE_METADATA_SEALED, ROSTER_SEALED and DATA_KEY_SEALED_SHAREDENC and stops associating the entry with B, so it
+leaves B's lists and quota and `share-get`/`share-fetch` return `not-found`. A's record (descriptor, state,
+approvals) is unchanged and kept until A deletes it or it expires. While `started`, and on a missing or already
+dismissed entry, the result is `not-found`. Clients dismiss grants they don't display (unknown owner, or an owner key
 that doesn't match their stored identity) automatically, and offer it for the others.
 
 ## State, retention and limits
 
-- One attempt per entry; A ends it by deleting. B can dismiss a grant before starting it. Trustees cannot decline.
+- One attempt per entry; A ends it by deleting. B can dismiss a grant before starting it, and delete its copy once
+  released. Trustees cannot decline.
 - **Owner activity.** Every share request a device makes (clients only make them while unlocked) records its
   activity time. S deletes an `active` or `started` grant like `share-delete` once both its owner device's
   last share request and, if started, its start are more than 14 days old: A has to keep using the app, and a
@@ -315,8 +320,8 @@ that doesn't match their stored identity) automatically, and offer it for the ot
 Each identity has an `updatedAt` (Unix milliseconds) that every committed change affecting it raises to
 `max(previous + 1, now)`, so it never repeats or goes backwards; it is 0 for an identity nothing happened to
 yet. Affected identities: create -> B; update -> B; start -> A, B and every trustee; approve -> A and the approving
-trustee; release -> A, B and the trustees that haven't approved; dismiss -> A and B;
-delete (including maintenance and expiry) -> B and, if started, the trustees. A is the current identity of the device
+trustee; release -> A, B and the trustees that haven't approved; dismiss -> A and B, or only B for a released entry;
+delete (including maintenance and expiry) -> B (if it hasn't deleted its copy) and, if started, the trustees. A is the current identity of the device
 that created the grant, if it still has one.
 
 `ping` responses of a device whose entry has a current identity carry that identity's `shareUpdatedAt`
