@@ -42,6 +42,9 @@ public sealed class MollyApiFixture : IAsyncLifetime
 
     public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
+    /// <summary>Off, so requests don't each wait; tests of the floor itself turn it on.</summary>
+    public MollyResponseTimingFloor TimingFloor { get; } = new() { Enabled = false };
+
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string protectedId)
     {
@@ -88,6 +91,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
             discordLogger: null));
 
         builder.Services.AddSingleton(_ => new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, TimeProvider));
+        builder.Services.AddSingleton(TimingFloor);
         builder.Services.AddMollyServices();
 
         _app = builder.Build();
@@ -226,13 +230,22 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     public async Task Responses_ApplyRandomizedTimingFloor(HttpStatusCode expectedStatus)
     {
         byte[] body = expectedStatus == HttpStatusCode.OK ? _envelope.EncryptRequest("unknown") : new byte[8];
-        long start = Stopwatch.GetTimestamp();
+        _fixture.TimingFloor.Enabled = true;
 
-        using HttpResponseMessage response = await PostRawAsync(body);
-        TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+        try
+        {
+            long start = Stopwatch.GetTimestamp();
 
-        Assert.Equal(expectedStatus, response.StatusCode);
-        Assert.True(elapsed >= TimeSpan.FromMilliseconds(10), $"Response arrived after {elapsed.TotalMilliseconds} ms.");
+            using HttpResponseMessage response = await PostRawAsync(body);
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
+
+            Assert.Equal(expectedStatus, response.StatusCode);
+            Assert.True(elapsed >= TimeSpan.FromMilliseconds(10), $"Response arrived after {elapsed.TotalMilliseconds} ms.");
+        }
+        finally
+        {
+            _fixture.TimingFloor.Enabled = false;
+        }
     }
 
     [Fact]

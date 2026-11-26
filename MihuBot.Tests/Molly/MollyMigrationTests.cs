@@ -22,7 +22,7 @@ public sealed class MollyMigrationTests
 
         Guid id = Guid.NewGuid();
         DateTime now = DateTime.UtcNow;
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+        await db.Database.ExecuteSqlAsync($"""
             INSERT INTO mollyEntries
                 (Id, HashPrefix, DerivedHash, CreatedAt, LastSeenAt, LockRequested, WipeRequested, AlertsMuted,
                  BatteryLevel, LocationEnabled, AppVersion)
@@ -56,7 +56,7 @@ public sealed class MollyMigrationTests
         Guid id = Guid.NewGuid();
         byte[] serverHmac = [1, 2, 3];
         DateTime now = DateTime.UtcNow;
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+        await db.Database.ExecuteSqlAsync($"""
             INSERT INTO mollyEntries
                 (Id, HashPrefix, DerivedHash, EncryptedServerHmac, CreatedAt, LastSeenAt, LockRequested, WipeRequested, AlertsMuted)
             VALUES ({id}, 0, {new byte[64]}, {serverHmac}, {now}, {now}, 0, 0, 0)
@@ -84,7 +84,7 @@ public sealed class MollyMigrationTests
 
         Guid id = Guid.NewGuid();
         DateTime now = DateTime.UtcNow;
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+        await db.Database.ExecuteSqlAsync($"""
             INSERT INTO mollyEntries
                 (Id, DerivedHash, CreatedAt, LastSeenAt, LastLoginAt, ActiveSessionIssuedAt, LockRequested, WipeRequested, AlertsMuted)
             VALUES ({id}, {new byte[64]}, {now}, {now}, {now}, {now}, 0, 0, 0)
@@ -125,7 +125,7 @@ public sealed class MollyMigrationTests
 
         foreach (Guid id in (Guid[])[Guid.NewGuid(), Guid.NewGuid()])
         {
-            await db.Database.ExecuteSqlInterpolatedAsync($"""
+            await db.Database.ExecuteSqlAsync($"""
                 INSERT INTO mollyEntries
                     (Id, HashPrefix, DerivedHash, CreatedAt, LastSeenAt, LockRequested, WipeRequested, AlertsMuted)
                 VALUES ({id}, 0, {new byte[64]}, {now}, {now}, 0, 0, 0)

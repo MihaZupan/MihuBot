@@ -1377,7 +1377,7 @@ public sealed class MollyShareService
     private sealed record ShareObjects(byte[] RosterSealed, byte[] MetadataSealed, byte[] DataKeySealedSharedEnc);
 
     /// <summary>Field IDs of the entry row; the trustee fields' IDs are distinct and also carry the slot.</summary>
-    private enum EntryField : byte
+    internal enum EntryField : byte
     {
         Header = 1,
         Objects = 2,

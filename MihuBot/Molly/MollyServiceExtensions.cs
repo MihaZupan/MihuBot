@@ -30,6 +30,7 @@ public static class MollyServiceExtensions
     public static IServiceCollection AddMollyServices(this IServiceCollection services)
     {
         services.TryAddSingleton<MollyRateLimiter>();
+        services.TryAddSingleton<MollyResponseTimingFloor>();
         services.TryAddSingleton<MollyIdProtector>();
         services.TryAddSingleton<MollyRequestProtector>();
         services.TryAddSingleton<ProtonMailEncryptor>();
@@ -55,10 +56,8 @@ public static class MollyServiceExtensions
         return group;
     }
 
-    private static async Task<IResult> HandleRequestAsync(HttpContext context, MollyService molly, MollyShareService shares, MollyRequestProtector protector, CancellationToken cancellationToken)
+    private static async Task<IResult> HandleRequestAsync(HttpContext context, MollyService molly, MollyShareService shares, MollyRequestProtector protector, MollyRateLimiter rateLimiter, MollyResponseTimingFloor timingFloor, CancellationToken cancellationToken)
     {
-        var rateLimiter = context.RequestServices.GetRequiredService<MollyRateLimiter>();
-
         if (!rateLimiter.TryEnter(context, out TimeSpan retryAfter))
         {
             context.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
@@ -70,7 +69,7 @@ public static class MollyServiceExtensions
             return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
-        Task minimumResponseDelay = Task.Delay(RandomNumberGenerator.GetInt32(10, 20), CancellationToken.None);
+        Task minimumResponseDelay = timingFloor.StartAsync();
 
         try
         {
