@@ -21,7 +21,7 @@ public sealed class MollyTestIdentity : IDisposable
 }
 
 /// <summary>
-/// Client-side encodings of the FileSharing.md objects, written independently of <see cref="MollyShareCodec"/>
+/// Client-side encodings of the Sharing/README.md objects, written independently of <see cref="MollyShareCodec"/>
 /// (and checked against the cross-language vectors), so tests can build real requests.
 /// </summary>
 public static class MollyShareTestEncoding

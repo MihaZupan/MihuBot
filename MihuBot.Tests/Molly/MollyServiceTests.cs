@@ -695,10 +695,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await Molly.SetLockRequestedAsync(IdOf(login), lockRequested: true);
 
         MollyLoginResult locked = await _fixture.LoginAsync(keyHash);
-        Assert.Equal(MollyResultStatus.Command, locked.Status);
-        Assert.Equal(MollyCommand.Lock, locked.Command);
-        Assert.Null(locked.ServerHmac);
-        Assert.Null(locked.ProtectedId);
+        Assert.Equal(MollyLoginResult.Unregistered, locked);
 
         Assert.Equal(MollyCommand.Lock, (await Molly.AssociateAsync(login.ProtectedId, "new-name", default)).Command);
         Assert.Equal(MollyCommand.Lock, (await Molly.PingAsync(login.ProtectedId, null, null, null, default)).Command);
@@ -726,10 +723,14 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
 
         MollyCommand expected = wipe ? MollyCommand.Wipe : MollyCommand.Lock;
 
-        // Each blocked endpoint has to refresh LastSeen even though it returns a command.
+        // Each blocked endpoint has to refresh LastSeen even though it returns a command (or, for a locked login, unregistered).
         foreach (Func<Task<MollyCommand>> checkIn in (Func<Task<MollyCommand>>[])
         [
-            async () => (await _fixture.LoginAsync(keyHash)).Command,
+            async () => await _fixture.LoginAsync(keyHash) switch
+            {
+                { Status: MollyResultStatus.Unregistered } => MollyCommand.Lock,
+                var result => result.Command,
+            },
             async () => (await Molly.AssociateAsync(login.ProtectedId, "new-name", default)).Command,
             async () => (await Molly.PingAsync(login.ProtectedId, null, null, null, default)).Command,
         ])
@@ -1011,7 +1012,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
-    public async Task LockInactiveEntries_MakesTheDeviceReceiveTheLockCommand()
+    public async Task LockInactiveEntries_LocksTheEntry()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
         MollyLoginResult login = await _fixture.LoginAsync(keyHash);
@@ -1020,10 +1021,8 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         await _fixture.SetLastSeenAsync(IdOf(login), DateTime.UtcNow.AddDays(-30));
         await Molly.LockInactiveEntriesAsync();
 
-        MollyLoginResult locked = await _fixture.LoginAsync(keyHash);
-
-        Assert.Equal(MollyCommand.Lock, locked.Command);
-        Assert.Null(locked.ServerHmac);
+        Assert.Equal(MollyLoginResult.Unregistered, await _fixture.LoginAsync(keyHash));
+        Assert.Equal(MollyCommand.Lock, (await Molly.PingAsync(login.ProtectedId, null, null, null, default)).Command);
     }
 
     [Fact]

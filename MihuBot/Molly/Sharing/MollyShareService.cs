@@ -17,7 +17,7 @@ using MihuBot.Molly.Api;
 namespace MihuBot.Molly.Sharing;
 
 /// <summary>
-/// Server side of Molly protected file sharing, see FileSharing.md for the wire contract.
+/// Server side of Molly protected file sharing, see Sharing/README.md for the wire contract.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -155,7 +155,7 @@ public sealed class MollyShareService
     };
 
     /// <summary>
-    /// Runs <c>associate</c>, which binds the entry to the request's Signal identity (FileSharing.md, "Identity binding")
+    /// Runs <c>associate</c>, which binds the entry to the request's Signal identity (Sharing/README.md, "Identity binding")
     /// and applies the nickname. A request without an identity, or whose proof doesn't verify, is invalid and changes
     /// nothing. Successful results report the binding in <see cref="MollyCommandResult.Identity"/>.
     /// </summary>
@@ -170,7 +170,7 @@ public sealed class MollyShareService
     }
 
     /// <summary>
-    /// Verifies an <c>associate</c> identity proof (FileSharing.md, "Request authentication") within
+    /// Verifies an <c>associate</c> identity proof (Sharing/README.md, "Request authentication") within
     /// <paramref name="exchange"/>, returning the identity's party hash.
     /// </summary>
     /// <returns>False if the identity is missing, a field is malformed, the exchange was sealed to a discovery key, or the MAC doesn't verify.</returns>
@@ -207,7 +207,7 @@ public sealed class MollyShareService
     }
 
     /// <summary>
-    /// Hands out a fresh ENTRY for the calling device's next <c>share-create</c> (FileSharing.md, <c>share-reserve</c>). The
+    /// Hands out a fresh ENTRY for the calling device's next <c>share-create</c> (Sharing/README.md, <c>share-reserve</c>). The
     /// reservation counts towards the device's quota until it is used or dropped after <see cref="ReservationRetention"/>.
     /// </summary>
     private async Task<MollyShareResponse> ReserveAsync(Caller caller, CancellationToken cancellationToken)
@@ -333,7 +333,7 @@ public sealed class MollyShareService
     }
 
     /// <summary>
-    /// Replaces an active grant's roster with the next revision (FileSharing.md, <c>share-update</c>): only the
+    /// Replaces an active grant's roster with the next revision (Sharing/README.md, <c>share-update</c>): only the
     /// roster, DATA_KEY_SEALED_SHAREDENC and SKEY may change, and the old SKEY is erased, so rosters of earlier
     /// revisions can't start any more.
     /// </summary>

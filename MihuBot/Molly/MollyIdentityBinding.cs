@@ -4,7 +4,7 @@ namespace MihuBot.Molly;
 
 /// <summary>
 /// The outcome of binding an <c>associate</c> request's Signal identity to its Molly entry
-/// (FileSharing.md, "Identity binding").
+/// (Sharing/README.md, "Identity binding").
 /// </summary>
 public enum MollyIdentityBinding
 {

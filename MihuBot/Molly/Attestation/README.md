@@ -3,7 +3,7 @@
 Logins release the server secret only to a device that proves, with Android hardware key attestation,
 that it is the device the entry was enrolled from: same app-generated hardware keys, same verified
 boot identity, bootloader still locked, and no app/OS/patch downgrade.
-Everything below travels inside the encrypted transport described in [README.md](README.md).
+Everything below travels inside the encrypted transport described in [README.md](../README.md).
 
 ## Trust model
 
@@ -25,11 +25,11 @@ Everything below travels inside the encrypted transport described in [README.md]
 - Pins are permanent; there is no recovery or re-pairing. Clearing app data, reinstalling or a
   factory reset also loses the device-bound Keystore HMAC key that the key hash is derived from, so
   even the same passphrase then produces a new key hash, which needs a new setup code
-  ([Provisioning.md](Provisioning.md)) to register and enroll a new entry. The
+  ([Provisioning.md](../Provisioning.md)) to register and enroll a new entry. The
   old entry is orphaned with its pins. The mode is pinned too: a fallback enrollment can't later
   become strict. If an enrolled entry's login fails attestation (anything but a temporary or retryable
   failure, or a certificate that isn't valid at the server's current time), the entry is locked until
-  an admin unlocks it, and the operator is notified.
+    an admin unlocks it, and the operator is notified. The device's login is answered like a wrong passphrase.
 - Attestation describes the booted software and hardware-enforced state. It doesn't prove the
   absence of runtime exploits. The app identity (package and signer) is reported by the OS rather than
   the secure hardware, so it's only as trustworthy as the verified, locked boot it comes with.
@@ -39,7 +39,7 @@ Everything below travels inside the encrypted transport described in [README.md]
 ## Freshness
 
 There is no separate challenge request: the transport key a login is sealed to (see
-[README.md](README.md)) provides the freshness. The server generates a new one every 30 seconds, and
+[README.md](../README.md)) provides the freshness. The server generates a new one every 30 seconds, and
 none can be predicted before the server publishes it. Rotation is checked every 10 seconds, so the key
 discovery and key updates describe was normally generated at most 40 seconds earlier. An
 attested login must be sealed to a key the server generated at most 2 minutes earlier, by its own
@@ -72,7 +72,7 @@ is known, generate the request's ephemeral key, nonce and fresh key while the KD
 `login` data: `{"keyHash": "...", "attestation": {...}}`, plus at most one of these, which only matter
 if the key hash is unknown:
 
-- `registrationToken`: the token from a setup code ([Provisioning.md](Provisioning.md)). Registers a
+- `registrationToken`: the token from a setup code ([Provisioning.md](../Provisioning.md)). Registers a
   new entry for the key hash and enrolls the attested keys. A token can register one entry; a login
   that fails before registering (e.g. attestation) doesn't use it up.
 - `id`: the device's current session, for a passphrase change. Moves that session's entry to the key
@@ -91,7 +91,7 @@ Without either, an unknown key hash gets `unregistered` and nothing is attested 
 | `attestKeyChain` | Persistent attest key's certificates (strict mode only) |
 | `signature` | Base64 DER ECDSA P-256/SHA-256 signature of the transcript by the persistent signing key (StrongBox only has to support SHA-256) |
 
-Chains hold at most 8 certificates of at most 4096 bytes each. The request body limit is 32 KiB.
+Chains hold at most 8 certificates of at most 4096 bytes each. Encrypted request bodies may be up to 256 KiB ([README.md](../README.md)).
 
 | Mode | `freshChain` | `signingKeyChain` | `attestKeyChain` |
 | --- | --- | --- | --- |
@@ -112,7 +112,7 @@ The signing key signs these concatenated fields, each encoded as `BE32(length) |
 2. Version byte `0x01`
 3. `UTF8(mode)`: `strict` or `fallback`
 4. The exchange's 16-byte unmasked recipient key ID: the first 16 bytes of SHA-512 of the transport
-   public key the login request is sealed to (see [README.md](README.md))
+   public key the login request is sealed to (see [README.md](../README.md))
 5. The exchange's 32-byte client ephemeral X25519 public key
 6. The decoded `keyHash` bytes
 7. SHA-512 of the signing key's DER SubjectPublicKeyInfo
@@ -144,8 +144,8 @@ The transcript is 476 bytes with SHA-512
 | Status | Meaning | Client action |
 | --- | --- | --- |
 | `ok` | `serverHmac` and `id` as before | See below for when to keep them |
-| `command` | Lock/wipe, delivered without attestation. Also the answer to a login of an enrolled entry that failed attestation, which locks the entry | As before |
-| `unregistered` | The key hash is unknown, and the request carried no valid, unused `registrationToken` (nor an `id`) | Don't retry. On unlock, the passphrase is wrong. During setup, the setup code was invalid, expired or already used |
+| `command` | Wipe, delivered without attestation. Also a lock or wipe for the second login of a passphrase change (with an `id`) | As before |
+| `unregistered` | The key hash is unknown, and the request carried no valid, unused `registrationToken` (nor an `id`). Also the answer to any other login of a locked entry, including one that failed attestation and so locked it: identical, so the answer never confirms that a passphrase was right | Don't retry. On unlock, the passphrase is wrong (or the entry is locked). During setup, the setup code was invalid, expired or already used |
 | `invalid` | Anything else: a malformed request or missing attestation, a transport key older than 2 minutes, a lost race, an enrollment whose evidence doesn't verify, an `id` that isn't the device's current session, or the server can't verify right now | Retry once in a new exchange (with a recent transport key, a new ephemeral key, fresh key and signature); if that is `invalid` too, the login failed (see the key lifecycle below). Never replace keys |
 
 The server doesn't tell clients why a login was rejected.
@@ -178,10 +178,10 @@ same key hash. Delete the stored token once a login is kept.
 
 Unlocks use the committed key set; never delete or replace it, other than as part of a committed
 passphrase change or removal. Only treat a login as successful, and only keep its `id`, once the
-returned secret has unlocked the local data. `unregistered` means the passphrase is wrong. `invalid`
+returned secret has unlocked the local data. `unregistered` means the passphrase is wrong or the entry
+is locked; the client can't and shouldn't tell which. `invalid`
 (after its retry) means a temporary server problem or a malformed request; either way that unlock
-failed. A key hash is only ever attested with the committed key set, so a correctly behaving client
-only gets `command` (lock) from a login once the device no longer matches its pins. Never have two
+failed. Never have two
 logins with the same keys in flight at once.
 
 Key sets under any other alias were left behind by an interrupted attempt; delete them at startup.

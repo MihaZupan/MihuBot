@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace MihuBot.Molly.Api;
 
-/// <summary>The <c>attestation</c> object of a login request. See Attestation.md.</summary>
+/// <summary>The <c>attestation</c> object of a login request. See Attestation/README.md.</summary>
 public sealed class MollyAttestationProof
 {
     [JsonPropertyName("version")]

@@ -19,7 +19,7 @@ molly2://setup?url=<percent-encoded API URL>&key=<discovery key>&token=<registra
 | `token` | The registration token: opaque, unpadded base64url |
 
 The app checks the URL and key with an authenticated discovery, then stores them and the token, and deletes them on a wipe. Once a login with them has unlocked the local data, it doesn't let them be replaced while it has a session. It deletes the token once a login
-is kept ([Attestation.md](Attestation.md)): only the first enrollment uses it. A device that is
+is kept ([Attestation/README.md](Attestation/README.md)): only the first enrollment uses it. A device that is
 already enrolled, but had no stored server configuration, can use any setup code; its token is
 ignored and stays unused.
 

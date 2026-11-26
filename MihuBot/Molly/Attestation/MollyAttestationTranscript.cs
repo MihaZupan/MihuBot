@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 namespace MihuBot.Molly.Attestation;
 
 /// <summary>
-/// The bytes the persistent signing key signs on every attested login. See Attestation.md for the
+/// The bytes the persistent signing key signs on every attested login. See Attestation/README.md for the
 /// exact layout, which clients have to reproduce byte for byte.
 /// </summary>
 public static class MollyAttestationTranscript

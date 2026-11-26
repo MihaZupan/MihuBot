@@ -12,7 +12,7 @@ public sealed class MollyAssociateRequest
     [JsonPropertyName("nickname")]
     public string? Nickname { get; set; }
 
-    /// <summary>The Signal identity to bind the entry to, if any (FileSharing.md, "Identity binding").</summary>
+    /// <summary>The Signal identity to bind the entry to, if any (Sharing/README.md, "Identity binding").</summary>
     [JsonPropertyName("identity")]
     public MollyAssociateIdentity? Identity { get; set; }
 }

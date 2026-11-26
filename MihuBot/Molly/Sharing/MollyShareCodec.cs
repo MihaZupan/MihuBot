@@ -30,7 +30,7 @@ internal sealed record MollyShareManifest(int Threshold, MollyShareTrusteeSlot[]
 internal sealed record MollyShareT(byte[] Share, byte[] Entry, byte[] Aci, byte[] Key, byte Index, int Threshold, int Count);
 
 /// <summary>
-/// Strict parsing of the binary file sharing objects (FileSharing.md). Every object has a fixed size, so
+/// Strict parsing of the binary file sharing objects (Sharing/README.md). Every object has a fixed size, so
 /// lengths are checked exactly and trailing bytes, unknown versions and malformed keys are rejected.
 /// </summary>
 internal static class MollyShareCodec

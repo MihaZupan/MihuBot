@@ -7,7 +7,7 @@ using MihuBot.Helpers.Crypto;
 namespace MihuBot.Molly.Sharing;
 
 /// <summary>
-/// The symmetric primitives of Molly file sharing (FileSharing.md): per-purpose AEAD subkeys,
+/// The symmetric primitives of Molly file sharing (Sharing/README.md): per-purpose AEAD subkeys,
 /// request authentication, party hashes and the at-rest encryption of share rows. SHA-512 throughout.
 /// </summary>
 internal static class MollyShareCrypto

@@ -207,7 +207,7 @@ public sealed class MollyRequestProtector : IDisposable
     /// </summary>
     /// <param name="bucketed">
     /// Whether data longer than <see cref="SmallPaddedDataLength"/> is first padded so the whole plaintext is a multiple
-    /// of <see cref="PaddingBucketLength"/> (see FileSharing.md, "Padding"). Either way, up to
+    /// of <see cref="PaddingBucketLength"/> (see Sharing/README.md, "Padding"). Either way, up to
     /// <see cref="MaxRandomPaddingLength"/> random bytes are added on top.
     /// </param>
     public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyPublicKeyId recipientKeyId, bool bucketed = false)

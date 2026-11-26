@@ -1,9 +1,9 @@
 # Molly transport
 
 All exchanges use `POST /api/molly`, with `application/octet-stream` bodies, over HTTPS.
-Logins additionally require Android key attestation, see [Attestation.md](Attestation.md).
+Logins additionally require Android key attestation, see [Attestation/README.md](Attestation/README.md).
 New devices are set up with a setup code and register with a single-use token, see [Provisioning.md](Provisioning.md).
-Protected file sharing (`share-*` actions) is specified in [FileSharing.md](FileSharing.md).
+Protected file sharing (`share-*` actions) is specified in [Sharing/README.md](Sharing/README.md), its design in [Sharing/Design.md](Sharing/Design.md).
 Encrypted request bodies may be up to 256 KiB.
 
 Responses apply a best-effort timing floor randomly selected per request from 10 ms (inclusive) to 20 ms (exclusive) after rate limiting and reading the request body, including decryption failures and subsequent server errors.
@@ -78,7 +78,7 @@ The length field is always present; zero padding is encoded as `00 00`.
 After authenticating and decrypting, skip the specified number of padding bytes and interpret the remaining bytes as data.
 Reject frames with a missing length field or a padding length larger than the remaining plaintext.
 The padding length and padding bytes are encrypted and authenticated along with the data.
-Messages of at most 1024 bytes of data are padded to 1024 bytes, `share-*` actions round larger data up to 16 KiB multiples, and every message then gets 0-512 random padding bytes on top (see [FileSharing.md](FileSharing.md#padding)).
+Messages of at most 1024 bytes of data are padded to 1024 bytes, `share-*` actions round larger data up to 16 KiB multiples, and every message then gets 0-512 random padding bytes on top (see [Sharing/README.md](Sharing/README.md#padding)).
 
 Encrypt requests with `requestKey`.
 The data is a UTF-8 JSON envelope containing `action`, `timestamp` (current Unix seconds), `nonce` and `data`.

@@ -786,6 +786,30 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     }
 
     [Fact]
+    public async Task LockedEntryLogin_LooksExactlyLikeAWrongPassphrase()
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        var device = new MollyTestDevice();
+        JsonElement registered = await AttestedLoginAsync(keyHash, device);
+        Assert.Equal("ok", Status(registered));
+
+        await _fixture.Service.SetLockRequestedAsync(_fixture.Unprotect(Data(registered).GetProperty("id").GetString()!), lockRequested: true);
+
+        JsonElement locked = await AttestedLoginAsync(keyHash, device, registrationToken: null);
+        JsonElement wrongPassphrase = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), device, registrationToken: null);
+
+        foreach (JsonElement response in (JsonElement[])[locked, wrongPassphrase])
+        {
+            Assert.Equal("unregistered", Status(response));
+            Assert.False(response.TryGetProperty("data", out _));
+        }
+
+        Assert.Equal(PropertyNames(wrongPassphrase), PropertyNames(locked));
+
+        static string[] PropertyNames(JsonElement response) => [.. response.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)];
+    }
+
+    [Fact]
     public async Task LockedEntry_ReceivesLockCommandInsteadOfSecrets()
     {
         (string id, _) = await RegisterAsync();

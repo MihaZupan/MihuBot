@@ -12,7 +12,7 @@ public static class MollyApiActions
     public const string Alert = "alert";
     public const string RegistrationToken = "registration-token";
 
-    // File sharing, see FileSharing.md.
+    // File sharing, see Sharing/README.md.
     public const string ShareReserve = "share-reserve";
     public const string ShareCreate = "share-create";
     public const string ShareUpdate = "share-update";

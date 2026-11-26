@@ -16,7 +16,7 @@ public enum MollyShareState
 }
 
 /// <summary>
-/// A protected file share (FileSharing.md). Parties are stored as keyed party hashes and every other field
+/// A protected file share (Sharing/README.md). Parties are stored as keyed party hashes and every other field
 /// is encrypted under the entry's at-rest key (<see cref="MollyShareCrypto.EncryptAtRest"/>). The large
 /// objects live in their own columns, so listing entries never has to load or decrypt them.
 /// </summary>
@@ -98,7 +98,7 @@ public sealed class MollyShareTrusteeDbEntry
 }
 
 /// <summary>
-/// Per-identity update hint (FileSharing.md, "Update hints"), carried by pings of devices whose entry has the
+/// Per-identity update hint (Sharing/README.md, "Update hints"), carried by pings of devices whose entry has the
 /// identity as its current one. Identities without a row have never been affected by a change.
 /// </summary>
 [Table("mollyShareUpdates")]

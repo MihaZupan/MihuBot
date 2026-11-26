@@ -21,7 +21,7 @@ public sealed class MollyDbEntry
     public byte[] DerivedHash { get; set; } = [];
 
     /// <summary>
-    /// The other key hash of a passphrase change that isn't confirmed yet (Attestation.md, "Passphrase changes"),
+    /// The other key hash of a passphrase change that isn't confirmed yet (Attestation/README.md, "Passphrase changes"),
     /// derived like <see cref="DerivedHash"/>. Both log in until the device uses a session issued by a login with
     /// <see cref="DerivedHash"/>, the hash of the entry's latest login. Null otherwise.
     /// </summary>
@@ -67,7 +67,7 @@ public sealed class MollyDbEntry
 
     /// <summary>
     /// The keyed party hash (<see cref="Sharing.MollyShareCrypto.ComputePartyHash"/>) of the Signal identity the entry
-    /// is bound to for file sharing (FileSharing.md, "Identity binding"). Null while unbound; cleared by a wipe.
+    /// is bound to for file sharing (Sharing/README.md, "Identity binding"). Null while unbound; cleared by a wipe.
     /// </summary>
     public byte[]? SharePartyHash { get; set; }
 

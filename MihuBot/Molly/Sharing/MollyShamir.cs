@@ -6,7 +6,7 @@ namespace MihuBot.Molly.Sharing;
 
 /// <summary>
 /// Bytewise Shamir secret sharing over GF(2^8) with the AES polynomial <c>x^8+x^4+x^3+x+1</c> (0x11B),
-/// as specified in FileSharing.md. Clients split, the server reconstructs.
+/// as specified in Sharing/README.md. Clients split, the server reconstructs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,7 +18,7 @@ namespace MihuBot.Molly.Sharing;
 /// are independent, and each byte is perfectly hidden on its own.
 /// </para>
 /// <para>
-/// Shamir sharing doesn't authenticate shares - a wrong share silently yields a wrong secret. FileSharing.md
+/// Shamir sharing doesn't authenticate shares - a wrong share silently yields a wrong secret. Sharing/README.md
 /// gets that from the SKEY envelopes around every share and from authenticating the reconstructed secret
 /// against DATA_KEY_SEALED_SHAREDENC.
 /// </para>

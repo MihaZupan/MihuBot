@@ -548,7 +548,8 @@ public sealed class MollyService
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Pending blocking commands are returned without requiring attestation. A failed attestation registers,
+    /// Pending blocking commands are returned without requiring attestation, except that a lock is answered like
+    /// a wrong passphrase (<see cref="MollyLoginResult.Locked"/>). A failed attestation registers,
     /// pins and releases nothing, and isn't recorded as a check-in. An enrolled device whose evidence is
     /// rejected for good (<see cref="MollyAttestationFailureExtensions.IsPermanent"/>) is also locked.
     /// </para>
@@ -587,9 +588,9 @@ public sealed class MollyService
 
         if (pending.IsBlocking())
         {
-            // The device is checking in, and it gets the command whether or not it can attest.
+            // The device is checking in, and it gets a wipe whether or not it can attest. A lock is answered like a wrong passphrase.
             await MarkSeenAsync(db, match, cancellationToken);
-            return MollyLoginResult.Blocked(pending);
+            return pending == MollyCommand.Lock ? MollyLoginResult.Locked() : MollyLoginResult.Blocked(pending);
         }
 
         MollyAttestationFailure failure = _attestation.TryDecode(request.Attestation, exchange, out MollyAttestationEvidence? evidence);
@@ -696,8 +697,8 @@ public sealed class MollyService
 
     /// <summary>
     /// An enrolled device failing attestation for good may mean it was tampered with, so the entry is
-    /// locked until an admin unlocks it, and the device is told right away. Like alert notifications,
-    /// the Discord message doesn't say which device it was, nor why - that's in the server log.
+    /// locked until an admin unlocks it. Like any login of a locked entry, it's answered like a wrong passphrase.
+    /// Like alert notifications, the Discord message doesn't say which device it was, nor why - that's in the server log.
     /// Retryable and temporary failures don't get here.
     /// </summary>
     private async Task<MollyLoginResult> LockAfterAttestationFailureAsync(MollyDbContext db, Guid id, MollyAttestationFailure failure, CancellationToken cancellationToken)
@@ -713,12 +714,12 @@ public sealed class MollyService
             await _discordLogger.DebugAsync("Molly login rejected: an enrolled device failed attestation and was locked");
         }
 
-        return MollyLoginResult.Blocked(MollyCommand.Lock, failure);
+        return MollyLoginResult.Locked(failure);
     }
 
     /// <summary>
     /// Moves the entry of the session in <see cref="MollyLoginRequest.Id"/> to the request's unknown key hash: a
-    /// passphrase change (Attestation.md). The login has to be attested by the entry's pinned keys, which stay pinned,
+    /// passphrase change (Attestation/README.md). The login has to be attested by the entry's pinned keys, which stay pinned,
     /// and gets the entry's server secret. The previous key hash keeps logging in until the change is confirmed
     /// (<see cref="MollyDbEntry.PreviousDerivedHash"/>), so a lost response can't lock the device out.
     /// </summary>
@@ -928,7 +929,7 @@ public sealed class MollyService
     }
 
     /// <summary>
-    /// Makes <paramref name="partyHash"/> the entry's current identity (FileSharing.md, "Identity binding"):
+    /// Makes <paramref name="partyHash"/> the entry's current identity (Sharing/README.md, "Identity binding"):
     /// binds it if the entry has none, or replaces a different identity bound at least
     /// <see cref="IdentityRebindCooldown"/> ago. A more recently bound identity stays and the result is
     /// <see cref="MollyIdentityBinding.Cooldown"/>. Only updates the tracked <paramref name="entry"/>; the caller saves it.

@@ -15,6 +15,12 @@ public sealed record MollyLoginResult(MollyResultStatus Status, string? Protecte
     /// <summary>An unknown key hash without anything authorizing its registration.</summary>
     public static MollyLoginResult Unregistered { get; } = new(MollyResultStatus.Unregistered, null, null, MollyCommand.None);
 
+    /// <summary>
+    /// A login of a locked entry. It's answered exactly like <see cref="Unregistered"/> (a wrong passphrase), as only the right
+    /// passphrase gets this far: telling them apart would confirm it to whoever is typing it.
+    /// </summary>
+    public static MollyLoginResult Locked(MollyAttestationFailure attestationFailure = MollyAttestationFailure.None) => new(MollyResultStatus.Unregistered, null, null, MollyCommand.None, attestationFailure);
+
     public static MollyLoginResult Success(string protectedId, byte[] serverHmac, MollyCommand command = MollyCommand.None) =>
         new(MollyResultStatus.Ok, protectedId, serverHmac, command);
 

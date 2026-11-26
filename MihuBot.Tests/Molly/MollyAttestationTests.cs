@@ -31,14 +31,14 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         Assert.Null(result.ProtectedId);
     }
 
-    /// <summary>An enrolled entry failing attestation for good is locked, and the device is told right away.</summary>
+    /// <summary>
+    /// An enrolled entry failing attestation for good is locked, and its login is answered exactly like a wrong passphrase.
+    /// The failure is only kept for the server's log.
+    /// </summary>
     private static void AssertLocked(MollyLoginResult result, MollyAttestationFailure failure)
     {
-        Assert.Equal(MollyResultStatus.Command, result.Status);
-        Assert.Equal(MollyCommand.Lock, result.Command);
         Assert.Equal(failure, result.AttestationFailure);
-        Assert.Null(result.ServerHmac);
-        Assert.Null(result.ProtectedId);
+        Assert.Equal(MollyLoginResult.Unregistered, result with { AttestationFailure = MollyAttestationFailure.None });
     }
 
     /// <summary>Lifts an automatic lock, so the next failure is evaluated rather than answered with the pending lock.</summary>
@@ -528,17 +528,28 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         AssertLocked(await LoginAsync(keyHash, new MollyTestDevice()), MollyAttestationFailure.UnreadablePinnedState);
     }
 
-    [Fact]
-    public async Task BlockingCommands_AreDeliveredWithoutAttestation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PendingCommands_AreAnsweredWithoutAttestation(bool wipe)
     {
         string keyHash = MollyTestKeys.NewKeyHash();
         MollyLoginResult login = await LoginAsync(keyHash, new MollyTestDevice());
-        await Molly.SetLockRequestedAsync(_fixture.Unprotect(login.ProtectedId), lockRequested: true);
+        Guid id = _fixture.Unprotect(login.ProtectedId);
+
+        if (wipe)
+        {
+            await Molly.RequestWipeAsync(id);
+        }
+        else
+        {
+            await Molly.SetLockRequestedAsync(id, lockRequested: true);
+        }
 
         MollyLoginResult result = await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash }, MollyTestDevice.NewExchange(), default);
 
-        Assert.Equal(MollyResultStatus.Command, result.Status);
-        Assert.Equal(MollyCommand.Lock, result.Command);
+        // A wipe has to reach the device, while a lock is answered like a wrong passphrase.
+        Assert.Equal(wipe ? MollyLoginResult.Blocked(MollyCommand.Wipe) : MollyLoginResult.Unregistered, result);
     }
 
     [Fact]
@@ -932,7 +943,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public void Transcript_MatchesTheDocumentedVector()
     {
-        // Mirrors the example in Attestation.md, so client implementations can check their encoding.
+        // Mirrors the example in Attestation/README.md, so client implementations can check their encoding.
         var exchange = new MollyExchangeContext(Enumerable.Repeat((byte)0x11, 16).ToArray(), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), TimeSpan.Zero);
 
         byte[] transcript = MollyAttestationTranscript.Build(
