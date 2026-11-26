@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
 using MihuBot;
 using MihuBot.Components;

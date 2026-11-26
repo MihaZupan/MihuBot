@@ -10,7 +10,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
-using MihuBot.Components;
 using MihuBot.Components.Pages;
 using MihuBot.Helpers;
 using MihuBot.RuntimeUtils;

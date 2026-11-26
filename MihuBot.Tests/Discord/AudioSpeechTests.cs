@@ -6,7 +6,6 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Discord;
-using Discord.Audio;
 using Discord.Audio.Streams;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Time.Testing;

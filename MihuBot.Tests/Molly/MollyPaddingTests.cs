@@ -3,7 +3,6 @@ using System.Text.Json;
 using MihuBot.Helpers.Crypto;
 using MihuBot.Molly;
 using MihuBot.Molly.Api;
-using MihuBot.Molly.Sharing;
 
 namespace MihuBot.Tests.Molly;
 

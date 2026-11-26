@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using MihuBot.DB.GitHub;
-using MihuBot.RuntimeUtils.AI;
 using static MihuBot.RuntimeUtils.AI.AreaLabelDetector;
 
 namespace MihuBot.Tests.RuntimeUtils;

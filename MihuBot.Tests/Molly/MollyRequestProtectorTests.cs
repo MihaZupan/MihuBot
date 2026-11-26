@@ -2,7 +2,6 @@ using System.Buffers.Text;
 using System.IO.Hashing;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using MihuBot.Helpers.Crypto;
 using MihuBot.Molly;
