@@ -20,7 +20,6 @@ public sealed record ModelInfo(
 public sealed class OpenAIService
 {
     public const string DefaultModel = "gpt-6-luna";
-    public const string DefaultAgentModel = "gpt-6.2-sol";
     public const string DefaultAudioModel = "gpt-audio-1.5";
 
     // Standard USD rates, https://developers.openai.com/api/docs/pricing (2026-09-29).

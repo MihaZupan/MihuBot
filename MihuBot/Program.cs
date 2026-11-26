@@ -15,7 +15,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.VectorData;
 using Microsoft.Net.Http.Headers;
 using MihuBot;
-using MihuBot.Agents;
 using MihuBot.Components;
 using MihuBot.Configuration;
 using MihuBot.Discord;
@@ -277,12 +276,6 @@ static void ConfigureServices(WebApplicationBuilder builder, IServiceCollection 
     if (openAIEnabled)
     {
         services.AddSingleton<OpenAIService>();
-    }
-
-    if (builder.Configuration.IsConfigured(OptionalFeatures.Copilot))
-    {
-        services.AddSingleton<CopilotAgentService>();
-        services.AddHostedService(s => s.GetRequiredService<CopilotAgentService>());
     }
 
     services.AddSingleton<UrlShortenerService>();

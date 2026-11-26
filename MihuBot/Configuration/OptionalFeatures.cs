@@ -21,8 +21,6 @@ public static class OptionalFeatures
 
     public static readonly OptionalFeature Telemetry = new("OpenTelemetry traces and metrics", "Telemetry:Endpoint");
 
-    public static readonly OptionalFeature Copilot = new("Local Copilot agent (!agent)", "Copilot:GitHubToken");
-
     public static readonly OptionalFeature AzureOpenAI = new("Personal AI deployments 1", "AzureOpenAI:Key") { RequiresPersonalAzure = true };
     public static readonly OptionalFeature AzureOpenAI2 = new("Personal AI deployments 2", "AzureOpenAI:Key2") { RequiresPersonalAzure = true };
     public static readonly OptionalFeature AzureOpenAI3 = new("Personal AI deployments 3", "AzureOpenAI:Key3") { RequiresPersonalAzure = true };
@@ -98,7 +96,6 @@ public static class OptionalFeatures
         AzureOpenAIWork2,
         AzureStorage,
         AzureStorageRuntimeUtils,
-        Copilot,
         DiscordOAuth,
         GitHub,
         GitHubDatabase,
