@@ -38,7 +38,6 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="11.0.1" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" Version="11.0.1" />
     <PackageReference Include="Microsoft.ML.Tokenizers.Data.Cl100kBase" Version="3.0.0" />
-    <!-- Keep Core aligned with the connector's VectorData dependency; newer versions can be binary-incompatible. -->
     <PackageReference Include="Microsoft.SemanticKernel.Core" Version="1.82.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.4.0" />
     <PackageReference Include="Qdrant.Client" Version="1.20.0" />
@@ -59,12 +58,12 @@
     <PackageReference Include="Telegram.Bot" Version="22.10.5" />
     <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     <PackageReference Include="YoutubeExplode" Version="6.6.3" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="11.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.DotNet.Helix.JobSender" Version="10.0.0-beta.25072.1" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.9.0" />
   </ItemGroup>
 
   <ItemGroup>
