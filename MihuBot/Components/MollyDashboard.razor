@@ -290,20 +290,11 @@ else
                                     }
                                 </dd>
 
-                                <dt class="col-sm-2">Received</dt>
+                                <dt class="col-sm-2">Shares</dt>
                                 <dd class="col-sm-10">
-                                    @sharing.ReceivedAvailable available, @sharing.ReceivedStarted being recovered, @sharing.ReceivedReleased released;
-                                    @sharing.PendingTrusteeRequests trustee requests to approve
-                                </dd>
-
-                                <dt class="col-sm-2">Shared</dt>
-                                <dd class="col-sm-10">
-                                    @sharing.Owned.Length shares
-
-                                    @if (sharing.Reservations > 0)
-                                    {
-                                        <text>, @sharing.Reservations reserved for creation</text>
-                                    }
+                                    Shared: @sharing.Owned.Length @(sharing.Owned.Length == 1 ? "share" : "shares")@(sharing.Reservations > 0 ? $", {sharing.Reservations} reserved for creation" : "").
+                                    Received: @sharing.ReceivedAvailable available, @sharing.ReceivedStarted being recovered, @sharing.ReceivedReleased released;
+                                    @sharing.PendingTrusteeRequests trustee @(sharing.PendingTrusteeRequests == 1 ? "request" : "requests") to approve
                                 </dd>
                             </dl>
 
@@ -337,7 +328,7 @@ else
                                                 <td>
                                                     @if (share.Threshold is { } threshold)
                                                     {
-                                                        <text>@share.Approvals of @threshold needed (@share.Trustees trustees)</text>
+                                                        <text>@share.Approvals of @threshold needed (@share.Trustees @(share.Trustees == 1 ? "trustee" : "trustees"))</text>
                                                     }
                                                 </td>
                                                 <td>
