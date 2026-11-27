@@ -30,8 +30,9 @@ Everything below travels inside the encrypted transport described in [README.md]
   even the same passphrase then produces a new key hash, which needs a new setup code
   ([Provisioning/README.md](../Provisioning/README.md)) to register and enroll a new entry. The
   old entry is orphaned with its pins. The mode is pinned too: a fallback enrollment can't later
-  become strict. If an enrolled entry's login fails attestation (anything but a temporary or retryable
-  failure, or a certificate that isn't valid at the server's current time), the entry is locked until
+  become strict. If an enrolled entry's login fails attestation (including a missing or malformed proof,
+    but not an unsupported proof `version`, a temporary or retryable failure, or a certificate that isn't
+    valid at the server's current time), the entry is locked until
     an admin unlocks it, and the operator is notified. The device's login is answered like a wrong passphrase.
 - Attestation describes the booted software and hardware-enforced state. It doesn't prove the
   absence of runtime exploits. The app identity (package and signer) is reported by the OS rather than

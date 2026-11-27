@@ -54,8 +54,12 @@ public sealed class MollyAttestationService
             return MollyAttestationFailure.MissingProof;
         }
 
-        if (proof.Version != ProtocolVersion ||
-            !MollyAttestationModeExtensions.TryParse(proof.Mode, out MollyAttestationMode mode) ||
+        if (proof.Version != ProtocolVersion)
+        {
+            return MollyAttestationFailure.UnsupportedProtocolVersion;
+        }
+
+        if (!MollyAttestationModeExtensions.TryParse(proof.Mode, out MollyAttestationMode mode) ||
             !MollyService.TryDecodeBase64(proof.Signature, 1, MollyAttestationVerifier.MaxSignatureLength, out byte[] signature) ||
             !TryDecodeChain(proof.FreshChain, required: true, out byte[][] freshChain) ||
             !TryDecodeChain(proof.SigningKeyChain, required: false, out byte[][] signingKeyChain) ||

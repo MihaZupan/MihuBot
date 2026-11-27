@@ -143,6 +143,43 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         AssertOk(await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = Molly.RegistrationTokens.IssueForDashboard().Token }, exchange, default));
     }
 
+    [Theory]
+    [InlineData(MollyAttestationFailure.MissingProof)]
+    [InlineData(MollyAttestationFailure.MalformedProof)]
+    [InlineData(MollyAttestationFailure.UnsupportedProtocolVersion)]
+    public async Task EnrolledDevice_UndecodableProof_LocksUnlessTheVersionIsUnsupported(MollyAttestationFailure failure)
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        var device = new MollyTestDevice();
+        Guid id = _fixture.Unprotect((await LoginAsync(keyHash, device)).ProtectedId);
+
+        MollyExchangeContext exchange = MollyTestDevice.NewExchange();
+        MollyAttestationProof proof = device.CreateProof(Convert.FromBase64String(keyHash), exchange, WithoutEnrollment);
+
+        if (failure == MollyAttestationFailure.MalformedProof)
+        {
+            proof.Signature = "not base64";
+        }
+        else if (failure == MollyAttestationFailure.UnsupportedProtocolVersion)
+        {
+            proof.Version = MollyAttestationService.ProtocolVersion + 1;
+        }
+
+        MollyLoginResult result = await Molly.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = failure == MollyAttestationFailure.MissingProof ? null : proof }, exchange, default);
+
+        if (failure == MollyAttestationFailure.UnsupportedProtocolVersion)
+        {
+            AssertRejected(result, failure);
+            Assert.False((await _fixture.GetEntryAsync(id)).LockRequested);
+            AssertOk(await LoginAsync(keyHash, device, WithoutEnrollment));
+        }
+        else
+        {
+            AssertLocked(result, failure);
+            Assert.True((await _fixture.GetEntryAsync(id)).LockRequested);
+        }
+    }
+
     [Fact]
     public async Task Chains_RepeatingTheRoot_AreRejected()
     {

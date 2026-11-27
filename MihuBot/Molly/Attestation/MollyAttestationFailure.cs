@@ -10,9 +10,11 @@ public enum MollyAttestationFailure
 {
     None,
 
-    // The request isn't an attested login at all.
+    // The request isn't an attested login at all. Rejected for good, as the client always attaches a well-formed proof.
     MissingProof,
     MalformedProof,
+    // The server is updated before clients, so this should not happen; it says nothing about the device.
+    UnsupportedProtocolVersion,
 
     // The login may succeed in a new exchange, e.g. after a transport-level retry re-sealed a signed request.
     TransportKeyTooOld,
@@ -68,19 +70,23 @@ public enum MollyAttestationFailure
 public static class MollyAttestationFailureExtensions
 {
     /// <summary>
-    /// Whether the evidence itself was rejected, as opposed to a request that wasn't attested, one that may
-    /// succeed in a new exchange, or a server that can't verify right now. Locks an enrolled entry.
+    /// Whether the evidence itself was rejected (including a missing or malformed proof), as opposed to an unsupported
+    /// protocol version, a login that may succeed in a new exchange, or a server that can't verify right now. Locks an enrolled entry.
     /// </summary>
-    public static bool IsPermanent(this MollyAttestationFailure failure) => failure is not (
-        MollyAttestationFailure.None or
-        MollyAttestationFailure.MissingProof or
-        MollyAttestationFailure.MalformedProof or
-        MollyAttestationFailure.TransportKeyTooOld or
-        MollyAttestationFailure.ChallengeMismatch or
-        MollyAttestationFailure.InvalidSignature or
-        MollyAttestationFailure.ConcurrentLogin or
-        MollyAttestationFailure.RevocationDataUnavailable or
-        MollyAttestationFailure.RevocationDataStale or
-        // Clock skew or a not yet refreshed short-lived (RKP) certificate, rather than tampering.
-        MollyAttestationFailure.CertificateNotValidNow);
+    public static bool IsPermanent(this MollyAttestationFailure failure)
+    {
+        Debug.Assert(failure != MollyAttestationFailure.None);
+
+        return failure is not (
+            MollyAttestationFailure.None or
+            MollyAttestationFailure.UnsupportedProtocolVersion or
+            MollyAttestationFailure.TransportKeyTooOld or
+            MollyAttestationFailure.ChallengeMismatch or
+            MollyAttestationFailure.InvalidSignature or
+            MollyAttestationFailure.ConcurrentLogin or
+            MollyAttestationFailure.RevocationDataUnavailable or
+            MollyAttestationFailure.RevocationDataStale or
+            // Clock skew or a not yet refreshed short-lived (RKP) certificate, rather than tampering.
+            MollyAttestationFailure.CertificateNotValidNow);
+    }
 }

@@ -613,7 +613,11 @@ public sealed class MollyService
 
         if (failure != MollyAttestationFailure.None)
         {
-            return MollyLoginResult.Failed(failure);
+            _logger.LogWarning("Molly attestation proof of an enrolled device was rejected: {Failure}", failure);
+
+            return failure.IsPermanent()
+                ? await LockAfterAttestationFailureAsync(db, match.Id, failure, cancellationToken)
+                : MollyLoginResult.Failed(failure);
         }
 
         PinnedVerification verified = await VerifyPinnedAttestationAsync(db, match, evidence!, keyHashBytes, exchange, lockOnFailure: true, cancellationToken);
