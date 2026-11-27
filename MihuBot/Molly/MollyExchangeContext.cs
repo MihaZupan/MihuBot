@@ -1,7 +1,5 @@
 #nullable enable
 
-using System.Buffers.Binary;
-
 namespace MihuBot.Molly;
 
 /// <summary>
@@ -22,14 +20,6 @@ namespace MihuBot.Molly;
 /// </param>
 public sealed record MollyExchangeContext(MollyPublicKeyId RecipientKeyId, byte[] ClientEphemeralPublicKey, byte[] RequestNonce, long RequestTimestamp, TimeSpan RecipientKeyAge)
 {
-    /// <summary><see cref="RequestTimestamp"/> as <c>BE64</c>, the encoding every proof binds it in.</summary>
-    public byte[] EncodeRequestTimestamp()
-    {
-        byte[] encoded = new byte[sizeof(long)];
-        BinaryPrimitives.WriteInt64BigEndian(encoded, RequestTimestamp);
-        return encoded;
-    }
-
     /// <summary>The envelope's <c>action</c>, which session proofs are bound to.</summary>
     public string Action { get; init; } = "";
 

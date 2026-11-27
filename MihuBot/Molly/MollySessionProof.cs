@@ -1,5 +1,3 @@
-using System.Buffers;
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 using MihuBot.Helpers.Crypto;
 
@@ -41,27 +39,28 @@ public static class MollySessionProof
     /// </summary>
     public static string Compute(ReadOnlySpan<byte> serverHmac, string sessionId, MollyExchangeContext exchange)
     {
-        var transcript = new ArrayBufferWriter<byte>(256);
+        var transcript = new ValueByteBuilder(stackalloc byte[256]);
 
-        WriteField(transcript, Domain);
-        WriteField(transcript, [Version]);
-        WriteField(transcript, Encoding.UTF8.GetBytes(exchange.Action));
-        WriteField(transcript, exchange.RecipientKeyId.AsSpan());
-        WriteField(transcript, exchange.ClientEphemeralPublicKey);
-        WriteField(transcript, exchange.RequestNonce);
-        WriteField(transcript, exchange.EncodeRequestTimestamp());
-        WriteField(transcript, Encoding.UTF8.GetBytes(sessionId));
+        WriteField(ref transcript, Domain);
+        WriteField(ref transcript, [Version]);
+        WriteField(ref transcript, Encoding.UTF8.GetBytes(exchange.Action));
+        WriteField(ref transcript, exchange.RecipientKeyId.AsSpan());
+        WriteField(ref transcript, exchange.ClientEphemeralPublicKey);
+        WriteField(ref transcript, exchange.RequestNonce);
+        WriteField(ref transcript, exchange.RequestTimestamp);
+        WriteField(ref transcript, Encoding.UTF8.GetBytes(sessionId));
 
         Span<byte> key = stackalloc byte[KeyLength];
         DeriveKey(serverHmac, sessionId, key);
 
         try
         {
-            return Convert.ToBase64String(HMACSHA512.HashData(key, transcript.WrittenSpan));
+            return Convert.ToBase64String(HMACSHA512.HashData(key, transcript.AsSpan()));
         }
         finally
         {
             CryptographicOperations.ZeroMemory(key);
+            transcript.Dispose();
         }
     }
 
@@ -70,10 +69,16 @@ public static class MollySessionProof
         exchange.SessionProof is { } proof &&
         CryptographicOperations.FixedTimeEquals(Compute(serverHmac, sessionId, exchange), proof);
 
-    private static void WriteField(ArrayBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    private static void WriteField(ref ValueByteBuilder writer, scoped ReadOnlySpan<byte> value)
     {
-        BinaryPrimitives.WriteUInt32BigEndian(writer.GetSpan(sizeof(uint)), (uint)value.Length);
-        writer.Advance(sizeof(uint));
-        writer.Write(value);
+        writer.AppendBigEndian((uint)value.Length);
+        writer.Append(value);
+    }
+
+    /// <summary>A field holding <paramref name="value"/> as <c>BE64</c>.</summary>
+    private static void WriteField(ref ValueByteBuilder writer, long value)
+    {
+        writer.AppendBigEndian((uint)sizeof(long));
+        writer.AppendBigEndian(value);
     }
 }

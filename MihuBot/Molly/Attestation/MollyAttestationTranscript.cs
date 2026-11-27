@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 
@@ -26,35 +25,39 @@ public static class MollyAttestationTranscript
     /// </summary>
     public static byte[] Challenge(MollyExchangeContext exchange)
     {
-        var writer = new ArrayBufferWriter<byte>(128);
+        var writer = new ValueByteBuilder(stackalloc byte[256]);
 
-        WriteField(writer, ChallengeDomain);
-        WriteField(writer, [Version]);
-        WriteField(writer, exchange.RecipientKeyId.AsSpan());
-        WriteField(writer, exchange.ClientEphemeralPublicKey);
-        WriteField(writer, exchange.RequestNonce);
-        WriteField(writer, exchange.EncodeRequestTimestamp());
+        WriteField(ref writer, ChallengeDomain);
+        WriteField(ref writer, [Version]);
+        WriteField(ref writer, exchange.RecipientKeyId.AsSpan());
+        WriteField(ref writer, exchange.ClientEphemeralPublicKey);
+        WriteField(ref writer, exchange.RequestNonce);
+        WriteField(ref writer, exchange.RequestTimestamp);
 
-        return SHA512.HashData(writer.WrittenSpan);
+        byte[] challenge = SHA512.HashData(writer.AsSpan());
+        writer.Dispose();
+        return challenge;
     }
 
     public static byte[] Build(MollyAttestationMode mode, MollyExchangeContext exchange, ReadOnlySpan<byte> keyHash, ReadOnlySpan<byte> signingPublicKey, ReadOnlySpan<byte> attestPublicKey, IReadOnlyList<byte[]> freshChain, IReadOnlyList<byte[]> signingKeyChain, IReadOnlyList<byte[]> attestKeyChain)
     {
-        var writer = new ArrayBufferWriter<byte>(512);
+        var writer = new ValueByteBuilder(stackalloc byte[1024]);
 
-        WriteField(writer, Domain);
-        WriteField(writer, [Version]);
-        WriteField(writer, Encoding.ASCII.GetBytes(mode.ToWireValue()));
-        WriteField(writer, exchange.RecipientKeyId.AsSpan());
-        WriteField(writer, exchange.ClientEphemeralPublicKey);
-        WriteField(writer, keyHash);
-        WriteField(writer, SHA512.HashData(signingPublicKey));
-        WriteField(writer, attestPublicKey.IsEmpty ? [] : SHA512.HashData(attestPublicKey));
-        WriteField(writer, HashChain(freshChain));
-        WriteField(writer, HashChain(signingKeyChain));
-        WriteField(writer, HashChain(attestKeyChain));
+        WriteField(ref writer, Domain);
+        WriteField(ref writer, [Version]);
+        WriteField(ref writer, Encoding.ASCII.GetBytes(mode.ToWireValue()));
+        WriteField(ref writer, exchange.RecipientKeyId.AsSpan());
+        WriteField(ref writer, exchange.ClientEphemeralPublicKey);
+        WriteField(ref writer, keyHash);
+        WriteField(ref writer, SHA512.HashData(signingPublicKey));
+        WriteField(ref writer, attestPublicKey.IsEmpty ? [] : SHA512.HashData(attestPublicKey));
+        WriteField(ref writer, HashChain(freshChain));
+        WriteField(ref writer, HashChain(signingKeyChain));
+        WriteField(ref writer, HashChain(attestKeyChain));
 
-        return writer.WrittenSpan.ToArray();
+        byte[] transcript = writer.ToArray();
+        writer.Dispose();
+        return transcript;
     }
 
     /// <summary><c>SHA-512(BE32(count) || (BE32(length) || der)...)</c>, over the exact submitted bytes.</summary>
@@ -76,10 +79,16 @@ public static class MollyAttestationTranscript
         return hash.GetHashAndReset();
     }
 
-    private static void WriteField(ArrayBufferWriter<byte> writer, ReadOnlySpan<byte> value)
+    private static void WriteField(ref ValueByteBuilder writer, scoped ReadOnlySpan<byte> value)
     {
-        BinaryPrimitives.WriteUInt32BigEndian(writer.GetSpan(sizeof(uint)), (uint)value.Length);
-        writer.Advance(sizeof(uint));
-        writer.Write(value);
+        writer.AppendBigEndian((uint)value.Length);
+        writer.Append(value);
+    }
+
+    /// <summary>A field holding <paramref name="value"/> as <c>BE64</c>.</summary>
+    private static void WriteField(ref ValueByteBuilder writer, long value)
+    {
+        writer.AppendBigEndian((uint)sizeof(long));
+        writer.AppendBigEndian(value);
     }
 }
