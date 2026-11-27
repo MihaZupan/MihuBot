@@ -428,6 +428,13 @@ public sealed class MollyAttestationVerifier
         hardware.Algorithm == AndroidKeyDescription.AlgorithmEc &&
         (hardware.EcCurve is { } curve ? curve == AndroidKeyDescription.EcCurveP256 : hardware.KeySize == 256);
 
+    // SHA-256 of avbtool's serialized public keys, not PEM/DER or vbmeta image hashes.
+    // https://android.googlesource.com/platform/external/avb/+/761178607206f4cb2af79ed9eec52d8cbd814adb/test/data/
+    private static bool IsPublicTestBootKey(byte[] verifiedBootKey) => Convert.ToHexString(verifiedBootKey) is
+        "22DE3994532196F61C039E90260D78A93A4C57362C7E789BE928036E80B77C8C" or // testkey_rsa2048.pem
+        "7728E30F50BFA5CEA165F473175A08803F6A8346642B5AA10913E9D9E6DEFEF6" or // testkey_rsa4096.pem
+        "E15E2365469CE672A91D02CC8D9C2F29B787481E574D3B56AC774153D7CED614";   // testkey_rsa8192.pem
+
     /// <summary>Checks the per-login key and extracts the device state it attests to.</summary>
     private MollyAttestationFailure CheckFreshKey(MollyAttestationCertificate leaf, byte[] challenge, out DeviceFacts? facts)
     {
@@ -466,6 +473,11 @@ public sealed class MollyAttestationVerifier
             !rootOfTrust.VerifiedBootKey.AsSpan().ContainsAnyExcept((byte)0))
         {
             return MollyAttestationFailure.BootloaderUnlocked;
+        }
+
+        if (IsPublicTestBootKey(rootOfTrust.VerifiedBootKey))
+        {
+            return MollyAttestationFailure.PublicTestBootKey;
         }
 
         if (hardware.OsVersion is not { } osVersion || hardware.OsPatchLevel is not { } osPatchLevel ||

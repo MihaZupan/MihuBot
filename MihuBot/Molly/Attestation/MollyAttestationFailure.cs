@@ -62,6 +62,7 @@ public enum MollyAttestationFailure
     VerifiedBootChanged,
     ApplicationChanged,
     VersionRollback,
+    PublicTestBootKey,
 }
 
 public static class MollyAttestationFailureExtensions

@@ -258,6 +258,95 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         AssertOk(await LoginAsync(MollyTestKeys.NewKeyHash(), device));
     }
 
+    public static TheoryData<string, MollyAttestationMode, AndroidVerifiedBootState> PublicTestBootKeys
+    {
+        get
+        {
+            string[] fingerprints =
+            [
+                "22DE3994532196F61C039E90260D78A93A4C57362C7E789BE928036E80B77C8C",
+                "7728E30F50BFA5CEA165F473175A08803F6A8346642B5AA10913E9D9E6DEFEF6",
+                "E15E2365469CE672A91D02CC8D9C2F29B787481E574D3B56AC774153D7CED614",
+            ];
+            var cases = new TheoryData<string, MollyAttestationMode, AndroidVerifiedBootState>();
+
+            foreach (string fingerprint in fingerprints)
+            {
+                foreach (MollyAttestationMode mode in (MollyAttestationMode[])[MollyAttestationMode.Strict, MollyAttestationMode.Fallback])
+                {
+                    foreach (AndroidVerifiedBootState state in (AndroidVerifiedBootState[])[AndroidVerifiedBootState.Verified, AndroidVerifiedBootState.SelfSigned])
+                    {
+                        cases.Add(fingerprint, mode, state);
+                    }
+                }
+            }
+
+            return cases;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(PublicTestBootKeys))]
+    public async Task PublicTestBootKeys_EnrollmentIsRejectedWithoutConsumingTheToken(string fingerprint, MollyAttestationMode mode, AndroidVerifiedBootState state)
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        string token = Molly.RegistrationTokens.IssueForDashboard().Token;
+        int entries = await _fixture.CountEntriesAsync();
+        var device = new MollyTestDevice(mode, verifiedBootKey: Convert.FromHexString(fingerprint), verifiedBootState: state);
+
+        MollyLoginResult result = await _fixture.LoginAsync(keyHash, device: device, registrationToken: token);
+
+        AssertRejected(result, MollyAttestationFailure.PublicTestBootKey);
+        Assert.Equal(entries, await _fixture.CountEntriesAsync());
+        AssertOk(await _fixture.LoginAsync(keyHash, device: new MollyTestDevice(mode), registrationToken: token));
+    }
+
+    [Theory]
+    [MemberData(nameof(PublicTestBootKeys))]
+    public async Task PublicTestBootKeys_ExistingLoginsAndPassphraseChangesAreRejected(string fingerprint, MollyAttestationMode mode, AndroidVerifiedBootState state)
+    {
+        string keyHash = MollyTestKeys.NewKeyHash();
+        var device = new MollyTestDevice(mode, verifiedBootState: state);
+        MollyLoginResult enrolled = await LoginAsync(keyHash, device);
+        AssertOk(enrolled);
+        Guid id = _fixture.Unprotect(enrolled.ProtectedId);
+        await Molly.AssociateAsync(enrolled.ProtectedId, "test-key-policy");
+        MollyAttestationState pinned = Assert.Single(await Molly.GetRegisteredUsersAsync(), u => u.Id == id).Attestation!;
+
+        device.VerifiedBootKey = Convert.FromHexString(fingerprint);
+
+        // Simulate an entry enrolled before this policy: the public boot key matches its existing pin.
+        MollyAttestationService attestation = _fixture.CreateAttestationService();
+        MollyExchangeContext exchange = MollyTestDevice.NewExchange();
+        byte[] keyHashBytes = Convert.FromBase64String(keyHash);
+        MollyAttestationProof proof = device.CreateProof(keyHashBytes, exchange, WithoutEnrollment);
+        Assert.Equal(MollyAttestationFailure.None, attestation.TryDecode(proof, exchange, out MollyAttestationEvidence? evidence));
+        MollyAttestationResult verified = attestation.Verify(evidence!, keyHashBytes, exchange, pinned with { VerifiedBootKey = device.VerifiedBootKey });
+        Assert.Equal(MollyAttestationFailure.PublicTestBootKey, verified.Failure);
+        Assert.Null(verified.State);
+
+        string newKeyHash = MollyTestKeys.NewKeyHash();
+        MollyLoginResult rekey = await _fixture.LoginAsync(newKeyHash, device: device, options: WithoutEnrollment, withRegistrationToken: false, sessionId: enrolled.ProtectedId);
+        AssertRejected(rekey, MollyAttestationFailure.PublicTestBootKey);
+        Assert.False((await _fixture.GetEntryAsync(id)).LockRequested);
+
+        AssertLocked(await LoginAsync(keyHash, device, WithoutEnrollment), MollyAttestationFailure.PublicTestBootKey);
+        Assert.True((await _fixture.GetEntryAsync(id)).LockRequested);
+    }
+
+    [Theory]
+    [MemberData(nameof(PublicTestBootKeys))]
+    public async Task PublicTestBootKeys_NearMissesAreNotAnOsAllowlist(string fingerprint, MollyAttestationMode mode, AndroidVerifiedBootState state)
+    {
+        byte[] bootKey = Convert.FromHexString(fingerprint);
+        bootKey[0] ^= 1;
+        var device = new MollyTestDevice(mode, verifiedBootKey: bootKey, verifiedBootState: state);
+        string keyHash = MollyTestKeys.NewKeyHash();
+
+        AssertOk(await LoginAsync(keyHash, device));
+        AssertOk(await LoginAsync(keyHash, device, WithoutEnrollment));
+    }
+
     [Fact]
     public async Task StrictEnrollment_RequiresAnAttestOnlyKey()
     {

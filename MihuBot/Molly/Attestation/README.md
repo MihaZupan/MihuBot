@@ -11,6 +11,9 @@ Everything below travels inside the encrypted transport described in [README.md]
   StrongBox) key on a locked device whose verified boot state is `Verified` (e.g. stock Android) or
   `SelfSigned` (e.g. GrapheneOS), and pins its verified boot key and state. There is no OS allowlist,
   and enrollment can't prove the device was clean at that point.
+- Known public AOSP AVB test keys (RSA-2048, RSA-4096 and RSA-8192) are rejected at enrollment and on
+  every login, even if the bootloader is locked. Anyone can sign a boot image with these keys. This
+  denylist does not detect every public key or insecure build.
 - **Strict mode** (preferred) pins a persistent `PURPOSE_ATTEST_KEY` key. Each login's fresh key must
   be attested *by that key*, which ties the evidence cryptographically to the enrolled hardware.
   Requires Android 12+ and `FEATURE_KEYSTORE_APP_ATTEST_KEY`, which not every device has.

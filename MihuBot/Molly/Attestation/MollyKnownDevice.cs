@@ -10,7 +10,7 @@ namespace MihuBot.Molly.Attestation;
 /// Fingerprints from the GrapheneOS Auditor app (https://github.com/GrapheneOS/Auditor),
 /// <c>AttestationProtocol.java</c>, Copyright © 2018-2025 GrapheneOS, MIT license, and the AVB boot fingerprints
 /// published at https://calyxos.org/install/verify/ (devices listed with only a short ID are omitted). Unknown keys aren't
-/// an error: any OS with a locked bootloader is accepted.
+/// an error: there is no OS allowlist, but known public test boot keys are rejected by the verifier.
 /// </remarks>
 public sealed record MollyKnownDevice(string Model, string Os)
 {
