@@ -11,6 +11,7 @@ public static class MollyApiActions
     public const string Ping = "ping";
     public const string Alert = "alert";
     public const string RegistrationToken = "registration-token";
+    public const string DashboardLogin = "dashboard-login";
 
     // File sharing, see Sharing/README.md.
     public const string ShareReserve = "share-reserve";

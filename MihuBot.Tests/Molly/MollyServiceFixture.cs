@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,7 +17,7 @@ namespace MihuBot.Tests.Molly;
 
 /// <summary>
 /// Test keys. These only ever exist in tests - the real ones come from configuration.
-/// The database key is base64 32-byte key material for <see cref="MollyIdProtector"/> and the at-rest
+/// The database key is base64 32-byte key material for <see cref="MollySealedIdTokens"/> and the at-rest
 /// encryption; the transport private key is a raw 32-byte X25519 private key for
 /// <see cref="MollyRequestProtector"/>, used by the client only to discover rotating transport keys.
 /// </summary>
@@ -39,6 +40,11 @@ public static class MollyTestKeys
     public static byte[] TransportPrivateKeyBytes => Convert.FromBase64String(TransportPrivateKey);
 
     public static byte[] OtherTransportPrivateKeyBytes => Convert.FromBase64String(OtherTransportPrivateKey);
+
+    public static MollySealedIdTokens CreateIdTokens(ReadOnlySpan<byte> databaseKey) =>
+        MollySealedIdTokens.CreateFromDatabaseKey(databaseKey, "MihuBot.Molly.MollyIdProtector.v1"u8, urlSafe: false);
+
+    public static MollySealedIdTokens CreateIdTokens() => CreateIdTokens(DatabaseKeyBytes);
 
     /// <summary>The public half of <see cref="TransportPrivateKey"/>, used to authenticate key discovery.</summary>
     public static byte[] TransportPublicKeyBytes => PublicKeyOf(TransportPrivateKeyBytes);
@@ -63,7 +69,45 @@ public static class MollyServiceTestExtensions
     /// nickname and session rules rather than the identity.
     /// </summary>
     public static Task<MollyCommandResult> AssociateAsync(this MollyService molly, string? protectedId, string? nickname, CancellationToken cancellationToken = default) =>
-        molly.AssociateAsync(protectedId, nickname, TestIdentityPartyHash, cancellationToken);
+        molly.AssociateAsync(protectedId, nickname, TestIdentityPartyHash, MollyTestSessions.ProvenExchange(protectedId, MollyApiActions.Associate), cancellationToken);
+
+    public static Task<MollyCommandResult> IssueRegistrationTokenAsync(this MollyService molly, string? protectedId, CancellationToken cancellationToken = default) =>
+        molly.IssueRegistrationTokenAsync(protectedId, MollyTestSessions.ProvenExchange(protectedId, MollyApiActions.RegistrationToken), cancellationToken);
+
+    public static Task<MollyCommandResult> IssueDashboardLoginAsync(this MollyService molly, string? protectedId, CancellationToken cancellationToken = default) =>
+        molly.IssueDashboardLoginAsync(new MollyDashboardLoginRequest { Id = protectedId }, MollyTestSessions.ProvenExchange(protectedId, MollyApiActions.DashboardLogin), cancellationToken);
+}
+
+/// <summary>
+/// The server secret released with every session the tests log in, so they can prove the session like an unlocked
+/// device does. Session tokens are unique, so one registry serves every fixture.
+/// </summary>
+public static class MollyTestSessions
+{
+    private static readonly ConcurrentDictionary<string, byte[]> s_serverHmacs = new(StringComparer.Ordinal);
+
+    public static void Remember(string sessionId, byte[] serverHmac) => s_serverHmacs[sessionId] = serverHmac;
+
+    public static void Remember(MollyLoginResult login)
+    {
+        if (login is { ProtectedId: { } sessionId, ServerHmac: { } serverHmac })
+        {
+            Remember(sessionId, serverHmac);
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="exchange"/> (or a new one) for <paramref name="action"/>, carrying the session proof an unlocked device
+    /// sends; without a known session (e.g. an invalid one), it carries none.
+    /// </summary>
+    public static MollyExchangeContext ProvenExchange(string? sessionId, string action, MollyExchangeContext? exchange = null)
+    {
+        exchange = (exchange ?? MollyTestDevice.NewExchange()) with { Action = action, SessionProof = null };
+
+        return sessionId is not null && s_serverHmacs.TryGetValue(sessionId, out byte[]? serverHmac)
+            ? exchange with { SessionProof = MollySessionProof.Compute(serverHmac, sessionId, exchange) }
+            : exchange;
+    }
 }
 
 /// <summary>
@@ -78,7 +122,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
     public MollyService Service { get; private set; } = null!;
 
-    public MollyIdProtector IdProtector { get; } = new(MollyTestKeys.DatabaseKeyBytes);
+    public MollySealedIdTokens IdTokens { get; } = MollyTestKeys.CreateIdTokens();
 
     public IDbContextFactory<MollyDbContext> DbFactory { get; private set; } = null!;
 
@@ -88,7 +132,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string? protectedId)
     {
-        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id, out _));
+        Assert.True(IdTokens.TryUnprotect(protectedId, out Guid id, out _));
         return id;
     }
 
@@ -132,7 +176,8 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     /// </param>
     /// <param name="sessionId">A session to move to <paramref name="keyHash"/> if it's unknown, as in a passphrase change.</param>
     /// <param name="registrationToken">A specific registration token to send.</param>
-    public async Task<MollyLoginResult> LoginAsync(string? keyHash, MollyService? service = null, MollyTestDevice? device = null, MollyTestProofOptions? options = null, MollyExchangeContext? exchange = null, bool withRegistrationToken = true, string? sessionId = null, string? registrationToken = null)
+    /// <param name="withSessionProof">Whether to prove <paramref name="sessionId"/> like an unlocked device.</param>
+    public async Task<MollyLoginResult> LoginAsync(string? keyHash, MollyService? service = null, MollyTestDevice? device = null, MollyTestProofOptions? options = null, MollyExchangeContext? exchange = null, bool withRegistrationToken = true, string? sessionId = null, string? registrationToken = null, bool withSessionProof = true)
     {
         service ??= Service;
         device ??= _devices.GetOrAdd(keyHash ?? "", _ => new MollyTestDevice());
@@ -145,7 +190,13 @@ public sealed class MollyServiceFixture : IAsyncLifetime
             ? service.RegistrationTokens.IssueForDashboard().Token
             : null);
 
-        return await service.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = token, Id = sessionId }, exchange, default);
+        exchange = sessionId is not null && withSessionProof
+            ? MollyTestSessions.ProvenExchange(sessionId, MollyApiActions.Login, exchange)
+            : exchange with { Action = MollyApiActions.Login };
+
+        MollyLoginResult result = await service.LoginAsync(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = token, Id = sessionId }, exchange, default);
+        MollyTestSessions.Remember(result);
+        return result;
     }
 
     /// <summary>Uses the device simulated for <paramref name="keyHash"/> for <paramref name="otherKeyHash"/> as well, as after a passphrase change.</summary>
@@ -169,7 +220,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     }
 
     /// <summary>Creates another service over the same database, e.g. to test a different key.</summary>
-    public MollyService CreateService(string databaseKey, string transportPrivateKey, MollyAttestationService? attestation = null, ServiceConfiguration? serviceConfiguration = null)
+    public MollyService CreateService(string databaseKey, string transportPrivateKey, MollyAttestationService? attestation = null, ServiceConfiguration? serviceConfiguration = null, TimeProvider? timeProvider = null)
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -181,7 +232,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
 
         // No Discord connection in tests. MollyService treats that as "don't announce alerts" and
         // skips its maintenance loop, which the tests drive explicitly instead.
-        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), IdProtector, attestation ?? CreateAttestationService(), configuration, discordLogger: null, serviceConfiguration: serviceConfiguration);
+        return new MollyService(DbFactory, _services.GetRequiredService<ILogger<MollyService>>(), attestation ?? CreateAttestationService(), configuration, discordLogger: null, serviceConfiguration: serviceConfiguration, timeProvider: timeProvider);
     }
 
     public async Task<MollyDbEntry> GetEntryAsync(Guid id)

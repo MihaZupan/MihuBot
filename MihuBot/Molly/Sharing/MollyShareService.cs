@@ -101,11 +101,11 @@ public sealed class MollyShareService
         MollyApiActions.ShareStart or MollyApiActions.ShareApprove or MollyApiActions.ShareFetch or MollyApiActions.ShareDelete or MollyApiActions.ShareDismiss;
 
     /// <summary>
-    /// Authorizes the session, then runs the action as the entry's current identity. Session and format failures
-    /// are <c>invalid</c>, a pending lock or wipe is its <c>command</c>, and everything else is status <c>ok</c>
-    /// with a <see cref="MollyShareResponse.Result"/>.
+    /// Authorizes the session and its proof that the device is unlocked, then runs the action as the entry's current
+    /// identity. Session, proof and format failures are <c>invalid</c>, a pending lock or wipe is its <c>command</c>, and
+    /// everything else is status <c>ok</c> with a <see cref="MollyShareResponse.Result"/>.
     /// </summary>
-    public async Task<MollyApiResponse> ExecuteAsync(string action, MollyShareRequest request, CancellationToken cancellationToken)
+    public async Task<MollyApiResponse> ExecuteAsync(string action, MollyShareRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         if (!IsShareAction(action) ||
             !MollyService.TryDecodeBase64(request.Body, 0, MollyServiceExtensions.MaxRequestBodyLength, out byte[] body))
@@ -115,7 +115,7 @@ public sealed class MollyShareService
 
         try
         {
-            MollyCommandResult session = await _molly.AuthorizeShareRequestAsync(request.Id, cancellationToken);
+            MollyCommandResult session = await _molly.AuthorizeShareRequestAsync(request.Id, exchange, cancellationToken);
 
             if (session.Status != MollyResultStatus.Ok)
             {
@@ -166,7 +166,7 @@ public sealed class MollyShareService
             return MollyCommandResult.Invalid;
         }
 
-        return await _molly.AssociateAsync(request.Id, request.Nickname, partyHash, cancellationToken);
+        return await _molly.AssociateAsync(request.Id, request.Nickname, partyHash, exchange, cancellationToken);
     }
 
     /// <summary>

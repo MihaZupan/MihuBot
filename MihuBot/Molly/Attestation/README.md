@@ -38,7 +38,8 @@ Everything below travels inside the encrypted transport described in [README.md]
   absence of runtime exploits. The app identity (package and signer) is reported by the OS rather than
   the secure hardware, so it's only as trustworthy as the verified, locked boot it comes with.
   Background requests (`ping`, `alert`, `associate`) are not attested, but only accept the newest `id`
-  the device has used (see below).
+  the device has used (see below). `associate` and the other actions only an unlocked app may take also
+  need a session proof ([README.md](../README.md#session-proofs)).
 
 ## Freshness
 
@@ -62,14 +63,16 @@ fields, each encoded as `BE32(length) || bytes`:
 3. The exchange's 16-byte unmasked recipient key ID (see the transcript below)
 4. The exchange's 32-byte client ephemeral X25519 public key
 5. The request's decoded 16-byte JSON `nonce` (not the AEAD nonce)
+6. The request's JSON `timestamp` as `BE64` Unix seconds
 
 So the attestation can't predate the transport key, and it's unique to the request: the transport
-only accepts a request nonce once, and each request has a new ephemeral key. Generate the nonce along
-with the ephemeral key, before the fresh key, and send that same nonce in the login request.
+only accepts a request nonce once, only while its timestamp is fresh, and each request has a new ephemeral
+key. Generate the nonce and timestamp along with the ephemeral key, before the fresh key, and send that same
+nonce and timestamp in the login request.
 
 Every login uses a key set known before the passphrase is typed (the committed one, or the one just
 generated for a setup; see the key lifecycle below). So once the transport key
-is known, generate the request's ephemeral key, nonce and fresh key while the KDF runs.
+is known, generate the request's ephemeral key, nonce, timestamp and fresh key while the KDF runs.
 
 ## Login
 
@@ -80,7 +83,8 @@ if the key hash is unknown:
   new entry for the key hash and enrolls the attested keys. A token can register one entry; a login
   that fails before registering (e.g. attestation) doesn't use it up.
 - `id`: the device's current session, for a passphrase change. Moves that session's entry to the key
-  hash instead of registering one; see "Passphrase changes" below.
+  hash instead of registering one; see "Passphrase changes" below. Requires the envelope's `proof` of that session
+  for action `login` ([README.md](../README.md#session-proofs)).
 
 Without either, an unknown key hash gets `unregistered` and nothing is attested or registered.
 
@@ -131,15 +135,15 @@ always 64 bytes; only field 8 can be empty.
 
 Fields 4 and 5 bind the proof to the transport exchange it is sent in, so it can't be replayed inside
 an exchange whose response someone else can decrypt. The transport has to expose the ephemeral key and
-recipient key ID before sealing: generate the request's ephemeral key and nonce first, then the fresh
-key, sign, then seal the request with that same ephemeral key and nonce. A retry needs a new
+recipient key ID before sealing: generate the request's ephemeral key, nonce and timestamp first, then the fresh
+key, sign, then seal the request with that same ephemeral key, nonce and timestamp. A retry needs a new
 ephemeral key, so it also needs a new fresh key and signature: retry at the login level, never by
 re-sealing an already signed request in the transport (such a request gets `invalid`).
 
 Test vector (arbitrary inputs): mode `strict`, recipient key ID `11` × 16, ephemeral key `22` × 32,
-request nonce `00..0F`, key hash `33` × 32, signing key SPKI `44 44`, attest key SPKI `55`, fresh
+request nonce `00..0F`, request timestamp `1767225600`, key hash `33` × 32, signing key SPKI `44 44`, attest key SPKI `55`, fresh
 chain `[66 66 66]`, empty signing key chain, attest key chain `[77], [88 88]`. The attestation challenge is
-`CFBD28E629A395A7F871D59FD09A584662543AC1DFB25208B5B65611C5623CD1B5D93817A73BA1FF3636442AD4056101EF2193036B21DAAA4B6A4CC68CD20A2E`.
+`41476627A09EBEAC196615C15DFBC0C36C62B89F46C9CBC63FDBA5CC46DDE65F26E0C24B079B70C259AAEDC83FA62C2D2E1256479B3A8120743CE5EECDC102E0`.
 The transcript is 476 bytes with SHA-512
 `51CC23F02A83400EF21A1E8984E573DD091AF68DF35ED531CA7721381AEC4DC09D0C7EE39B1D651562901F1793D252293D7C2C526B52AD7CC0518BF209A34891`.
 
@@ -150,7 +154,7 @@ The transcript is 476 bytes with SHA-512
 | `ok` | `serverHmac` and `id` as before | See below for when to keep them |
 | `command` | Wipe, delivered without attestation. Also a lock or wipe for the second login of a passphrase change (with an `id`) | As before |
 | `unregistered` | The key hash is unknown, and the request carried no valid, unused `registrationToken` (nor an `id`). Also the answer to any other login of a locked entry, including one that failed attestation and so locked it: identical, so the answer never confirms that a passphrase was right | Don't retry. On unlock, the passphrase is wrong (or the entry is locked). During setup, the setup code was invalid, expired or already used |
-| `invalid` | Anything else: a malformed request or missing attestation, a transport key older than 2 minutes, a lost race, an enrollment whose evidence doesn't verify, an `id` that isn't the device's current session, or the server can't verify right now | Retry once in a new exchange (with a recent transport key, a new ephemeral key, fresh key and signature); if that is `invalid` too, the login failed (see the key lifecycle below). Never replace keys |
+| `invalid` | Anything else: a malformed request or missing attestation, a transport key older than 2 minutes, a lost race, an enrollment whose evidence doesn't verify, an `id` that isn't the device's current session or lacks its proof, or the server can't verify right now | Retry once in a new exchange (with a recent transport key, a new ephemeral key, fresh key and signature); if that is `invalid` too, the login failed (see the key lifecycle below). Never replace keys |
 
 The server doesn't tell clients why a login was rejected.
 None of these is a wipe command or a reason to clear an existing background session.
@@ -195,8 +199,9 @@ Key sets under any other alias were left behind by an interrupted attempt; delet
 A passphrase change keeps the entry, its pins and its server secret, and moves it to the new key
 hash. It takes two logins, each in its own exchange: one with the old passphrase to unlock (and keep
 that login's `id`), then, within 10 minutes, one with the new key hash, a new HMAC key, the
-**committed** key set and that `id`. The server only accepts the `id` of the entry's latest login,
-as proof the device just knew the old passphrase. It verifies the second login against the entry's pins, like any login of an
+**committed** key set, that `id` and its session proof. The server only accepts the `id` of the entry's latest login,
+as proof the device just knew the old passphrase, and the proof shows the app is still unlocked with it. It verifies the
+second login against the entry's pins, like any login of an
 enrolled entry, but a failure only gets `invalid` and doesn't lock the entry (devices keep `id`s in
 the clear, so a copied one mustn't be enough to lock it). If the change fails, delete only the new HMAC
 key and commit nothing; on success, commit the new HMAC key's alias and delete the old HMAC key.

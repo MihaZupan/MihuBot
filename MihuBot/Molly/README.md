@@ -6,6 +6,52 @@ New devices are set up with a setup code and register with a single-use token, s
 Protected file sharing (`share-*` actions) is specified in [Sharing/README.md](Sharing/README.md), its design in [Sharing/Design.md](Sharing/Design.md).
 Encrypted request bodies may be up to 256 KiB.
 
+## Dashboard login links
+
+`dashboard-login` takes `data: {"id":"<session token>"}` with the envelope's session `proof` (see "Session proofs"). A current,
+unlocked device session receives
+`status: "ok"` and the absolute dashboard URL in `data.url`. Only if an admin enabled **Allow dashboard login** for
+that device in the dashboard's expanded actions does the URL carry a `login` query parameter. The opt-in defaults
+to off and cannot be changed by shared-password or client-link viewers. Invalid sessions and blocking commands
+follow the usual API rules.
+
+The `login` query is opaque and grants the same non-admin dashboard access as the shared password, including
+access to all devices. It expires after 30 seconds and is sealed under a per-process key, so a restart also
+invalidates it. Opting out, locking, wiping, or deleting the issuing device prevents unopened links from being
+used. Opening a valid link removes the query from browser history and logs that dashboard circuit in; an
+already-open dashboard stays logged in. Clients must authenticate the API response and check the URL against
+their provisioned server origin before opening it. Treat a URL with a `login` query as a credential; do not
+store or share it.
+
+## Session proofs
+
+Devices keep their session token (`id`) in the clear, so a locked device can keep sending `ping` and `alert`.
+Actions only an unlocked app may take also carry the request envelope's `proof` (next to `nonce` and `timestamp`;
+the session `id` stays in `data`): `dashboard-login`, `registration-token`, `associate`, every `share-*` action, and
+the passphrase-change `login` that sends an `id` (Attestation/README.md). Other requests omit it.
+
+After a login's secret has unlocked the local data, the client derives the session's proof key and keeps it in
+memory only, discarding it when the app locks. The key is never sent; the server derives it again from the entry's
+stored secret:
+
+```text
+proofKey = HKDF-SHA512(IKM=serverHmac, salt=UTF8(id), info=UTF8("MihuBot.Molly.SessionProofKey"), length=64)
+proof    = base64(HMAC-SHA512(proofKey, transcript))
+```
+
+`serverHmac` is the raw secret from that login's response, and `id` is the exact session token string. The transcript
+encodes each field as `BE32(length) || bytes`, in this order: `UTF8("MihuBot.Molly.SessionProof")`, the version byte
+`01`, `UTF8(action)`, the exchange's unmasked 16-byte recipient key ID, 32-byte client ephemeral public key and
+decoded 16-byte JSON request nonce, the JSON request `timestamp` as `BE64` Unix seconds, and `UTF8(id)`. `proof` is
+standard padded base64 of the 64-byte MAC. Every exchange, including retries, needs a new proof.
+
+A missing or wrong proof is answered like an invalid session (`invalid`) without recording a check-in or activating
+the session. A pending lock or wipe is still returned as the `command`, with or without a proof. The key changes with
+every login. Test vector: `serverHmac` bytes `00..3F`, `id` `"session-id"`, action `dashboard-login`, recipient key ID
+`11` × 16, ephemeral key `22` × 32, nonce `00..0F` and timestamp `1767225600` give
+`proofKey = CE9E37D5AE1556B59BB815FD476F2254A2D8610ABBDF2EDB1258F969925E71591692F92A1921DACDB26A52AE2805F3EAD9F197AE8FCEB6D3EE61E6C2E3B41BCF` and
+`proof = SKajUvGvn2S0oMHMhXE9hF/p9pyRAwnSWYPsfZFIoucgnAAc66zggdQTSjDeH57naEia8vqSEzivmtA9ByDhQw==`.
+
 Responses apply a best-effort timing floor randomly selected per request from 10 ms (inclusive) to 20 ms (exclusive) after rate limiting and reading the request body, including decryption failures and subsequent server errors.
 Rate limiting and body reading do not count toward the floor; rejections or errors during those steps are not delayed.
 Processing time counts toward this floor; slower requests incur no additional delay, and disconnecting does not cancel the wait.
@@ -81,9 +127,13 @@ The padding length and padding bytes are encrypted and authenticated along with 
 Messages of at most 1024 bytes of data are padded to 1024 bytes, `share-*` actions round larger data up to 16 KiB multiples, and every message then gets 0-512 random padding bytes on top (see [Sharing/README.md](Sharing/README.md#padding)).
 
 Encrypt requests with `requestKey`.
-The data is a UTF-8 JSON envelope containing `action`, `timestamp` (current Unix seconds), `nonce` and `data`.
+The data is a UTF-8 JSON envelope containing `action`, `timestamp` (current Unix seconds), `nonce`, an optional `proof`
+(see "Session proofs") and `data`.
 The JSON `nonce` is standard padded base64 of 16 fresh random bytes and is separate from the AEAD nonce.
 The server checks timestamp freshness and rejects recently used request nonces.
+Proofs bound to an exchange (attestation challenges, session proofs and file sharing identity proofs) cover both the
+nonce and the `timestamp`, so a nonce the server no longer remembers can't be reused with an older proof. Choose both
+before building such a proof, and send the same values in the envelope.
 
 Response bytes are `nonce (24) || ciphertext || tag (16)`, encrypted with `responseKey`; the data after removing padding is a UTF-8 JSON `status`/`data` envelope.
 The separate directional keys prevent a request ciphertext from authenticating as a response.

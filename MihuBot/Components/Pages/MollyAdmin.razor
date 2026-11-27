@@ -3,14 +3,22 @@
 @using MihuBot.Configuration
 @using MihuBot.Helpers.Crypto
 @using MihuBot.Molly
-@* Injected (and otherwise unused) so the router shows the FeatureUnavailable page when Molly is disabled. *@
+@* Required so the router shows FeatureUnavailable when Molly is disabled. *@
 @inject MollyService molly
 @inject IConfigurationService configuration
+@inject NavigationManager navigation
 @rendermode InteractiveServer
 
 <PageTitle>Molly</PageTitle>
 
 <h1>Molly</h1>
+
+@if (_loginLinkFailed)
+{
+    <div class="alert alert-danger" role="alert">
+        This login link is invalid, expired, or no longer allowed. Request a new link from an enabled device.
+    </div>
+}
 
 @if (_unlocked)
 {
@@ -49,11 +57,15 @@ else
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationState { get; set; }
 
+    [SupplyParameterFromQuery(Name = "login")]
+    private string? LoginToken { get; set; }
+
     private readonly LoginModel Login = new();
 
     private bool _isAdmin;
     private bool _unlocked;
     private bool _loginFailed;
+    private bool _loginLinkFailed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -65,10 +77,28 @@ else
         _unlocked = _isAdmin;
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        // Only the interactive circuit retains the login. Prerendering must not disclose device data.
+        if (!RendererInfo.IsInteractive || string.IsNullOrEmpty(LoginToken))
+        {
+            return;
+        }
+
+        if (!_unlocked)
+        {
+            _unlocked = await molly.TryDashboardLoginAsync(LoginToken);
+            _loginLinkFailed = !_unlocked;
+        }
+
+        navigation.NavigateTo(navigation.GetUriWithQueryParameter("login", (string?)null), replace: true);
+    }
+
     private void Unlock()
     {
         _unlocked = CheckPassword(Login.Password);
         _loginFailed = !_unlocked;
+        _loginLinkFailed = false;
         Login.Password = null;
     }
 

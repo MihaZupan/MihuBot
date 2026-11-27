@@ -216,7 +216,7 @@ public sealed class MollyShareIdentityTests(MollyServiceFixture fixture) : Molly
 
         async Task<MollyCommandResult> AssociateAsync(Func<MollyExchangeContext, MollyAssociateIdentity> createIdentity, MollyExchangeContext? exchange = null)
         {
-            exchange ??= _client.NewExchange(transportPublicKey);
+            exchange = MollyTestSessions.ProvenExchange(party.Session, MollyApiActions.Associate, exchange ?? _client.NewExchange(transportPublicKey));
             var request = new MollyAssociateRequest { Id = party.Session, Nickname = "unverified", Identity = createIdentity(exchange) };
             return await _shares.AssociateAsync(request, exchange, default);
         }
@@ -259,11 +259,16 @@ public sealed class MollyShareIdentityTests(MollyServiceFixture fixture) : Molly
     }
 
     [Fact]
-    public async Task ShareRequests_NeedAUsableSessionAndABase64Body()
+    public async Task ShareRequests_NeedAUsableSessionItsProofAndABase64Body()
     {
         Party party = await NewPartyAsync();
 
-        Task<JsonElement> SendAsync(string? id, string? body) => _client.SendAsync(MollyApiActions.ShareSync, new MollyShareRequest { Id = id, Body = body });
+        Task<JsonElement> SendAsync(string? id, string? body, string proofAction = MollyApiActions.ShareSync, bool withProof = true)
+        {
+            MollyExchangeContext exchange = MollyTestSessions.ProvenExchange(id, proofAction, _client.NewExchange());
+            exchange = withProof ? exchange with { Action = MollyApiActions.ShareSync } : exchange with { Action = MollyApiActions.ShareSync, SessionProof = null };
+            return _client.SendAsync(MollyApiActions.ShareSync, new MollyShareRequest { Id = id, Body = body }, exchange);
+        }
 
         Assert.Equal("ok", Result(await SendAsync(party.Session, "")));
         Assert.Equal("rejected", Result(await SendAsync(party.Session, "AA==")));
@@ -271,5 +276,7 @@ public sealed class MollyShareIdentityTests(MollyServiceFixture fixture) : Molly
         Assert.Equal("invalid", Status(await SendAsync(party.Session, "not base64")));
         Assert.Equal("invalid", Status(await SendAsync(null, "")));
         Assert.Equal("invalid", Status(await SendAsync(party.Session[..^4] + "AAAA", "")));
+        Assert.Equal("invalid", Status(await SendAsync(party.Session, "", withProof: false)));
+        Assert.Equal("invalid", Status(await SendAsync(party.Session, "", proofAction: MollyApiActions.ShareGet)));
     }
 }

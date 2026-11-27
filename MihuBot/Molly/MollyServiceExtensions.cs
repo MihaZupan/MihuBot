@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -31,7 +32,6 @@ public static class MollyServiceExtensions
     {
         services.TryAddSingleton<MollyRateLimiter>();
         services.TryAddSingleton<MollyResponseTimingFloor>();
-        services.TryAddSingleton<MollyIdProtector>();
         services.TryAddSingleton<MollyRequestProtector>();
         services.TryAddSingleton<ProtonMailEncryptor>();
         services.TryAddSingleton<MollyAttestationTrustAnchors>();
@@ -81,7 +81,7 @@ public static class MollyServiceExtensions
 
             MollyApiResponse response = request.Action == MollyApiActions.TransportKey
                 ? new MollyApiResponse { Status = MollyResultStatus.Ok.ToWireValue(), Data = protector.GetTransportKey() }
-                : await ExecuteAsync(molly, shares, request, exchange, cancellationToken);
+                : await ExecuteAsync(molly, shares, request, exchange, context.Request, cancellationToken);
 
             context.Response.Headers.CacheControl = "no-store";
             byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId, bucketed: MollyShareService.IsShareAction(request.Action));
@@ -94,7 +94,7 @@ public static class MollyServiceExtensions
         }
     }
 
-    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyShareService shares, MollyApiRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
+    private static async Task<MollyApiResponse> ExecuteAsync(MollyService molly, MollyShareService shares, MollyApiRequest request, MollyExchangeContext exchange, HttpRequest httpRequest, CancellationToken cancellationToken)
     {
         switch (request.Action)
         {
@@ -175,12 +175,29 @@ public static class MollyServiceExtensions
                     return Invalid();
                 }
 
-                MollyCommandResult result = await molly.IssueRegistrationTokenAsync(data.Id, cancellationToken);
+                MollyCommandResult result = await molly.IssueRegistrationTokenAsync(data.Id, exchange, cancellationToken);
 
                 return ToResponse(result, () => new MollyRegistrationTokenResponse
                 {
                     Token = result.RegistrationToken?.Token,
                     ExpiresAt = result.RegistrationToken is { } token ? new DateTimeOffset(token.ExpiresAt).ToUnixTimeSeconds() : null,
+                });
+            }
+
+            case MollyApiActions.DashboardLogin:
+            {
+                if (GetData<MollyDashboardLoginRequest>(request) is not { } data)
+                {
+                    return Invalid();
+                }
+
+                MollyCommandResult result = await molly.IssueDashboardLoginAsync(data, exchange, cancellationToken);
+
+                return ToResponse(result, () => new MollyDashboardLoginResponse
+                {
+                    Url = result.Status == MollyResultStatus.Ok
+                        ? UriHelper.BuildAbsolute(httpRequest.Scheme, httpRequest.Host, httpRequest.PathBase, "/molly", result.DashboardLoginToken is { } token ? QueryString.Create("login", token) : default)
+                        : null,
                 });
             }
 
@@ -200,7 +217,7 @@ public static class MollyServiceExtensions
                     return Invalid();
                 }
 
-                return await shares.ExecuteAsync(request.Action, data, cancellationToken);
+                return await shares.ExecuteAsync(request.Action, data, exchange, cancellationToken);
             }
 
             default:

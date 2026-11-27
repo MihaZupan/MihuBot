@@ -35,8 +35,9 @@ they expire. So after a server restart, a token redeemed within its lifetime cou
 
 ## `registration-token`
 
-Request data: `{"id": "<session>"}`, with the usual session rules (superseded `id`s get `invalid`,
-pending lock/wipe commands are returned instead).
+Request data: `{"id": "<session>"}`, with the envelope's session `proof` (see [README.md](../README.md#session-proofs))
+and the usual session rules (superseded `id`s or missing or wrong proofs get `invalid`, pending lock/wipe commands are
+returned instead).
 
 A successful response's data contains `token` and `expiresAt` (Unix seconds). Each device may request
 10 tokens per 24 hours, and all devices together 100 (counted in memory, so a restart resets them); beyond that the

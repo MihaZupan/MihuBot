@@ -23,6 +23,7 @@ public sealed class MollyLoginRequest
     /// <summary>
     /// The device's current session, which moves its entry to an unknown key hash instead of registering a new one
     /// (a passphrase change, Attestation/README.md). Takes precedence over <see cref="RegistrationToken"/>. Ignored for known key hashes.
+    /// Requires the envelope's session proof of this session (README.md, "Session proofs").
     /// </summary>
     [JsonPropertyName("id")]
     public string? Id { get; set; }

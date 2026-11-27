@@ -23,6 +23,12 @@ public sealed class MollyApiRequest
     [JsonPropertyName("nonce")]
     public string? Nonce { get; set; }
 
+    /// <summary>
+    /// The session proof of actions only an unlocked app may take (README.md, "Session proofs"); omitted otherwise.
+    /// </summary>
+    [JsonPropertyName("proof")]
+    public string? Proof { get; set; }
+
     /// <summary>The action specific payload. <see cref="JsonValueKind.Undefined"/> when omitted.</summary>
     [JsonPropertyName("data")]
     public JsonElement Data { get; set; }

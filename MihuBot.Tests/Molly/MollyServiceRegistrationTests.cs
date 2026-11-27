@@ -29,7 +29,6 @@ public sealed class MollyServiceRegistrationTests
         var isService = provider.GetRequiredService<IServiceProviderIsService>();
 
         Assert.NotNull(provider.GetService<MollyRateLimiter>());
-        Assert.NotNull(provider.GetService<MollyIdProtector>());
         Assert.NotNull(provider.GetService<MollyRequestProtector>());
 
         // These also need a database and loggers, so only their registration is checked.

@@ -1070,7 +1070,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
     public void Transcript_MatchesTheDocumentedVector()
     {
         // Mirrors the example in Attestation/README.md, so client implementations can check their encoding.
-        var exchange = new MollyExchangeContext(Enumerable.Repeat((byte)0x11, 16).ToArray(), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(Enumerable.Repeat((byte)0x11, 16).ToArray(), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), 1767225600, TimeSpan.Zero);
 
         byte[] transcript = MollyAttestationTranscript.Build(
             MollyAttestationMode.Strict,
@@ -1088,7 +1088,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
         Assert.Equal(DocumentedTranscriptSha512, Convert.ToHexString(SHA512.HashData(transcript)));
     }
 
-    private const string DocumentedChallenge = "CFBD28E629A395A7F871D59FD09A584662543AC1DFB25208B5B65611C5623CD1B5D93817A73BA1FF3636442AD4056101EF2193036B21DAAA4B6A4CC68CD20A2E";
+    private const string DocumentedChallenge = "41476627A09EBEAC196615C15DFBC0C36C62B89F46C9CBC63FDBA5CC46DDE65F26E0C24B079B70C259AAEDC83FA62C2D2E1256479B3A8120743CE5EECDC102E0";
 
     private const string DocumentedTranscriptSha512 = "51CC23F02A83400EF21A1E8984E573DD091AF68DF35ED531CA7721381AEC4DC09D0C7EE39B1D651562901F1793D252293D7C2C526B52AD7CC0518BF209A34891";
 

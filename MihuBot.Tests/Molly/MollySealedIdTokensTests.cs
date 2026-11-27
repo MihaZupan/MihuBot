@@ -4,9 +4,9 @@ using MihuBot.Molly;
 
 namespace MihuBot.Tests.Molly;
 
-public sealed class MollyIdProtectorTests
+public sealed class MollySealedIdTokensTests
 {
-    private readonly MollyIdProtector _protector = new(MollyTestKeys.DatabaseKeyBytes);
+    private readonly MollySealedIdTokens _tokens = MollyTestKeys.CreateIdTokens();
 
     [Fact]
     public void ProtectedIds_RoundTripWithTheirIssueTime()
@@ -14,7 +14,7 @@ public sealed class MollyIdProtectorTests
         Guid id = Guid.NewGuid();
         DateTime issuedAt = DateTime.UtcNow;
 
-        Assert.True(_protector.TryUnprotect(_protector.Protect(id, issuedAt), out Guid unprotected, out DateTime unprotectedIssuedAt));
+        Assert.True(_tokens.TryUnprotect(_tokens.Protect(id, issuedAt), out Guid unprotected, out DateTime unprotectedIssuedAt));
         Assert.Equal(id, unprotected);
         Assert.Equal(issuedAt.Ticks, unprotectedIssuedAt.Ticks);
     }
@@ -28,14 +28,14 @@ public sealed class MollyIdProtectorTests
         using var aead = new XAesGcm(key);
         string token = Convert.ToBase64String(aead.Encrypt(Guid.NewGuid().ToByteArray()));
 
-        Assert.False(_protector.TryUnprotect(token, out _, out _));
+        Assert.False(_tokens.TryUnprotect(token, out _, out _));
     }
 
     [Fact]
     public void Tokens_DoNotRevealTheId()
     {
         Guid id = Guid.NewGuid();
-        string token = _protector.Protect(id, DateTime.UtcNow);
+        string token = _tokens.Protect(id, DateTime.UtcNow);
 
         Assert.DoesNotContain(id.ToString(), token, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(id.ToString("N"), token, StringComparison.OrdinalIgnoreCase);
@@ -49,8 +49,8 @@ public sealed class MollyIdProtectorTests
     {
         Guid id = Guid.NewGuid();
 
-        string first = _protector.Protect(id, DateTime.UtcNow);
-        string second = _protector.Protect(id, DateTime.UtcNow);
+        string first = _tokens.Protect(id, DateTime.UtcNow);
+        string second = _tokens.Protect(id, DateTime.UtcNow);
 
         Assert.NotEqual(first, second);
         Assert.Equal(id, Unprotect(first));
@@ -61,9 +61,9 @@ public sealed class MollyIdProtectorTests
     public void TokensFromAnotherServerKey_AreRejected()
     {
         // The key is derived from the server key, so tokens don't cross deployments with different keys.
-        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string token = MollyTestKeys.CreateIdTokens(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
 
-        Assert.False(_protector.TryUnprotect(token, out _, out _));
+        Assert.False(_tokens.TryUnprotect(token, out _, out _));
     }
 
     [Fact]
@@ -72,22 +72,22 @@ public sealed class MollyIdProtectorTests
         // A new process with the same server key has to keep accepting already issued tokens,
         // so clients that aren't logged in can keep pinging across a restart.
         Guid id = Guid.NewGuid();
-        string token = new MollyIdProtector(MollyTestKeys.DatabaseKeyBytes).Protect(id, DateTime.UtcNow);
+        string token = MollyTestKeys.CreateIdTokens().Protect(id, DateTime.UtcNow);
 
-        Assert.True(_protector.TryUnprotect(token, out Guid unprotected, out _));
+        Assert.True(_tokens.TryUnprotect(token, out Guid unprotected, out _));
         Assert.Equal(id, unprotected);
     }
 
     [Fact]
     public void TheKey_MustBeLongEnough()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new MollyIdProtector(new byte[31]));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MollyTestKeys.CreateIdTokens(new byte[31]));
     }
 
     [Fact]
     public void TamperedTokens_AreRejected()
     {
-        string token = _protector.Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string token = _tokens.Protect(Guid.NewGuid(), DateTime.UtcNow);
         byte[] bytes = Convert.FromBase64String(token);
 
         // Flipping any single bit has to invalidate the MAC.
@@ -96,7 +96,7 @@ public sealed class MollyIdProtectorTests
             byte[] tampered = (byte[])bytes.Clone();
             tampered[i] ^= 0x01;
 
-            Assert.False(_protector.TryUnprotect(Convert.ToBase64String(tampered), out _, out _), $"Byte {i} was not covered by the MAC.");
+            Assert.False(_tokens.TryUnprotect(Convert.ToBase64String(tampered), out _, out _), $"Byte {i} was not covered by the MAC.");
         }
     }
 
@@ -108,14 +108,39 @@ public sealed class MollyIdProtectorTests
     [InlineData("AAAA")]
     public void MalformedTokens_AreRejected(string? token)
     {
-        Assert.False(_protector.TryUnprotect(token, out _, out _));
+        Assert.False(_tokens.TryUnprotect(token, out _, out _));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedTokensAtExpectedLength_AreRejectedWithoutThrowing(bool urlSafe)
+    {
+        MollySealedIdTokens tokens = MollySealedIdTokens.CreateEphemeral(urlSafe);
+        string valid = tokens.Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string[] malformed =
+        [
+            "!" + valid[1..],
+            valid[..(valid.Length / 2)] + "\0" + valid[(valid.Length / 2 + 1)..],
+            valid[..^1] + "\uD800",
+            valid[..^1] + " ",
+            valid[..^4] + "====",
+            new string('A', valid.Length),
+        ];
+
+        foreach (string token in malformed)
+        {
+            Assert.False(tokens.TryUnprotect(token, out Guid id, out DateTime timestamp));
+            Assert.Equal(Guid.Empty, id);
+            Assert.Equal(DateTime.MinValue, timestamp);
+        }
     }
 
     [Fact]
     public void Tokens_HaveTheExpectedLayout()
     {
         // 24 byte XAES-256-GCM nonce + 16 byte encrypted Guid + 8 byte encrypted timestamp + 16 byte tag.
-        byte[] bytes = Convert.FromBase64String(_protector.Protect(Guid.NewGuid(), DateTime.UtcNow));
+        byte[] bytes = Convert.FromBase64String(_tokens.Protect(Guid.NewGuid(), DateTime.UtcNow));
 
         Assert.Equal(24 + 16 + 8 + 16, bytes.Length);
     }
@@ -127,7 +152,7 @@ public sealed class MollyIdProtectorTests
 
         for (int i = 0; i < 1000; i++)
         {
-            byte[] bytes = Convert.FromBase64String(_protector.Protect(Guid.NewGuid(), DateTime.UtcNow));
+            byte[] bytes = Convert.FromBase64String(_tokens.Protect(Guid.NewGuid(), DateTime.UtcNow));
 
             Assert.True(nonces.Add(Convert.ToHexString(bytes.AsSpan(0, 24))));
         }
@@ -138,18 +163,18 @@ public sealed class MollyIdProtectorTests
     {
         foreach (int length in (int[])[1, 16, 32, 44, 56, 63, 65])
         {
-            Assert.False(_protector.TryUnprotect(Convert.ToBase64String(new byte[length]), out _, out _));
+            Assert.False(_tokens.TryUnprotect(Convert.ToBase64String(new byte[length]), out _, out _));
         }
     }
 
     [Fact]
     public void TruncatedOrPaddedTokens_AreRejected()
     {
-        string token = _protector.Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string token = _tokens.Protect(Guid.NewGuid(), DateTime.UtcNow);
 
-        Assert.False(_protector.TryUnprotect(token[..^4], out _, out _));
-        Assert.False(_protector.TryUnprotect(token + "AAAA", out _, out _));
-        Assert.False(_protector.TryUnprotect(" " + token, out _, out _));
+        Assert.False(_tokens.TryUnprotect(token[..^4], out _, out _));
+        Assert.False(_tokens.TryUnprotect(token + "AAAA", out _, out _));
+        Assert.False(_tokens.TryUnprotect(" " + token, out _, out _));
     }
 
     [Fact]
@@ -160,7 +185,7 @@ public sealed class MollyIdProtectorTests
         {
             string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 
-            Assert.False(_protector.TryUnprotect(token, out _, out _));
+            Assert.False(_tokens.TryUnprotect(token, out _, out _));
         }
     }
 
@@ -168,7 +193,7 @@ public sealed class MollyIdProtectorTests
     public void ManyIds_RoundTripIndependently()
     {
         Guid[] ids = [.. Enumerable.Range(0, 100).Select(_ => Guid.NewGuid())];
-        string[] tokens = [.. ids.Select(id => _protector.Protect(id, DateTime.UtcNow))];
+        string[] tokens = [.. ids.Select(id => _tokens.Protect(id, DateTime.UtcNow))];
 
         Assert.Equal(ids.Length, tokens.Distinct().Count());
 
@@ -180,7 +205,7 @@ public sealed class MollyIdProtectorTests
 
     private Guid Unprotect(string token)
     {
-        Assert.True(_protector.TryUnprotect(token, out Guid id, out _));
+        Assert.True(_tokens.TryUnprotect(token, out Guid id, out _));
         return id;
     }
 }

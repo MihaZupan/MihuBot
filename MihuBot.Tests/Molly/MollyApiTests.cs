@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -36,7 +37,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
 
     public MollyService Service => _app.Services.GetRequiredService<MollyService>();
 
-    public MollyIdProtector IdProtector => _app.Services.GetRequiredService<MollyIdProtector>();
+    public MollySealedIdTokens IdTokens { get; } = MollyTestKeys.CreateIdTokens();
 
     public MollyTransportKeyResponse TransportKey { get; private set; } = null!;
 
@@ -48,7 +49,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
     public Guid Unprotect(string protectedId)
     {
-        Assert.True(IdProtector.TryUnprotect(protectedId, out Guid id, out _));
+        Assert.True(IdTokens.TryUnprotect(protectedId, out Guid id, out _));
         return id;
     }
 
@@ -85,7 +86,6 @@ public sealed class MollyApiFixture : IAsyncLifetime
         builder.Services.AddSingleton(serviceProvider => new MollyService(
             serviceProvider.GetRequiredService<IDbContextFactory<MollyDbContext>>(),
             serviceProvider.GetRequiredService<ILogger<MollyService>>(),
-            serviceProvider.GetRequiredService<MollyIdProtector>(),
             serviceProvider.GetRequiredService<MollyAttestationService>(),
             serviceProvider.GetRequiredService<IConfiguration>(),
             discordLogger: null));
@@ -212,7 +212,29 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
         registrationToken = registrationToken == "" ? _fixture.Service.RegistrationTokens.IssueForDashboard().Token : registrationToken;
         string data = JsonSerializer.Serialize(new MollyLoginRequest { KeyHash = keyHash, Attestation = proof, RegistrationToken = registrationToken });
 
-        return await PostAsync("login", data, NewClientIp());
+        JsonElement response = await PostAsync("login", data, NewClientIp());
+
+        if (Status(response) == "ok")
+        {
+            MollyTestSessions.Remember(Data(response).GetProperty("id").GetString()!, Convert.FromBase64String(Data(response).GetProperty("serverHmac").GetString()!));
+        }
+
+        return response;
+    }
+
+    /// <summary>Proves <paramref name="session"/> in the next request's envelope, as an unlocked device does.</summary>
+    private void ProveNextRequest(string session, string action) =>
+        _envelope.NextProof = MollyTestSessions.ProvenExchange(session, action, _envelope.PrepareExchange()).SessionProof;
+
+    private async Task<JsonElement> DashboardLoginAsync(string session, bool withProof = true)
+    {
+        if (withProof)
+        {
+            ProveNextRequest(session, "dashboard-login");
+        }
+
+        string data = JsonSerializer.Serialize(new MollyDashboardLoginRequest { Id = session });
+        return await PostAsync("dashboard-login", data, NewClientIp());
     }
 
     private async Task<(string Id, string ServerHmac)> RegisterAsync()
@@ -222,6 +244,48 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
         JsonElement data = Data(response);
         return (data.GetProperty("id").GetString()!, data.GetProperty("serverHmac").GetString()!);
+    }
+
+    [Fact]
+    public async Task DashboardLogin_ReturnsTheDashboardUrl_WithALoginOnlyForOptedInDevices()
+    {
+        JsonElement login = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), new MollyTestDevice());
+        Assert.Equal("ok", Status(login));
+        string session = Data(login).GetProperty("id").GetString()!;
+        await _fixture.Service.AssociateAsync(session, "dashboard device");
+        Assert.Equal("invalid", Status(await DashboardLoginAsync(session, withProof: false)));
+
+        JsonElement response = await DashboardLoginAsync(session);
+        Assert.Equal("ok", Status(response));
+        Uri url = new(Data(response).GetProperty("url").GetString()!);
+        Assert.Equal(_fixture.Client.BaseAddress!.Authority, url.Authority);
+        Assert.Equal("/molly", url.AbsolutePath);
+        Assert.Empty(url.Query);
+        Assert.False(Data(response).TryGetProperty("expiresAt", out _));
+
+        Guid id = _fixture.Unprotect(session);
+        await _fixture.Service.SetDashboardLoginAllowedAsync(id, true);
+        response = await DashboardLoginAsync(session);
+        Assert.Equal("ok", Status(response));
+        url = new(Data(response).GetProperty("url").GetString()!);
+        Assert.Equal(_fixture.Client.BaseAddress!.Authority, url.Authority);
+        Assert.Equal("/molly", url.AbsolutePath);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(url.Query);
+        Assert.True(await _fixture.Service.TryDashboardLoginAsync(query["login"].ToString()));
+
+        // The proof only holds within the exchange it was made for.
+        Assert.Equal("invalid", Status(await DashboardLoginAsync(session, withProof: false)));
+        _envelope.NextProof = MollyTestSessions.ProvenExchange(session, "dashboard-login").SessionProof;
+        Assert.Equal("invalid", Status(await PostAsync("dashboard-login", JsonSerializer.Serialize(new MollyDashboardLoginRequest { Id = session }))));
+
+        await _fixture.Service.SetLockRequestedAsync(id, true);
+        response = await DashboardLoginAsync(session, withProof: false);
+        Assert.Equal("command", Status(response));
+        Assert.Equal("lock", Data(response).GetProperty("command").GetString());
+        Assert.False(Data(response).TryGetProperty("url", out _));
+
+        Assert.Equal("invalid", Status(await PostAsync("dashboard-login", """{"id":"invalid"}""")));
+        Assert.Equal("invalid", Status(await PostAsync("dashboard-login")));
     }
 
     [Theory]
@@ -255,7 +319,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
         // The database id is never sent to the client, only a token it can hand back.
         Assert.False(Guid.TryParse(id, out _));
-        Assert.True(_fixture.IdProtector.TryUnprotect(id, out Guid entryId, out _));
+        Assert.True(_fixture.IdTokens.TryUnprotect(id, out Guid entryId, out _));
         Assert.NotEqual(Guid.Empty, entryId);
 
         Assert.Equal(64, Convert.FromBase64String(serverHmac).Length);
@@ -439,6 +503,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
             proof.Mac = Convert.ToBase64String(new byte[64]);
         }
 
+        _envelope.NextProof = MollyTestSessions.ProvenExchange(session, "associate", exchange).SessionProof;
         JsonElement response = await PostAsync("associate", JsonSerializer.Serialize(new MollyAssociateRequest { Id = session, Nickname = nickname, Identity = proof }));
         Assert.Equal(expectedStatus, Status(response));
         return response;
@@ -614,7 +679,9 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
 
         async Task<(int Length, JsonElement Response)> ShareAsync(string session, string action, byte[] body)
         {
-            MollyShareRequest request = MollyShareTestClient.CreateRequest(session, body);
+            MollyExchangeContext exchange = _envelope.PrepareExchange();
+            _envelope.NextProof = MollyTestSessions.ProvenExchange(session, action, exchange).SessionProof;
+            MollyShareRequest request = new() { Id = session, Body = Convert.ToBase64String(body) };
             using HttpResponseMessage response = await PostRawAsync(_envelope.EncryptRequest(action, JsonSerializer.Serialize(request)));
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -750,6 +817,10 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
     {
         (string id, _) = await RegisterAsync();
 
+        // A copied session id alone can't hand out registrations.
+        Assert.Equal("invalid", Status(await PostAsync("registration-token", $$"""{"id":"{{id}}"}""")));
+
+        ProveNextRequest(id, "registration-token");
         JsonElement response = await PostAsync("registration-token", $$"""{"id":"{{id}}"}""");
         Assert.Equal("ok", Status(response));
 

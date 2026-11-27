@@ -19,20 +19,20 @@ tr:has(.details-toggle:checked) + .details-row {
     display: table-row;
 }
 
-.details-toggle + label {
+.details-label {
     cursor: pointer;
 }
 
-.details-toggle + label .bi {
+.details-toggle + .bi {
     display: inline-block;
     transition: transform 0.15s;
 }
 
-.details-toggle:checked + label .bi {
+.details-toggle:checked + .bi {
     transform: rotate(90deg);
 }
 
-.details-toggle:focus-visible + label {
+.details-label:has(.details-toggle:focus-visible) {
     outline: 2px solid var(--bs-focus-ring-color);
     outline-offset: 2px;
 }

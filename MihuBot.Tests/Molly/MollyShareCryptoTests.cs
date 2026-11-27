@@ -171,9 +171,9 @@ public sealed class MollyShareCryptoTests
         identity.DeriveRawSecretAgreement(Hex(vector, "transportPublicKey"), dh);
         Assert.Equal(Hex(vector, "dh"), dh);
 
-        var exchange = new MollyExchangeContext(Hex(vector, "recipientKeyId"), Hex(vector, "clientEphemeralPublicKey"), Hex(vector, "requestNonce"), TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(Hex(vector, "recipientKeyId"), Hex(vector, "clientEphemeralPublicKey"), Hex(vector, "requestNonce"), vector.GetProperty("requestTimestamp").GetInt64(), TimeSpan.Zero);
         string action = vector.GetProperty("action").GetString()!;
-        byte[] mac = MollyShareCrypto.ComputeRequestMac(dh, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, action, Hex(vector, "aci"), Hex(vector, "identityKey"));
+        byte[] mac = MollyShareCrypto.ComputeRequestMac(dh, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, Hex(vector, "aci"), Hex(vector, "identityKey"));
         Assert.Equal(Hex(vector, "mac"), mac);
 
         Assert.True(MollyShareCrypto.VerifyRequestMac(dh, exchange, action, Hex(vector, "aci"), Hex(vector, "identityKey"), mac));

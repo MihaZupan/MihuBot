@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using MihuBot.Components;
 using MihuBot.Molly;
 
@@ -66,7 +68,81 @@ public sealed class MollyDashboardTests(MollyServiceFixture fixture) : MollyShar
         Assert.Contains("(2 trustees)", html, StringComparison.Ordinal);
     }
 
-    private async Task<string> RenderDashboardAsync()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Dashboard_DoesNotExposeDeviceEntryIds_AndDetailsTogglesHaveLabels(bool isAdmin)
+    {
+        Party first = await NewPartyAsync();
+        Party linked = await NewPartyAsync(bind: false);
+        Assert.Equal(MollyResultStatus.Ok, (await _client.AssociateAsync(first.Session, first.Identity, "First device")).Status);
+        Assert.Equal(MollyResultStatus.Ok, (await _client.AssociateAsync(linked.Session, first.Identity, "Linked device")).Status);
+
+        MollyUserInfo[] users = await _fixture.Service.GetRegisteredUsersAsync();
+        string html = await RenderDashboardAsync(isAdmin);
+
+        foreach (MollyUserInfo user in users)
+        {
+            Assert.DoesNotContain(user.Id.ToString("D"), html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(user.Id.ToString("N"), html, StringComparison.OrdinalIgnoreCase);
+        }
+
+        MatchCollection toggles = Regex.Matches(html, @"<input\b[^>]*class=""details-toggle visually-hidden""[^>]*>");
+        MatchCollection labeledToggles = Regex.Matches(html, @"<label\b[^>]*>\s*<input\b[^>]*class=""details-toggle visually-hidden""[^>]*>[\s\S]*?</label>");
+        Assert.Equal(users.Length, toggles.Count);
+        Assert.Equal(toggles.Count, labeledToggles.Count);
+
+        if (isAdmin)
+        {
+            Assert.Contains("also bound on First device", html, StringComparison.Ordinal);
+            Assert.Contains("also bound on Linked device", html, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void MissingLinkedDevice_DoesNotExposeItsEntryId()
+    {
+        var dashboard = new MollyDashboard();
+        MethodInfo nicknameOf = typeof(MollyDashboard).GetMethod("NicknameOf", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        Assert.Equal("Unknown device", nicknameOf.Invoke(dashboard, [Guid.NewGuid()]));
+    }
+
+    [Fact]
+    public async Task DashboardLoginOptIn_IsOnlyShownToAdmins()
+    {
+        Party device = await NewPartyAsync();
+
+        string html = await RenderDashboardAsync();
+        Assert.DoesNotContain("Allow dashboard login", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Disable dashboard login", html, StringComparison.Ordinal);
+
+        html = await RenderDashboardAsync(isAdmin: true);
+        Assert.Contains("Allow dashboard login", html, StringComparison.Ordinal);
+
+        await _fixture.Service.SetDashboardLoginAllowedAsync(_fixture.Unprotect(device.Session), true);
+        html = await RenderDashboardAsync(isAdmin: true);
+        Assert.Contains("Disable dashboard login", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NonAdminDashboard_CannotChangeTheDashboardLoginOptIn()
+    {
+        Party device = await NewPartyAsync();
+        Guid id = _fixture.Unprotect(device.Session);
+        var dashboard = new MollyDashboard();
+        MethodInfo handler = typeof(MollyDashboard).GetMethod("SetDashboardLoginAllowedAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        foreach (bool allowed in new[] { true, false })
+        {
+            await _fixture.Service.SetDashboardLoginAllowedAsync(id, !allowed);
+            MollyUserInfo user = (await _fixture.Service.GetRegisteredUsersAsync()).First(u => u.Id == id);
+            await (Task)handler.Invoke(dashboard, [user, allowed])!;
+            Assert.Equal(!allowed, (await _fixture.GetEntryAsync(id)).DashboardLoginAllowed);
+        }
+    }
+
+    private async Task<string> RenderDashboardAsync(bool isAdmin = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -79,7 +155,7 @@ public sealed class MollyDashboardTests(MollyServiceFixture fixture) : MollyShar
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
         {
-            var rendered = await renderer.RenderComponentAsync<MollyDashboard>();
+            var rendered = await renderer.RenderComponentAsync<MollyDashboard>(ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(MollyDashboard.IsAdmin)] = isAdmin }));
             return rendered.ToHtmlString();
         });
     }

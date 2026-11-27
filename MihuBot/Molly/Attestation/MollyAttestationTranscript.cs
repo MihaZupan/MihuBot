@@ -33,6 +33,7 @@ public static class MollyAttestationTranscript
         WriteField(writer, exchange.RecipientKeyId);
         WriteField(writer, exchange.ClientEphemeralPublicKey);
         WriteField(writer, exchange.RequestNonce);
+        WriteField(writer, exchange.EncodeRequestTimestamp());
 
         return SHA512.HashData(writer.WrittenSpan);
     }

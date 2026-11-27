@@ -93,22 +93,22 @@ public sealed class MollyService
     /// <summary>One alert email every 30 minutes, across all devices.</summary>
     private readonly SimpleRateLimiter _emailRateLimiter = new(TimeSpan.FromMinutes(30), maxTolerance: 1);
 
-    private readonly MollyIdProtector _idProtector;
+    private readonly MollySealedIdTokens _idTokens;
     private readonly MollyAttestationService _attestation;
     private readonly byte[] _databaseKey;
+    private readonly MollyDashboardLoginLinks _dashboardLoginLinks;
 
     /// <summary>How long after a login its session can still move the entry to a new key hash (a passphrase change).</summary>
     public static readonly TimeSpan RekeyWindow = TimeSpan.FromMinutes(10);
 
     public MollyRegistrationTokens RegistrationTokens { get; }
 
-    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyIdProtector idProtector, MollyAttestationService attestation, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null, ServiceConfiguration? serviceConfiguration = null)
+    public MollyService(IDbContextFactory<MollyDbContext> db, ILogger<MollyService> logger, MollyAttestationService attestation, IConfiguration configuration, Logger? discordLogger, IConfigurationService? runtimeConfiguration = null, ProtonMailEncryptor? protonEncryptor = null, ServiceConfiguration? serviceConfiguration = null, TimeProvider? timeProvider = null)
     {
         _db = db;
         _logger = logger;
         _discordLogger = discordLogger;
         _runtimeConfiguration = runtimeConfiguration;
-        _idProtector = idProtector;
         _attestation = attestation;
 
         if (configuration.IsConfigured(OptionalFeatures.MollyAlertEmail))
@@ -123,7 +123,10 @@ public sealed class MollyService
 
         ArgumentOutOfRangeException.ThrowIfLessThan(_databaseKey.Length, MinKeyHashLength, OptionalFeatures.MollyDatabaseKeyName);
 
+        // Keep the existing purpose label so already-issued device session tokens remain valid.
+        _idTokens = MollySealedIdTokens.CreateFromDatabaseKey(_databaseKey, "MihuBot.Molly.MollyIdProtector.v1"u8, urlSafe: false);
         RegistrationTokens = new MollyRegistrationTokens(_databaseKey, logger, serviceConfiguration);
+        _dashboardLoginLinks = new MollyDashboardLoginLinks(timeProvider);
 
         if (discordLogger is not null)
         {
@@ -201,7 +204,7 @@ public sealed class MollyService
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, exchange: null, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -665,7 +668,7 @@ public sealed class MollyService
 
         byte[] serverHmac = Decrypt(id, match.EncryptedServerHmac, EncryptedField.ServerHmac);
 
-        return MollyLoginResult.Success(_idProtector.Protect(id, now), serverHmac);
+        return MollyLoginResult.Success(_idTokens.Protect(id, now), serverHmac);
     }
 
     /// <summary>
@@ -745,7 +748,7 @@ public sealed class MollyService
     /// </summary>
     private async Task<MollyLoginResult> RekeyAsync(MollyDbContext db, MollyLoginRequest request, byte[] keyHashBytes, byte[] derivedHash, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
-        Session session = await OpenSessionAsync(db, request.Id, stopOnBlockingCommand: true, cancellationToken);
+        Session session = await OpenSessionAsync(db, request.Id, stopOnBlockingCommand: true, exchange, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -756,8 +759,8 @@ public sealed class MollyService
 
         MollyDbEntry entry = session.Entry;
 
-        // The session has to come from the entry's latest login, moments ago: proof that the device just logged in with
-        // the old passphrase. Session ids alone are kept in the clear on devices, so they mustn't release the secret.
+        // The session has to come from the entry's latest login, moments ago, and its proof shows that the device is still
+        // unlocked: session ids alone are kept in the clear on devices, so they mustn't release the secret.
         if (session.IssuedAt.Ticks != entry.LastLoginAt.Ticks || DateTime.UtcNow - entry.LastLoginAt > RekeyWindow)
         {
             return MollyLoginResult.Invalid;
@@ -818,7 +821,7 @@ public sealed class MollyService
 
         byte[] serverHmac = Decrypt(id, entry.EncryptedServerHmac, EncryptedField.ServerHmac);
 
-        return MollyLoginResult.Success(_idProtector.Protect(id, now), serverHmac);
+        return MollyLoginResult.Success(_idTokens.Protect(id, now), serverHmac);
     }
 
     /// <summary>
@@ -893,7 +896,7 @@ public sealed class MollyService
 
         _logger.LogInformation("Registered a new Molly entry in {Mode} attestation mode", state.Mode);
 
-        return MollyLoginResult.Success(_idProtector.Protect(entry.Id, now), serverHmac);
+        return MollyLoginResult.Success(_idTokens.Protect(entry.Id, now), serverHmac);
     }
 
     private byte[] EncryptAttestationState(Guid id, MollyAttestationState state) =>
@@ -920,7 +923,8 @@ public sealed class MollyService
     /// The party hash of the Signal identity whose <c>associate</c> proof verified, to bind the entry to (see
     /// <see cref="BindIdentity"/>).
     /// </param>
-    internal async Task<MollyCommandResult> AssociateAsync(string? protectedId, string? nickname, byte[] identityPartyHash, CancellationToken cancellationToken)
+    /// <param name="exchange">The request's exchange, whose session proof shows that the device is unlocked.</param>
+    internal async Task<MollyCommandResult> AssociateAsync(string? protectedId, string? nickname, byte[] identityPartyHash, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(nickname) || Encoding.UTF8.GetByteCount(nickname) > MaxNicknameLengthInBytes)
         {
@@ -929,7 +933,7 @@ public sealed class MollyService
 
         await using MollyDbContext db = _db.CreateDbContext();
 
-        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, exchange, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -1002,7 +1006,7 @@ public sealed class MollyService
         await using MollyDbContext db = _db.CreateDbContext();
 
         // The status is recorded even while a lock or wipe is pending, so the dashboard shows how the device is doing.
-        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: false, exchange: null, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -1035,15 +1039,15 @@ public sealed class MollyService
 
     /// <summary>
     /// Issues a registration token for a setup code another device can use to register (Provisioning/README.md), on behalf of
-    /// the device with the session <paramref name="protectedId"/>. Subject to the usual session rules and to
+    /// the unlocked device with the session <paramref name="protectedId"/>, proven in <paramref name="exchange"/>. Subject to the usual session rules and to
     /// <see cref="MollyRegistrationTokens.TryIssueForDevice"/>; a limited or disabled request succeeds without a
     /// <see cref="MollyCommandResult.RegistrationToken"/>.
     /// </summary>
-    public async Task<MollyCommandResult> IssueRegistrationTokenAsync(string? protectedId, CancellationToken cancellationToken)
+    public async Task<MollyCommandResult> IssueRegistrationTokenAsync(string? protectedId, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         await using MollyDbContext db = _db.CreateDbContext();
 
-        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, exchange, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -1055,17 +1059,51 @@ public sealed class MollyService
         return MollyCommandResult.Ok(session.Command) with { RegistrationToken = RegistrationTokens.TryIssueForDevice(session.Entry.Id) };
     }
 
+    public async Task<MollyCommandResult> IssueDashboardLoginAsync(MollyDashboardLoginRequest request, MollyExchangeContext exchange, CancellationToken cancellationToken)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        Session session = await OpenSessionAsync(db, request.Id, stopOnBlockingCommand: true, exchange, cancellationToken);
+
+        if (!session.IsOpen)
+        {
+            return session.Rejection;
+        }
+
+        MollyDbEntry entry = session.Entry;
+
+        await MarkSeenAsync(db, entry, cancellationToken);
+
+        return MollyCommandResult.Ok(session.Command) with
+        {
+            DashboardLoginToken = entry.DashboardLoginAllowed ? _dashboardLoginLinks.Issue(entry.Id) : null,
+        };
+    }
+
+    public async Task<bool> TryDashboardLoginAsync(string? token, CancellationToken cancellationToken = default)
+    {
+        if (!_dashboardLoginLinks.TryGetEntryId(token, out Guid entryId))
+        {
+            return false;
+        }
+
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        return await db.Entries.AnyAsync(e => e.Id == entryId && e.DashboardLoginAllowed && !e.LockRequested && !e.WipeRequested, cancellationToken);
+    }
+
     /// <summary>
     /// Runs the usual session rules for a file sharing request. An ok result carries the entry, which the request
     /// acts as along with its current identity, in <see cref="MollyCommandResult.EntryId"/> and
     /// <see cref="MollyCommandResult.PartyHash"/> (null while unbound). A pending lock or wipe is returned as a blocked result.
     /// </summary>
     /// <param name="protectedId">The token handed out by <see cref="LoginAsync"/>.</param>
-    internal async Task<MollyCommandResult> AuthorizeShareRequestAsync(string? protectedId, CancellationToken cancellationToken)
+    /// <param name="exchange">The request's exchange, whose session proof shows that the device is unlocked.</param>
+    internal async Task<MollyCommandResult> AuthorizeShareRequestAsync(string? protectedId, MollyExchangeContext exchange, CancellationToken cancellationToken)
     {
         await using MollyDbContext db = _db.CreateDbContext();
 
-        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, cancellationToken);
+        Session session = await OpenSessionAsync(db, protectedId, stopOnBlockingCommand: true, exchange, cancellationToken);
 
         if (!session.IsOpen)
         {
@@ -1119,9 +1157,13 @@ public sealed class MollyService
     /// Whether a pending lock or wipe ends the request: the check-in is recorded and the command is the answer. Otherwise
     /// the caller handles <see cref="Session.Command"/> itself, e.g. alerts are stored either way.
     /// </param>
-    private async Task<Session> OpenSessionAsync(MollyDbContext db, string? protectedId, bool stopOnBlockingCommand, CancellationToken cancellationToken)
+    /// <param name="exchange">
+    /// Required for actions only an unlocked device may take (README.md, "Session proofs"). A failed proof is answered
+    /// like an invalid session and changes nothing; a pending lock or wipe is still answered without one.
+    /// </param>
+    private async Task<Session> OpenSessionAsync(MollyDbContext db, string? protectedId, bool stopOnBlockingCommand, MollyExchangeContext? exchange, CancellationToken cancellationToken)
     {
-        if (!_idProtector.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
+        if (!_idTokens.TryUnprotect(protectedId, out Guid entryId, out DateTime issuedAt))
         {
             return Session.Rejected(MollyCommandResult.Invalid);
         }
@@ -1138,9 +1180,14 @@ public sealed class MollyService
             return Session.Rejected(MollyCommandResult.Invalid);
         }
 
-        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
-
         MollyCommand command = GetPendingCommand(entry);
+
+        if (exchange is not null && !command.IsBlocking() && !VerifySessionProof(entry, protectedId!, exchange))
+        {
+            return Session.Rejected(MollyCommandResult.Invalid);
+        }
+
+        await ActivateSessionAsync(db, entry, issuedAt, cancellationToken);
 
         if (stopOnBlockingCommand && command.IsBlocking())
         {
@@ -1159,6 +1206,31 @@ public sealed class MollyService
     /// </summary>
     private static bool IsSuperseded(MollyDbEntry entry, DateTime issuedAt) =>
         issuedAt.Ticks < entry.ActiveSessionIssuedAt.Ticks;
+
+    private bool VerifySessionProof(MollyDbEntry entry, string protectedId, MollyExchangeContext exchange)
+    {
+        if (entry.EncryptedServerHmac is null)
+        {
+            return false;
+        }
+
+        byte[] serverHmac = Decrypt(entry.Id, entry.EncryptedServerHmac, EncryptedField.ServerHmac);
+
+        try
+        {
+            if (MollySessionProof.Verify(exchange, serverHmac, protectedId))
+            {
+                return true;
+            }
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(serverHmac);
+        }
+
+        _logger.LogWarning("A Molly session proof for {Action} was rejected", exchange.Action);
+        return false;
+    }
 
     /// <summary>
     /// Records that the device uses the token issued at <paramref name="issuedAt"/>, superseding older
@@ -1217,7 +1289,7 @@ public sealed class MollyService
                     TryDecryptAttestationState(e.Id, encryptedState, out attestation);
                 }
 
-                return new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LastLoginAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, status.BatteryLevel, status.LocationEnabled, status.AppVersion, attestation);
+                return new MollyUserInfo(e.Id, TryDecryptNickname(e), e.CreatedAt, e.LastSeenAt, e.LastLoginAt, e.LockRequested, e.WipeRequested, e.AlertsMuted, e.DashboardLoginAllowed, status.BatteryLevel, status.LocationEnabled, status.AppVersion, attestation);
             })
             .OrderByDescending(u => u.CreatedAt)];
     }
@@ -1264,10 +1336,13 @@ public sealed class MollyService
         }
 
         // Bound to a random identity, as associating requires one.
-        await AssociateAsync(login.ProtectedId, nickname, RandomNumberGenerator.GetBytes(SHA512.HashSizeInBytes), cancellationToken);
+        var exchange = new MollyExchangeContext(RandomNumberGenerator.GetBytes(16), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), TimeSpan.Zero);
+        exchange = exchange with { Action = MollyApiActions.Associate };
+        exchange = exchange with { SessionProof = MollySessionProof.Compute(login.ServerHmac!, login.ProtectedId!, exchange) };
+        await AssociateAsync(login.ProtectedId, nickname, RandomNumberGenerator.GetBytes(SHA512.HashSizeInBytes), exchange, cancellationToken);
 
         // Muted from the start - a local dummy device shouldn't be announcing its seeded alert.
-        if (_idProtector.TryUnprotect(login.ProtectedId, out Guid entryId, out _))
+        if (_idTokens.TryUnprotect(login.ProtectedId, out Guid entryId, out _))
         {
             await SetAlertsMutedAsync(entryId, muted: true, cancellationToken);
         }
@@ -1305,6 +1380,17 @@ public sealed class MollyService
         await db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("A Molly entry's alerts are now {State}", muted ? "muted" : "unmuted");
+    }
+
+    public async Task SetDashboardLoginAllowedAsync(Guid id, bool allowed, CancellationToken cancellationToken = default)
+    {
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        await db.Entries
+            .Where(e => e.Id == id && e.EncryptedNickname != null && !e.WipeRequested)
+            .ExecuteUpdateAsync(e => e.SetProperty(entry => entry.DashboardLoginAllowed, allowed), cancellationToken);
+
+        _logger.LogInformation("A Molly entry's dashboard login links are now {State}", allowed ? "allowed" : "disabled");
     }
 
     public async Task SetLockRequestedAsync(Guid id, bool lockRequested, CancellationToken cancellationToken = default)
@@ -1348,6 +1434,7 @@ public sealed class MollyService
 
         entry.WipeRequested = true;
         entry.LockRequested = true;
+        entry.DashboardLoginAllowed = false;
         entry.EncryptedServerHmac = null;
         entry.EncryptedAttestationState = null;
 
@@ -1380,7 +1467,7 @@ public sealed class MollyService
     }
 
     /// <summary>
-    /// Announces a dashboard action taken by someone who only had the dashboard password rather than
+    /// Announces a dashboard action taken by someone using a password or device link rather than
     /// by an admin. Which device it was is deliberately left out - Discord learns no more than it does
     /// from an alert notification.
     /// </summary>

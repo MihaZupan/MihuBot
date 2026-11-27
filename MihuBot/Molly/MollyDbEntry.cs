@@ -65,6 +65,9 @@ public sealed class MollyDbEntry
     /// <summary>Suppresses the Discord notification for this device's alerts. They're still stored.</summary>
     public bool AlertsMuted { get; set; }
 
+    /// <summary>Admin opt-in to requesting short-lived, non-admin dashboard login links.</summary>
+    public bool DashboardLoginAllowed { get; set; }
+
     /// <summary>
     /// The keyed party hash (<see cref="Sharing.MollyShareCrypto.ComputePartyHash"/>) of the Signal identity the entry
     /// is bound to for file sharing (Sharing/README.md, "Identity binding"). Null while unbound; cleared by a wipe.

@@ -31,6 +31,10 @@ public sealed class MollyTestEnvelope : IDisposable
 
     /// <summary>Set by <see cref="PrepareExchange"/> for the next request built by <see cref="EncryptRequest"/>.</summary>
     private string? _nextNonce;
+    private long? _nextTimestamp;
+
+    /// <summary>The envelope <c>proof</c> of the next request built by <see cref="EncryptRequest"/>, if any.</summary>
+    public string? NextProof { get; set; }
 
     public MollyTestEnvelope(byte[]? serverPublicKey = null)
     {
@@ -57,16 +61,20 @@ public sealed class MollyTestEnvelope : IDisposable
     }
 
     /// <summary>The plaintext request envelope, with <paramref name="data"/> spliced in as raw JSON.</summary>
-    public static string RequestJson(string action, string? data = null, string? nonce = null, long? timestamp = null) =>
+    public static string RequestJson(string action, string? data = null, string? nonce = null, long? timestamp = null, string? proof = null) =>
         $$"""
-        {"action":{{JsonSerializer.Serialize(action)}},"timestamp":{{timestamp ?? Now()}},"nonce":{{JsonSerializer.Serialize(nonce ?? NewNonce())}},"data":{{data ?? "null"}}}
+        {"action":{{JsonSerializer.Serialize(action)}},"timestamp":{{timestamp ?? Now()}},"nonce":{{JsonSerializer.Serialize(nonce ?? NewNonce())}},{{(proof is null ? "" : $"\"proof\":{JsonSerializer.Serialize(proof)},")}}"data":{{data ?? "null"}}}
         """;
 
     public byte[] EncryptRequest(string action, string? data = null, string? nonce = null, long? timestamp = null, int paddingLength = 0)
     {
         nonce ??= _nextNonce;
+        timestamp ??= _nextTimestamp;
+        string? proof = NextProof;
         _nextNonce = null;
-        return Encrypt(RequestJson(action, data, nonce, timestamp), paddingLength);
+        _nextTimestamp = null;
+        NextProof = null;
+        return Encrypt(RequestJson(action, data, nonce, timestamp, proof), paddingLength);
     }
 
     public byte[] Encrypt(string data, int paddingLength = 0) => Encrypt(Encoding.UTF8.GetBytes(data), paddingLength);
@@ -84,16 +92,17 @@ public sealed class MollyTestEnvelope : IDisposable
     }
 
     /// <summary>
-    /// Generates the ephemeral key and request nonce for the next request ahead of time and returns the
-    /// exchange, so an attestation proof can be bound to it before it's sealed - like the real client has to.
+    /// Generates the ephemeral key, request nonce and timestamp for the next request ahead of time and returns the
+    /// exchange, so a proof can be bound to it before it's sealed - like the real client has to.
     /// </summary>
     public MollyExchangeContext PrepareExchange()
     {
         _nextEphemeral?.Dispose();
         _nextEphemeral = X25519DiffieHellman.GenerateKey();
         _nextNonce = NewNonce();
+        _nextTimestamp = Now();
         // The age is only known to the server; the client doesn't sign it.
-        return new MollyExchangeContext(GetRecipientKeyId(_serverPublicKey), _nextEphemeral.ExportPublicKey(), Convert.FromBase64String(_nextNonce), TimeSpan.Zero);
+        return new MollyExchangeContext(GetRecipientKeyId(_serverPublicKey), _nextEphemeral.ExportPublicKey(), Convert.FromBase64String(_nextNonce), _nextTimestamp.Value, TimeSpan.Zero);
     }
 
     /// <summary>Seals plaintext verbatim, including deliberately malformed padding frames.</summary>

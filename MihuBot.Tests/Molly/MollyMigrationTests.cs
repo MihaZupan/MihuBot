@@ -11,6 +11,29 @@ namespace MihuBot.Tests.Molly;
 public sealed class MollyMigrationTests
 {
     [Fact]
+    public async Task DashboardLoginMigration_LeavesExistingDevicesOptedOut()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new MollyDbContext(new DbContextOptionsBuilder<MollyDbContext>().UseSqlite(connection).Options);
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261126012026_MollyPassphraseChange");
+
+        Guid id = Guid.NewGuid();
+        DateTime now = DateTime.UtcNow;
+        await db.Database.ExecuteSqlAsync($"""
+            INSERT INTO mollyEntries
+                (Id, DerivedHash, CreatedAt, LastSeenAt, LastLoginAt, ActiveSessionIssuedAt, LockRequested, WipeRequested, AlertsMuted)
+            VALUES ({id}, {new byte[64]}, {now}, {now}, {now}, {now}, 0, 0, 0)
+            """);
+
+        await migrator.MigrateAsync();
+        MollyDbEntry entry = await db.Entries.SingleAsync();
+        Assert.Equal(id, entry.Id);
+        Assert.False(entry.DashboardLoginAllowed);
+    }
+
+    [Fact]
     public async Task EncryptedDeviceStatusMigration_DropsPlaintextStatusButKeepsRegistration()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

@@ -1,10 +1,7 @@
-using System.Buffers.Binary;
-using System.Buffers.Text;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using MihuBot.Configuration;
-using MihuBot.Helpers.Crypto;
 using MihuBot.Molly.Attestation;
 
 #nullable enable
@@ -18,8 +15,8 @@ namespace MihuBot.Molly.Provisioning;
 /// and the limits start over.
 /// </summary>
 /// <remarks>
-/// Like <see cref="MollyIdProtector"/>: XAES-256-GCM under a key derived from the database key, so tokens survive
-/// restarts and can be neither read nor forged. Encoded as unpadded base64url so they fit into URLs and QR codes.
+/// Sealed by <see cref="MollySealedIdTokens"/> under a key derived from the database key, so tokens survive restarts.
+/// Encoded as unpadded base64url so they fit into URLs and QR codes.
 /// </remarks>
 public sealed class MollyRegistrationTokens
 {
@@ -32,20 +29,10 @@ public sealed class MollyRegistrationTokens
     /// <summary>How many registration tokens all devices together may request per 24 hours. The dashboard isn't limited.</summary>
     public const int MaxForAllDevicesPerDay = 100;
 
-    private const int IdLength = 16; // Guid
-
-    private const int PayloadLength = IdLength + sizeof(long);
-
-    private const int TokenLength = XAesGcm.NonceSizeInBytes + PayloadLength + XAesGcm.TagSizeInBytes;
-
-    private const int MinDatabaseKeyLength = 32;
-
-    private static readonly int EncodedTokenLength = Base64Url.GetEncodedLength(TokenLength);
-
     // Kept from when this was a separate protector type, so tokens issued before stay valid.
     private static ReadOnlySpan<byte> DerivationInfo => "MihuBot.Molly.MollyRegistrationTokenProtector.v1"u8;
 
-    private readonly XAesGcm _aead;
+    private readonly MollySealedIdTokens _tokens;
     private readonly ILogger _logger;
 
     /// <summary>Null in tests. Holds the admin switch that stops devices from requesting registration tokens.</summary>
@@ -61,20 +48,7 @@ public sealed class MollyRegistrationTokens
 
     public MollyRegistrationTokens(ReadOnlySpan<byte> databaseKey, ILogger logger, ServiceConfiguration? serviceConfiguration)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(databaseKey.Length, MinDatabaseKeyLength, OptionalFeatures.MollyDatabaseKeyName);
-
-        Span<byte> key = stackalloc byte[XAesGcm.KeySizeInBytes];
-        HKDF.DeriveKey(HashAlgorithmName.SHA512, databaseKey, key, salt: default, DerivationInfo);
-
-        try
-        {
-            _aead = new XAesGcm(key);
-        }
-        finally
-        {
-            CryptographicOperations.ZeroMemory(key);
-        }
-
+        _tokens = MollySealedIdTokens.CreateFromDatabaseKey(databaseKey, DerivationInfo, urlSafe: true);
         _logger = logger;
         _serviceConfiguration = serviceConfiguration;
     }
@@ -120,48 +94,7 @@ public sealed class MollyRegistrationTokens
     }
 
     /// <summary>Returns <c>base64url(nonce || encrypted (id || issuedAt ticks) || tag)</c>.</summary>
-    internal string Protect(Guid id, DateTime issuedAt)
-    {
-        Span<byte> payload = stackalloc byte[PayloadLength];
-        bool wrote = id.TryWriteBytes(payload);
-        Debug.Assert(wrote);
-        BinaryPrimitives.WriteInt64LittleEndian(payload.Slice(IdLength), issuedAt.Ticks);
-
-        return Base64Url.EncodeToString(_aead.Encrypt(payload));
-    }
-
-    /// <summary>Fails for anything this server didn't issue, including tampered tokens.</summary>
-    private bool TryUnprotect(string? token, out Guid id, out DateTime issuedAt)
-    {
-        id = Guid.Empty;
-        issuedAt = DateTime.MinValue;
-
-        Span<byte> bytes = stackalloc byte[TokenLength];
-
-        if (token is null ||
-            token.Length != EncodedTokenLength ||
-            !Base64Url.TryDecodeFromChars(token, bytes, out int written) ||
-            written != TokenLength)
-        {
-            return false;
-        }
-
-        if (!_aead.TryDecrypt(bytes, out byte[]? payload))
-        {
-            return false;
-        }
-
-        long ticks = BinaryPrimitives.ReadInt64LittleEndian(payload.AsSpan(IdLength));
-
-        if (ticks < 0 || ticks > DateTime.MaxValue.Ticks)
-        {
-            return false;
-        }
-
-        id = new Guid(payload.AsSpan(0, IdLength));
-        issuedAt = new DateTime(ticks, DateTimeKind.Utc);
-        return true;
-    }
+    internal string Protect(Guid id, DateTime issuedAt) => _tokens.Protect(id, issuedAt);
 
     /// <summary>Counts a token towards the issuance limits if neither is reached.</summary>
     private bool TryReserveForDevice(Guid entryId)
@@ -196,7 +129,7 @@ public sealed class MollyRegistrationTokens
     {
         redemption = default;
 
-        if (!TryUnprotect(token, out Guid id, out DateTime issuedAt))
+        if (!_tokens.TryUnprotect(token, out Guid id, out DateTime issuedAt))
         {
             return MollyLoginResult.Unregistered;
         }

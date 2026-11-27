@@ -156,14 +156,15 @@ cannot check the sealed DATA_KEY itself or the file.
 
 ## Request authentication
 
-Share request `data` is `{"id": session token, "body"}`, where `body` is base64 (an empty body is `""`). The
-session follows the usual rules: an unusable token is `invalid`, a missing entry or a pending lock/wipe returns
-the blocking `command` and nothing is performed.
+Share request `data` is `{"id": session token, "body"}`, where `body` is base64 (an empty body is `""`); the
+envelope carries the session `proof` for the action ([README.md](../README.md#session-proofs)). The
+session follows the usual rules: an unusable token or a missing or wrong proof is `invalid`, a missing entry or a
+pending lock/wipe returns the blocking `command` and nothing is performed.
 
 The caller is the session's device (Molly entry), acting as the identity currently bound to it (see "Identity
-binding"); without one, the result is `unbound` and nothing is performed. Share requests carry no identity or
-proof of their own: the device proved possession of the identity key when binding it, and the session token,
-which only travels sealed, authorizes acting as it. Clients only send share requests while the identity last confirmed `bound`
+binding"); without one, the result is `unbound` and nothing is performed. Share requests carry no identity proof
+of their own: the device proved possession of the identity key when binding it, and the session token with its
+proof, which only travel sealed, authorizes acting as it. Clients only send share requests while the identity last confirmed `bound`
 for their session is their current identity, and re-associate first otherwise.
 
 **Identity proof.** `associate` proves the device's Signal identity to S, bound to the exchange it is sealed in:
@@ -171,13 +172,13 @@ for their session is their current identity, and re-associate first otherwise.
 ```text
 dh      = X25519(identity private key, transport public key the request is sealed to)
 info    = "MihuBot.Molly.Share.Auth.v1" || recipientKeyId (16) || clientEphemeralPublicKey (32)
-       || requestNonce (16) || UTF-8 action
+       || requestNonce (16) || BE64(requestTimestamp) || UTF-8 action
 authKey = HKDF-SHA512(IKM = dh, salt = empty, info, L = 64)
 mac     = HMAC-SHA512(authKey, ACI || KEY)
 ```
 
-`recipientKeyId`, `clientEphemeralPublicKey` and `requestNonce` are the transport values of the exchange
-(`MollyExchangeContext`); the transport authenticates the timestamp separately. Requests sealed to a
+`recipientKeyId`, `clientEphemeralPublicKey`, `requestNonce` and `requestTimestamp` (the JSON envelope's `timestamp`,
+Unix seconds) are the transport values of the exchange (`MollyExchangeContext`). Requests sealed to a
 discovery key are rejected. An all-zero `dh` is rejected. S compares the decoded 64-byte MAC in constant
 time. The MAC proves key possession to S only.
 

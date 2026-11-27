@@ -393,7 +393,7 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
     [Fact]
     public async Task Alert_ForAnUnknownEntry_IsRejected()
     {
-        string token = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string token = MollyTestKeys.CreateIdTokens(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
 
         // A token issued under a different server key can't even be unprotected.
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.SubmitAlertAsync(token, Payload("{}"), default)).Status);

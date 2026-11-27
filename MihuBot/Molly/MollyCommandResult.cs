@@ -25,6 +25,9 @@ public sealed record MollyCommandResult(MollyResultStatus Status, MollyCommand C
     /// <summary>For successful <c>registration-token</c> requests, the issued token; null if the device hit a rate limit.</summary>
     public MollyRegistrationToken? RegistrationToken { get; init; }
 
+    /// <summary>For successful <c>dashboard-login</c> requests from opted-in devices, the login token.</summary>
+    public string? DashboardLoginToken { get; init; }
+
     /// <summary>For authorized file sharing requests, the entry the request acts as.</summary>
     internal Guid EntryId { get; init; }
 

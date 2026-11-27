@@ -193,8 +193,10 @@ public sealed class MollyRequestProtector : IDisposable
         responseKey = derivedResponseKey;
         recipientKeyId = new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength));
         TimeSpan keyAge = bootstrap ? TimeSpan.MaxValue : _timeProvider.GetUtcNow() - keyCreatedAt;
-        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), keyAge)
+        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), request.Timestamp, keyAge)
         {
+            Action = request.Action,
+            SessionProof = request.Proof,
             TransportKey = bootstrap ? null : transportKey,
         };
         return true;

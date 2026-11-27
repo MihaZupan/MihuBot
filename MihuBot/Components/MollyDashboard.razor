@@ -9,7 +9,7 @@
 @inject NavigationManager navigation
 @implements IDisposable
 
-<p>Registered Molly devices. Locking blocks future logins, wiping additionally destroys the stored secret.</p>
+<p>Locking blocks future logins and can be reversed by unlocking. Wiping erases all Molly data on the device and cannot be undone.</p>
 
 <div class="mb-3">
     <button type="button" class="btn btn-sm btn-outline-light" disabled="@_busy" @onclick="CreateSetupCode"
@@ -79,14 +79,13 @@ else
         <tbody>
             @foreach (MollyUserInfo user in _users)
             {
-                string detailsId = $"molly-details-{user.Id:N}";
                 MollyShareDeviceInfo sharing = _sharing.GetValueOrDefault(user.Id);
 
                 @* Keyed so a refresh that reorders rows keeps each row's expanded state (the checkbox) with its device. *@
                 <tr @key="user.Id">
                     <td scope="row">
-                        <input type="checkbox" class="details-toggle visually-hidden" id="@detailsId" />
-                        <label for="@detailsId" class="me-1" title="Show or hide details and more actions">
+                        <label class="details-label me-1" title="Show or hide details and more actions">
+                            <input type="checkbox" class="details-toggle visually-hidden" />
                             <span class="bi bi-chevron-right" aria-hidden="true"></span>
                             <span class="visually-hidden">Details</span>
                         </label>
@@ -202,7 +201,7 @@ else
                     </td>
                 </tr>
 
-                <tr @key="detailsId" class="details-row">
+                <tr @key="(user.Id, true)" class="details-row">
                     <td colspan="8">
                         @if (user.Attestation is { } attestation)
                         {
@@ -403,6 +402,15 @@ else
 
                             @if (IsAdmin)
                             {
+                                @if (!user.WipeRequested)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-info me-2" disabled="@_busy"
+                                            title="Lets this device open the dashboard without the password"
+                                            @onclick="() => SetDashboardLoginAllowedAsync(user, !user.DashboardLoginAllowed)">
+                                        @(user.DashboardLoginAllowed ? "Disable dashboard login" : "Allow dashboard login")
+                                    </button>
+                                }
+
                                 @if (_pendingClearAlertsId == user.Id)
                                 {
                                     <button type="button" class="btn btn-sm btn-danger me-2" disabled="@_busy"
@@ -537,8 +545,8 @@ else
 #nullable enable
 
     /// <summary>
-    /// Whether the viewer is an actual admin rather than someone who only knew the dashboard password.
-    /// Deleting is admin-only, and everything else an admin does is trusted without being announced.
+    /// Whether the viewer is an actual admin rather than someone using the dashboard password or a device link.
+    /// Deleting and granting dashboard logins are admin-only. Admin actions aren't announced.
     /// </summary>
     [Parameter]
     public bool IsAdmin { get; set; }
@@ -591,7 +599,7 @@ else
 
     private static string FormatDate(DateTime? value) => value?.ToString("yyyy-MM-dd HH:mm") ?? "";
 
-    private string NicknameOf(Guid id) => _users.FirstOrDefault(u => u.Id == id)?.Nickname ?? id.ToString();
+    private string NicknameOf(Guid id) => _users.FirstOrDefault(u => u.Id == id)?.Nickname ?? "Unknown device";
 
     /// <summary>Keeps the device list and alerts current without a manual reload.</summary>
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
@@ -682,6 +690,16 @@ else
         await RunAsync("delete", () => molly.DeleteEntryAsync(user.Id));
     }
 
+    private async Task SetDashboardLoginAllowedAsync(MollyUserInfo user, bool allowed)
+    {
+        if (!IsAdmin)
+        {
+            return;
+        }
+
+        await RunAsync(allowed ? "allow dashboard login" : "disable dashboard login", () => molly.SetDashboardLoginAllowedAsync(user.Id, allowed));
+    }
+
     private async Task ClearAlertsAsync(MollyUserInfo user)
     {
         // Re-checked here as well: the button is only rendered for admins, but the event it raises isn't.
@@ -745,8 +763,7 @@ else
         {
             await operation();
 
-            // Only an admin is trusted implicitly. Anything done with just the dashboard password is
-            // announced, so a leaked password can't be used to quietly lock or wipe someone's device.
+            // Non-admin actions are announced, whether logged in with a password or a device link.
             if (!IsAdmin)
             {
                 await molly.ReportPasswordDashboardActionAsync(action);

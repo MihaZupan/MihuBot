@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using MihuBot.Helpers.Crypto;
@@ -93,9 +94,9 @@ internal static class MollyShareCrypto
 
     /// <summary>
     /// <c>HMAC-SHA512(authKey, ACI || KEY)</c>, where <c>authKey</c> is HKDF-SHA512 of the
-    /// identity/transport agreement, bound to the exchange and the action.
+    /// identity/transport agreement, bound to the exchange (including its request timestamp) and the action.
     /// </summary>
-    public static byte[] ComputeRequestMac(ReadOnlySpan<byte> agreement, ReadOnlySpan<byte> recipientKeyId, ReadOnlySpan<byte> clientEphemeralPublicKey, ReadOnlySpan<byte> requestNonce, string action, ReadOnlySpan<byte> aci, ReadOnlySpan<byte> identityKey)
+    public static byte[] ComputeRequestMac(ReadOnlySpan<byte> agreement, ReadOnlySpan<byte> recipientKeyId, ReadOnlySpan<byte> clientEphemeralPublicKey, ReadOnlySpan<byte> requestNonce, long requestTimestamp, string action, ReadOnlySpan<byte> aci, ReadOnlySpan<byte> identityKey)
     {
         ArgumentOutOfRangeException.ThrowIfNotEqual(agreement.Length, X25519DiffieHellman.SecretAgreementSizeInBytes);
         ArgumentOutOfRangeException.ThrowIfNotEqual(recipientKeyId.Length, MollyRequestProtector.RecipientKeyIdLength);
@@ -104,7 +105,10 @@ internal static class MollyShareCrypto
         ArgumentOutOfRangeException.ThrowIfNotEqual(aci.Length, MollyShareCodec.AciLength);
         ArgumentOutOfRangeException.ThrowIfNotEqual(identityKey.Length, MollyShareCodec.IdentityKeyLength);
 
-        byte[] info = [.. RequestAuthLabel, .. recipientKeyId, .. clientEphemeralPublicKey, .. requestNonce, .. Encoding.UTF8.GetBytes(action)];
+        Span<byte> timestamp = stackalloc byte[sizeof(long)];
+        BinaryPrimitives.WriteInt64BigEndian(timestamp, requestTimestamp);
+
+        byte[] info = [.. RequestAuthLabel, .. recipientKeyId, .. clientEphemeralPublicKey, .. requestNonce, .. timestamp, .. Encoding.UTF8.GetBytes(action)];
         Span<byte> authKey = stackalloc byte[MacLength];
 
         try
@@ -128,7 +132,7 @@ internal static class MollyShareCrypto
             return false;
         }
 
-        byte[] expected = ComputeRequestMac(agreement, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, action, aci, identityKey);
+        byte[] expected = ComputeRequestMac(agreement, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, aci, identityKey);
         return CryptographicOperations.FixedTimeEquals(expected, mac);
     }
 

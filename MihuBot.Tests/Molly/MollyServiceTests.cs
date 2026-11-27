@@ -148,7 +148,9 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyService otherServer = _fixture.CreateService(MollyTestKeys.OtherDatabaseKey, MollyTestKeys.TransportPrivateKey);
         MollyLoginResult result = await _fixture.LoginAsync(keyHash, otherServer);
 
-        Assert.NotEqual(IdOf(original), IdOf(result));
+        MollySealedIdTokens otherTokens = MollyTestKeys.CreateIdTokens(MollyTestKeys.OtherDatabaseKeyBytes);
+        Assert.True(otherTokens.TryUnprotect(result.ProtectedId, out Guid otherId, out _));
+        Assert.NotEqual(IdOf(original), otherId);
     }
 
     [Theory]
@@ -625,7 +627,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     public async Task Ping_TokenFromAnotherServerKey_IsRejected()
     {
         // Tokens are bound to the server key, so one issued under a different key can't be unprotected.
-        string foreignToken = new MollyIdProtector(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
+        string foreignToken = MollyTestKeys.CreateIdTokens(MollyTestKeys.OtherDatabaseKeyBytes).Protect(Guid.NewGuid(), DateTime.UtcNow);
 
         Assert.Equal(MollyResultStatus.InvalidRequest, (await Molly.PingAsync(foreignToken, null, null, null, default)).Status);
     }
@@ -678,7 +680,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         // As if the previous login happened before the server clock was stepped back.
         DateTime ahead = DateTime.UtcNow.AddMinutes(5);
         await _fixture.SetLastLoginAsync(id, ahead);
-        string earlier = _fixture.IdProtector.Protect(id, ahead);
+        string earlier = _fixture.IdTokens.Protect(id, ahead);
 
         MollyLoginResult login = await _fixture.LoginAsync(keyHash);
 
@@ -1264,6 +1266,22 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
     }
 
     [Fact]
+    public async Task Login_WithASessionButWithoutItsProof_IsRejected()
+    {
+        string oldKeyHash = MollyTestKeys.NewKeyHash();
+        string newKeyHash = MollyTestKeys.NewKeyHash();
+        _fixture.ShareDevice(oldKeyHash, newKeyHash);
+
+        MollyLoginResult original = await _fixture.LoginAsync(oldKeyHash);
+
+        // The device's own attestation and a copied session id, but nothing only the unlocked app holds.
+        Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(newKeyHash, sessionId: original.ProtectedId, withSessionProof: false)).Status);
+        Assert.Null((await _fixture.GetEntryAsync(IdOf(original))).PreviousDerivedHash);
+
+        Assert.Equal(MollyResultStatus.Ok, (await _fixture.LoginAsync(newKeyHash, sessionId: original.ProtectedId)).Status);
+    }
+
+    [Fact]
     public async Task Login_WithASessionThatIsntFromTheLatestRecentLogin_IsInvalid()
     {
         string keyHash = MollyTestKeys.NewKeyHash();
@@ -1279,7 +1297,7 @@ public sealed class MollyServiceTests : IClassFixture<MollyServiceFixture>
         MollyLoginResult latest = await _fixture.LoginAsync(keyHash);
         DateTime stale = DateTime.UtcNow - MollyService.RekeyWindow - TimeSpan.FromMinutes(1);
         await _fixture.SetLastLoginAsync(IdOf(latest), stale);
-        string staleSession = _fixture.IdProtector.Protect(IdOf(latest), stale);
+        string staleSession = _fixture.IdTokens.Protect(IdOf(latest), stale);
 
         Assert.Equal(MollyResultStatus.InvalidRequest, (await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: device, sessionId: staleSession)).Status);
     }

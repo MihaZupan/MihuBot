@@ -92,11 +92,14 @@ public sealed class FileSharingVectorsTests
         byte[] recipientKeyId = SHA512.HashData(transportPublic)[..16];
         byte[] ephemeral = Det("ephemeral", 32);
         byte[] requestNonce = Det("request-nonce", 16);
+        const long RequestTimestamp = 1767225600;
+        byte[] requestTimestamp = new byte[sizeof(long)];
+        BinaryPrimitives.WriteInt64BigEndian(requestTimestamp, RequestTimestamp);
         byte[] aci = Det("aci", 16);
         const string Action = "share-get";
         byte[] dh = new byte[32];
         identity.DeriveRawSecretAgreement(transportPublic, dh);
-        byte[] authKey = HKDF.DeriveKey(HashAlgorithmName.SHA512, dh, 64, salt: [], info: [.. "MihuBot.Molly.Share.Auth.v1"u8, .. recipientKeyId, .. ephemeral, .. requestNonce, .. Ascii(Action)]);
+        byte[] authKey = HKDF.DeriveKey(HashAlgorithmName.SHA512, dh, 64, salt: [], info: [.. "MihuBot.Molly.Share.Auth.v1"u8, .. recipientKeyId, .. ephemeral, .. requestNonce, .. requestTimestamp, .. Ascii(Action)]);
         byte[] macInput = [.. aci, .. identityKey];
         byte[] mac = HMACSHA512.HashData(authKey, macInput);
 
@@ -109,6 +112,7 @@ public sealed class FileSharingVectorsTests
             ["recipientKeyId"] = Hex(recipientKeyId),
             ["clientEphemeralPublicKey"] = Hex(ephemeral),
             ["requestNonce"] = Hex(requestNonce),
+            ["requestTimestamp"] = RequestTimestamp,
             ["action"] = Action,
             ["aci"] = Hex(aci),
             ["dh"] = Hex(dh),

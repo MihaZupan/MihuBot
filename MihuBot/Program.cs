@@ -560,6 +560,17 @@ static void Configure(WebApplication app, IWebHostEnvironment env)
 {
     app.UseForwardedHeaders();
 
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/molly", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        }
+
+        await next(context);
+    });
+
     if (env.IsDevelopment())
     {
         app.UseDeveloperExceptionPage();

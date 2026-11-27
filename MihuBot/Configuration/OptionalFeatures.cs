@@ -39,7 +39,7 @@ public static class OptionalFeatures
 
     /// <summary>
     /// The database key: mixed into stored key hashes and used to derive the at-rest encryption keys
-    /// for entry fields and id tokens (<see cref="MihuBot.Molly.MollyIdProtector"/>). Protects data at
+    /// for entry fields and id tokens (<see cref="MihuBot.Molly.MollySealedIdTokens"/>). Protects data at
     /// rest; unrelated to the wire transport. Never leaves the server. Base64 encoded key material.
     /// </summary>
     public const string MollyDatabaseKeyName = "Molly:DatabaseKey";
