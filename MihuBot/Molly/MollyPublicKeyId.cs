@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 #nullable enable
@@ -18,7 +19,10 @@ public readonly struct MollyPublicKeyId : IEquatable<MollyPublicKeyId>
         keyId.CopyTo(_value);
     }
 
-    public bool Equals(MollyPublicKeyId other) => ((ReadOnlySpan<byte>)_value).SequenceEqual(other._value);
+    [UnscopedRef]
+    public ReadOnlySpan<byte> AsSpan() => _value;
+
+    public bool Equals(MollyPublicKeyId other) => AsSpan().SequenceEqual(other.AsSpan());
 
     public override bool Equals(object? obj) => obj is MollyPublicKeyId other && Equals(other);
 

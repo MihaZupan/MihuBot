@@ -1336,7 +1336,7 @@ public sealed class MollyService
         }
 
         // Bound to a random identity, as associating requires one.
-        var exchange = new MollyExchangeContext(RandomNumberGenerator.GetBytes(16), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(new MollyPublicKeyId(RandomNumberGenerator.GetBytes(MollyRequestProtector.RecipientKeyIdLength)), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), TimeSpan.Zero);
         exchange = exchange with { Action = MollyApiActions.Associate };
         exchange = exchange with { SessionProof = MollySessionProof.Compute(login.ServerHmac!, login.ProtectedId!, exchange) };
         await AssociateAsync(login.ProtectedId, nickname, RandomNumberGenerator.GetBytes(SHA512.HashSizeInBytes), exchange, cancellationToken);

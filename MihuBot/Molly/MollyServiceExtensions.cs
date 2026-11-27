@@ -74,7 +74,7 @@ public static class MollyServiceExtensions
         try
         {
             // Unknown recipient keys and failed authentication all fail closed.
-            if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out MollyExchangeContext? exchange))
+            if (!protector.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyExchangeContext? exchange))
             {
                 return Results.BadRequest();
             }
@@ -84,7 +84,7 @@ public static class MollyServiceExtensions
                 : await ExecuteAsync(molly, shares, request, exchange, context.Request, cancellationToken);
 
             context.Response.Headers.CacheControl = "no-store";
-            byte[] encrypted = protector.EncryptResponse(response, responseKey, recipientKeyId, bucketed: MollyShareService.IsShareAction(request.Action));
+            byte[] encrypted = protector.EncryptResponse(response, responseKey, exchange, bucketed: MollyShareService.IsShareAction(request.Action));
             CryptographicOperations.ZeroMemory(responseKey);
             return Results.Bytes(encrypted, EncryptedContentType);
         }

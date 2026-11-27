@@ -242,7 +242,7 @@ public sealed class MollyShareTestClient(MollyShareService service, MollyRequest
     public MollyExchangeContext NewExchange(byte[]? recipientPublicKey = null)
     {
         recipientPublicKey ??= Convert.FromBase64String(protector.GetTransportKey().PublicKey);
-        return new MollyExchangeContext(MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(16), MollyTestEnvelope.Now(), TimeSpan.Zero);
+        return new MollyExchangeContext(new MollyPublicKeyId(MollyTestEnvelope.GetRecipientKeyId(recipientPublicKey)), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(16), MollyTestEnvelope.Now(), TimeSpan.Zero);
     }
 
     public static MollyShareRequest CreateRequest(string sessionId, byte[] body) => new() { Id = sessionId, Body = Base64(body) };
@@ -264,7 +264,7 @@ public sealed class MollyShareTestClient(MollyShareService service, MollyRequest
     {
         byte[] agreement = new byte[32];
         identity.PrivateKey.DeriveRawSecretAgreement(transportPublicKey, agreement);
-        byte[] mac = MollyShareCrypto.ComputeRequestMac(agreement, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, identity.Aci, identity.Key);
+        byte[] mac = MollyShareCrypto.ComputeRequestMac(agreement, exchange.RecipientKeyId.AsSpan(), exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, identity.Aci, identity.Key);
 
         return new MollyAssociateIdentity { Aci = Base64(identity.Aci), IdentityKey = Base64(identity.Key), Mac = Base64(mac) };
     }

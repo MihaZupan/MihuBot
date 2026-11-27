@@ -1070,7 +1070,7 @@ public sealed class MollyAttestationTests : IClassFixture<MollyServiceFixture>
     public void Transcript_MatchesTheDocumentedVector()
     {
         // Mirrors the example in Attestation/README.md, so client implementations can check their encoding.
-        var exchange = new MollyExchangeContext(Enumerable.Repeat((byte)0x11, 16).ToArray(), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), 1767225600, TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(new MollyPublicKeyId(Enumerable.Repeat((byte)0x11, 16).ToArray()), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), 1767225600, TimeSpan.Zero);
 
         byte[] transcript = MollyAttestationTranscript.Build(
             MollyAttestationMode.Strict,

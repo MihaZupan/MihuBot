@@ -30,7 +30,7 @@ public sealed class MollyPaddingTests : IDisposable
             string action = bootstrap ? "transport-key" : "ping";
             byte[] body = client.EncryptRequest(action, paddingLength: paddingLength);
 
-            Assert.True(_server.TryDecryptRequest(body, out MollyApiRequest? request, out _, out _, out _));
+            Assert.True(_server.TryDecryptRequest(body, out MollyApiRequest? request, out _, out _));
             Assert.Equal(action, request.Action);
         }
     }
@@ -45,7 +45,7 @@ public sealed class MollyPaddingTests : IDisposable
         plaintext.AsSpan(2, 258).Fill(0xFF);
         data.CopyTo(plaintext, 2 + 258);
 
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRawPlaintext(plaintext), out MollyApiRequest? request, out _, out _, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRawPlaintext(plaintext), out MollyApiRequest? request, out _, out _));
         Assert.Equal(42, request.Data.GetProperty("value").GetInt32());
     }
 
@@ -60,17 +60,17 @@ public sealed class MollyPaddingTests : IDisposable
     public void MissingTruncatedOrDataLessFrames_AreRejected(string hex)
     {
         byte[] body = _client.EncryptRawPlaintext(Convert.FromHexString(hex));
-        Assert.False(_server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.False(_server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? responseKey, out MollyExchangeContext? exchange));
         Assert.Null(request);
         Assert.Null(responseKey);
-        Assert.Equal(default(MollyPublicKeyId), recipientKeyId);
+        Assert.Null(exchange);
     }
 
     [Fact]
     public void PlainJsonWithoutTheLengthPrefix_IsRejected()
     {
         byte[] json = Encoding.UTF8.GetBytes(MollyTestEnvelope.RequestJson("ping"));
-        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(json), out _, out _, out _, out _));
+        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(json), out _, out _, out _));
     }
 
     [Fact]
@@ -79,8 +79,8 @@ public sealed class MollyPaddingTests : IDisposable
         string json = MollyTestEnvelope.RequestJson("ping");
         byte[] malformed = [0xFF, 0xFF, .. Encoding.UTF8.GetBytes(json)];
 
-        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(malformed), out _, out _, out _, out _));
-        Assert.True(_server.TryDecryptRequest(_client.Encrypt(json), out _, out _, out _, out _));
+        Assert.False(_server.TryDecryptRequest(_client.EncryptRawPlaintext(malformed), out _, out _, out _));
+        Assert.True(_server.TryDecryptRequest(_client.Encrypt(json), out _, out _, out _));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class MollyPaddingTests : IDisposable
         byte[] body = _client.EncryptRequest("ping", paddingLength: 256);
         body[48 + 24 + 2] ^= 0x80;
 
-        Assert.False(_server.TryDecryptRequest(body, out _, out _, out _, out _));
+        Assert.False(_server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Theory]
@@ -103,13 +103,13 @@ public sealed class MollyPaddingTests : IDisposable
     [InlineData(65536)]
     public void ResponsePadding_UsesTheSizePolicyAndBigEndianFrame(int dataLength)
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         int overhead = JsonSerializer.SerializeToUtf8Bytes(new MollyApiResponse { Status = "ok", Data = "" }).Length;
         string value = new('a', dataLength - overhead);
         var response = new MollyApiResponse { Status = "ok", Data = value };
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         Assert.Equal(dataLength, data.Length);
-        byte[] body = _server.EncryptResponse(response, responseKey, recipientKeyId);
+        byte[] body = _server.EncryptResponse(response, responseKey, exchange);
 
         using var aead = new XAesGcm(responseKey);
         Assert.True(aead.TryDecrypt(body, out byte[]? plaintext));
@@ -126,10 +126,10 @@ public sealed class MollyPaddingTests : IDisposable
     [Fact]
     public void ResponsePadding_ContainsFreshRandomBytes()
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         var response = new MollyApiResponse { Status = "ok" };
-        byte[] first = _server.EncryptResponse(response, responseKey, recipientKeyId);
-        byte[] second = _server.EncryptResponse(response, responseKey, recipientKeyId);
+        byte[] first = _server.EncryptResponse(response, responseKey, exchange);
+        byte[] second = _server.EncryptResponse(response, responseKey, exchange);
 
         using var aead = new XAesGcm(responseKey);
         Assert.True(aead.TryDecrypt(first, out byte[]? firstPlaintext));
@@ -144,7 +144,7 @@ public sealed class MollyPaddingTests : IDisposable
     [InlineData(2048, true)]
     public void Responses_AlwaysGetRandomPaddingOnTopOfTheirSizeClass(int dataLength, bool bucketed)
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("ping"), out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         var response = new MollyApiResponse { Status = "ok", Data = new string('a', dataLength) };
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         int sizeClass = data.Length <= 1024 ? 1026 : bucketed ? MollyRequestProtector.PaddingBucketLength : 2 + data.Length;
@@ -153,7 +153,7 @@ public sealed class MollyPaddingTests : IDisposable
 
         for (int i = 0; i < 32; i++)
         {
-            byte[] body = _server.EncryptResponse(response, responseKey, recipientKeyId, bucketed);
+            byte[] body = _server.EncryptResponse(response, responseKey, exchange, bucketed);
             Assert.True(aead.TryDecrypt(body, out byte[]? plaintext));
             int paddingLength = (plaintext[0] << 8) | plaintext[1];
             Assert.InRange(plaintext.Length, sizeClass, sizeClass + MollyRequestProtector.MaxRandomPaddingLength);
@@ -174,14 +174,14 @@ public sealed class MollyPaddingTests : IDisposable
     [InlineData(100_000, 114688)]
     public void SharePadding_RoundsUpToSizeClasses_SmallLikePingsAndLargerIn16KiBBuckets(int dataLength, int expectedLength)
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("share-get"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("share-get"), out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         int overhead = JsonSerializer.SerializeToUtf8Bytes(new MollyApiResponse { Status = "ok", Data = "" }).Length;
         string value = new('a', dataLength - overhead);
         var response = new MollyApiResponse { Status = "ok", Data = value };
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response);
         Assert.Equal(dataLength, data.Length);
 
-        byte[] body = _server.EncryptResponse(response, responseKey, recipientKeyId, bucketed: true);
+        byte[] body = _server.EncryptResponse(response, responseKey, exchange, bucketed: true);
 
         using var aead = new XAesGcm(responseKey);
         Assert.True(aead.TryDecrypt(body, out byte[]? plaintext));
@@ -196,7 +196,7 @@ public sealed class MollyPaddingTests : IDisposable
     [Fact]
     public void ShareFetchResponses_StayInTheirSizeClass_WhateverTheirBase64Content()
     {
-        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("share-fetch"), out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(_server.TryDecryptRequest(_client.EncryptRequest("share-fetch"), out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
 
         // 0xFB bytes encode as "+/v7", whose '+' the default JSON encoder would escape to six bytes.
         int[] lengths = [.. new byte[] { 0x00, 0xFB }.Select(fill =>
@@ -208,7 +208,7 @@ public sealed class MollyPaddingTests : IDisposable
                 EncryptedFile = Convert.ToBase64String(Enumerable.Repeat(fill, 65580).ToArray()),
             };
 
-            return _server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = data }, responseKey, recipientKeyId, bucketed: true).Length;
+            return _server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = data }, responseKey, exchange, bucketed: true).Length;
         })];
 
         int sizeClass = XAesGcm.CombinedOverheadInBytes + (6 * MollyRequestProtector.PaddingBucketLength);

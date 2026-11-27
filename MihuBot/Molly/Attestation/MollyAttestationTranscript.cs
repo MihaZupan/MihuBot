@@ -30,7 +30,7 @@ public static class MollyAttestationTranscript
 
         WriteField(writer, ChallengeDomain);
         WriteField(writer, [Version]);
-        WriteField(writer, exchange.RecipientKeyId);
+        WriteField(writer, exchange.RecipientKeyId.AsSpan());
         WriteField(writer, exchange.ClientEphemeralPublicKey);
         WriteField(writer, exchange.RequestNonce);
         WriteField(writer, exchange.EncodeRequestTimestamp());
@@ -45,7 +45,7 @@ public static class MollyAttestationTranscript
         WriteField(writer, Domain);
         WriteField(writer, [Version]);
         WriteField(writer, Encoding.ASCII.GetBytes(mode.ToWireValue()));
-        WriteField(writer, exchange.RecipientKeyId);
+        WriteField(writer, exchange.RecipientKeyId.AsSpan());
         WriteField(writer, exchange.ClientEphemeralPublicKey);
         WriteField(writer, keyHash);
         WriteField(writer, SHA512.HashData(signingPublicKey));

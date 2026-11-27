@@ -12,7 +12,7 @@ public sealed class MollySessionProofTests(MollyServiceFixture fixture) : IClass
     public void Proof_MatchesTheDocumentedVector()
     {
         byte[] serverHmac = Enumerable.Range(0, 64).Select(i => (byte)i).ToArray();
-        var exchange = new MollyExchangeContext(Enumerable.Repeat((byte)0x11, 16).ToArray(), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), 1767225600, TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(new MollyPublicKeyId(Enumerable.Repeat((byte)0x11, 16).ToArray()), Enumerable.Repeat((byte)0x22, 32).ToArray(), Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), 1767225600, TimeSpan.Zero);
 
         byte[] key = new byte[MollySessionProof.KeyLength];
         MollySessionProof.DeriveKey(serverHmac, "session-id", key);

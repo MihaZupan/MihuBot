@@ -171,9 +171,9 @@ public sealed class MollyShareCryptoTests
         identity.DeriveRawSecretAgreement(Hex(vector, "transportPublicKey"), dh);
         Assert.Equal(Hex(vector, "dh"), dh);
 
-        var exchange = new MollyExchangeContext(Hex(vector, "recipientKeyId"), Hex(vector, "clientEphemeralPublicKey"), Hex(vector, "requestNonce"), vector.GetProperty("requestTimestamp").GetInt64(), TimeSpan.Zero);
+        var exchange = new MollyExchangeContext(new MollyPublicKeyId(Hex(vector, "recipientKeyId")), Hex(vector, "clientEphemeralPublicKey"), Hex(vector, "requestNonce"), vector.GetProperty("requestTimestamp").GetInt64(), TimeSpan.Zero);
         string action = vector.GetProperty("action").GetString()!;
-        byte[] mac = MollyShareCrypto.ComputeRequestMac(dh, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, Hex(vector, "aci"), Hex(vector, "identityKey"));
+        byte[] mac = MollyShareCrypto.ComputeRequestMac(dh, exchange.RecipientKeyId.AsSpan(), exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, Hex(vector, "aci"), Hex(vector, "identityKey"));
         Assert.Equal(Hex(vector, "mac"), mac);
 
         Assert.True(MollyShareCrypto.VerifyRequestMac(dh, exchange, action, Hex(vector, "aci"), Hex(vector, "identityKey"), mac));
@@ -396,11 +396,11 @@ public sealed class MollyShareCryptoTests
         byte[] shared = new byte[32];
 
         using var envelope = new MollyTestEnvelope(protector.GetTransportKey());
-        Assert.True(protector.TryDecryptRequest(envelope.EncryptRequest(MollyApiActions.ShareSync, timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _, out MollyExchangeContext? exchange));
+        Assert.True(protector.TryDecryptRequest(envelope.EncryptRequest(MollyApiActions.ShareSync, timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out MollyExchangeContext? exchange));
         Assert.NotNull(exchange.TransportKey);
 
         using var discovery = new MollyTestEnvelope();
-        Assert.True(protector.TryDecryptRequest(discovery.EncryptRequest(MollyApiActions.TransportKey, timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out _, out MollyExchangeContext? discoveryExchange));
+        Assert.True(protector.TryDecryptRequest(discovery.EncryptRequest(MollyApiActions.TransportKey, timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out _, out MollyExchangeContext? discoveryExchange));
         Assert.Null(discoveryExchange.TransportKey);
         Assert.False(protector.TryDeriveShareAgreement(discoveryExchange, identityPublicKey, shared));
 

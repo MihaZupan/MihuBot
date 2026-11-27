@@ -132,7 +132,7 @@ internal static class MollyShareCrypto
             return false;
         }
 
-        byte[] expected = ComputeRequestMac(agreement, exchange.RecipientKeyId, exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, aci, identityKey);
+        byte[] expected = ComputeRequestMac(agreement, exchange.RecipientKeyId.AsSpan(), exchange.ClientEphemeralPublicKey, exchange.RequestNonce, exchange.RequestTimestamp, action, aci, identityKey);
         return CryptographicOperations.FixedTimeEquals(expected, mac);
     }
 

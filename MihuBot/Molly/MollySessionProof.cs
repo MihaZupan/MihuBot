@@ -46,7 +46,7 @@ public static class MollySessionProof
         WriteField(transcript, Domain);
         WriteField(transcript, [Version]);
         WriteField(transcript, Encoding.UTF8.GetBytes(exchange.Action));
-        WriteField(transcript, exchange.RecipientKeyId);
+        WriteField(transcript, exchange.RecipientKeyId.AsSpan());
         WriteField(transcript, exchange.ClientEphemeralPublicKey);
         WriteField(transcript, exchange.RequestNonce);
         WriteField(transcript, exchange.EncodeRequestTimestamp());

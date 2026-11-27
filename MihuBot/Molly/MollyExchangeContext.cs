@@ -9,7 +9,7 @@ namespace MihuBot.Molly;
 /// <see cref="MollyRequestProtector"/>. Proofs are bound to it, so they can't be replayed
 /// inside a different exchange (one whose response an attacker can decrypt).
 /// </summary>
-/// <param name="RecipientKeyId">The unmasked 16-byte recipient key ID.</param>
+/// <param name="RecipientKeyId">The unmasked recipient key ID.</param>
 /// <param name="ClientEphemeralPublicKey">The client's raw 32-byte X25519 ephemeral public key.</param>
 /// <param name="RequestNonce">The decoded 16-byte request nonce from the JSON envelope, which the transport only accepts once.</param>
 /// <param name="RequestTimestamp">
@@ -20,7 +20,7 @@ namespace MihuBot.Molly;
 /// How long ago the server generated the transport key the request was sealed to, when it was decrypted.
 /// Transport keys are unpredictable before they're published, so this bounds how old the attestation can be.
 /// </param>
-public sealed record MollyExchangeContext(byte[] RecipientKeyId, byte[] ClientEphemeralPublicKey, byte[] RequestNonce, long RequestTimestamp, TimeSpan RecipientKeyAge)
+public sealed record MollyExchangeContext(MollyPublicKeyId RecipientKeyId, byte[] ClientEphemeralPublicKey, byte[] RequestNonce, long RequestTimestamp, TimeSpan RecipientKeyAge)
 {
     /// <summary><see cref="RequestTimestamp"/> as <c>BE64</c>, the encoding every proof binds it in.</summary>
     public byte[] EncodeRequestTimestamp()

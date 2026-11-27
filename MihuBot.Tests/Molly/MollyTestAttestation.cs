@@ -411,5 +411,5 @@ public sealed class MollyTestDevice
         MollyTestPki.IssueCertificate(subjectKey, new X500DistinguishedName("CN=Android Keystore Key"), new X500DistinguishedName("CN=Molly Attest Key"), attestKey, description.Encode());
 
     /// <summary>A plausible transport header, for calling the service directly.</summary>
-    public static MollyExchangeContext NewExchange(TimeSpan recipientKeyAge = default) => new(RandomNumberGenerator.GetBytes(16), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), recipientKeyAge);
+    public static MollyExchangeContext NewExchange(TimeSpan recipientKeyAge = default) => new(new MollyPublicKeyId(RandomNumberGenerator.GetBytes(MollyRequestProtector.RecipientKeyIdLength)), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), recipientKeyAge);
 }

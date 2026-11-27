@@ -58,7 +58,7 @@ public sealed class MollyKeyRotationTests
         Assert.NotEqual(body.AsSpan(0, 16).ToArray(), nextBody.AsSpan(0, 16).ToArray());
         Assert.Equal(-1, body.AsSpan(0, 48).IndexOf(recipientPublicKey));
         byte[] originalBody = body.ToArray();
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? keys, out _, out _));
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? keys, out _));
         Assert.Equal(originalBody, body);
         CryptographicOperations.ZeroMemory(keys);
     }
@@ -200,10 +200,10 @@ public sealed class MollyKeyRotationTests
         using var client = new MollyTestEnvelope(first);
         time.Advance(TimeSpan.FromSeconds(secondsBeforeDecryption));
         byte[] body = client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         time.Advance(TimeSpan.FromSeconds(secondsAfterDecryption));
         var response = new MollyApiResponse { Status = status, Data = "application result" };
-        byte[] encrypted = server.EncryptResponse(response, responseKey, recipientKeyId);
+        byte[] encrypted = server.EncryptResponse(response, responseKey, exchange);
         CryptographicOperations.ZeroMemory(responseKey);
         JsonElement envelope = client.DecryptResponse(encrypted);
 
@@ -223,8 +223,8 @@ public sealed class MollyKeyRotationTests
 
             using var updatedClient = new MollyTestEnvelope(advertised);
             byte[] updatedBody = updatedClient.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
-            Assert.True(server.TryDecryptRequest(updatedBody, out _, out responseKey, out recipientKeyId, out _));
-            byte[] updatedResponse = server.EncryptResponse(response, responseKey, recipientKeyId);
+            Assert.True(server.TryDecryptRequest(updatedBody, out _, out responseKey, out exchange));
+            byte[] updatedResponse = server.EncryptResponse(response, responseKey, exchange);
             CryptographicOperations.ZeroMemory(responseKey);
             Assert.False(updatedClient.DecryptResponse(updatedResponse).TryGetProperty("transportKey", out _));
         }
@@ -381,7 +381,7 @@ public sealed class MollyKeyRotationTests
         using var client = new MollyTestEnvelope(server.GetTransportKey());
         time.Advance(TimeSpan.FromSeconds(150));
 
-        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys, out _, out MollyExchangeContext? exchange));
+        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys, out MollyExchangeContext? exchange));
         CryptographicOperations.ZeroMemory(keys);
 
         Assert.Equal(TimeSpan.FromSeconds(150), exchange.RecipientKeyAge);
@@ -615,7 +615,7 @@ public sealed class MollyKeyRotationTests
     {
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var bootstrap = new MollyTestEnvelope();
-        Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest(action, data), out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest(action, data), out _, out _, out _));
     }
 
     [Fact]
@@ -625,9 +625,9 @@ public sealed class MollyKeyRotationTests
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes, time);
         using var bootstrap = new MollyTestEnvelope();
         byte[] body = bootstrap.EncryptRequest("transport-key", timestamp: time.GetUtcNow().ToUnixTimeSeconds());
-        Assert.True(server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(server.TryDecryptRequest(body, out MollyApiRequest? request, out byte[]? sessionKey, out MollyExchangeContext? exchange));
         Assert.Equal("transport-key", request.Action);
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, sessionKey, recipientKeyId);
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok", Data = server.GetTransportKey() }, sessionKey, exchange);
         CryptographicOperations.ZeroMemory(sessionKey);
         JsonElement envelope = bootstrap.DecryptResponse(response);
         Assert.False(envelope.TryGetProperty("transportKey", out _));
@@ -635,9 +635,9 @@ public sealed class MollyKeyRotationTests
         Assert.Equal(new[] { "discoveryPublicKey", "expiresAt", "publicKey" },
             data.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.Equal(Convert.ToBase64String(MollyTestKeys.TransportPublicKeyBytes), data.GetProperty("discoveryPublicKey").GetString());
-        Assert.False(server.TryDecryptRequest(body, out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
         Assert.False(server.TryDecryptRequest(bootstrap.EncryptRequest("transport-key",
-            timestamp: time.GetUtcNow().AddMinutes(-1).ToUnixTimeSeconds()), out _, out _, out _, out _));
+            timestamp: time.GetUtcNow().AddMinutes(-1).ToUnixTimeSeconds()), out _, out _, out _));
     }
 
     [Fact]
@@ -645,7 +645,7 @@ public sealed class MollyKeyRotationTests
     {
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var client = new MollyTestEnvelope(server.GetTransportKey());
-        Assert.False(server.TryDecryptRequest(client.EncryptRequest("transport-key"), out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(client.EncryptRequest("transport-key"), out _, out _, out _));
     }
 
     [Theory]
@@ -659,7 +659,7 @@ public sealed class MollyKeyRotationTests
         using var client = new MollyTestEnvelope(server.GetTransportKey());
         byte[] body = client.EncryptRequest("ping");
         body[offset] ^= 0x80;
-        Assert.False(server.TryDecryptRequest(body, out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -674,7 +674,7 @@ public sealed class MollyKeyRotationTests
         MollyTestEnvelope.MaskRequestBody(body);
         MollyTestEnvelope.GetRecipientKeyId(Convert.FromBase64String(next.PublicKey)).CopyTo(body, 0);
         MollyTestEnvelope.MaskRequestBody(body);
-        Assert.False(server.TryDecryptRequest(body, out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(body, out _, out _, out _));
     }
 
     [Fact]
@@ -683,7 +683,7 @@ public sealed class MollyKeyRotationTests
         using var server = new MollyRequestProtector(MollyTestKeys.TransportPrivateKeyBytes);
         using var client = new MollyTestEnvelope(server.GetTransportKey());
         byte[] body = client.EncryptRequest("ping");
-        Assert.False(server.TryDecryptRequest(body.AsSpan(16), out _, out _, out _, out _));
+        Assert.False(server.TryDecryptRequest(body.AsSpan(16), out _, out _, out _));
     }
 
     [Theory]
@@ -695,16 +695,16 @@ public sealed class MollyKeyRotationTests
         using var client = bootstrap ? new MollyTestEnvelope() : new MollyTestEnvelope(server.GetTransportKey());
         string action = bootstrap ? "transport-key" : "ping";
         byte[] body = client.EncryptRequest(action);
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? responseKey, out MollyExchangeContext? exchange));
         Assert.Equal(32, responseKey.Length);
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, responseKey, recipientKeyId);
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, responseKey, exchange);
         using var responseCipher = new XAesGcm(responseKey);
         MollyTestEnvelope.MaskRequestBody(body);
         Assert.False(responseCipher.TryDecrypt(body.AsSpan(48), out _));
         Assert.Equal("ok", client.DecryptResponse(response).GetProperty("status").GetString());
         CryptographicOperations.ZeroMemory(responseKey);
 
-        Assert.True(server.TryDecryptRequest(client.EncryptRequest(action), out _, out byte[]? nextKeys, out _, out _));
+        Assert.True(server.TryDecryptRequest(client.EncryptRequest(action), out _, out byte[]? nextKeys, out _));
         Assert.Equal(32, nextKeys.Length);
         using var nextResponseCipher = new XAesGcm(nextKeys);
         Assert.False(nextResponseCipher.TryDecrypt(response, out _));
@@ -718,8 +718,8 @@ public sealed class MollyKeyRotationTests
         MollyTransportKeyResponse descriptor = server.GetTransportKey();
         using var client = new MollyTestEnvelope(descriptor);
         byte[] body = client.EncryptRequest("ping");
-        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? sessionKeys, out MollyPublicKeyId recipientKeyId, out _));
-        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, sessionKeys, recipientKeyId);
+        Assert.True(server.TryDecryptRequest(body, out _, out byte[]? sessionKeys, out MollyExchangeContext? exchange));
+        byte[] response = server.EncryptResponse(new MollyApiResponse { Status = "ok" }, sessionKeys, exchange);
         CryptographicOperations.ZeroMemory(sessionKeys);
 
         using var stolenIdentity = X25519DiffieHellman.ImportPrivateKey(MollyTestKeys.TransportPrivateKeyBytes);
@@ -763,16 +763,16 @@ public sealed class MollyKeyRotationTests
 
     private static void AssertAccepted(MollyRequestProtector server, MollyTestEnvelope client, TimeProvider time)
     {
-        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys, out _, out _));
+        Assert.True(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out _, out byte[]? keys, out _));
         CryptographicOperations.ZeroMemory(keys);
     }
 
     private static void AssertRejected(MollyRequestProtector server, MollyTestEnvelope client, TimeProvider time)
     {
-        Assert.False(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out MollyApiRequest? request, out byte[]? keys, out MollyPublicKeyId recipientKeyId, out _));
+        Assert.False(server.TryDecryptRequest(client.EncryptRequest("ping", timestamp: time.GetUtcNow().ToUnixTimeSeconds()), out MollyApiRequest? request, out byte[]? keys, out MollyExchangeContext? exchange));
         Assert.Null(request);
         Assert.Null(keys);
-        Assert.Equal(default(MollyPublicKeyId), recipientKeyId);
+        Assert.Null(exchange);
     }
 
     private sealed class ManualTimeProvider : TimeProvider

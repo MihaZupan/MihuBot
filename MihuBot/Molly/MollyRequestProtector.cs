@@ -122,16 +122,17 @@ public sealed class MollyRequestProtector : IDisposable
     /// <summary>
     /// Opens a sealed request and checks that it is fresh and hasn't been seen before. On success,
     /// <paramref name="responseKey"/> holds the 32-byte key for encrypting the response.
-    /// <paramref name="recipientKeyId"/> identifies the authenticated recipient for response key updates.
     /// A rejected request consumes nothing, so a client whose clock is off can retry after correcting it.
     /// </summary>
     /// <remarks>The nonce is only remembered once the request is accepted.</remarks>
-    /// <param name="exchange">The authenticated, unmasked transport header, which attestation proofs are bound to.</param>
-    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey, out MollyPublicKeyId recipientKeyId, [NotNullWhen(true)] out MollyExchangeContext? exchange)
+    /// <param name="exchange">
+    /// The authenticated, unmasked transport header, which attestation proofs are bound to and whose recipient key ID
+    /// <see cref="EncryptResponse"/> uses for response key updates.
+    /// </param>
+    public bool TryDecryptRequest(ReadOnlySpan<byte> body, [NotNullWhen(true)] out MollyApiRequest? request, [NotNullWhen(true)] out byte[]? responseKey, [NotNullWhen(true)] out MollyExchangeContext? exchange)
     {
         request = null;
         responseKey = null;
-        recipientKeyId = default;
         exchange = null;
 
         if (body.Length < HeaderLength + XAesGcm.CombinedOverheadInBytes + sizeof(ushort))
@@ -191,9 +192,8 @@ public sealed class MollyRequestProtector : IDisposable
         }
 
         responseKey = derivedResponseKey;
-        recipientKeyId = new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength));
         TimeSpan keyAge = bootstrap ? TimeSpan.MaxValue : _timeProvider.GetUtcNow() - keyCreatedAt;
-        exchange = new MollyExchangeContext(header.Slice(0, RecipientKeyIdLength).ToArray(), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), request.Timestamp, keyAge)
+        exchange = new MollyExchangeContext(new MollyPublicKeyId(header.Slice(0, RecipientKeyIdLength)), header.Slice(RecipientKeyIdLength).ToArray(), Convert.FromBase64String(request.Nonce!), request.Timestamp, keyAge)
         {
             Action = request.Action,
             SessionProof = request.Proof,
@@ -212,9 +212,9 @@ public sealed class MollyRequestProtector : IDisposable
     /// of <see cref="PaddingBucketLength"/> (see Sharing/README.md, "Padding"). Either way, up to
     /// <see cref="MaxRandomPaddingLength"/> random bytes are added on top.
     /// </param>
-    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyPublicKeyId recipientKeyId, bool bucketed = false)
+    public byte[] EncryptResponse(MollyApiResponse response, ReadOnlySpan<byte> responseKey, MollyExchangeContext exchange, bool bucketed = false)
     {
-        response.TransportKey = _keys.GetKeyUpdate(recipientKeyId);
+        response.TransportKey = _keys.GetKeyUpdate(exchange.RecipientKeyId);
 
         byte[] data = JsonSerializer.SerializeToUtf8Bytes(response, s_responseJsonOptions);
 
@@ -245,14 +245,13 @@ public sealed class MollyRequestProtector : IDisposable
     /// </summary>
     internal bool TryDeriveShareAgreement(MollyExchangeContext exchange, ReadOnlySpan<byte> identityPublicKey, Span<byte> shared)
     {
-        if (exchange.RecipientKeyId.Length != RecipientKeyIdLength ||
-            identityPublicKey.Length != X25519DiffieHellman.PublicKeySizeInBytes ||
+        if (identityPublicKey.Length != X25519DiffieHellman.PublicKeySizeInBytes ||
             shared.Length != X25519DiffieHellman.SecretAgreementSizeInBytes)
         {
             return false;
         }
 
-        var recipientKeyId = new MollyPublicKeyId(exchange.RecipientKeyId);
+        MollyPublicKeyId recipientKeyId = exchange.RecipientKeyId;
         MollyTransportKeyRing.TransportKey? key = exchange.TransportKey;
 
         if (key is null)

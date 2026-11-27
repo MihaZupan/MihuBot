@@ -102,7 +102,7 @@ public sealed class MollyTestEnvelope : IDisposable
         _nextNonce = NewNonce();
         _nextTimestamp = Now();
         // The age is only known to the server; the client doesn't sign it.
-        return new MollyExchangeContext(GetRecipientKeyId(_serverPublicKey), _nextEphemeral.ExportPublicKey(), Convert.FromBase64String(_nextNonce), _nextTimestamp.Value, TimeSpan.Zero);
+        return new MollyExchangeContext(new MollyPublicKeyId(GetRecipientKeyId(_serverPublicKey)), _nextEphemeral.ExportPublicKey(), Convert.FromBase64String(_nextNonce), _nextTimestamp.Value, TimeSpan.Zero);
     }
 
     /// <summary>Seals plaintext verbatim, including deliberately malformed padding frames.</summary>
