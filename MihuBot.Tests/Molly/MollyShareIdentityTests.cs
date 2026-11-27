@@ -25,7 +25,7 @@ public sealed class MollyShareIdentityTests(MollyServiceFixture fixture) : Molly
 
         await using (MollyDbContext db = _fixture.DbFactory.CreateDbContext())
         {
-            Guid entryId = _fixture.Unprotect(login.ProtectedId!);
+            Guid entryId = _fixture.Unprotect(login.ProtectedId);
             derivedHash = (await db.Entries.SingleAsync(e => e.Id == entryId)).DerivedHash;
         }
 

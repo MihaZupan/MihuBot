@@ -1182,7 +1182,7 @@ public sealed class MollyService
 
         MollyCommand command = GetPendingCommand(entry);
 
-        if (exchange is not null && !command.IsBlocking() && !VerifySessionProof(entry, protectedId!, exchange))
+        if (exchange is not null && !command.IsBlocking() && !VerifySessionProof(entry, protectedId, exchange))
         {
             return Session.Rejected(MollyCommandResult.Invalid);
         }
@@ -1335,17 +1335,19 @@ public sealed class MollyService
             login = await RegisterAsync(db, derivedHash, state, cancellationToken);
         }
 
+        if (!_idTokens.TryUnprotect(login.ProtectedId, out Guid entryId, out _))
+        {
+            throw new InvalidOperationException("Registering the fake entry failed.");
+        }
+
         // Bound to a random identity, as associating requires one.
         var exchange = new MollyExchangeContext(new MollyPublicKeyId(RandomNumberGenerator.GetBytes(MollyRequestProtector.RecipientKeyIdLength)), RandomNumberGenerator.GetBytes(32), RandomNumberGenerator.GetBytes(MollyRequestProtector.RequestNonceLength), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), TimeSpan.Zero);
         exchange = exchange with { Action = MollyApiActions.Associate };
-        exchange = exchange with { SessionProof = MollySessionProof.Compute(login.ServerHmac!, login.ProtectedId!, exchange) };
+        exchange = exchange with { SessionProof = MollySessionProof.Compute(login.ServerHmac!, login.ProtectedId, exchange) };
         await AssociateAsync(login.ProtectedId, nickname, RandomNumberGenerator.GetBytes(SHA512.HashSizeInBytes), exchange, cancellationToken);
 
         // Muted from the start - a local dummy device shouldn't be announcing its seeded alert.
-        if (_idTokens.TryUnprotect(login.ProtectedId, out Guid entryId, out _))
-        {
-            await SetAlertsMutedAsync(entryId, muted: true, cancellationToken);
-        }
+        await SetAlertsMutedAsync(entryId, muted: true, cancellationToken);
 
         // Random-but-plausible device stats, so the dashboard shows the whole range of states locally.
         await PingAsync(login.ProtectedId,

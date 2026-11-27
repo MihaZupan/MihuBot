@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -130,7 +131,7 @@ public sealed class MollyServiceFixture : IAsyncLifetime
     public MollyAttestationRevocations Revocations { get; private set; } = null!;
 
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
-    public Guid Unprotect(string? protectedId)
+    public Guid Unprotect([NotNull] string? protectedId)
     {
         Assert.True(IdTokens.TryUnprotect(protectedId, out Guid id, out _));
         return id;

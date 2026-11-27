@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Buffers.Text;
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using MihuBot.Configuration;
 using MihuBot.Helpers.Crypto;
@@ -76,7 +77,7 @@ public sealed class MollySealedIdTokens
     }
 
     /// <summary>Fails for anything not issued under this key, including tampered tokens.</summary>
-    public bool TryUnprotect(string? token, out Guid id, out DateTime timestamp)
+    public bool TryUnprotect([NotNullWhen(true)] string? token, out Guid id, out DateTime timestamp)
     {
         id = Guid.Empty;
         timestamp = DateTime.MinValue;
@@ -88,10 +89,10 @@ public sealed class MollySealedIdTokens
 
         Span<byte> bytes = stackalloc byte[TokenLength];
         OperationStatus status = _urlSafe
-            ? Base64Url.DecodeFromChars(token, bytes, out _, out int written)
-            : Base64.DecodeFromChars(token, bytes, out _, out written);
+            ? Base64Url.DecodeFromChars(token, bytes, out int consumed, out int written)
+            : Base64.DecodeFromChars(token, bytes, out consumed, out written);
 
-        if (status != OperationStatus.Done || written != TokenLength)
+        if (status != OperationStatus.Done || consumed != token.Length || written != TokenLength)
         {
             return false;
         }

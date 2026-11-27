@@ -37,8 +37,8 @@ public sealed class MollySessionProofTests(MollyServiceFixture fixture) : IClass
         MollyLoginResult first = await fixture.LoginAsync(keyHash);
         await Molly.AssociateAsync(first.ProtectedId, "device");
         MollyLoginResult second = await fixture.LoginAsync(keyHash);
-        string session = second.ProtectedId!;
-        Guid id = fixture.Unprotect(session);
+        Guid id = fixture.Unprotect(second.ProtectedId);
+        string session = second.ProtectedId;
         await fixture.SetLastSeenAsync(id, DateTime.UtcNow.AddDays(-1));
         MollyDbEntry before = await fixture.GetEntryAsync(id);
 

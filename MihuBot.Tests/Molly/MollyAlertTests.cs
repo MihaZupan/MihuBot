@@ -25,7 +25,8 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         MollyLoginResult login = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash());
         await Molly.AssociateAsync(login.ProtectedId, $"{nickname}-{Guid.NewGuid():N}"[..32], default);
 
-        return (login.ProtectedId!, _fixture.Unprotect(login.ProtectedId));
+        Guid id = _fixture.Unprotect(login.ProtectedId);
+        return (login.ProtectedId, id);
     }
 
     [Theory]

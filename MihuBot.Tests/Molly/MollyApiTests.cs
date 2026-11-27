@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -47,7 +48,7 @@ public sealed class MollyApiFixture : IAsyncLifetime
     public MollyResponseTimingFloor TimingFloor { get; } = new() { Enabled = false };
 
     /// <summary>Recovers the real entry id from the opaque token handed to the client.</summary>
-    public Guid Unprotect(string protectedId)
+    public Guid Unprotect([NotNull] string? protectedId)
     {
         Assert.True(IdTokens.TryUnprotect(protectedId, out Guid id, out _));
         return id;
@@ -876,7 +877,7 @@ public sealed class MollyApiTests : IClassFixture<MollyApiFixture>, IDisposable
         JsonElement registered = await AttestedLoginAsync(keyHash, device);
         Assert.Equal("ok", Status(registered));
 
-        await _fixture.Service.SetLockRequestedAsync(_fixture.Unprotect(Data(registered).GetProperty("id").GetString()!), lockRequested: true);
+        await _fixture.Service.SetLockRequestedAsync(_fixture.Unprotect(Data(registered).GetProperty("id").GetString()), lockRequested: true);
 
         JsonElement locked = await AttestedLoginAsync(keyHash, device, registrationToken: null);
         JsonElement wrongPassphrase = await AttestedLoginAsync(MollyTestKeys.NewKeyHash(), device, registrationToken: null);
