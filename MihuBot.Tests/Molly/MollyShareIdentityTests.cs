@@ -104,6 +104,39 @@ public sealed class MollyShareIdentityTests(MollyServiceFixture fixture) : Molly
     }
 
     [Fact]
+    public async Task Maintenance_ClearsOnlyExpiredBindingTimes_AndPreservesRebindingRules()
+    {
+        Party expired = await NewPartyAsync();
+        Party recent = await NewPartyAsync();
+        Party unbound = await NewPartyAsync(bind: false);
+        Guid expiredId = _fixture.Unprotect(expired.Session);
+        Guid recentId = _fixture.Unprotect(recent.Session);
+        Guid unboundId = _fixture.Unprotect(unbound.Session);
+        (byte[]? recentHash, DateTime? recentBoundAt) = await GetBindingAsync(recentId);
+
+        await AgeBindingAsync(expiredId, MollyService.IdentityRebindCooldown + TimeSpan.FromMinutes(1));
+        await _fixture.Service.ClearExpiredIdentityBindingTimesAsync();
+        await _fixture.Service.ClearExpiredIdentityBindingTimesAsync();
+
+        (byte[]? expiredHash, DateTime? expiredBoundAt) = await GetBindingAsync(expiredId);
+        Assert.Equal(PartyHashOf(expired.Identity), expiredHash);
+        Assert.Equal(DateTime.UnixEpoch, expiredBoundAt);
+        (byte[]? unchangedHash, DateTime? unchangedBoundAt) = await GetBindingAsync(recentId);
+        Assert.Equal(recentHash, unchangedHash);
+        Assert.Equal(recentBoundAt, unchangedBoundAt);
+        Assert.Equal((null, null), await GetBindingAsync(unboundId));
+
+        Assert.Equal(MollyIdentityBinding.Bound, (await _client.AssociateAsync(expired.Session, expired.Identity)).Identity);
+        Assert.Equal(DateTime.UnixEpoch, (await GetBindingAsync(expiredId)).BoundAt);
+
+        using var other = new MollyTestIdentity();
+        Assert.Equal(MollyIdentityBinding.Cooldown, (await _client.AssociateAsync(recent.Session, other)).Identity);
+        Assert.Equal(MollyIdentityBinding.Bound, (await _client.AssociateAsync(expired.Session, other)).Identity);
+        Assert.True((await GetBindingAsync(expiredId)).BoundAt > DateTime.UtcNow - TimeSpan.FromMinutes(1));
+        Assert.Equal(MollyIdentityBinding.Cooldown, (await _client.AssociateAsync(expired.Session, expired.Identity)).Identity);
+    }
+
+    [Fact]
     public async Task OneIdentity_CanBeBoundToSeveralEntries_WhichOnlyManageTheirOwnGrants()
     {
         Party primary = await NewPartyAsync();

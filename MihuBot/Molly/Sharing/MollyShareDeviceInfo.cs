@@ -6,7 +6,7 @@ namespace MihuBot.Molly.Sharing;
 /// A device's file sharing state as shown on the admin dashboard: only what S knows without opening anything, and
 /// nothing about who shares with whom.
 /// </summary>
-/// <param name="IdentityBoundAt">When the device's current Signal identity was bound; null while unbound.</param>
+/// <param name="IdentityBoundAt">When the device's current Signal identity was bound; Unix epoch once the cooldown expires, null while unbound.</param>
 /// <param name="LastActivityAt">The device's last share request, which keeps its grants alive.</param>
 /// <param name="SameIdentityDevices">Other registered devices bound to the same identity (linked devices).</param>
 /// <param name="Reservations">ENTRYs reserved for creates that haven't happened yet.</param>

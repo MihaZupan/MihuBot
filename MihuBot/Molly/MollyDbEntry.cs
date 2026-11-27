@@ -71,7 +71,10 @@ public sealed class MollyDbEntry
     /// </summary>
     public byte[]? SharePartyHash { get; set; }
 
-    /// <summary>When <see cref="SharePartyHash"/> was bound, for the rebind cooldown.</summary>
+    /// <summary>
+    /// When <see cref="SharePartyHash"/> was bound, for the rebind cooldown. Replaced with
+    /// <see cref="DateTime.UnixEpoch"/> once the cooldown expires; null while unbound.
+    /// </summary>
     public DateTime? ShareIdentityBoundAt { get; set; }
 
     /// <summary>

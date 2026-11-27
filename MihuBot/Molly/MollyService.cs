@@ -533,12 +533,27 @@ public sealed class MollyService
         }
     }
 
+    /// <summary>Discards identity binding times once they no longer restrict rebinding.</summary>
+    public async Task ClearExpiredIdentityBindingTimesAsync(CancellationToken cancellationToken = default)
+    {
+        await DatabaseSetupHelper.MigrationsCompleted;
+
+        DateTime cutoff = DateTime.UtcNow - IdentityRebindCooldown;
+
+        await using MollyDbContext db = _db.CreateDbContext();
+
+        await db.Entries
+            .Where(e => e.ShareIdentityBoundAt <= cutoff && e.ShareIdentityBoundAt != DateTime.UnixEpoch)
+            .ExecuteUpdateAsync(e => e.SetProperty(entry => entry.ShareIdentityBoundAt, DateTime.UnixEpoch), cancellationToken);
+    }
+
     private async Task RunMaintenanceAsync(CancellationToken cancellationToken)
     {
         await DeleteUnassociatedEntriesAsync(cancellationToken);
         await LockInactiveEntriesAsync(cancellationToken);
         await DeleteExpiredStatusAlertsAsync(cancellationToken);
         await DeleteExcessAlertsAsync(cancellationToken);
+        await ClearExpiredIdentityBindingTimesAsync(cancellationToken);
         RegistrationTokens.Prune();
     }
 

@@ -184,8 +184,9 @@ time. The MAC proves key possession to S only.
 ## Identity binding
 
 Each attested Molly entry (device) is bound to at most one Signal identity (ACI, KEY) at a time; the entry
-stores the identity and when it was bound. An identity can be bound to several entries at once: linked
-Signal devices share the ACI and the identity key pair.
+stores the identity and when it was bound. Hourly maintenance replaces the binding time with the Unix
+epoch once the 24-hour rebind cooldown has expired, so the timestamp is no longer retained. An identity
+can be bound to several entries at once: linked Signal devices share the ACI and the identity key pair.
 
 The `associate` request's `data` carries `"identity": {"aci", "identityKey", "mac"}` (base64), where `mac`
 is the identity proof MAC above for action `associate`. A request without it, or whose proof
