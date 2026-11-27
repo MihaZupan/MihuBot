@@ -206,12 +206,14 @@ else
                     <td colspan="8">
                         @if (user.Attestation is { } attestation)
                         {
+                            var device = MollyKnownDevice.TryIdentify(attestation.VerifiedBootKey);
+
                             <dl class="row small mb-0">
                                 <dt class="col-sm-2">Device</dt>
                                 <dd class="col-sm-10">
-                                    @if (MollyKnownDevice.TryIdentify(attestation.VerifiedBootKey) is { } device)
+                                    @if (device is not null)
                                     {
-                                        <text>@device.Model, @device.Os</text>
+                                        <span title="@Convert.ToHexString(attestation.VerifiedBootKey)">@device.Model, @device.Os</span>
                                     }
                                     else
                                     {
@@ -219,8 +221,11 @@ else
                                     }
                                 </dd>
 
-                                <dt class="col-sm-2">Verified boot key</dt>
-                                <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.VerifiedBootKey)</code></dd>
+                                @if (device is null)
+                                {
+                                    <dt class="col-sm-2">Verified boot key</dt>
+                                    <dd class="col-sm-10"><code>@Convert.ToHexString(attestation.VerifiedBootKey)</code></dd>
+                                }
 
                                 <dt class="col-sm-2">OS</dt>
                                 <dd class="col-sm-10">

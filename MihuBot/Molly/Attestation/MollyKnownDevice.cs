@@ -4,11 +4,12 @@ namespace MihuBot.Molly.Attestation;
 
 /// <summary>
 /// A device model and OS, identified from the verified boot key in its attestation root of trust, for
-/// display only. GrapheneOS and stock Pixel builds sign each device model with its own key.
+/// display only. GrapheneOS, CalyxOS and stock builds sign each device model with its own key.
 /// </summary>
 /// <remarks>
 /// Fingerprints from the GrapheneOS Auditor app (https://github.com/GrapheneOS/Auditor),
-/// <c>AttestationProtocol.java</c>, Copyright © 2018-2025 GrapheneOS, MIT license. Unknown keys aren't
+/// <c>AttestationProtocol.java</c>, Copyright © 2018-2025 GrapheneOS, MIT license, and the AVB boot fingerprints
+/// published at https://calyxos.org/install/verify/ (devices listed with only a short ID are omitted). Unknown keys aren't
 /// an error: any OS with a locked bootloader is accepted.
 /// </remarks>
 public sealed record MollyKnownDevice(string Model, string Os)
@@ -59,6 +60,27 @@ public sealed record MollyKnownDevice(string Model, string Os)
         ["CA5C81DA02B8DEBB054FC625135A7833698A9B32148E8A2EF619EBC62AB2E3D8"] = new("Google Pixel 10 Pro XL", "Stock"),
         ["072D8E3269350849F3DE787AC7A319F264C34FA326A7E70917FD96AAEFD2FB0E"] = new("Google Pixel 10 Pro Fold", "Stock"),
         ["E354CD6BBB15D64B2E95B2F79E9DF6CE22B8A5D0D66CFB70330D6A1BCD7212A0"] = new("Google Pixel 10a", "Stock"),
+        // CalyxOS
+        ["1E855DFEA9D3FAF45275E9018800CEF7EFE48188999B046CA7B7C9D4DD1984BD"] = new("Google Pixel 6", "CalyxOS"),
+        ["B8ACAEA1E8B8B992DE333F63C622E4541A0FF4D753B9513D9E6CDCF7E734E9B8"] = new("Google Pixel 6 Pro", "CalyxOS"),
+        ["62ECCB5C72DF58D09ECD63CAF1EF6BBF39AD394EA2DF9BB6F7885FD3A5860416"] = new("Google Pixel 6a", "CalyxOS"),
+        ["ECFD81C0C20A73BB9C3FF3DD3E1E3214FF3022BC33AB81422BC9977AF053EC0B"] = new("Google Pixel 7", "CalyxOS"),
+        ["167E73DD8B79544663F3A2B3E686B44A1BA6A8501C2C30978E3BAD062802E418"] = new("Google Pixel 7 Pro", "CalyxOS"),
+        ["2DD5B191462FD582DA828182B66AAFEBA4368FEF23A2D51D97DD99ECD2EC476C"] = new("Google Pixel 7a", "CalyxOS"),
+        ["331E91B2952E9BD424214DA468F392777054AE6A10F8F93419C786C816AF58A4"] = new("Google Pixel Tablet", "CalyxOS"),
+        ["BDE8E292B89515EA5AF4C19C9CAD35E9C986031001482E6E8AA6174BC74B30D8"] = new("Google Pixel Fold", "CalyxOS"),
+        ["932C98FE4CD91CED2D6FC78FBF2D9A14E1CD72FB29E5FE521A2A8CD39F0AC8D1"] = new("Google Pixel 8", "CalyxOS"),
+        ["EE913AD5475B005E001477565A50133F9BD88C36F102856163E91B0013F88FF0"] = new("Google Pixel 8 Pro", "CalyxOS"),
+        ["542C5B17D34154C0F1C835B975C6E7CACC6D3386AFA13C058313F6759EFCA582"] = new("Google Pixel 8a", "CalyxOS"),
+        ["7A60257FE47A55BAEEB832CE91DC84C022918C93D5C175A1377B4B6A37062E11"] = new("Google Pixel 9", "CalyxOS"),
+        ["C43BBECE2EB6DFA22E61ADD7AFFAF20B0BE0960F1C20B32EC011BEEF2CCB74CA"] = new("Google Pixel 9 Pro", "CalyxOS"),
+        ["A013DE964C04255353BC923F800EFD3FB1F1714C34FCE7DCFEC1D810C4C5B1A5"] = new("Google Pixel 9 Pro XL", "CalyxOS"),
+        ["541B24EF3725A0D77A5F717E23DFD409794774DB989F16C2051C4BB69F04665C"] = new("Google Pixel 9 Pro Fold", "CalyxOS"),
+        ["B23527253F7C37FC4F165A99F7B61BB54D917B11F50C3C7EBDF6A153DF84F30B"] = new("Google Pixel 9a", "CalyxOS"),
+        ["9402C6E3F5FCC0003896F9CC323EB9710CFE6FD525C2C040F3B9EB5E0B51B266"] = new("Google Pixel 10a", "CalyxOS"),
+        ["BE58B05164DC19F6C2BC860F0334153D2A989949B4EA42CDB66792D2F626AB9E"] = new("Fairphone 4", "CalyxOS"),
+        ["AC125959F746CEDCCDD0C9737E6D57503C5648191237A2E395DB3E3433F930B5"] = new("Fairphone 5", "CalyxOS"),
+        ["FFDBDA58783BA938D6E921A98F99414C851B0B9B299103F846204E9421742744"] = new("Fairphone (Gen. 6)", "CalyxOS"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     public static MollyKnownDevice? TryIdentify(byte[] verifiedBootKey) =>

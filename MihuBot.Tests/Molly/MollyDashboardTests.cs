@@ -3,11 +3,34 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MihuBot.Components;
+using MihuBot.Molly;
 
 namespace MihuBot.Tests.Molly;
 
 public sealed class MollyDashboardTests(MollyServiceFixture fixture) : MollyShareServiceTestBase(fixture)
 {
+    [Fact]
+    public async Task BootKeyIsVisibleForUnknownDevices_AndOnHoverForKnownDevices()
+    {
+        const string KnownBootKey = "F0A890375D1405E62EBFD87E8D3F475F948EF031BBF9DDD516D5F600A23677E8";
+        var knownDevice = new MollyTestDevice(verifiedBootKey: Convert.FromHexString(KnownBootKey));
+        var unknownDevice = new MollyTestDevice();
+
+        foreach (MollyTestDevice device in new[] { knownDevice, unknownDevice })
+        {
+            MollyLoginResult login = await _fixture.LoginAsync(MollyTestKeys.NewKeyHash(), device: device);
+            Assert.Equal(MollyResultStatus.Ok, login.Status);
+            Assert.Equal(MollyCommandResult.Ok() with { Identity = MollyIdentityBinding.Bound }, await _fixture.Service.AssociateAsync(login.ProtectedId, "device"));
+        }
+
+        string html = await RenderDashboardAsync();
+        Assert.Contains("Google Pixel 6, GrapheneOS", html, StringComparison.Ordinal);
+        Assert.Contains($"title=\"{KnownBootKey}\"", html, StringComparison.Ordinal);
+        Assert.DoesNotMatch($@"<code[^>]*>{KnownBootKey}</code>", html);
+        Assert.Contains("Unknown model", html, StringComparison.Ordinal);
+        Assert.Matches($@"<code[^>]*>{Convert.ToHexString(unknownDevice.VerifiedBootKey)}</code>", html);
+    }
+
     [Fact]
     public async Task ShareCountsUseSingularAndPlural()
     {
