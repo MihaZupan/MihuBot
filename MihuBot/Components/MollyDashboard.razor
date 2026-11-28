@@ -493,7 +493,7 @@ else
                     <td>
                         @if (alert.Type != MollyAlertType.Unknown)
                         {
-                            <span class="badge bg-secondary">@alert.Type</span>
+                            <span class="badge @(alert.Type == MollyAlertType.Integrity ? "bg-danger" : "bg-secondary")">@alert.Type</span>
                         }
                     </td>
                     @* The raw payload is only a hover away - it's noisy, and the summary covers the common case. *@

@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Buffers.Text;
+using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
@@ -93,6 +94,21 @@ public sealed class MollyService
     /// <summary>One alert email every 30 minutes, across all devices.</summary>
     private readonly SimpleRateLimiter _emailRateLimiter = new(TimeSpan.FromMinutes(30), maxTolerance: 1);
 
+    /// <summary>Initial allowance of Discord Debug notifications for integrity alerts per device.</summary>
+    internal const int IntegrityDebugNotificationBurst = 5;
+
+    private static readonly TimeSpan IntegrityDebugNotificationCooldown = TimeSpan.FromMinutes(15);
+
+    private readonly ConcurrentDictionary<Guid, SimpleRateLimiter> _integrityNotificationRateLimiters = new();
+    private readonly TimeProvider _timeProvider;
+
+    /// <summary>Notifies Discord Debug; defaults to <see cref="Logger.DebugAsync"/> when configured. Exposed for tests.</summary>
+    internal Func<string, Task>? DebugNotificationSink { get; set; }
+
+    private volatile Task _lastAlertTask = Task.CompletedTask;
+
+    internal Task WaitForPendingAlertsAsync() => _lastAlertTask;
+
     private readonly MollySealedIdTokens _idTokens;
     private readonly MollyAttestationService _attestation;
     private readonly byte[] _databaseKey;
@@ -110,6 +126,8 @@ public sealed class MollyService
         _discordLogger = discordLogger;
         _runtimeConfiguration = runtimeConfiguration;
         _attestation = attestation;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        DebugNotificationSink = discordLogger is not null ? message => discordLogger.DebugAsync(message) : null;
 
         if (configuration.IsConfigured(OptionalFeatures.MollyAlertEmail))
         {
@@ -183,6 +201,8 @@ public sealed class MollyService
         {
             _logger.LogInformation("Locked {Count} Molly entries that haven't been seen in {Days} days",
                 locked, InactivityLockThreshold.TotalDays);
+
+            await NotifyDebugAsync($"Molly inactivity lock: locked {locked} inactive {(locked == 1 ? "entry" : "entries")}");
         }
     }
 
@@ -228,11 +248,42 @@ public sealed class MollyService
 
         await db.SaveChangesAsync(cancellationToken);
 
-        HandleAlertPayload(entry, stored);
+        bool serverLockTransitioned = false;
+        MollyAlertEnvelope? envelope = MollyAlertEnvelope.TryParse(stored);
 
-        return session.Command.IsBlocking()
-            ? MollyCommandResult.Blocked(session.Command)
-            : MollyCommandResult.Ok(session.Command);
+        if (envelope?.AlertType == MollyAlertType.Integrity &&
+            envelope.TryGetData<MollyIntegrityAlert>() is { IsValid: true, RequestServerLock: true } integrity &&
+            !entry.LockRequested && !entry.WipeRequested)
+        {
+            // Conditional so that concurrent alerts can't both claim the transition (and both bypass the rate limit).
+            int updated = await db.Entries
+                .Where(e => e.Id == entry.Id && !e.LockRequested && !e.WipeRequested)
+                .ExecuteUpdateAsync(e => e.SetProperty(x => x.LockRequested, true), cancellationToken);
+
+            if (updated > 0)
+            {
+                entry.LockRequested = true;
+                serverLockTransitioned = true;
+
+                _logger.LogWarning("Locked a Molly entry after a device integrity alert: {Check}", integrity.Check);
+            }
+            else
+            {
+                // Another request changed the flags first (possibly a wipe), so respond with the current state.
+                await db.Entry(entry).ReloadAsync(cancellationToken);
+            }
+        }
+
+        if (envelope is not null)
+        {
+            HandleAlertPayload(entry, envelope, serverLockTransitioned);
+        }
+
+        MollyCommand command = GetPendingCommand(entry);
+
+        return command.IsBlocking()
+            ? MollyCommandResult.Blocked(command)
+            : MollyCommandResult.Ok(command);
     }
 
     /// <summary>
@@ -260,16 +311,9 @@ public sealed class MollyService
     /// Reacts to the alert types the server knows about, after the alert has already been stored.
     /// Adding support for a new type means adding a case here and a data class under Molly/Alerts.
     /// </summary>
-    private void HandleAlertPayload(MollyDbEntry entry, byte[] payload)
+    private void HandleAlertPayload(MollyDbEntry entry, MollyAlertEnvelope envelope, bool serverLockTransitioned)
     {
-        MollyAlertEnvelope? envelope = MollyAlertEnvelope.TryParse(payload);
-
-        if (envelope is null)
-        {
-            return;
-        }
-
-        _ = Task.Run(async () =>
+        Task task = Task.Run(async () =>
         {
             try
             {
@@ -279,6 +323,13 @@ public sealed class MollyService
                         if (envelope.TryGetData<MollyLocationAlert>() is { IsValid: true } location)
                         {
                             await ReportLocationAlertAsync(entry, location);
+                        }
+                        break;
+
+                    case MollyAlertType.Integrity:
+                        if (envelope.TryGetData<MollyIntegrityAlert>() is { IsValid: true } integrity)
+                        {
+                            await ReportIntegrityAlertAsync(entry, integrity, serverLockTransitioned);
                         }
                         break;
 
@@ -297,6 +348,8 @@ public sealed class MollyService
                 _logger.LogError(ex, "Failed to handle a Molly alert");
             }
         });
+
+        _lastAlertTask = task;
     }
 
     /// <summary>Pings Discord for alerts that are worth a human looking at.</summary>
@@ -312,6 +365,62 @@ public sealed class MollyService
 
                 {location.MapUrl}
                 """);
+    }
+
+    /// <summary>
+    /// Announces a device integrity alert. Per-device notifications are rate-limited, except when
+    /// the alert caused a server lock transition, which is always flagged to Discord Debug.
+    /// </summary>
+    private async Task ReportIntegrityAlertAsync(MollyDbEntry entry, MollyIntegrityAlert integrity, bool serverLockTransitioned)
+    {
+        string subject = serverLockTransitioned
+            ? "Molly device integrity alert: a device was locked"
+            : "Molly device integrity alert";
+
+        string emailBody =
+            $"""
+            # {subject} from `{FormatNickname(entry)}`
+
+            {integrity.Summary}
+            """;
+
+        if (serverLockTransitioned)
+        {
+            await NotifyDebugAsync(subject);
+
+            if (!entry.AlertsMuted)
+            {
+                await SendAlertEmailAsync(subject, emailBody);
+            }
+
+            return;
+        }
+
+        if (entry.AlertsMuted)
+        {
+            return;
+        }
+
+        SimpleRateLimiter limiter = _integrityNotificationRateLimiters.GetOrAdd(
+            entry.Id,
+            _ => new SimpleRateLimiter(IntegrityDebugNotificationCooldown, IntegrityDebugNotificationBurst, _timeProvider));
+
+        if (!limiter.TryEnter())
+        {
+            _logger.LogInformation("Skipping Discord notification for a Molly integrity alert, per-device rate limit reached");
+            return;
+        }
+
+        await NotifyDebugAsync(subject);
+        await SendAlertEmailAsync(subject, emailBody);
+    }
+
+    private async Task NotifyDebugAsync(string message)
+    {
+        if (DebugNotificationSink is { } sink)
+        {
+            await sink(message);
+        }
     }
 
     /// <summary>Percent-escapes a nickname so it can't break out of the Markdown code span it's shown in.</summary>
@@ -330,11 +439,12 @@ public sealed class MollyService
             return;
         }
 
-        if (_discordLogger is not null)
-        {
-            await _discordLogger.DebugAsync(subject);
-        }
+        await NotifyDebugAsync(subject);
+        await SendAlertEmailAsync(subject, emailBody);
+    }
 
+    private async Task SendAlertEmailAsync(string subject, string emailBody)
+    {
         // The recipients are runtime configuration, so they can be changed without a restart.
         if (_emailClient is not null &&
             _runtimeConfiguration is not null &&
@@ -401,6 +511,10 @@ public sealed class MollyService
             case MollyAlertType.Status:
                 MollyStatusAlert? status = envelope.TryGetData<MollyStatusAlert>();
                 return (MollyAlertType.Status, status?.Summary, null);
+
+            case MollyAlertType.Integrity:
+                MollyIntegrityAlert? integrity = envelope.TryGetData<MollyIntegrityAlert>();
+                return (MollyAlertType.Integrity, integrity?.Summary, null);
 
             case MollyAlertType.Unknown:
             default:
@@ -732,10 +846,7 @@ public sealed class MollyService
 
         _logger.LogWarning("Locked a Molly entry after its device failed attestation: {Failure}", failure);
 
-        if (_discordLogger is not null)
-        {
-            await _discordLogger.DebugAsync("Molly login rejected: an enrolled device failed attestation and was locked");
-        }
+        await NotifyDebugAsync("Molly login rejected: an enrolled device failed attestation and was locked");
 
         return MollyLoginResult.Locked(failure);
     }
@@ -1406,6 +1517,7 @@ public sealed class MollyService
             return;
         }
 
+        bool wasLocked = entry.LockRequested;
         entry.LockRequested = lockRequested;
 
         if (!lockRequested)
@@ -1417,6 +1529,11 @@ public sealed class MollyService
         await db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("A Molly entry is now {State}", lockRequested ? "locked" : "unlocked");
+
+        if (!wasLocked && lockRequested)
+        {
+            await NotifyDebugAsync("Molly entry was locked");
+        }
     }
 
     /// <summary>
@@ -1464,6 +1581,7 @@ public sealed class MollyService
 
         if (deleted > 0)
         {
+            _integrityNotificationRateLimiters.TryRemove(id, out _);
             _logger.LogInformation("A Molly entry was deleted");
         }
     }

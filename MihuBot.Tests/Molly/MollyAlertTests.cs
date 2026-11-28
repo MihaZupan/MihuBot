@@ -571,4 +571,104 @@ public sealed class MollyAlertTests : IClassFixture<MollyServiceFixture>
         Assert.Equal([alerts[0].Id, alerts[2].Id], remaining.Select(a => a.Id));
         Assert.True(await _fixture.EntryExistsAsync(id));
     }
+
+    private static byte[] IntegrityPayload(string id, string check, string? detail = null, bool requestServerLock = false) =>
+        Payload(detail is null
+            ? $$$"""{"id":"{{{id}}}","type":"integrity","data":{"check":"{{{check}}}","requestServerLock":{{{(requestServerLock ? "true" : "false")}}}}}"""
+            : $$$"""{"id":"{{{id}}}","type":"integrity","data":{"check":"{{{check}}}","detail":"{{{detail}}}","requestServerLock":{{{(requestServerLock ? "true" : "false")}}}}}""");
+
+    [Fact]
+    public async Task IntegrityAlert_WithoutServerLock_IsStoredAndDoesNotLockEntry()
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        MollyCommandResult result = await Molly.SubmitAlertAsync(token, IntegrityPayload(token, "usb", "USB data connected", requestServerLock: false), default);
+
+        Assert.Equal(MollyResultStatus.Ok, result.Status);
+        Assert.Equal(MollyCommand.None, result.Command);
+        Assert.False((await _fixture.GetEntryAsync(id)).LockRequested);
+
+        MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
+        Assert.Equal(MollyAlertType.Integrity, alert.Type);
+        Assert.Equal("usb - USB data connected", alert.Summary);
+        Assert.Null(alert.MapUrl);
+    }
+
+    [Fact]
+    public async Task IntegrityAlert_WithRequestServerLock_LocksEntryAndReturnsLockCommand()
+    {
+        (string token, Guid id) = await RegisterAsync();
+
+        MollyCommandResult result = await Molly.SubmitAlertAsync(token, IntegrityPayload(token, "adb", "ADB enabled", requestServerLock: true), default);
+
+        Assert.Equal(MollyResultStatus.Command, result.Status);
+        Assert.Equal(MollyCommand.Lock, result.Command);
+        Assert.True((await _fixture.GetEntryAsync(id)).LockRequested);
+
+        MollyAlertInfo alert = Assert.Single(await Molly.GetRecentAlertsAsync(), a => a.EntryId == id);
+        Assert.Equal(MollyAlertType.Integrity, alert.Type);
+        Assert.Equal("adb - ADB enabled (lock requested)", alert.Summary);
+    }
+
+    [Fact]
+    public async Task IntegrityAlert_RateLimitsDebugNotificationsPerDevice_ExceptOnServerLockTransition()
+    {
+        (string token1, Guid id1) = await RegisterAsync("integrity-1");
+        (string token2, _) = await RegisterAsync("integrity-2");
+
+        List<string> messages = [];
+        Func<string, Task>? previousSink = Molly.DebugNotificationSink;
+
+        Molly.DebugNotificationSink = msg =>
+        {
+            lock (messages)
+            {
+                messages.Add(msg);
+            }
+
+            return Task.CompletedTask;
+        };
+
+        try
+        {
+            // Initial allowance of 5 notifications per device.
+            for (int i = 0; i < MollyService.IntegrityDebugNotificationBurst; i++)
+            {
+                await Molly.SubmitAlertAsync(token1, IntegrityPayload(token1, "usb", requestServerLock: false), default);
+                await Molly.WaitForPendingAlertsAsync();
+            }
+
+            Assert.Equal(MollyService.IntegrityDebugNotificationBurst, messages.Count);
+
+            // 6th alert for the same device without a lock transition is suppressed.
+            await Molly.SubmitAlertAsync(token1, IntegrityPayload(token1, "usb", requestServerLock: false), default);
+            await Molly.WaitForPendingAlertsAsync();
+
+            Assert.Equal(MollyService.IntegrityDebugNotificationBurst, messages.Count);
+
+            // A server lock transition bypasses the per-device rate limit.
+            await Molly.SubmitAlertAsync(token1, IntegrityPayload(token1, "adb", requestServerLock: true), default);
+            await Molly.WaitForPendingAlertsAsync();
+
+            Assert.Equal(MollyService.IntegrityDebugNotificationBurst + 1, messages.Count);
+            Assert.Contains("locked", messages[^1], StringComparison.OrdinalIgnoreCase);
+            Assert.True((await _fixture.GetEntryAsync(id1)).LockRequested);
+
+            // A subsequent lock-requesting alert when already locked is not a transition and stays rate-limited.
+            await Molly.SubmitAlertAsync(token1, IntegrityPayload(token1, "adb", requestServerLock: true), default);
+            await Molly.WaitForPendingAlertsAsync();
+
+            Assert.Equal(MollyService.IntegrityDebugNotificationBurst + 1, messages.Count);
+
+            // A different device has its own independent allowance.
+            await Molly.SubmitAlertAsync(token2, IntegrityPayload(token2, "usb", requestServerLock: false), default);
+            await Molly.WaitForPendingAlertsAsync();
+
+            Assert.Equal(MollyService.IntegrityDebugNotificationBurst + 2, messages.Count);
+        }
+        finally
+        {
+            Molly.DebugNotificationSink = previousSink;
+        }
+    }
 }

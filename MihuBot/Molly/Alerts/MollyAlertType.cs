@@ -13,4 +13,7 @@ public enum MollyAlertType
 
     /// <summary>A general status report from the device, e.g. that it locked, wiped, or came online.</summary>
     Status,
+
+    /// <summary>A device integrity check triggered on the device, optionally requesting a server lock.</summary>
+    Integrity,
 }
